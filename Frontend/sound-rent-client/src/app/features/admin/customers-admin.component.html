@@ -1,0 +1,200 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">ניהול לקוחות</h1>
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        (click)="runSearch(searchInput.value.trim())"
+      >
+        רענון
+      </button>
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366]"
+        (click)="openAdd()"
+      >
+        לקוח חדש
+      </button>
+    </div>
+  </div>
+
+  <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש (טלפון או שם)</label>
+    <input
+      [formControl]="searchInput"
+      class="w-full max-w-xl rounded-lg border border-slate-300 px-3 py-2 text-sm"
+      placeholder="הקלידו ספרות או שם — החיפוש מתעדכן אוטומטית"
+      autocomplete="off"
+    />
+    <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="mb-3 flex items-center justify-between gap-2">
+      <h2 class="text-lg font-bold text-[#002244]">רשימת לקוחות</h2>
+      @if (loading()) {
+        <span class="text-sm text-slate-500">טוען…</span>
+      }
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-right text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <th class="px-3 py-2 font-semibold">טלפון 1</th>
+            <th class="px-3 py-2 font-semibold">טלפון 2</th>
+            <th class="px-3 py-2 font-semibold">שם</th>
+            <th class="px-3 py-2 font-semibold">כתובת</th>
+            <th class="px-3 py-2 font-semibold"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.phone1) {
+            <tr class="border-b border-slate-100 hover:bg-slate-50/80">
+              <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone1 }}</td>
+              <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone2 || '—' }}</td>
+              <td class="px-3 py-2">{{ row.fullName || '—' }}</td>
+              <td class="px-3 py-2 max-w-xs truncate" [title]="row.address || ''">{{ row.address || '—' }}</td>
+              <td class="px-3 py-2 whitespace-nowrap text-left">
+                <button
+                  type="button"
+                  class="me-2 text-sm font-medium text-[#002244] hover:underline"
+                  (click)="openEdit(row)"
+                >
+                  עריכה
+                </button>
+                <button type="button" class="text-sm font-medium text-slate-700 hover:underline" (click)="openHistory(row.phone1)">
+                  היסטוריית הזמנות
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="5" class="px-3 py-8 text-center text-slate-500">
+                {{ loading() ? 'טוען…' : 'לא נמצאו לקוחות' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+@if (editOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    (click)="closeEdit()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">{{ isNewCustomer() ? 'לקוח חדש' : 'עריכת לקוח' }}</h2>
+      <form [formGroup]="editForm" (ngSubmit)="saveEdit()" class="space-y-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 1 (מפתח) <span class="text-rose-500">*</span></label>
+          <input formControlName="phone1" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
+          @if (editForm.controls.phone1.touched && editForm.controls.phone1.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (editForm.controls.phone1.touched && editForm.controls.phone1.errors?.['pattern']) {
+            <p class="mt-1 text-xs text-rose-600">9 או 10 ספרות</p>
+          }
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 2</label>
+          <input formControlName="phone2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
+          @if (editForm.controls.phone2.touched && editForm.controls.phone2.errors?.['pattern']) {
+            <p class="mt-1 text-xs text-rose-600">9 או 10 ספרות או ריק</p>
+          }
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם מלא</label>
+          <input formControlName="fullName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <input formControlName="address" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
+          <textarea formControlName="notes" rows="4" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200" (click)="closeEdit()">
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="saving()"
+          >
+            {{ saving() ? 'שומר…' : 'שמירה' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (historyOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    (click)="closeHistory()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 class="text-lg font-bold text-[#002244]">היסטוריית הזמנות</h2>
+        <p class="mt-1 text-sm text-slate-600">
+          טלפון ראשי:
+          <span class="font-mono" dir="ltr">{{ historyPhone() }}</span>
+        </p>
+      </div>
+      <div class="max-h-[60vh] overflow-y-auto px-3 py-3">
+        @if (historyLoading()) {
+          <p class="py-8 text-center text-slate-500">טוען…</p>
+        } @else if (historyOrders().length === 0) {
+          <p class="py-8 text-center text-slate-500">אין הזמנות ללקוח זה</p>
+        } @else {
+          <table class="w-full border-collapse text-right text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                <th class="px-2 py-2 font-semibold">תאריך</th>
+                <th class="px-2 py-2 font-semibold">משמרת</th>
+                <th class="px-2 py-2 font-semibold">ציוד</th>
+                <th class="px-2 py-2 font-semibold">שם</th>
+                <th class="px-2 py-2 font-semibold"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (o of historyOrders(); track o.id) {
+                <tr class="border-b border-slate-100">
+                  <td class="px-2 py-2 whitespace-nowrap">{{ o.orderDate }}</td>
+                  <td class="px-2 py-2">{{ slotLabel(o.timeSlot) }}</td>
+                  <td class="px-2 py-2 font-mono text-xs" dir="ltr">{{ o.equipmentType }}</td>
+                  <td class="px-2 py-2">{{ o.customerName || '—' }}</td>
+                  <td class="px-2 py-2 text-left whitespace-nowrap">
+                    <a class="text-sm font-semibold text-[#002244] underline hover:text-[#003366]" [routerLink]="['/orders', o.id]">עריכה</a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+      <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+        <button type="button" class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200" (click)="closeHistory()">
+          סגירה
+        </button>
+      </div>
+    </div>
+  </div>
+}

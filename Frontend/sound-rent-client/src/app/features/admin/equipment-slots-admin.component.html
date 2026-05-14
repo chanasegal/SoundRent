@@ -1,0 +1,202 @@
+<div class="mx-auto max-w-5xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">ניהול ציוד ותאי הזמנה</h1>
+    <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
+      רענון
+    </button>
+  </div>
+
+  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-4 text-lg font-bold text-[#002244]">הוספת תא רמקול</h2>
+    <p class="mb-3 text-sm text-slate-600">תאים חדשים נרשמים כרמקולים בלבד ויופיעו בלוח השבועי ובטופס ההזמנה.</p>
+    <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="grid gap-4 md:grid-cols-2">
+      <input type="hidden" formControlName="category" />
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">מזהה (למשל 712-C)</label>
+        <input formControlName="id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" dir="ltr" autocomplete="off" />
+        @if (addForm.controls.id.touched && addForm.controls.id.errors?.['required']) {
+          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+        }
+        @if (addForm.controls.id.touched && addForm.controls.id.errors?.['pattern']) {
+          <p class="mt-1 text-xs text-rose-600">אותיות באנגלית, מספרים, מקף ונקודה בלבד</p>
+        }
+      </div>
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">שם תצוגה</label>
+        <input formControlName="displayName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
+      </div>
+      <div class="md:col-span-2">
+        <button
+          type="submit"
+          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="saving()"
+        >
+          {{ saving() ? 'שומר…' : 'הוסף תא' }}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-4 text-lg font-bold text-[#002244]">ברירת מחדל — מספר שדות פירוט לציוד מושאל</h2>
+    <p class="mb-3 text-sm text-slate-600">מספר תיבות הפירוט (#1, #2…) בטופס ההזמנה לכל סוג פריט (לפני התאמה לפי כמות).</p>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-right text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <th class="px-3 py-2 font-semibold">פריט</th>
+            <th class="px-3 py-2 font-semibold">מספר שדות ברירת מחדל</th>
+            <th class="px-3 py-2 font-semibold"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of noteDefaultRows(); track row.type) {
+            <tr class="border-b border-slate-100">
+              <td class="px-3 py-2 font-medium">{{ row.label }}</td>
+              <td class="px-3 py-2">
+                <input
+                  #noteCount
+                  type="number"
+                  min="0"
+                  max="20"
+                  class="w-20 rounded border border-slate-300 px-2 py-1 text-center"
+                  [value]="row.count"
+                />
+              </td>
+              <td class="px-3 py-2 text-left">
+                <button
+                  type="button"
+                  class="rounded bg-slate-800 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                  [disabled]="savingNoteType() === row.type"
+                  (click)="saveNoteDefault(row.type, noteCount.value)"
+                >
+                  שמור
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-4 text-lg font-bold text-[#002244]">תאי הזמנה (לוח)</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-right text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <th class="px-3 py-2 font-semibold">מזהה</th>
+            <th class="px-3 py-2 font-semibold">שם תצוגה</th>
+            <th class="px-3 py-2 font-semibold">קטגוריה</th>
+            <th class="px-3 py-2 font-semibold">סדר</th>
+            <th class="px-3 py-2 font-semibold">תחזוקה</th>
+            <th class="px-3 py-2 font-semibold"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.id) {
+            <tr
+              class="border-b border-slate-100 hover:bg-slate-50/80"
+              [class.row-in-maintenance]="row.isUnderMaintenance === true"
+            >
+              <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.id }}</td>
+              <td class="px-3 py-2">{{ row.displayName }}</td>
+              <td class="px-3 py-2">{{ row.category }}</td>
+              <td class="px-3 py-2">{{ row.sortOrder }}</td>
+              <td class="px-3 py-2 text-sm">
+                @if (row.category === 'Speakers') {
+                  <label class="inline-flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      class="h-4 w-4 accent-[#002244]"
+                      [checked]="row.isUnderMaintenance === true"
+                      [disabled]="maintenanceTogglingId() === row.id"
+                      (change)="onMaintenanceToggle(row, $event)"
+                    />
+                    <span>{{ row.isUnderMaintenance === true ? 'בתיקון' : 'זמין' }}</span>
+                  </label>
+                } @else {
+                  <span class="text-slate-400">—</span>
+                }
+              </td>
+              <td class="px-3 py-2 text-left">
+                <button
+                  type="button"
+                  class="text-sm font-medium text-rose-700 hover:text-rose-900 disabled:opacity-40"
+                  [disabled]="deletingId() === row.id"
+                  (click)="deleteRow(row)"
+                >
+                  {{ deletingId() === row.id ? 'מוחק…' : 'מחק' }}
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="px-3 py-6 text-center text-slate-500">אין תאים (או שהטעינה נכשלה)</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+@if (futureOrdersModal(); as blocked) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="future-orders-modal-title"
+    (click)="closeFutureOrdersModal()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="future-orders-modal-title" class="text-lg font-bold text-[#002244]">
+          לא ניתן למחוק: קיימות הזמנות עתידיות
+        </h2>
+        <p class="mt-2 text-sm text-slate-600">יש להעביר את ההזמנות הבאות לתא אחר ואז לנסות שוב.</p>
+      </div>
+      <div class="max-h-[55vh] overflow-y-auto px-3 py-3">
+        <table class="w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-2 py-2 font-semibold">תאריך</th>
+              <th class="px-2 py-2 font-semibold">שם לקוח</th>
+              <th class="px-2 py-2 font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (o of blocked; track o.orderId) {
+              <tr class="border-b border-slate-100">
+                <td class="px-2 py-2 whitespace-nowrap">{{ formatBlockingOrderDate(o.orderDate) }}</td>
+                <td class="px-2 py-2">{{ o.customerName || '—' }}</td>
+                <td class="px-2 py-2 text-left whitespace-nowrap">
+                  <button
+                    type="button"
+                    class="text-sm font-semibold text-[#002244] underline hover:text-[#003366]"
+                    (click)="openOrderEditInNewTab(o.orderId)"
+                  >
+                    מעבר לעריכה
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+        <button
+          type="button"
+          class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+          (click)="closeFutureOrdersModal()"
+        >
+          סגירה
+        </button>
+      </div>
+    </div>
+  </div>
+}

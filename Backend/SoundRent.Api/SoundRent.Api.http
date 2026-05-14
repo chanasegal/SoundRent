@@ -1,0 +1,6 @@
+@SoundRent.Api_HostAddress = http://localhost:5037
+
+GET {{SoundRent.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

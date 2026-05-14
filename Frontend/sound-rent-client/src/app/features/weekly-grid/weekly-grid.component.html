@@ -1,0 +1,363 @@
+<div class="mx-auto max-w-7xl px-4 py-6">
+  <!-- Header -->
+  <div class="mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-[#002244]">לוח הזמנות שבועי</h1>
+      <div class="dashboard-toolbar mt-3">
+        <div class="toolbar-side toolbar-pickers">
+          <div class="toolbar-group">
+            <select
+              [value]="selectedGregorianMonth()"
+              (change)="onGregorianMonthChange($event)"
+              class="toolbar-input"
+            >
+              @for (month of gregorianMonths; track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <input
+              type="number"
+              [value]="selectedGregorianYear()"
+              (input)="onGregorianYearInput($event)"
+              min="1900"
+              max="2200"
+              class="toolbar-input toolbar-year-input"
+            />
+            <button
+              type="button"
+              (click)="showGregorianDate()"
+              class="toolbar-btn toolbar-btn-show"
+              aria-label="הצג תאריך לועזי"
+            >
+              🔍
+            </button>
+          </div>
+
+          <div class="toolbar-group">
+            <select
+              [value]="selectedHebrewMonth()"
+              (change)="onHebrewMonthChange($event)"
+              class="toolbar-input"
+            >
+              @for (month of getHebrewMonthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select
+              [value]="selectedHebrewYear()"
+              (change)="onHebrewYearChange($event)"
+              class="toolbar-input"
+            >
+              @for (year of hebrewYearOptions; track year.value) {
+                <option [value]="year.value">{{ year.label }}</option>
+              }
+            </select>
+            <button
+              type="button"
+              (click)="showHebrewDate()"
+              class="toolbar-btn toolbar-btn-show"
+              aria-label="הצג תאריך עברי"
+            >
+              🔍
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar-center-stack">
+          <p class="toolbar-range toolbar-range-greg">{{ gregorianRange() }}</p>
+          <p class="toolbar-range toolbar-range-heb">{{ hebrewRange() }}</p>
+        </div>
+
+        <div class="toolbar-side toolbar-nav">
+          <button
+            type="button"
+            (click)="exportAllOrdersBackupToExcel()"
+            [disabled]="exportBackupInProgress()"
+            class="toolbar-btn toolbar-btn-export"
+            title="ייצוא כל ההזמנות ורשימת ההמתנה (כל התאריכים) לקובץ Excel"
+          >
+            {{ exportBackupInProgress() ? 'מייצא…' : 'גיבוי נתונים למחשב (Excel)' }}
+          </button>
+          <button
+            type="button"
+            (click)="previousWeek()"
+            class="toolbar-btn toolbar-btn-ghost"
+            aria-label="שבוע קודם"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            (click)="goToday()"
+            class="toolbar-btn toolbar-btn-today"
+          >
+            השבוע
+          </button>
+          <button
+            type="button"
+            (click)="nextWeek()"
+            class="toolbar-btn toolbar-btn-ghost"
+            aria-label="שבוע הבא"
+          >
+            ▶
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Grid: outer wrapper avoids overflow-hidden so sticky axis works inside horizontal scroll -->
+  <div class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+    <div class="weekly-grid-scroll overflow-x-auto">
+      <table class="weekly-grid w-full border-collapse text-sm">
+        <thead>
+          <tr class="bg-[#002244] text-white">
+            <th
+              class="weekly-grid-axis sticky right-0 z-20 border-b border-l border-[#003366] bg-[#002244] px-2 py-2 text-right text-xs font-semibold shadow-[-4px_0_8px_rgba(0,0,0,0.08)]"
+            >
+              יום / משמרת
+            </th>
+            @for (col of gridColumns(); track col.id) {
+              <th
+                class="weekly-grid-data-col border-b border-l border-[#003366] px-0.5 py-1.5 text-center font-semibold"
+                [class.maintenance-column]="isColumnMaintenance(col)"
+                [class.maintenance-header]="isColumnMaintenance(col)"
+                [class.col-generic-slot]="isGenericExtraColumn(col)"
+              >
+                <div class="header-cell-content header-equipment-label">
+                  @if (isColumnMaintenance(col)) {
+                    <span class="header-maintenance-icon" aria-hidden="true">🔧</span>
+                  }
+                  <span>{{ col.headerLabel }}</span>
+                </div>
+              </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.date.getTime()) {
+            <!-- Morning row -->
+            @if (row.morning) {
+              <tr class="border-b border-slate-200" [class.bg-sky-50/40]="row.isShabbat">
+                <th
+                  class="weekly-grid-axis sticky right-0 z-20 border-l border-slate-200 bg-white p-2 text-right align-middle shadow-[-4px_0_8px_rgba(15,23,42,0.06)]"
+                  [class.bg-sky-50]="row.isShabbat"
+                  [attr.rowspan]="row.morning ? dayFirstColumnRowSpan(row) : null"
+                >
+                  <div class="font-bold text-[#002244]">{{ row.dayLabel }}</div>
+                  <div class="mt-0.5 text-xs text-slate-500">{{ row.gregorian }}</div>
+                  <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
+                </th>
+                @for (cell of row.morning; track cellTrackKey(cell)) {
+                  <td
+                    class="cell-host weekly-grid-data-col p-0.5 align-top"
+                    [class.maintenance-column]="cell.isMaintenance"
+                    [class.col-generic-slot]="isGenericExtraCell(cell)"
+                  >
+                    @if (cell.orders.length === 0) {
+                      <button
+                        type="button"
+                        (click)="onEmptyCellClick(cell)"
+                        class="cell"
+                        [class.cell-empty]="true"
+                        [class.cell-maintenance]="cell.isMaintenance"
+                      >
+                        <span class="cell-slot">{{ timeSlotLabels['Morning'] }}</span>
+                        @if (cell.isMaintenance) {
+                          <span class="cell-empty-text">🔧 בתיקון</span>
+                        } @else {
+                          <span class="cell-empty-text">פנוי</span>
+                        }
+                      </button>
+                    } @else {
+                      <div
+                        class="cell cell-occupied cell-stack"
+                        [class.cell-double]="cell.orders.length > 1"
+                        [class.cell-maintenance]="cell.isMaintenance"
+                        role="group"
+                        [attr.aria-label]="'הזמנות — ' + cellBookingLabel(cell)"
+                      >
+                        <span class="cell-slot">{{ timeSlotLabels['Morning'] }}</span>
+                        @if (cell.orders.length > 1) {
+                          <div class="cell-double-row" aria-hidden="true">
+                            <span class="cell-warn" title="יותר מהזמנה אחת במשמרת">⚠️</span>
+                            <span class="cell-double-badge">הזמנה כפולה</span>
+                          </div>
+                        }
+                        <div class="cell-order-list">
+                          @for (o of cell.orders; track o.id) {
+                            <button type="button" class="cell-order-block" (click)="openOrder(o.id)">
+                              <span class="cell-name">{{ o.customerName }}</span>
+                              <span class="cell-phone">{{ o.phone }}</span>
+                            </button>
+                          }
+                        </div>
+                        <button type="button" class="cell-add-another" (click)="addAnotherOrder(cell)">
+                          + הוסף הזמנה נוספת
+                        </button>
+                      </div>
+                    }
+                  </td>
+                }
+              </tr>
+            }
+
+            <!-- Evening row -->
+            @if (row.evening) {
+              <tr class="border-b border-slate-200" [class.bg-sky-50/40]="row.isShabbat">
+                @if (!row.morning) {
+                  <!-- Saturday-only row needs its own day header -->
+                  <th
+                    class="weekly-grid-axis sticky right-0 z-20 border-l border-slate-200 bg-white p-2 text-right align-middle shadow-[-4px_0_8px_rgba(15,23,42,0.06)]"
+                    [class.bg-sky-50]="row.isShabbat"
+                    [attr.rowspan]="row.evening ? dayFirstColumnRowSpan(row) : null"
+                  >
+                    <div class="font-bold text-[#002244]">{{ row.dayLabel }}</div>
+                    <div class="mt-0.5 text-xs text-slate-500">{{ row.gregorian }}</div>
+                    <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
+                  </th>
+                }
+                @for (cell of row.evening; track cellTrackKey(cell)) {
+                  <td
+                    class="cell-host weekly-grid-data-col p-0.5 align-top"
+                    [class.maintenance-column]="cell.isMaintenance"
+                    [class.col-generic-slot]="isGenericExtraCell(cell)"
+                  >
+                    @if (cell.orders.length === 0) {
+                      <button
+                        type="button"
+                        (click)="onEmptyCellClick(cell)"
+                        class="cell"
+                        [class.cell-empty]="true"
+                        [class.cell-maintenance]="cell.isMaintenance"
+                      >
+                        <span class="cell-slot">{{ timeSlotLabels['Evening'] }}</span>
+                        @if (cell.isMaintenance) {
+                          <span class="cell-empty-text">🔧 בתיקון</span>
+                        } @else {
+                          <span class="cell-empty-text">פנוי</span>
+                        }
+                      </button>
+                    } @else {
+                      <div
+                        class="cell cell-occupied cell-stack"
+                        [class.cell-double]="cell.orders.length > 1"
+                        [class.cell-maintenance]="cell.isMaintenance"
+                        role="group"
+                        [attr.aria-label]="'הזמנות — ' + cellBookingLabel(cell)"
+                      >
+                        <span class="cell-slot">{{ timeSlotLabels['Evening'] }}</span>
+                        @if (cell.orders.length > 1) {
+                          <div class="cell-double-row" aria-hidden="true">
+                            <span class="cell-warn" title="יותר מהזמנה אחת במשמרת">⚠️</span>
+                            <span class="cell-double-badge">הזמנה כפולה</span>
+                          </div>
+                        }
+                        <div class="cell-order-list">
+                          @for (o of cell.orders; track o.id) {
+                            <button type="button" class="cell-order-block" (click)="openOrder(o.id)">
+                              <span class="cell-name">{{ o.customerName }}</span>
+                              <span class="cell-phone">{{ o.phone }}</span>
+                            </button>
+                          }
+                        </div>
+                        <button type="button" class="cell-add-another" (click)="addAnotherOrder(cell)">
+                          + הוסף הזמנה נוספת
+                        </button>
+                      </div>
+                    }
+                  </td>
+                }
+              </tr>
+            }
+
+            <!-- Waitlist: one consolidated row per day (spans equipment columns) -->
+            <tr class="waitlist-row border-b border-amber-200/80 bg-amber-50/50">
+              <td class="waitlist-consolidated border-l border-amber-100 p-1.5 align-top" [attr.colspan]="gridDataColumnCount()">
+                <div class="waitlist-consolidated-inner">
+                  <div class="waitlist-consolidated-head">
+                    <span class="waitlist-title">⏳ ממתינים</span>
+                    <button
+                      type="button"
+                      class="waitlist-add-btn"
+                      (click)="openAddWaitlistModal(row.date)"
+                      aria-label="הוסף לממתינים"
+                      title="הוסף לממתינים"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div class="waitlist-badge-strip">
+                    @for (w of waitlistForDay(row.date); track w.id) {
+                      <div class="waitlist-phone-badge" [attr.title]="waitlistBadgeTitle(w)">
+                        <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
+                        @if (w.notes?.trim()) {
+                          <span class="waitlist-note-icon" aria-hidden="true">📝</span>
+                        }
+                        <span class="waitlist-badge-actions">
+                          <button
+                            type="button"
+                            class="waitlist-action waitlist-convert"
+                            (click)="convertWaitlistEntry(w)"
+                            title="המרה להזמנה"
+                          >
+                            📋
+                          </button>
+                          <button
+                            type="button"
+                            class="waitlist-action waitlist-remove"
+                            (click)="deleteWaitlistEntry(w, $event)"
+                            title="הסרה"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  @if (waitlistModalContext(); as wm) {
+    <div class="waitlist-modal-backdrop" (click)="closeWaitlistModal()">
+      <div class="waitlist-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <h3 class="waitlist-modal-title">הוספה לרשימת המתנה</h3>
+        <p class="waitlist-modal-sub">{{ formatDate(wm.date) }}</p>
+        <form [formGroup]="waitlistModalForm" (ngSubmit)="submitWaitlistModal()" class="waitlist-modal-form">
+          <div>
+            <label class="waitlist-field-label">סוג ציוד <span class="text-rose-500">*</span></label>
+            <select formControlName="equipmentType" class="waitlist-field-input">
+              @for (eq of equipmentTypes; track eq) {
+                <option [value]="eq">{{ equipmentLabels[eq] }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="waitlist-field-label">טלפון <span class="text-rose-500">*</span></label>
+            <input type="tel" formControlName="phone" class="waitlist-field-input ltr-field" maxlength="20" />
+          </div>
+          <div>
+            <label class="waitlist-field-label">הערות</label>
+            <input type="text" formControlName="notes" class="waitlist-field-input" maxlength="1000" />
+          </div>
+          <div class="waitlist-modal-actions">
+            <button type="button" class="waitlist-btn waitlist-btn-ghost" (click)="closeWaitlistModal()">ביטול</button>
+            <button type="submit" class="waitlist-btn waitlist-btn-primary" [disabled]="waitlistSaving()">
+              {{ waitlistSaving() ? 'שומר…' : 'שמירה' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  <p class="mt-4 text-center text-xs text-slate-500">
+    תא פנוי: לחיצה ליצירת הזמנה. תא עם הזמנות: בחירת הזמנה לעריכה, או «הוסף הזמנה נוספת» להזמנה כפולה (לאחר אישור בטופס).
+  </p>
+</div>

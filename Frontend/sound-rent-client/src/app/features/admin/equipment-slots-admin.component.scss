@@ -1,0 +1,12 @@
+:host {
+  display: block;
+}
+
+tr.row-in-maintenance {
+  background-color: rgb(241 245 249);
+  color: rgb(71 85 105);
+}
+
+tr.row-in-maintenance:hover {
+  background-color: rgb(226 232 240);
+}

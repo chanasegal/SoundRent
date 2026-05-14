@@ -1,0 +1,426 @@
+:host {
+  .form-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  .form-input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1;
+    background-color: #ffffff;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.875rem;
+    color: #0f172a;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &:focus {
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+    }
+
+    &.ng-invalid.ng-touched {
+      border-color: #f87171;
+      box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15);
+    }
+
+    &.ltr-field {
+      direction: ltr;
+      text-align: right;
+    }
+  }
+
+  .form-error {
+    margin-top: 0;
+    font-size: 0.75rem;
+    color: #b91c1c;
+    line-height: 1.3;
+  }
+
+  .form-error + .form-error,
+  .form-error + .customer-existing-match {
+    margin-top: 0.35rem;
+  }
+
+  .customer-existing-match {
+    margin-top: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .customer-existing-match__btn {
+    border-radius: 0.5rem;
+    border: 1px solid #047857;
+    background-color: #ecfdf5;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #065f46;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background-color: #d1fae5;
+    }
+  }
+
+  .customer-existing-match__hint {
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  /*
+   * Reserves vertical space so validation / CTA copy does not change row height
+   * or push sibling inputs. Content is absolutely positioned inside the band.
+   */
+  .field-message-anchor {
+    position: relative;
+    flex-shrink: 0;
+    width: 100%;
+
+    &--phone1 {
+      min-height: 4.75rem;
+    }
+
+    &--phone2 {
+      min-height: 2rem;
+    }
+
+    /* Same band height under equipment / shift / date so control baselines align. */
+    &--equipment-foot,
+    &--shift-invalid,
+    &--slot-date {
+      min-height: 2.25rem;
+    }
+
+    &__content {
+      position: absolute;
+      top: 0;
+      inset-inline-start: 0;
+      inset-inline-end: 0;
+      z-index: 1;
+    }
+  }
+
+  /*
+   * Fixed vertical band so the duplicate-slot amber bar does not push content
+   * below the section when it appears or clears.
+   */
+  .duplicate-alert-anchor {
+    position: relative;
+    margin-top: 1rem;
+    min-height: 3.25rem;
+  }
+
+  .duplicate-alert-anchor__inner {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    z-index: 1;
+  }
+
+  // Non-blocking informational alert rendered at the bottom of the
+  // "פרטי המשמרת" section when the chosen equipment / date / shift combination
+  // is already booked. Visually a thin amber bar — soft enough to read as a
+  // heads-up rather than a blocking error, but distinct enough to catch the
+  // eye. `border-inline-start` resolves to the right edge in RTL.
+  .duplicate-warning-bar {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 1rem;
+    background-color: #fffbeb; // amber-50
+    border-inline-start: 4px solid #d97706; // amber-600
+    border-radius: 0.375rem;
+    color: #92400e; // amber-800 — accessible on amber-50
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+  }
+
+  .duplicate-warning-icon {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+    color: #d97706; // matches the leading border for visual cohesion
+  }
+
+  /* ----- Slot row: uniform control height + alignment ----- */
+
+  $slot-control-height: 40px;
+
+  .form-input--compact {
+    font-size: 0.875rem;
+    line-height: 1.25;
+    box-sizing: border-box;
+  }
+
+  /*
+   * The whole "פרטי המשמרת" row: equipment + shift + Hebrew date group.
+   * Three groups share the full container width in a 1 : 1 : 2 ratio.
+   */
+  .slot-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+    gap: 1.125rem;
+    align-items: stretch;
+    min-width: 0;
+
+    > .slot-field > .form-label {
+      display: flex;
+      align-items: flex-end;
+      min-height: 1.375rem;
+      margin-bottom: 0.375rem;
+      white-space: nowrap;
+    }
+
+    select.form-input--compact {
+      height: $slot-control-height;
+      min-height: $slot-control-height;
+      max-height: $slot-control-height;
+      padding-block: 0;
+      padding-inline: 0.6rem;
+    }
+  }
+
+  .slot-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .slot-field__fill {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 0;
+  }
+
+  .slot-field__control-wrap {
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+  }
+
+  .slot-field--equipment,
+  .slot-field--shift {
+    min-width: 0;
+  }
+
+  .slot-field--date {
+    min-width: 0;
+  }
+
+  .hebrew-date-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.625rem;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .hebrew-date-row .form-input {
+    width: auto;
+    min-width: 0;
+  }
+
+  .hebrew-day {
+    flex: 0 0 4rem;
+    text-align: center;
+  }
+
+  .hebrew-month {
+    flex: 0 0 7rem;
+  }
+
+  .hebrew-year {
+    flex: 0 0 5.25rem;
+    text-align: center;
+  }
+
+  /*
+   * Read-only Gregorian summary (RTL: after Hebrew selects = visually to the left).
+   * Fixed height matches slot-row selects.
+   */
+  .gregorian-chip {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: $slot-control-height;
+    min-height: $slot-control-height;
+    max-height: $slot-control-height;
+    padding: 0.15rem 0.55rem;
+    border-radius: 0.5rem;
+    border: 1px dashed #94a3b8;
+    background-color: #f8fafc;
+    box-sizing: border-box;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .gregorian-chip__label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: #64748b;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .gregorian-chip__value {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #0f172a;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+  }
+
+  /*
+   * Below 800px there isn't enough room for all Hebrew controls on one line,
+   * so we allow graceful wrapping into multiple rows.
+   */
+  @media (max-width: 800px) {
+    .slot-row {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .slot-field--date {
+      grid-column: 1 / -1;
+    }
+
+    .hebrew-date-row {
+      flex-wrap: wrap;
+    }
+
+    .gregorian-chip {
+      flex: 1 1 100%;
+      min-height: $slot-control-height;
+      max-height: none;
+      height: auto;
+    }
+  }
+
+  /* ----- Customer section: balanced 4-field row ----- */
+
+  /*
+   * Name (1.5) | Phone 1 (1) | Phone 2 (1) | Address (1.5) — proportions
+   * give the longer text fields more room while phones stay compact.
+   */
+  .customer-row {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .customer-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .customer-field--name,
+  .customer-field--address {
+    flex: 1.5 1 0;
+  }
+
+  .customer-field--phone {
+    flex: 1 1 0;
+  }
+
+  /* Match the mobile breakpoint used by .slot-row for consistent behavior. */
+  @media (max-width: 800px) {
+    .customer-row {
+      flex-wrap: wrap;
+    }
+    .customer-field--phone {
+      flex: 1 1 calc(50% - 0.5rem);
+    }
+    .customer-field--name,
+    .customer-field--address {
+      flex: 1 1 100%;
+    }
+  }
+
+  /* ----- Loaned equipment table ----- */
+
+  .loaned-table {
+    border-collapse: collapse;
+    font-size: 0.875rem;
+
+    th,
+    td {
+      vertical-align: middle;
+    }
+  }
+
+  .qty-input {
+    width: 4.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1;
+    background-color: #ffffff;
+    padding: 0.4rem 0.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #0f172a;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &:focus {
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+    }
+  }
+
+  .note-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .note-input {
+    flex: 0 0 auto;
+    width: 5.25rem;
+    border-radius: 0.4rem;
+    border: 1px solid #cbd5e1;
+    background-color: #ffffff;
+    padding: 0.35rem 0.4rem;
+    font-size: 0.75rem;
+    color: #0f172a;
+    outline: none;
+    text-align: center;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &::placeholder {
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+
+    &:focus {
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+    }
+  }
+}

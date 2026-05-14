@@ -1,0 +1,347 @@
+<div class="mx-auto max-w-7xl px-4 py-6">
+  <!-- Page header -->
+  <div class="mb-5 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <a routerLink="/dashboard" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700">
+        ▶ חזרה ללוח
+      </a>
+      <h1 class="text-2xl font-bold text-[#002244]">{{ title() }}</h1>
+    </div>
+    @if (isEdit()) {
+      <button type="button" class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50" (click)="delete()">
+        מחק הזמנה
+      </button>
+    }
+  </div>
+
+  <form [formGroup]="form" (ngSubmit)="submit()" class="space-y-5">
+
+    <!-- Booking slot section -->
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי המשמרת</h2>
+
+      <div class="slot-row">
+        <div class="slot-field slot-field--equipment">
+          <label class="form-label">סוג ציוד <span class="text-rose-500">*</span></label>
+          <div class="slot-field__fill">
+            <div class="slot-field__control-wrap">
+              <select formControlName="equipmentType" class="form-input form-input--compact w-full">
+                @for (slot of bookingEquipmentSlotIds(); track slot) {
+                  <option [value]="slot">{{ slotDropdownLabel(slot) }}</option>
+                } @empty {
+                  <option value="">אין תאי רמקול זמינים</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="field-message-anchor field-message-anchor--equipment-foot" aria-hidden="true">
+            <div class="field-message-anchor__content"></div>
+          </div>
+        </div>
+
+        <div class="slot-field slot-field--shift">
+          <label class="form-label">משמרת <span class="text-rose-500">*</span></label>
+          <div class="slot-field__fill">
+            <div class="slot-field__control-wrap">
+              <select formControlName="timeSlot" class="form-input form-input--compact w-full">
+                @for (slot of timeSlots; track slot) {
+                  <option [ngValue]="slot" [disabled]="!isTimeSlotSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="field-message-anchor field-message-anchor--shift-invalid">
+            <div class="field-message-anchor__content">
+              @if (form.errors?.['shiftNotAllowedForDate']) {
+                <p class="form-error">המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- Hebrew date — master input; `orderDate` stays in sync for the API (not shown). -->
+        <div class="slot-field slot-field--date">
+          <label class="form-label">תאריך עברי <span class="text-rose-500">*</span></label>
+          <div class="slot-field__fill">
+            <div class="slot-field__control-wrap">
+              <div class="hebrew-date-row">
+                <select
+                  formControlName="hebrewDay"
+                  class="form-input form-input--compact hebrew-day"
+                  aria-label="יום עברי"
+                >
+                  @for (d of dayOptions(); track d) {
+                    <option [ngValue]="d">{{ dayLabel(d) }}</option>
+                  }
+                </select>
+                <select
+                  formControlName="hebrewMonth"
+                  class="form-input form-input--compact hebrew-month"
+                  aria-label="חודש עברי"
+                >
+                  @for (m of monthOptions(); track m.value) {
+                    <option [ngValue]="m.value">{{ m.label }}</option>
+                  }
+                </select>
+                <select
+                  formControlName="hebrewYear"
+                  class="form-input form-input--compact hebrew-year"
+                  aria-label="שנה עברית"
+                >
+                  @for (y of yearOptions(); track y) {
+                    <option [ngValue]="y">{{ yearLabel(y) }}</option>
+                  }
+                </select>
+                <div
+                  class="gregorian-chip"
+                  role="status"
+                  [attr.aria-label]="'תאריך לועזי: ' + gregorianDisplay()"
+                >
+                  <span class="gregorian-chip__label">תאריך לועזי</span>
+                  <span class="gregorian-chip__value">{{ gregorianDisplay() }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field-message-anchor field-message-anchor--slot-date">
+            <div class="field-message-anchor__content">
+              @if (form.errors?.['orderDateInPast']) {
+                <p class="form-error">לא ניתן לבחור תאריך שעבר</p>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="duplicate-alert-anchor">
+        <div class="duplicate-alert-anchor__inner">
+          @if (slotTakenSig()) {
+            <div class="duplicate-warning-bar" role="status" aria-live="polite">
+              <svg
+                class="duplicate-warning-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <span>שים לב: כבר קיימת הזמנה לסוג ציוד זה בתאריך ובמשמרת שנבחרו.</span>
+            </div>
+          }
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Customer section -->
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי הלקוח</h2>
+      <div class="customer-row">
+        <div class="customer-field customer-field--name">
+          <label class="form-label">שם</label>
+          <input type="text" formControlName="customerName" class="form-input" />
+        </div>
+        <div class="customer-field customer-field--phone">
+          <label class="form-label">טלפון 1 <span class="text-rose-500">*</span></label>
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="10"
+            appIntegerOnly
+            formControlName="phone"
+            class="form-input ltr-field"
+          />
+          <div class="field-message-anchor field-message-anchor--phone1">
+            <div class="field-message-anchor__content">
+              @if (form.controls['phone'].touched) {
+                @if (form.controls['phone'].errors?.['required']) {
+                  <p class="form-error">יש להזין מספר טלפון</p>
+                } @else if (form.controls['phone'].errors?.['phoneLength']) {
+                  <p class="form-error">מספר טלפון חייב להיות 9 או 10 ספרות</p>
+                }
+              }
+              @if (showCustomerFillButton(); as cust) {
+                <div class="customer-existing-match">
+                  <button type="button" class="customer-existing-match__btn" (click)="applyExistingCustomerFill()">
+                    לקוח קיים נמצא - למלא פרטים?
+                  </button>
+                  <span class="customer-existing-match__hint">{{ cust.fullName?.trim() ? cust.fullName : 'ללא שם ברשומה' }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+        <div class="customer-field customer-field--phone">
+          <label class="form-label">טלפון 2</label>
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="10"
+            appIntegerOnly
+            formControlName="phone2"
+            class="form-input ltr-field"
+          />
+          <div class="field-message-anchor field-message-anchor--phone2">
+            <div class="field-message-anchor__content">
+              @if (form.controls['phone2'].touched && form.controls['phone2'].errors?.['phoneLength']) {
+                <p class="form-error">מספר טלפון חייב להיות 9 או 10 ספרות</p>
+              }
+            </div>
+          </div>
+        </div>
+        <div class="customer-field customer-field--address">
+          <label class="form-label">כתובת</label>
+          <input type="text" formControlName="address" class="form-input" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Payment / Deposit section -->
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">תשלום ופיקדון</h2>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div>
+          <label class="form-label">סוג פיקדון</label>
+          <select formControlName="depositType" class="form-input">
+            <option [ngValue]="null">— ללא —</option>
+            @for (dt of depositTypes; track dt) {
+              <option [value]="dt">{{ depositTypeLabels[dt] }}</option>
+            }
+          </select>
+        </div>
+        <div>
+          <label class="form-label">פיקדון על שם</label>
+          <input type="text" formControlName="depositOnName" class="form-input" />
+        </div>
+        <div>
+          <label class="form-label">סכום (₪)</label>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            appIntegerOnly
+            formControlName="paymentAmount"
+            class="form-input ltr-field"
+          />
+        </div>
+        <div class="flex items-end">
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-sky-400">
+            <input type="checkbox" formControlName="isPaid" class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+            <span>שולם</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Loaned Equipment Table -->
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">ציוד מושאל</h2>
+
+      <div class="overflow-hidden rounded-xl ring-1 ring-slate-200">
+        <table class="loaned-table w-full">
+          <thead>
+            <tr class="bg-[#002244] text-white">
+              <th class="w-44 px-3 py-2 text-right">פריט</th>
+              <th class="w-24 px-3 py-2 text-center">כמות</th>
+              <th class="px-3 py-2 text-right">פירוט</th>
+            </tr>
+          </thead>
+          <tbody formArrayName="loanedEquipments">
+            @for (def of rowDefinitions; track def.type; let i = $index) {
+              <tr [formGroupName]="i" class="border-t border-slate-200 odd:bg-slate-50/60 hover:bg-sky-50/40">
+                <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.label }}</td>
+                <td class="px-3 py-2 align-middle">
+                  <input
+                    type="number"
+                    min="0"
+                    [attr.max]="loanedNotesLength(i)"
+                    step="1"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    appIntegerOnly
+                    formControlName="quantity"
+                    class="qty-input"
+                  />
+                </td>
+                <td class="px-3 py-2 align-middle">
+                  @if (noteIndicesForRow(i).length === 0) {
+                    <span class="text-xs text-slate-400">—</span>
+                  } @else {
+                    <div class="flex flex-wrap gap-1">
+                      @for (idx of noteIndicesForRow(i); track idx) {
+                        @if (isMicrophoneRow(i)) {
+                          <input
+                            type="text"
+                            maxlength="100"
+                            [formControl]="getNoteControl(i, idx)"
+                            class="note-input"
+                            [attr.placeholder]="'#' + (idx + 1)"
+                          />
+                        } @else {
+                          <input
+                            type="text"
+                            maxlength="100"
+                            inputmode="numeric"
+                            pattern="[0-9]*"
+                            appIntegerOnly
+                            [formControl]="getNoteControl(i, idx)"
+                            class="note-input"
+                            [attr.placeholder]="'#' + (idx + 1)"
+                          />
+                        }
+                      }
+                    </div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- General notes -->
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">הערות כלליות</h2>
+      <textarea
+        formControlName="notes"
+        rows="3"
+        maxlength="1000"
+        class="form-input min-h-[80px]"
+        placeholder="הערות חופשיות לגבי ההזמנה..."
+      ></textarea>
+    </section>
+
+    <!-- Action buttons -->
+    <div class="sticky bottom-0 z-10 flex flex-col-reverse gap-3 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-slate-200 sm:flex-row sm:justify-end">
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+        (click)="clearForm()"
+      >
+        נקה טופס
+      </button>
+      <button
+        type="submit"
+        [disabled]="submitting() || form.invalid"
+        class="flex items-center justify-center rounded-lg bg-[#002244] px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        @if (submitting()) {
+          <span class="ml-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+        }
+        שמור
+      </button>
+    </div>
+  </form>
+</div>
