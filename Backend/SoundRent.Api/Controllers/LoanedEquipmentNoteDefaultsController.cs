@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Enums;
+using SoundRent.Api.Domain.Entities; 
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Controllers;
@@ -34,33 +35,31 @@ public class LoanedEquipmentNoteDefaultsController : ControllerBase
     }
 
     [HttpPut("{type}")]
-[Authorize]
-public async Task<ActionResult<LoanedEquipmentTypeNoteDefaultDto>> Update(
-    LoanedEquipmentType type,
-    [FromBody] LoanedEquipmentTypeNoteDefaultUpdateDto dto,
-    CancellationToken cancellationToken)
-{
-    // ננסה למצוא את היישות
-    var entity = await _repository.GetAsync(type, cancellationToken);
-
-    if (entity == null)
+    [Authorize]
+    public async Task<ActionResult<LoanedEquipmentTypeNoteDefaultDto>> Update(
+        LoanedEquipmentType type,
+        [FromBody] LoanedEquipmentTypeNoteDefaultUpdateDto dto,
+        CancellationToken cancellationToken)
     {
-        // אם היא לא קיימת - ניצור אותה חדשה
-        entity = new LoanedEquipmentTypeNoteDefault 
-        { 
-            LoanedEquipmentType = type 
-        };
-        // כאן צריך להוסיף את הפקודה להוספה ל-Repository, למשל:
-        // await _repository.AddAsync(entity, cancellationToken);
+        var entity = await _repository.GetAsync(type, cancellationToken);
+
+        if (entity == null)
+        {
+            entity = new LoanedEquipmentTypeNoteDefault 
+            { 
+                LoanedEquipmentType = type 
+            };
+            
+            await _repository.AddAsync(entity, cancellationToken); 
+        }
+
+        entity.DefaultNoteCount = Math.Clamp(dto.DefaultNoteCount, 0, 20);
+        await _repository.SaveChangesAsync(cancellationToken);
+
+        return Ok(new LoanedEquipmentTypeNoteDefaultDto
+        {
+            LoanedEquipmentType = entity.LoanedEquipmentType,
+            DefaultNoteCount = entity.DefaultNoteCount
+        });
     }
-
-    entity.DefaultNoteCount = Math.Clamp(dto.DefaultNoteCount, 0, 20);
-    await _repository.SaveChangesAsync(cancellationToken);
-
-    return Ok(new LoanedEquipmentTypeNoteDefaultDto
-    {
-        LoanedEquipmentType = entity.LoanedEquipmentType,
-        DefaultNoteCount = entity.DefaultNoteCount
-    });
-}
 }
