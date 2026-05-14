@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Enums;
-using SoundRent.Api.Domain.Entities; 
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Controllers;
@@ -41,17 +40,8 @@ public class LoanedEquipmentNoteDefaultsController : ControllerBase
         [FromBody] LoanedEquipmentTypeNoteDefaultUpdateDto dto,
         CancellationToken cancellationToken)
     {
-        var entity = await _repository.GetAsync(type, cancellationToken);
-
-        if (entity == null)
-        {
-            entity = new LoanedEquipmentTypeNoteDefault 
-            { 
-                LoanedEquipmentType = type 
-            };
-            
-            await _repository.AddAsync(entity, cancellationToken); 
-        }
+        var entity = await _repository.GetAsync(type, cancellationToken)
+            ?? throw new NotFoundException("הגדרה לא נמצאה");
 
         entity.DefaultNoteCount = Math.Clamp(dto.DefaultNoteCount, 0, 20);
         await _repository.SaveChangesAsync(cancellationToken);
