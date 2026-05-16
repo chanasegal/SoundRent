@@ -108,8 +108,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-app.UseCors("AllowAngular");
-
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("AllowAngular");
+}
+else
+{
+    app.UseCors(CorsPolicyName);
+}
 app.UseHttpsRedirection();
 
 //app.UseCors(CorsPolicyName);
