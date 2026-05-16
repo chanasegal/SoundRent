@@ -6,7 +6,7 @@ public class LoanedEquipmentNoteDto
 {
     public int Id { get; set; }
 
-    [Range(0, 19)]
+    [Range(0, int.MaxValue)]
     public int Ordinal { get; set; }
 
     [MaxLength(100)]

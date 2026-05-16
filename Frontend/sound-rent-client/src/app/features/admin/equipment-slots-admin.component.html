@@ -37,49 +37,6 @@
     </form>
   </section>
 
-  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <h2 class="mb-4 text-lg font-bold text-[#002244]">ברירת מחדל — מספר שדות פירוט לציוד מושאל</h2>
-    <p class="mb-3 text-sm text-slate-600">מספר תיבות הפירוט (#1, #2…) בטופס ההזמנה לכל סוג פריט (לפני התאמה לפי כמות).</p>
-    <div class="overflow-x-auto">
-      <table class="w-full border-collapse text-right text-sm">
-        <thead>
-          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-2 font-semibold">פריט</th>
-            <th class="px-3 py-2 font-semibold">מספר שדות ברירת מחדל</th>
-            <th class="px-3 py-2 font-semibold"></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of noteDefaultRows(); track row.type) {
-            <tr class="border-b border-slate-100">
-              <td class="px-3 py-2 font-medium">{{ row.label }}</td>
-              <td class="px-3 py-2">
-                <input
-                  #noteCount
-                  type="number"
-                  min="0"
-                  max="20"
-                  class="w-20 rounded border border-slate-300 px-2 py-1 text-center"
-                  [value]="row.count"
-                />
-              </td>
-              <td class="px-3 py-2 text-left">
-                <button
-                  type="button"
-                  class="rounded bg-slate-800 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
-                  [disabled]="savingNoteType() === row.type"
-                  (click)="saveNoteDefault(row.type, noteCount.value)"
-                >
-                  שמור
-                </button>
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-  </section>
-
   <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <h2 class="mb-4 text-lg font-bold text-[#002244]">תאי הזמנה (לוח)</h2>
     <div class="overflow-x-auto">

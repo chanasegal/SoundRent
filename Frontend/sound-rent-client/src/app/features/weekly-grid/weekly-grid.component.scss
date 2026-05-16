@@ -175,10 +175,33 @@
 }
 
 .weekly-grid-scroll {
+  max-height: calc(100vh - 9rem);
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 640px) {
+  .weekly-grid-scroll {
+    max-height: calc(100vh - 7rem);
+  }
 }
 
 .weekly-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #002244;
+  }
+
+  thead th.weekly-grid-axis {
+    z-index: 30;
+  }
+
   th.weekly-grid-axis {
     min-width: 6.75rem;
     width: 6.75rem;

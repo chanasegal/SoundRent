@@ -12,7 +12,6 @@ public class AppDbContext : DbContext
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderLoanedEquipment> OrderLoanedEquipments => Set<OrderLoanedEquipment>();
     public DbSet<LoanedEquipmentNote> LoanedEquipmentNotes => Set<LoanedEquipmentNote>();
-    public DbSet<LoanedEquipmentTypeNoteDefault> LoanedEquipmentTypeNoteDefaults => Set<LoanedEquipmentTypeNoteDefault>();
     public DbSet<Equipment> Equipments => Set<Equipment>();
     public DbSet<User> Users => Set<User>();
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();

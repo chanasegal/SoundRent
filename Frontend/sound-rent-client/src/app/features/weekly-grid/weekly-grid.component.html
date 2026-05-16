@@ -106,9 +106,9 @@
     </div>
   </div>
 
-  <!-- Grid: outer wrapper avoids overflow-hidden so sticky axis works inside horizontal scroll -->
+  <!-- Grid: the scroll wrapper owns both axes so sticky table headers have a scrollport. -->
   <div class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-    <div class="weekly-grid-scroll overflow-x-auto">
+    <div class="weekly-grid-scroll">
       <table class="weekly-grid w-full border-collapse text-sm">
         <thead>
           <tr class="bg-[#002244] text-white">

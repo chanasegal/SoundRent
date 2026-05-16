@@ -60,7 +60,7 @@ public static class OrderMapper
 
     public static OrderLoanedEquipment ToEntity(OrderLoanedEquipmentDto dto)
     {
-        var expected = Math.Clamp(dto.ExpectedNoteCount, 0, 20);
+        var expected = Math.Max(0, dto.ExpectedNoteCount);
         var entity = new OrderLoanedEquipment
         {
             LoanedEquipmentType = dto.LoanedEquipmentType,

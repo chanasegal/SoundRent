@@ -7,8 +7,6 @@ import { getApiErrorMessage } from '../utils/http-api-error';
 import { TimeSlot } from '../models/enums';
 import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
 import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto } from '../models/equipment-definition.model';
-import { LoanedEquipmentType } from '../models/enums';
-import { LoanedEquipmentTypeNoteDefaultDto } from '../models/loaned-equipment-note-default.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
 import { ToastService } from './toast.service';
@@ -25,7 +23,6 @@ export class DataService {
   private readonly ordersBase = `${environment.apiBaseUrl}/orders`;
   private readonly waitlistBase = `${environment.apiBaseUrl}/waitlist`;
   private readonly equipmentDefinitionsBase = `${environment.apiBaseUrl}/equipmentdefinitions`;
-  private readonly loanedNoteDefaultsBase = `${environment.apiBaseUrl}/loanedequipmentnotedefaults`;
   private readonly customersBase = `${environment.apiBaseUrl}/customers`;
 
   private notifyHttpError(error: unknown): void {
@@ -198,32 +195,6 @@ export class DataService {
   deleteEquipmentDefinition(id: string): Observable<void> {
     const enc = encodeURIComponent(id);
     return this.http.delete<void>(`${this.equipmentDefinitionsBase}/${enc}`);
-  }
-
-  getLoanedEquipmentNoteDefaults(): Observable<LoanedEquipmentTypeNoteDefaultDto[]> {
-    return this.http.get<LoanedEquipmentTypeNoteDefaultDto[]>(this.loanedNoteDefaultsBase).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of([]);
-      })
-    );
-  }
-
-  updateLoanedEquipmentNoteDefault(
-    type: LoanedEquipmentType,
-    defaultNoteCount: number
-  ): Observable<LoanedEquipmentTypeNoteDefaultDto | null> {
-    return this.http
-      .put<LoanedEquipmentTypeNoteDefaultDto>(
-        `${this.loanedNoteDefaultsBase}/${encodeURIComponent(type)}`,
-        { defaultNoteCount }
-      )
-      .pipe(
-        catchError((err) => {
-          this.notifyHttpError(err);
-          return of(null);
-        })
-      );
   }
 
   /** Search customers by digit substring in phones or by name; empty `q` returns a capped list. */

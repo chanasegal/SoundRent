@@ -127,3 +127,5 @@ C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\SoundRent.Api.genruntimeconf
 C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\ref\SoundRent.Api.dll
 c:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\Npgsql.dll
 c:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\Npgsql.EntityFrameworkCore.PostgreSQL.dll
+C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\SoundRent.Api.sourcelink.json
+C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

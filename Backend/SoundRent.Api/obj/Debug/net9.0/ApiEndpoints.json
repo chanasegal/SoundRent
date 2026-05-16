@@ -274,57 +274,6 @@
     ]
   },
   {
-    "ContainingType": "SoundRent.Api.Controllers.LoanedEquipmentNoteDefaultsController",
-    "Method": "GetAll",
-    "RelativePath": "api/LoanedEquipmentNoteDefaults",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [],
-    "ReturnTypes": [
-      {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.LoanedEquipmentTypeNoteDefaultDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.LoanedEquipmentNoteDefaultsController",
-    "Method": "Update",
-    "RelativePath": "api/LoanedEquipmentNoteDefaults/{type}",
-    "HttpMethod": "PUT",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "type",
-        "Type": "System.String",
-        "IsRequired": true
-      },
-      {
-        "Name": "dto",
-        "Type": "SoundRent.Api.Application.DTOs.LoanedEquipmentTypeNoteDefaultUpdateDto",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "SoundRent.Api.Application.DTOs.LoanedEquipmentTypeNoteDefaultDto",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "Create",
     "RelativePath": "api/Orders",

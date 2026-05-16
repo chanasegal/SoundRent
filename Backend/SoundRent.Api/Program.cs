@@ -34,7 +34,6 @@ builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<IWaitlistRepository, WaitlistRepository>();
 builder.Services.AddScoped<IEquipmentRepository, EquipmentRepository>();
 builder.Services.AddScoped<IEquipmentDefinitionRepository, EquipmentDefinitionRepository>();
-builder.Services.AddScoped<ILoanedEquipmentTypeNoteDefaultRepository, LoanedEquipmentTypeNoteDefaultRepository>();
 builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
@@ -88,6 +87,17 @@ builder.Services
 
 builder.Services.AddOpenApi();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+    {
+        policy.WithOrigins("http://localhost:4200") // הכתובת של הפרונטנד שלך
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
 var app = builder.Build();
 
 // --- Pipeline ------------------------------------------------------------
@@ -98,9 +108,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+app.UseCors("AllowAngular");
+
 app.UseHttpsRedirection();
 
-app.UseCors(CorsPolicyName);
+//app.UseCors(CorsPolicyName);
 
 app.UseAuthentication();
 app.UseAuthorization();

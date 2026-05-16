@@ -2,17 +2,15 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { forkJoin, finalize } from 'rxjs';
+import { finalize } from 'rxjs';
 
 import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
-import { LOANED_EQUIPMENT_LABELS, LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
-import { LoanedEquipmentNoteDefaultsStore } from '../../core/services/loaned-equipment-note-defaults.store';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
@@ -24,7 +22,6 @@ import { ToastService } from '../../core/services/toast.service';
 export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly store = inject(EquipmentDefinitionsStore);
-  private readonly noteDefaults = inject(LoanedEquipmentNoteDefaultsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
@@ -41,7 +38,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected readonly saving = signal(false);
   protected readonly deletingId = signal<string | null>(null);
-  protected readonly savingNoteType = signal<LoanedEquipmentType | null>(null);
   protected readonly futureOrdersModal = signal<EquipmentDefinitionDeleteFutureOrder[] | null>(null);
   protected readonly maintenanceTogglingId = signal<string | null>(null);
 
@@ -56,7 +52,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   protected refresh(): void {
-    forkJoin([this.store.load(), this.noteDefaults.load()]).subscribe();
+    this.store.load().subscribe();
   }
 
   protected onMaintenanceToggle(row: EquipmentDefinitionDto, event: Event): void {
@@ -84,15 +80,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected rows(): EquipmentDefinitionDto[] {
     return this.store.definitions();
-  }
-
-  protected noteDefaultRows(): Array<{ type: LoanedEquipmentType; label: string; count: number }> {
-    const dm = new Map(this.noteDefaults.defaults().map((d) => [d.loanedEquipmentType, d.defaultNoteCount]));
-    return LOANED_EQUIPMENT_ORDER.map((type) => ({
-      type,
-      label: LOANED_EQUIPMENT_LABELS[type],
-      count: dm.get(type) ?? 1
-    }));
   }
 
   protected submitAdd(): void {
@@ -127,23 +114,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             category: 'Speakers'
           });
           this.refresh();
-        }
-      });
-  }
-
-  protected saveNoteDefault(type: LoanedEquipmentType, raw: string): void {
-    const n = Math.min(20, Math.max(0, Number(raw) || 0));
-    this.savingNoteType.set(type);
-    this.data
-      .updateLoanedEquipmentNoteDefault(type, n)
-      .pipe(finalize(() => this.savingNoteType.set(null)))
-      .subscribe({
-        next: (updated) => {
-          if (updated === null) {
-            return;
-          }
-          this.toast.success('ברירת המחדל עודכנה');
-          this.noteDefaults.load().subscribe();
         }
       });
   }

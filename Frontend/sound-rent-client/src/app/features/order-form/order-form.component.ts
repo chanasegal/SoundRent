@@ -29,7 +29,6 @@ import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderLoanedEquipmentDto }
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
-import { LoanedEquipmentNoteDefaultsStore } from '../../core/services/loaned-equipment-note-defaults.store';
 import { HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
@@ -55,7 +54,6 @@ export class OrderFormComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
-  private readonly noteDefaults = inject(LoanedEquipmentNoteDefaultsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
 
   protected readonly bookingEquipmentSlotIds = computed(() =>
@@ -250,13 +248,6 @@ export class OrderFormComponent implements OnInit {
     return this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value === LoanedEquipmentType.Microphone;
   }
 
-  /** Number of פירוט fields for a row — drives `[attr.max]` on quantity only. */
-  protected loanedNotesLength(rowIndex: number): number {
-    const row = this.equipmentList?.at(rowIndex) as FormGroup | undefined;
-    const notes = row?.get('notes') as FormArray | undefined;
-    return Math.min(20, notes?.length ?? 0);
-  }
-
   /** Gematriya label for a Hebrew day (e.g. 23 → "כ״ג"). */
   protected dayLabel(day: number): string {
     return this.hebrew.dayGematriya(day);
@@ -294,6 +285,7 @@ export class OrderFormComponent implements OnInit {
     this.wireSlotAvailabilityCheck();
     this.wireHebrewSync();
     this.wireCustomerPhoneLookup();
+    this.wireLoanedEquipmentQuantitySync();
 
     const idParam = this.route.snapshot.paramMap.get('id');
     if (idParam && /^\d+$/.test(idParam)) {
@@ -510,10 +502,9 @@ export class OrderFormComponent implements OnInit {
     });
     this.equipmentList.controls.forEach((row, idx) => {
       const type = LOANED_EQUIPMENT_ORDER[idx]!;
-      const def = this.noteDefaults.defaultCount(type);
       const g = row as FormGroup;
-      g.patchValue({ quantity: 0, expectedNoteCount: def }, { emitEvent: false });
-      this.setNotesArrayLength(g, def);
+      g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
+      this.setNotesArrayLength(g, 0);
       const notes = g.get('notes') as FormArray;
       for (let i = 0; i < notes.length; i++) {
         notes.at(i).setValue('');
@@ -756,24 +747,42 @@ export class OrderFormComponent implements OnInit {
   }
 
   private setNotesArrayLength(group: FormGroup, target: number): void {
-    const capped = Math.min(20, Math.max(0, target));
-    group.get('expectedNoteCount')?.setValue(capped, { emitEvent: false });
+    const length = this.toNonNegativeInteger(target);
+    group.get('expectedNoteCount')?.setValue(length, { emitEvent: false });
     const notes = group.get('notes') as FormArray<FormControl<string>> | null;
     if (!notes) {
       return;
     }
-    while (notes.length < capped) {
+    while (notes.length < length) {
       notes.push(this.fb.nonNullable.control(''));
     }
-    while (notes.length > capped) {
+    while (notes.length > length) {
       notes.removeAt(notes.length - 1);
     }
-    const qtyCtrl = group.get('quantity');
-    const max = notes.length;
-    const qv = Number(qtyCtrl?.value) || 0;
-    if (qv > max) {
-      qtyCtrl?.setValue(max, { emitEvent: false });
-    }
+  }
+
+  private wireLoanedEquipmentQuantitySync(): void {
+    this.equipmentList.controls.forEach((control) => {
+      const group = control as FormGroup;
+      const quantityCtrl = group.get('quantity');
+      if (!quantityCtrl) {
+        return;
+      }
+
+      quantityCtrl.valueChanges
+        .pipe(
+          startWith(quantityCtrl.value),
+          map((value) => this.toNonNegativeInteger(value)),
+          distinctUntilChanged(),
+          takeUntilDestroyed(this.destroyRef)
+        )
+        .subscribe((quantity) => this.setNotesArrayLength(group, quantity));
+    });
+  }
+
+  private toNonNegativeInteger(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   }
 
   private wireHebrewSync(): void {
@@ -1001,14 +1010,11 @@ export class OrderFormComponent implements OnInit {
   }
 
   private buildEquipmentRow(type: LoanedEquipmentType): FormGroup {
-    const expected = this.noteDefaults.defaultCount(type);
-    const notes = this.fb.array(
-      Array.from({ length: expected }, () => this.fb.nonNullable.control(''))
-    );
+    const notes = this.fb.array<FormControl<string>>([]);
     const g = this.fb.group({
       loanedEquipmentType: this.fb.nonNullable.control(type),
       quantity: this.fb.nonNullable.control(0, [Validators.min(0)]),
-      expectedNoteCount: this.fb.nonNullable.control(expected, [Validators.min(0), Validators.max(20)]),
+      expectedNoteCount: this.fb.nonNullable.control(0, [Validators.min(0)]),
       notes
     });
     return g;
@@ -1058,23 +1064,16 @@ export class OrderFormComponent implements OnInit {
           const row = byType.get(type);
           const g = control as FormGroup;
           if (!row) {
-            const def = this.noteDefaults.defaultCount(type);
-            g.patchValue({ quantity: 0, expectedNoteCount: def }, { emitEvent: false });
-            this.setNotesArrayLength(g, def);
-            for (let i = 0; i < def; i++) {
-              (g.get('notes') as FormArray).at(i).setValue('');
-            }
+            g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
+            this.setNotesArrayLength(g, 0);
             return;
           }
 
-          const expected = Math.min(
-            20,
-            Math.max(0, row.expectedNoteCount || this.noteDefaults.defaultCount(type))
-          );
-          g.patchValue({ quantity: row.quantity ?? 0, expectedNoteCount: expected }, { emitEvent: false });
-          this.setNotesArrayLength(g, expected);
+          const quantity = this.toNonNegativeInteger(row.quantity);
+          g.patchValue({ quantity, expectedNoteCount: quantity }, { emitEvent: false });
+          this.setNotesArrayLength(g, quantity);
           const notesFa = g.get('notes') as FormArray<FormControl<string>>;
-          for (let o = 0; o < expected; o++) {
+          for (let o = 0; o < quantity; o++) {
             const fromServer = row.notes?.find((n) => n.ordinal === o)?.content ?? '';
             notesFa.at(o).setValue(fromServer ?? '');
           }
@@ -1094,9 +1093,8 @@ export class OrderFormComponent implements OnInit {
     const loaned: OrderLoanedEquipmentDto[] = (v['loanedEquipments'] as Record<string, unknown>[])
       .filter((row) => Number(row['quantity']) > 0)
       .map((row) => {
-        const expected = Math.min(20, Math.max(0, Number(row['expectedNoteCount']) || 0));
-        const rawQty = Number(row['quantity']) || 0;
-        const quantity = Math.min(expected, Math.max(0, Math.trunc(rawQty)));
+        const quantity = this.toNonNegativeInteger(row['quantity']);
+        const expected = quantity;
         const notesFa = row['notes'] as unknown;
         const notes: LoanedEquipmentNoteDto[] = [];
         for (let o = 0; o < expected; o++) {
