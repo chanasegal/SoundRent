@@ -158,6 +158,163 @@
 
   $slot-control-height: 40px;
 
+  .reservation-row {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .reservation-field {
+    min-width: 0;
+  }
+
+  .reservation-field--equipment {
+    flex: 1 1 18rem;
+    max-width: 300px;
+  }
+
+  .reservation-field--date {
+    flex: 0 1 10.5rem;
+  }
+
+  .reservation-field--shift {
+    flex: 0 1 8.5rem;
+  }
+
+  .reservation-errors {
+    margin-top: 0.5rem;
+    min-height: 1.25rem;
+  }
+
+  .multi-select {
+    position: relative;
+  }
+
+  .multi-select__trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: $slot-control-height;
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .multi-select__chevron {
+    color: #64748b;
+    font-size: 0.8rem;
+  }
+
+  .multi-select__panel {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.35rem);
+    inset-inline: 0;
+    max-height: 14rem;
+    overflow-y: auto;
+    border-radius: 0.75rem;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    padding: 0.35rem;
+    box-shadow: 0 18px 40px -20px rgba(15, 23, 42, 0.45);
+  }
+
+  .multi-select__option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    color: #0f172a;
+    cursor: pointer;
+
+    input {
+      width: 1rem;
+      height: 1rem;
+      accent-color: #002244;
+    }
+
+    &:hover {
+      background: #f1f5f9;
+    }
+  }
+
+  .range-label {
+    display: block;
+    margin-bottom: 0.2rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .range-summary {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid #bae6fd;
+    background: #f0f9ff;
+    padding: 0.65rem 0.85rem;
+    color: #075985;
+    font-size: 0.85rem;
+  }
+
+  .range-summary__title {
+    font-weight: 700;
+  }
+
+  .return-time-group {
+    margin-top: 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid #dbeafe;
+    background: #f8fafc;
+    padding: 0.85rem 1rem;
+  }
+
+  .return-time-title {
+    display: block;
+    margin-bottom: 0.6rem;
+    font-size: 0.875rem;
+    font-weight: 800;
+    color: #002244;
+  }
+
+  .return-time-options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+  }
+
+  .return-time-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+
+    input {
+      accent-color: #002244;
+    }
+  }
+
+  .return-time-input {
+    width: 8.5rem;
+    min-height: $slot-control-height;
+  }
+
   .form-input--compact {
     font-size: 0.875rem;
     line-height: 1.25;
@@ -299,6 +456,20 @@
    * so we allow graceful wrapping into multiple rows.
    */
   @media (max-width: 800px) {
+    .reservation-row {
+      flex-wrap: wrap;
+    }
+
+    .reservation-field--equipment {
+      flex: 1 1 100%;
+      max-width: none;
+    }
+
+    .reservation-field--date,
+    .reservation-field--shift {
+      flex: 1 1 calc(50% - 0.5rem);
+    }
+
     .slot-row {
       grid-template-columns: 1fr 1fr;
     }

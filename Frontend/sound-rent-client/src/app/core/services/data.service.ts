@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, catchError, map, of } from 'rxjs';
 
@@ -218,6 +218,28 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  deleteCustomer(phone1Digits: string): Observable<boolean> {
+    const enc = encodeURIComponent(phone1Digits);
+    return this.http.delete<void>(`${this.customersBase}/${enc}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  exportCustomersExcel(): Observable<HttpResponse<Blob> | null> {
+    return this.http
+      .get(`${this.customersBase}/export`, { observe: 'response', responseType: 'blob' })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   getCustomerOrders(phone1Digits: string): Observable<OrderDto[]> {

@@ -7,17 +7,6 @@ public class Order
 {
     public int Id { get; set; }
 
-    /// <summary>
-    /// Booking slot key (e.g. <c>715-A</c>, <c>910NX-B</c>) matching the weekly grid columns.
-    /// </summary>
-    [Required]
-    [MaxLength(64)]
-    public string EquipmentType { get; set; } = string.Empty;
-
-    public DateOnly OrderDate { get; set; }
-
-    public TimeSlot TimeSlot { get; set; }
-
     [MaxLength(100)]
     public string? CustomerName { get; set; }
 
@@ -40,10 +29,19 @@ public class Order
 
     public bool IsPaid { get; set; }
 
+    public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
+
+    [MaxLength(20)]
+    public string? CustomReturnTime { get; set; }
+
     [MaxLength(1000)]
     public string? Notes { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<OrderEquipment> Equipments { get; set; } = new List<OrderEquipment>();
+
+    public ICollection<OrderShift> Shifts { get; set; } = new List<OrderShift>();
 
     public ICollection<OrderLoanedEquipment> LoanedEquipments { get; set; } = new List<OrderLoanedEquipment>();
 }

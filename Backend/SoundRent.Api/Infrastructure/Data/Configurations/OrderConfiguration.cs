@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Infrastructure.Data.Configurations;
 
@@ -31,22 +32,27 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(o => o.ReturnTimeType)
+            .HasDefaultValue(ReturnTimeType.LateNight);
+
+        builder.Property(o => o.CustomReturnTime)
+            .HasMaxLength(20);
+
         builder.Property(o => o.Notes)
             .HasMaxLength(1000);
-
-        builder.Property(o => o.OrderDate)
-            .HasColumnType("date");
-
-        builder.Property(o => o.EquipmentType)
-            .HasMaxLength(64)
-            .IsRequired();
 
         builder.Property(o => o.CreatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-        // Non-unique index for listing/filtering; double-booking is allowed when explicitly confirmed via API.
-        builder.HasIndex(o => new { o.EquipmentType, o.OrderDate, o.TimeSlot })
-            .HasDatabaseName("IX_Orders_Equipment_Date_TimeSlot");
+        builder.HasMany(o => o.Equipments)
+            .WithOne(e => e.Order)
+            .HasForeignKey(e => e.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(o => o.Shifts)
+            .WithOne(s => s.Order)
+            .HasForeignKey(s => s.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasMany(o => o.LoanedEquipments)
             .WithOne(le => le.Order)

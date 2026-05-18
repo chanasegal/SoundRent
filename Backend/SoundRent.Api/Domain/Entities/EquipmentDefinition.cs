@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace SoundRent.Api.Domain.Entities;
 
 /// <summary>
-/// Admin-configurable booking slot shown on the weekly grid and order form (Id matches Order.EquipmentType).
+/// Admin-configurable booking slot shown on the weekly grid and order form.
 /// </summary>
 public class EquipmentDefinition
 {
@@ -23,4 +23,6 @@ public class EquipmentDefinition
 
     /// <summary>When true, this booking slot cannot accept new orders (per-unit maintenance).</summary>
     public bool IsMaintenanceMode { get; set; }
+
+    public ICollection<OrderEquipment> Orders { get; set; } = new List<OrderEquipment>();
 }

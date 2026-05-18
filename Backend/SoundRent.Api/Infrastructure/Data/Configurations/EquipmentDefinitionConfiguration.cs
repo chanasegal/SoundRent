@@ -21,5 +21,10 @@ public class EquipmentDefinitionConfiguration : IEntityTypeConfiguration<Equipme
 
         builder.Property(e => e.IsMaintenanceMode)
             .HasDefaultValue(false);
+
+        builder.HasMany(e => e.Orders)
+            .WithOne(oe => oe.EquipmentDefinition)
+            .HasForeignKey(oe => oe.EquipmentDefinitionId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

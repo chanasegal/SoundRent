@@ -19,6 +19,20 @@ public class CustomerRepository : ICustomerRepository
         return _db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
     }
 
+    public Task<Customer?> GetTrackedByPhone1Async(string phone1Digits, CancellationToken cancellationToken = default)
+    {
+        return _db.Customers.FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
+    }
+
+    public Task<List<Customer>> GetAllAsync(CancellationToken cancellationToken = default)
+    {
+        return _db.Customers
+            .AsNoTracking()
+            .OrderBy(c => c.FullName ?? string.Empty)
+            .ThenBy(c => c.Phone1)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<List<Customer>> SearchAsync(string? query, CancellationToken cancellationToken = default)
     {
         var q = (query ?? string.Empty).Trim();
@@ -62,6 +76,11 @@ public class CustomerRepository : ICustomerRepository
         tracked.Address = customer.Address;
         tracked.Notes = customer.Notes;
         tracked.UpdatedAt = customer.UpdatedAt;
+    }
+
+    public void Remove(Customer customer)
+    {
+        _db.Customers.Remove(customer);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

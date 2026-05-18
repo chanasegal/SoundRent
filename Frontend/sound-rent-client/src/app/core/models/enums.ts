@@ -20,6 +20,12 @@ export enum DepositType {
   Cash = 'Cash'
 }
 
+export enum ReturnTimeType {
+  SpecificTime = 'SpecificTime',
+  LateNight = 'LateNight',
+  NextMorning = 'NextMorning'
+}
+
 export enum LoanedEquipmentType {
   Mixer = 'Mixer',
   Bag = 'Bag',
@@ -70,6 +76,12 @@ export const DEPOSIT_TYPE_LABELS: Record<DepositType, string> = {
   [DepositType.Check]: 'צ׳ק',
   [DepositType.CreditCard]: 'כרטיס אשראי',
   [DepositType.Cash]: 'מזומן'
+};
+
+export const RETURN_TIME_TYPE_LABELS: Record<ReturnTimeType, string> = {
+  [ReturnTimeType.SpecificTime]: 'עד',
+  [ReturnTimeType.LateNight]: 'בלילה אחרי 11',
+  [ReturnTimeType.NextMorning]: 'עד 8 בבוקר'
 };
 
 export const LOANED_EQUIPMENT_LABELS: Record<LoanedEquipmentType, string> = {

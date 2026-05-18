@@ -11,6 +11,7 @@ import {
   EQUIPMENT_TYPE_ORDER,
   EquipmentType,
   LOANED_EQUIPMENT_LABELS,
+  ReturnTimeType,
   TIME_SLOT_LABELS,
   TimeSlot
 } from '../../core/models/enums';
@@ -59,14 +60,25 @@ interface GridCell {
   timeSlot: TimeSlot;
 }
 
+interface GridSlotSegment {
+  key: string;
+  cell: GridCell;
+  colspan: number;
+  orders: OrderDto[];
+  merged: boolean;
+  verticalPosition: 'single' | 'top' | 'middle' | 'bottom';
+  renderDetails: boolean;
+  renderAddAnother: boolean;
+}
+
 interface GridRow {
   date: Date;
   dayLabel: string;
   hebrewDate: string;
   gregorian: string;
   isShabbat: boolean;
-  morning: GridCell[] | null;
-  evening: GridCell[] | null;
+  morning: GridSlotSegment[] | null;
+  evening: GridSlotSegment[] | null;
 }
 
 const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -104,6 +116,15 @@ const LEAP_HEBREW_MONTH_OPTIONS = [
   ...COMMON_HEBREW_MONTH_OPTIONS.slice(0, 11),
   { value: months.ADAR_I, label: "אדר א׳ (Adar I)" },
   { value: months.ADAR_II, label: "אדר ב׳ (Adar II)" }
+] as const;
+
+const ORDER_COLORS = [
+  { bg: '#dbeafe', border: '#60a5fa' },
+  { bg: '#dcfce7', border: '#4ade80' },
+  { bg: '#fef3c7', border: '#f59e0b' },
+  { bg: '#ede9fe', border: '#8b5cf6' },
+  { bg: '#cffafe', border: '#06b6d4' },
+  { bg: '#ffe4e6', border: '#fb7185' }
 ] as const;
 
 @Component({
@@ -146,6 +167,7 @@ export class WeeklyGridComponent implements OnInit {
   protected readonly waitlistSaving = signal(false);
   protected readonly waitlistModalContext = signal<{ date: Date } | null>(null);
   protected readonly exportBackupInProgress = signal(false);
+  protected readonly hoveredOrderId = signal<number | null>(null);
 
   protected readonly waitlistModalForm = this.fb.group({
     equipmentType: this.fb.nonNullable.control<EquipmentType>(EQUIPMENT_TYPE_ORDER[0], Validators.required),
@@ -222,7 +244,7 @@ export class WeeklyGridComponent implements OnInit {
             return;
           }
           const sortedOrders = [...orders].sort((a, b) => {
-            const byDate = a.orderDate.localeCompare(b.orderDate);
+            const byDate = this.primaryOrderDate(a).localeCompare(this.primaryOrderDate(b));
             return byDate !== 0 ? byDate : a.id - b.id;
           });
           const sortedWaitlist = [...waitlist].sort((a, b) => {
@@ -251,10 +273,11 @@ export class WeeklyGridComponent implements OnInit {
   private orderToBackupExcelRow(o: OrderDto): Record<string, unknown> {
     return {
       מזהה: o.id,
-      'מפתח ציוד': o.equipmentType,
-      'תיאור ציוד': this.equipmentSlots.displayLabel(o.equipmentType),
-      תאריך: o.orderDate,
-      משמרת: this.timeSlotLabels[o.timeSlot],
+      'מפתח ציוד': o.equipmentDefinitionIds.join(', '),
+      'תיאור ציוד': o.equipmentDefinitionIds.map((id) => this.equipmentSlots.displayLabel(id)).join(', '),
+      תאריך: o.shifts.map((s) => s.orderDate).join(', '),
+      משמרת: o.shifts.map((s) => this.timeSlotLabels[s.timeSlot]).join(', '),
+      'שעת החזרה': this.returnTimeLabel(o),
       'שם לקוח': o.customerName ?? '',
       טלפון: o.phone,
       'טלפון 2': o.phone2 ?? '',
@@ -405,9 +428,52 @@ export class WeeklyGridComponent implements OnInit {
     return `${cell.columnId}-${cell.date.getTime()}-${cell.timeSlot}`;
   }
 
+  protected segmentTrackKey(segment: GridSlotSegment): string {
+    return segment.key;
+  }
+
   /** Label for bookings / ARIA (Hebrew display for slot keys). */
   protected cellBookingLabel(cell: GridCell): string {
     return this.equipmentSlots.displayLabel(cell.bookingSlot);
+  }
+
+  protected segmentBookingLabel(segment: GridSlotSegment): string {
+    if (segment.colspan <= 1) {
+      return this.cellBookingLabel(segment.cell);
+    }
+    return `${this.cellBookingLabel(segment.cell)} ועוד ${segment.colspan - 1}`;
+  }
+
+  protected setHoveredOrder(orderId: number | null): void {
+    this.hoveredOrderId.set(orderId);
+  }
+
+  protected isOrderHovered(orderId: number): boolean {
+    return this.hoveredOrderId() === orderId;
+  }
+
+  protected orderBlockStyle(order: OrderDto): Record<string, string> {
+    const color = ORDER_COLORS[Math.abs(order.id) % ORDER_COLORS.length]!;
+    return {
+      '--order-bg': color.bg,
+      '--order-border': color.border
+    };
+  }
+
+  protected returnTimeLabel(order: OrderDto): string {
+    switch (order.returnTimeType) {
+      case ReturnTimeType.NextMorning:
+        return 'החזרה 08:00';
+      case ReturnTimeType.SpecificTime:
+        return `החזרה ${order.customReturnTime ?? ''}`.trim();
+      case ReturnTimeType.LateNight:
+      default:
+        return 'החזרה לילה';
+    }
+  }
+
+  protected isVerticalContinuation(segment: GridSlotSegment): boolean {
+    return segment.verticalPosition === 'middle' || segment.verticalPosition === 'bottom';
   }
 
   protected isGenericExtraColumn(col: WeeklyGridColumnDef): boolean {
@@ -579,10 +645,14 @@ export class WeeklyGridComponent implements OnInit {
     const start = this.weekStart();
     const ordersByKey = new Map<string, OrderDto[]>();
     for (const order of this.orders()) {
-      const key = this.cellKey(order.equipmentType, order.orderDate, order.timeSlot);
-      const bucket = ordersByKey.get(key) ?? [];
-      bucket.push(order);
-      ordersByKey.set(key, bucket);
+      for (const equipmentId of order.equipmentDefinitionIds) {
+        for (const shift of order.shifts) {
+          const key = this.cellKey(equipmentId, shift.orderDate, shift.timeSlot);
+          const bucket = ordersByKey.get(key) ?? [];
+          bucket.push(order);
+          ordersByKey.set(key, bucket);
+        }
+      }
     }
     for (const [, list] of ordersByKey) {
       list.sort((a, b) => a.id - b.id);
@@ -596,10 +666,10 @@ export class WeeklyGridComponent implements OnInit {
       const isSaturday = day === 6;
       const iso = this.toIsoDate(date);
 
-      const buildSlot = (slotInner: TimeSlot): GridCell[] => {
+      const buildSlot = (slotInner: TimeSlot): GridSlotSegment[] => {
         const cols = this.gridColumns();
         const ordersByColumnId = this.assignOrdersToGridColumns(iso, slotInner, ordersByKey, cols);
-        return cols.map((col) => {
+        const cells = cols.map((col) => {
           const orders = ordersByColumnId.get(col.id) ?? [];
           const isMaintenance = col.isUnderMaintenance;
           return {
@@ -613,6 +683,7 @@ export class WeeklyGridComponent implements OnInit {
             timeSlot: slotInner
           };
         });
+        return this.buildSlotSegments(cells);
       };
 
       const morning = isSaturday ? null : buildSlot(TimeSlot.Morning);
@@ -633,6 +704,73 @@ export class WeeklyGridComponent implements OnInit {
 
   private cellKey(bookingSlot: string, iso: string, slot: TimeSlot): string {
     return `${bookingSlot}|${iso}|${slot}`;
+  }
+
+  private buildSlotSegments(cells: GridCell[]): GridSlotSegment[] {
+    const segments: GridSlotSegment[] = [];
+    let i = 0;
+
+    while (i < cells.length) {
+      const cell = cells[i]!;
+      const singleOrder = cell.orders.length === 1 ? cell.orders[0]! : null;
+      let colspan = 1;
+
+      if (singleOrder) {
+        while (
+          i + colspan < cells.length &&
+          cells[i + colspan]!.orders.length === 1 &&
+          cells[i + colspan]!.orders[0]!.id === singleOrder.id
+        ) {
+          colspan++;
+        }
+      }
+
+      const verticalPosition = singleOrder
+        ? this.orderVerticalPosition(singleOrder, this.toIsoDate(cell.date), cell.timeSlot)
+        : 'single';
+
+      segments.push({
+        key: `${this.cellTrackKey(cell)}-${singleOrder?.id ?? 'empty'}-${colspan}`,
+        cell,
+        colspan,
+        orders: singleOrder ? [singleOrder] : cell.orders,
+        merged: colspan > 1,
+        verticalPosition,
+        renderDetails: verticalPosition === 'single' || verticalPosition === 'top',
+        renderAddAnother: verticalPosition === 'single' || verticalPosition === 'bottom'
+      });
+      i += colspan;
+    }
+
+    return segments;
+  }
+
+  private orderVerticalPosition(
+    order: OrderDto,
+    iso: string,
+    slot: TimeSlot
+  ): GridSlotSegment['verticalPosition'] {
+    const shifts = [...(order.shifts ?? [])]
+      .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
+    const idx = shifts.findIndex((s) => s.orderDate === iso && s.timeSlot === slot);
+    if (idx < 0 || shifts.length <= 1) {
+      return 'single';
+    }
+    if (idx === 0) {
+      return 'top';
+    }
+    if (idx === shifts.length - 1) {
+      return 'bottom';
+    }
+    return 'middle';
+  }
+
+  private shiftOrder(slot: TimeSlot): number {
+    return slot === TimeSlot.Morning ? 1 : 2;
+  }
+
+  private primaryOrderDate(order: OrderDto): string {
+    return order.shifts[0]?.orderDate ?? '';
   }
 
   private assignOrdersToGridColumns(

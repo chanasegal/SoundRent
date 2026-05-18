@@ -159,6 +159,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<string>("CustomReturnTime")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("CustomerName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -170,20 +174,12 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int?>("DepositType")
                         .HasColumnType("integer");
 
-                    b.Property<string>("EquipmentType")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<bool>("IsPaid")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
-
-                    b.Property<DateOnly>("OrderDate")
-                        .HasColumnType("date");
 
                     b.Property<decimal?>("PaymentAmount")
                         .HasColumnType("decimal(18,2)");
@@ -197,15 +193,31 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
-                    b.Property<int>("TimeSlot")
-                        .HasColumnType("integer");
+                    b.Property<int>("ReturnTimeType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2);
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EquipmentType", "OrderDate", "TimeSlot")
-                        .HasDatabaseName("IX_Orders_Equipment_Date_TimeSlot");
-
                     b.ToTable("Orders", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderEquipment", b =>
+                {
+                    b.Property<int>("OrderId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EquipmentDefinitionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("OrderId", "EquipmentDefinitionId");
+
+                    b.HasIndex("EquipmentDefinitionId")
+                        .HasDatabaseName("IX_OrderEquipments_EquipmentDefinitionId");
+
+                    b.ToTable("OrderEquipments", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderLoanedEquipment", b =>
@@ -235,6 +247,25 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_OrderLoanedEquipments_Order_Type_Unique");
 
                     b.ToTable("OrderLoanedEquipments", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderShift", b =>
+                {
+                    b.Property<int>("OrderId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("OrderDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("TimeSlot")
+                        .HasColumnType("integer");
+
+                    b.HasKey("OrderId", "OrderDate", "TimeSlot");
+
+                    b.HasIndex("OrderDate", "TimeSlot")
+                        .HasDatabaseName("IX_OrderShifts_Date_TimeSlot");
+
+                    b.ToTable("OrderShifts", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.User", b =>
@@ -319,6 +350,25 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("OrderLoanedEquipment");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderEquipment", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.EquipmentDefinition", "EquipmentDefinition")
+                        .WithMany("Orders")
+                        .HasForeignKey("EquipmentDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany("Equipments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("EquipmentDefinition");
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderLoanedEquipment", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
@@ -330,9 +380,29 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderShift", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany("Shifts")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefinition", b =>
+                {
+                    b.Navigation("Orders");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>
                 {
+                    b.Navigation("Equipments");
+
                     b.Navigation("LoanedEquipments");
+
+                    b.Navigation("Shifts");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderLoanedEquipment", b =>

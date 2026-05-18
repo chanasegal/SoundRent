@@ -128,4 +128,12 @@ C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\ref\SoundRent.Api.dll
 c:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\Npgsql.dll
 c:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\Npgsql.EntityFrameworkCore.PostgreSQL.dll
 C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\SoundRent.Api.sourcelink.json
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\ClosedXML.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\ClosedXML.Parser.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\DocumentFormat.OpenXml.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\DocumentFormat.OpenXml.Framework.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\ExcelNumberFormat.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\RBush.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SixLabors.Fonts.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\System.IO.Packaging.dll
 C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

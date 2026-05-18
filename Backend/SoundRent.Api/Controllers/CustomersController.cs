@@ -32,6 +32,13 @@ public class CustomersController : ControllerBase
         return Search(q, cancellationToken);
     }
 
+    [HttpGet("export")]
+    public async Task<FileResult> Export(CancellationToken cancellationToken)
+    {
+        var export = await _customerService.ExportToExcelAsync(cancellationToken);
+        return File(export.Content, ICustomerService.ExcelContentType, export.FileName);
+    }
+
     [HttpPost]
     public async Task<ActionResult<CustomerDto>> Upsert([FromBody] CustomerUpsertDto dto, CancellationToken cancellationToken)
     {
@@ -44,5 +51,12 @@ public class CustomersController : ControllerBase
     {
         var list = await _customerService.GetOrdersByPhone1Async(phone, cancellationToken);
         return Ok(list);
+    }
+
+    [HttpDelete("{phone}")]
+    public async Task<IActionResult> Delete(string phone, CancellationToken cancellationToken)
+    {
+        await _customerService.DeleteAsync(phone, cancellationToken);
+        return NoContent();
     }
 }

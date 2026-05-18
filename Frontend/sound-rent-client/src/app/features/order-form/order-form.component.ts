@@ -20,12 +20,14 @@ import {
   LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType,
+  RETURN_TIME_TYPE_LABELS,
+  ReturnTimeType,
   TIME_SLOT_LABELS,
   TimeSlot
 } from '../../core/models/enums';
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
-import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderLoanedEquipmentDto } from '../../core/models/order.model';
+import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
@@ -66,9 +68,8 @@ export class OrderFormComponent implements OnInit {
   protected readonly timeSlots: TimeSlot[] = [TimeSlot.Morning, TimeSlot.Evening];
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
 
-  /** Shifts allowed for the current Gregorian `orderDate` (Friday → morning only, Saturday → evening only). */
-  protected availableTimeSlots(): TimeSlot[] {
-    const iso = this.form.controls['orderDate'].value;
+  /** Shifts allowed for a Gregorian date (Friday → morning only, Saturday → evening only). */
+  protected availableTimeSlots(iso = this.form.controls['startDate']?.value as string): TimeSlot[] {
     const d = typeof iso === 'string' ? this.hebrew.parseIso(iso) : null;
     if (!d) {
       return this.timeSlots;
@@ -84,12 +85,62 @@ export class OrderFormComponent implements OnInit {
   }
 
   /** Used in the template: invalid shift options stay visible but disabled (no helper text). */
-  protected isTimeSlotSelectable(slot: TimeSlot): boolean {
-    return this.availableTimeSlots().includes(slot);
+  protected isStartShiftSelectable(slot: TimeSlot): boolean {
+    return this.availableTimeSlots(this.form.controls['startDate'].value as string).includes(slot);
+  }
+
+  protected isEndShiftSelectable(slot: TimeSlot): boolean {
+    return this.availableTimeSlots(this.form.controls['endDate'].value as string).includes(slot);
   }
 
   protected slotDropdownLabel(slot: string): string {
     return this.equipmentSlots.displayLabel(slot);
+  }
+
+  protected isEquipmentSelected(slot: string): boolean {
+    return this.selectedEquipmentIdsControl.value.includes(slot);
+  }
+
+  protected readonly equipmentDropdownOpen = signal(false);
+
+  protected toggleEquipmentDropdown(): void {
+    this.equipmentDropdownOpen.update((open) => !open);
+  }
+
+  protected selectedEquipmentSummary(): string {
+    const selected = this.selectedEquipmentIdsControl.value ?? [];
+    if (selected.length === 0) {
+      return 'בחרו תאי ציוד';
+    }
+    if (selected.length <= 2) {
+      return selected.map((id) => this.slotDropdownLabel(id)).join(', ');
+    }
+    return `${selected.length} תאי ציוד נבחרו`;
+  }
+
+  protected toggleEquipmentSelection(slot: string, checked: boolean): void {
+    const current = this.selectedEquipmentIdsControl.value ?? [];
+    const next = checked
+      ? [...current, slot]
+      : current.filter((id) => id !== slot);
+    this.selectedEquipmentIdsControl.setValue([...new Set(next)]);
+    this.selectedEquipmentIdsControl.markAsTouched();
+    this.slotCheckTrigger$.next();
+  }
+
+  protected selectedShiftRows(): OrderShiftDto[] {
+    return (this.selectedShiftSlots.getRawValue() as OrderShiftDto[])
+      .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || Number(a.timeSlot) - Number(b.timeSlot));
+  }
+
+  protected formatSelectedShiftDate(iso: string): string {
+    const d = this.hebrew.parseIso(iso);
+    return d ? this.hebrew.formatGregorianWithDayName(d) : iso;
+  }
+
+  protected rangeSummary(): string {
+    const rows = this.selectedShiftRows();
+    return rows.length === 0 ? 'לא נוצרו מועדים' : `${rows.length} משמרות רצופות`;
   }
 
   protected readonly depositTypes: DepositType[] = [
@@ -98,6 +149,13 @@ export class OrderFormComponent implements OnInit {
     DepositType.Cash
   ];
   protected readonly depositTypeLabels = DEPOSIT_TYPE_LABELS;
+  protected readonly returnTimeTypes: ReturnTimeType[] = [
+    ReturnTimeType.SpecificTime,
+    ReturnTimeType.LateNight,
+    ReturnTimeType.NextMorning
+  ];
+  protected readonly returnTimeTypeLabels = RETURN_TIME_TYPE_LABELS;
+  protected readonly returnTimeTypeEnum = ReturnTimeType;
 
   protected readonly editingId = signal<number | null>(null);
   protected readonly isEdit = computed(() => this.editingId() !== null);
@@ -126,16 +184,11 @@ export class OrderFormComponent implements OnInit {
     });
 
     effect(() => {
-      const ids = this.bookingEquipmentSlotIds();
-      const cur = this.form.controls['equipmentType'].value as string;
-      if (typeof cur !== 'string' || cur.length === 0) {
-        return;
-      }
-      if (!ids.includes(cur)) {
-        const next = ids[0] ?? this.equipmentSlots.firstAvailableSpeakerSlotId();
-        if (next && next !== cur) {
-          untracked(() => this.form.patchValue({ equipmentType: next }, { emitEvent: true }));
-        }
+      const ids = new Set(this.bookingEquipmentSlotIds());
+      const current = this.selectedEquipmentIdsControl.value ?? [];
+      const next = current.filter((id) => ids.has(id));
+      if (next.length !== current.length) {
+        untracked(() => this.selectedEquipmentIdsControl.setValue(next, { emitEvent: true }));
       }
     });
   }
@@ -228,6 +281,14 @@ export class OrderFormComponent implements OnInit {
     return this.form.get('loanedEquipments') as FormArray;
   }
 
+  protected get selectedEquipmentIdsControl(): FormControl<string[]> {
+    return this.form.get('equipmentDefinitionIds') as FormControl<string[]>;
+  }
+
+  protected get selectedShiftSlots(): FormArray {
+    return this.form.get('shifts') as FormArray;
+  }
+
   protected getRowGroup(index: number): FormGroup {
     return this.equipmentList.at(index) as FormGroup;
   }
@@ -283,7 +344,7 @@ export class OrderFormComponent implements OnInit {
     queueMicrotask(() => this.resetScrollForOrderForm());
 
     this.wireSlotAvailabilityCheck();
-    this.wireHebrewSync();
+    this.wireRangeSync();
     this.wireCustomerPhoneLookup();
     this.wireLoanedEquipmentQuantitySync();
 
@@ -314,7 +375,7 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    const eq = normalizeOrderEquipmentQueryParam(qp.get('equipment'), (id) => this.equipmentSlots.hasSpeakerSlot(id));
+    const eq = normalizeOrderEquipmentQueryParam(qp.get('equipment'), (id: string) => this.equipmentSlots.hasSpeakerSlot(id));
     const date = qp.get('date');
     const slotRaw = qp.get('slot');
     const customerName = qp.get('customerName');
@@ -323,12 +384,13 @@ export class OrderFormComponent implements OnInit {
 
     const patch: Record<string, unknown> = {};
     if (eq) {
-      patch['equipmentType'] = eq;
+      patch['equipmentDefinitionIds'] = [eq];
     }
     if (slotRaw !== null && slotRaw !== '') {
-      const slotNum = Number(slotRaw);
-      if (!Number.isNaN(slotNum)) {
-        patch['timeSlot'] = slotNum as unknown as TimeSlot;
+      const slot = this.parseTimeSlotQueryParam(slotRaw);
+      if (slot !== null) {
+        patch['startShift'] = slot;
+        patch['endShift'] = slot;
       }
     }
     if (customerName) {
@@ -340,13 +402,27 @@ export class OrderFormComponent implements OnInit {
     if (notes) {
       patch['notes'] = notes;
     }
+    if (date) {
+      patch['startDate'] = date;
+      patch['endDate'] = date;
+    }
 
     if (Object.keys(patch).length > 0) {
       this.form.patchValue(patch as never, { emitEvent: true });
     }
-    if (date) {
-      this.setHebrewFromIso(date, true);
+
+    this.syncShiftsFromRange();
+  }
+
+  private parseTimeSlotQueryParam(raw: string): TimeSlot | null {
+    const value = raw.trim();
+    if (value === TimeSlot.Morning || value === '1') {
+      return TimeSlot.Morning;
     }
+    if (value === TimeSlot.Evening || value === '2') {
+      return TimeSlot.Evening;
+    }
+    return null;
   }
 
   protected submit(): void {
@@ -403,8 +479,23 @@ export class OrderFormComponent implements OnInit {
     if (this.form.errors?.['orderDateInPast']) {
       return 'לא ניתן לשמור הזמנה לתאריך שעבר';
     }
+    if (this.form.errors?.['shiftsRequired']) {
+      return 'יש להוסיף לפחות תאריך ומשמרת אחת להזמנה';
+    }
+    if (this.form.errors?.['rangeInvalid']) {
+      return 'מועד הסיום חייב להיות אחרי מועד ההתחלה';
+    }
+    if (this.form.errors?.['selectedShiftInPast']) {
+      return 'לא ניתן לשמור הזמנה עם משמרת מתאריך שעבר';
+    }
     if (this.form.errors?.['shiftNotAllowedForDate']) {
       return 'המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר, שבת — ערב)';
+    }
+    if (this.selectedEquipmentIdsControl.errors?.['required']) {
+      return 'יש לבחור לפחות תא ציוד אחד';
+    }
+    if (this.form.errors?.['returnTimeRequired']) {
+      return 'יש להזין שעת החזרה';
     }
     const phoneCtrl = this.form.controls['phone'];
     const phone2Ctrl = this.form.controls['phone2'];
@@ -477,16 +568,19 @@ export class OrderFormComponent implements OnInit {
           }
           this.existingCustomerMatch.set(null);
           this.toast.success(id !== null ? 'ההזמנה עודכנה בהצלחה' : 'ההזמנה נשמרה בהצלחה');
-          this.navigateAfterOrderFlow(saved.orderDate);
+          this.navigateAfterOrderFlow(saved.shifts?.[0]?.orderDate);
         }
       });
   }
 
   protected clearForm(): void {
     this.form.reset({
-      equipmentType: this.form.controls['equipmentType'].value,
-      orderDate: this.form.controls['orderDate'].value,
-      timeSlot: this.form.controls['timeSlot'].value,
+      equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
+      startDate: this.form.controls['startDate'].value,
+      startShift: TimeSlot.Morning,
+      endDate: this.form.controls['startDate'].value,
+      endShift: TimeSlot.Morning,
+      orderDate: this.form.controls['startDate'].value,
       hebrewYear: this.form.controls['hebrewYear'].value,
       hebrewMonth: this.form.controls['hebrewMonth'].value,
       hebrewDay: this.form.controls['hebrewDay'].value,
@@ -498,8 +592,12 @@ export class OrderFormComponent implements OnInit {
       depositOnName: '',
       paymentAmount: null,
       isPaid: false,
+      returnTimeType: ReturnTimeType.LateNight,
+      customReturnTime: '',
       notes: ''
     });
+    this.selectedShiftSlots.clear();
+    this.syncShiftsFromRange();
     this.equipmentList.controls.forEach((row, idx) => {
       const type = LOANED_EQUIPMENT_ORDER[idx]!;
       const g = row as FormGroup;
@@ -511,7 +609,7 @@ export class OrderFormComponent implements OnInit {
       }
     });
     this.existingCustomerMatch.set(null);
-    this.syncFromHebrew();
+    this.syncShiftsFromRange();
     this.toast.show('הטופס נוקה', 'info');
   }
 
@@ -530,7 +628,7 @@ export class OrderFormComponent implements OnInit {
             return;
           }
           this.toast.success('ההזמנה נמחקה בהצלחה');
-          const iso = this.form.controls['orderDate'].value;
+          const iso = this.form.controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }
       });
@@ -547,9 +645,13 @@ export class OrderFormComponent implements OnInit {
 
     return this.fb.group(
       {
-        equipmentType: this.fb.nonNullable.control<string>(this.equipmentSlots.firstSlotId(), Validators.required),
+        equipmentDefinitionIds: this.fb.nonNullable.control<string[]>([], Validators.required),
+        startDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
+        startShift: this.fb.nonNullable.control<TimeSlot>(TimeSlot.Morning, Validators.required),
+        endDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
+        endShift: this.fb.nonNullable.control<TimeSlot>(TimeSlot.Morning, Validators.required),
         orderDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
-        timeSlot: this.fb.nonNullable.control<TimeSlot>(TimeSlot.Morning, Validators.required),
+        shifts: this.fb.array([]),
 
         hebrewYear: this.fb.nonNullable.control<number>(parts.year, Validators.required),
         hebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
@@ -563,6 +665,8 @@ export class OrderFormComponent implements OnInit {
         depositOnName: ['', Validators.maxLength(100)],
         paymentAmount: [null as number | null, [Validators.min(0)]],
         isPaid: [false],
+        returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(ReturnTimeType.LateNight, Validators.required),
+        customReturnTime: ['', Validators.maxLength(20)],
         notes: ['', Validators.maxLength(1000)],
 
         loanedEquipments: this.fb.array(
@@ -579,7 +683,11 @@ export class OrderFormComponent implements OnInit {
         // "Cannot read properties of undefined (reading 'validate')".
         validators: [
           (group: AbstractControl) => this.orderDateNotInPastValidator(group),
-          (group: AbstractControl) => this.timeSlotAllowedForOrderDateValidator(group)
+          (group: AbstractControl) => this.rangeOrderValidator(group),
+          (group: AbstractControl) => this.shiftsRequiredValidator(group),
+          (group: AbstractControl) => this.selectedShiftsNotInPastValidator(group),
+          (group: AbstractControl) => this.selectedShiftsAllowedValidator(group),
+          (group: AbstractControl) => this.returnTimeValidator(group)
         ]
       }
     );
@@ -620,41 +728,100 @@ export class OrderFormComponent implements OnInit {
     if (this.editingId() !== null) {
       return null;
     }
-    const iso = group.get('orderDate')?.value;
-    if (typeof iso !== 'string' || iso.length === 0) return null;
-
-    const selected = this.hebrew.parseIso(iso);
-    if (!selected) return null;
+    const dates = [group.get('startDate')?.value, group.get('endDate')?.value]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    if (dates.length === 0) return null;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    selected.setHours(0, 0, 0, 0);
 
-    return selected.getTime() < today.getTime() ? { orderDateInPast: true } : null;
+    for (const iso of dates) {
+      const selected = this.hebrew.parseIso(iso);
+      if (!selected) continue;
+      selected.setHours(0, 0, 0, 0);
+      if (selected.getTime() < today.getTime()) {
+        return { orderDateInPast: true };
+      }
+    }
+
+    return null;
+  }
+
+  private rangeOrderValidator(group: AbstractControl): ValidationErrors | null {
+    const startDate = group.get('startDate')?.value as string | undefined;
+    const endDate = group.get('endDate')?.value as string | undefined;
+    const startShift = group.get('startShift')?.value as TimeSlot | undefined;
+    const endShift = group.get('endShift')?.value as TimeSlot | undefined;
+    if (!startDate || !endDate || startShift == null || endShift == null) {
+      return null;
+    }
+    return this.compareShiftEndpoints(startDate, startShift, endDate, endShift) <= 0
+      ? null
+      : { rangeInvalid: true };
+  }
+
+  private shiftsRequiredValidator(group: AbstractControl): ValidationErrors | null {
+    const shifts = group.get('shifts') as FormArray | null;
+    return shifts && shifts.length > 0 ? null : { shiftsRequired: true };
+  }
+
+  private selectedShiftsNotInPastValidator(group: AbstractControl): ValidationErrors | null {
+    if (this.editingId() !== null) {
+      return null;
+    }
+    const shifts = (group.get('shifts') as FormArray | null)?.getRawValue() as OrderShiftDto[] | undefined;
+    if (!shifts || shifts.length === 0) {
+      return null;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (const shift of shifts) {
+      const d = this.hebrew.parseIso(shift.orderDate);
+      if (!d) {
+        continue;
+      }
+      d.setHours(0, 0, 0, 0);
+      if (d.getTime() < today.getTime()) {
+        return { selectedShiftInPast: true };
+      }
+    }
+    return null;
   }
 
   /**
    * Friday (JS weekday 5) → Morning only; Saturday (6) → Evening only.
    * Keeps the form invalid if `timeSlot` and `orderDate` disagree (e.g. tampering or timing edge cases).
    */
-  private timeSlotAllowedForOrderDateValidator(group: AbstractControl): ValidationErrors | null {
-    const iso = group.get('orderDate')?.value;
-    const slot = group.get('timeSlot')?.value as TimeSlot | undefined;
-    if (typeof iso !== 'string' || iso.length === 0 || slot === undefined || slot === null) {
+  private selectedShiftsAllowedValidator(group: AbstractControl): ValidationErrors | null {
+    const shifts = (group.get('shifts') as FormArray | null)?.getRawValue() as OrderShiftDto[] | undefined;
+    if (!shifts || shifts.length === 0) {
       return null;
     }
-    const d = this.hebrew.parseIso(iso);
-    if (!d) {
-      return null;
-    }
-    const dow = d.getDay();
-    if (dow === 5 && slot !== TimeSlot.Morning) {
-      return { shiftNotAllowedForDate: true };
-    }
-    if (dow === 6 && slot !== TimeSlot.Evening) {
-      return { shiftNotAllowedForDate: true };
+    for (const shift of shifts) {
+      const d = this.hebrew.parseIso(shift.orderDate);
+      if (!d) {
+        continue;
+      }
+      const dow = d.getDay();
+      if (dow === 5 && shift.timeSlot !== TimeSlot.Morning) {
+        return { shiftNotAllowedForDate: true };
+      }
+      if (dow === 6 && shift.timeSlot !== TimeSlot.Evening) {
+        return { shiftNotAllowedForDate: true };
+      }
     }
     return null;
+  }
+
+  private returnTimeValidator(group: AbstractControl): ValidationErrors | null {
+    const type = group.get('returnTimeType')?.value as ReturnTimeType | undefined;
+    const custom = group.get('customReturnTime')?.value;
+    if (type !== ReturnTimeType.SpecificTime) {
+      return null;
+    }
+    return typeof custom === 'string' && custom.trim().length > 0
+      ? null
+      : { returnTimeRequired: true };
   }
 
   // -----------------------------------------------------------------
@@ -682,11 +849,11 @@ export class OrderFormComponent implements OnInit {
    * collapse to "not taken", never blocking the user from saving.
    */
   private wireSlotAvailabilityCheck(): void {
-    this.form.controls['equipmentType'].valueChanges
+    this.selectedEquipmentIdsControl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.slotCheckTrigger$.next());
 
-    this.form.controls['timeSlot'].valueChanges
+    this.selectedShiftSlots.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.slotCheckTrigger$.next());
 
@@ -694,21 +861,115 @@ export class OrderFormComponent implements OnInit {
       .pipe(
         debounceTime(200),
         switchMap(() => {
-          const equipmentType = this.form.controls['equipmentType'].value as string;
-          const orderDate = this.form.controls['orderDate'].value as string;
-          const timeSlot = this.form.controls['timeSlot'].value as TimeSlot;
+          const equipmentType = this.selectedEquipmentIdsControl.value[0];
+          const selectedShift = (this.selectedShiftSlots.getRawValue() as OrderShiftDto[])[0];
 
-          if (!this.equipmentSlots.hasSpeakerSlot(equipmentType) || !orderDate || !timeSlot) {
+          if (!equipmentType || !this.equipmentSlots.hasSpeakerSlot(equipmentType) || !selectedShift) {
             return of({ taken: false });
           }
 
           const excludeId = this.editingId() ?? undefined;
-          return this.data.checkSlotTaken(equipmentType, orderDate, timeSlot, excludeId);
+          return this.data.checkSlotTaken(equipmentType, selectedShift.orderDate, selectedShift.timeSlot, excludeId);
         }),
         distinctUntilChanged((a, b) => a.taken === b.taken),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((result) => this.slotTakenSig.set(result.taken));
+  }
+
+  private wireRangeSync(): void {
+    const controls = [
+      this.form.controls['startDate'],
+      this.form.controls['startShift'],
+      this.form.controls['endDate'],
+      this.form.controls['endShift']
+    ];
+    for (const control of controls) {
+      control.valueChanges
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(() => this.syncShiftsFromRange());
+    }
+    this.syncShiftsFromRange();
+  }
+
+  private syncShiftsFromRange(): void {
+    const startDate = this.form.controls['startDate'].value as string;
+    const endDate = this.form.controls['endDate'].value as string;
+    let startShift = this.form.controls['startShift'].value as TimeSlot;
+    let endShift = this.form.controls['endShift'].value as TimeSlot;
+    const startAllowed = this.availableTimeSlots(startDate);
+    const endAllowed = this.availableTimeSlots(endDate);
+    if (!startAllowed.includes(startShift)) {
+      startShift = startAllowed[0] ?? TimeSlot.Morning;
+      this.form.controls['startShift'].setValue(startShift, { emitEvent: false });
+    }
+    if (!endAllowed.includes(endShift)) {
+      endShift = endAllowed[endAllowed.length - 1] ?? TimeSlot.Evening;
+      this.form.controls['endShift'].setValue(endShift, { emitEvent: false });
+    }
+    const shifts = this.generateContinuousShifts(startDate, startShift, endDate, endShift);
+
+    this.selectedShiftSlots.clear({ emitEvent: false });
+    for (const shift of shifts) {
+      this.selectedShiftSlots.push(this.fb.group({
+        orderDate: this.fb.nonNullable.control(shift.orderDate),
+        timeSlot: this.fb.nonNullable.control(shift.timeSlot)
+      }), { emitEvent: false });
+    }
+    this.form.controls['orderDate'].setValue(startDate, { emitEvent: false });
+    this.form.updateValueAndValidity({ emitEvent: false });
+    this.slotCheckTrigger$.next();
+  }
+
+  private generateContinuousShifts(
+    startDate: string,
+    startShift: TimeSlot,
+    endDate: string,
+    endShift: TimeSlot
+  ): OrderShiftDto[] {
+    if (!startDate || !endDate || startShift == null || endShift == null) {
+      return [];
+    }
+    if (this.compareShiftEndpoints(startDate, startShift, endDate, endShift) > 0) {
+      return [];
+    }
+
+    const start = this.hebrew.parseIso(startDate);
+    const end = this.hebrew.parseIso(endDate);
+    if (!start || !end) {
+      return [];
+    }
+
+    const shifts: OrderShiftDto[] = [];
+    for (let d = new Date(start); d.getTime() <= end.getTime(); d.setDate(d.getDate() + 1)) {
+      const iso = this.toIso(d);
+      for (const timeSlot of this.availableTimeSlots(iso)) {
+        if (
+          this.compareShiftEndpoints(iso, timeSlot, startDate, startShift) >= 0 &&
+          this.compareShiftEndpoints(iso, timeSlot, endDate, endShift) <= 0
+        ) {
+          shifts.push({ orderDate: iso, timeSlot });
+        }
+      }
+    }
+    return shifts;
+  }
+
+  private compareShiftEndpoints(
+    aDate: string,
+    aShift: TimeSlot,
+    bDate: string,
+    bShift: TimeSlot
+  ): number {
+    const byDate = aDate.localeCompare(bDate);
+    if (byDate !== 0) {
+      return byDate;
+    }
+    return this.shiftOrder(aShift) - this.shiftOrder(bShift);
+  }
+
+  private shiftOrder(slot: TimeSlot): number {
+    return slot === TimeSlot.Morning ? 1 : 2;
   }
 
   /**
@@ -965,7 +1226,7 @@ export class OrderFormComponent implements OnInit {
     if (!d) {
       return;
     }
-    const slotCtrl = this.form.controls['timeSlot'];
+    const slotCtrl = this.form.controls['startShift'];
     const current = slotCtrl.value as TimeSlot;
     const dow = d.getDay();
     if (dow === 5 && current !== TimeSlot.Morning) {
@@ -1032,12 +1293,18 @@ export class OrderFormComponent implements OnInit {
           return;
         }
         this.existingCustomerMatch.set(null);
+        const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
+          .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));
+        const shifts = [...(order.shifts ?? [])]
+          .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
+        const firstShift = shifts[0];
+        const lastShift = shifts[shifts.length - 1];
         this.form.patchValue({
-          equipmentType: this.equipmentSlots.hasSpeakerSlot(order.equipmentType)
-            ? order.equipmentType
-            : (normalizeOrderEquipmentQueryParam(order.equipmentType, (id) =>
-                this.equipmentSlots.hasSpeakerSlot(id)) ?? this.equipmentSlots.firstSlotId()),
-          timeSlot: order.timeSlot,
+          equipmentDefinitionIds,
+          startDate: firstShift?.orderDate ?? this.form.controls['startDate'].value,
+          startShift: firstShift?.timeSlot ?? TimeSlot.Morning,
+          endDate: lastShift?.orderDate ?? firstShift?.orderDate ?? this.form.controls['endDate'].value,
+          endShift: lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning,
           customerName: order.customerName ?? '',
           phone: order.phone,
           phone2: order.phone2 ?? '',
@@ -1046,12 +1313,11 @@ export class OrderFormComponent implements OnInit {
           depositOnName: order.depositOnName ?? '',
           paymentAmount: order.paymentAmount ?? null,
           isPaid: order.isPaid,
+          returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
+          customReturnTime: order.customReturnTime ?? '',
           notes: order.notes ?? ''
         });
-
-        // Hebrew (master) fields drive `orderDate`, so populate them from the
-        // stored Gregorian value — this also refreshes the display string.
-        this.setHebrewFromIso(order.orderDate);
+        this.syncShiftsFromRange();
 
         // Map server rows → 16 form rows by type.
         const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
@@ -1114,9 +1380,8 @@ export class OrderFormComponent implements OnInit {
       });
 
     return {
-      equipmentType: v['equipmentType'] as string,
-      orderDate: v['orderDate'] as string,
-      timeSlot: v['timeSlot'] as TimeSlot,
+      equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
+      shifts: this.selectedShiftSlots.getRawValue() as OrderShiftDto[],
       customerName: this.optionalText(v['customerName']),
       phone: (v['phone'] as string).trim(),
       phone2: this.optionalText(v['phone2']),
@@ -1127,6 +1392,10 @@ export class OrderFormComponent implements OnInit {
         ? null
         : Math.max(0, Math.trunc(Number(v['paymentAmount']))),
       isPaid: !!v['isPaid'],
+      returnTimeType: (v['returnTimeType'] as ReturnTimeType | null) ?? ReturnTimeType.LateNight,
+      customReturnTime: (v['returnTimeType'] as ReturnTimeType | null) === ReturnTimeType.SpecificTime
+        ? this.optionalText(v['customReturnTime'])
+        : null,
       notes: this.optionalText(v['notes']),
       loanedEquipments: loaned,
       // Always allow saving — the form no longer guards against duplicate

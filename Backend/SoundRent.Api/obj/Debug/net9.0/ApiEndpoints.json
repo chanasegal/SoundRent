@@ -79,6 +79,22 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.CustomersController",
+    "Method": "Delete",
+    "RelativePath": "api/Customers/{phone}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "phone",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.CustomersController",
     "Method": "Orders",
     "RelativePath": "api/Customers/{phone}/orders",
     "HttpMethod": "GET",
@@ -102,6 +118,16 @@
         "StatusCode": 200
       }
     ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.CustomersController",
+    "Method": "Export",
+    "RelativePath": "api/Customers/export",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.CustomersController",

@@ -302,7 +302,6 @@
 
   .header-maintenance-icon {
     font-size: 0.75em;
-    line-height: 1;
   }
 
   .cell {
@@ -325,10 +324,7 @@
   .cell-slot {
     font-size: 0.65rem;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     color: #475569;
-    margin-bottom: 0.25rem;
   }
 
   .cell-empty {
@@ -395,12 +391,6 @@
       direction: ltr;
     }
 
-    &:hover {
-      background-color: #bfdbfe;
-      border-color: #60a5fa;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px -4px rgba(30, 64, 175, 0.3);
-    }
   }
 
   .cell-stack {
@@ -420,29 +410,91 @@
     }
   }
 
+  .vertical-merged-host {
+    padding: 0 !important;
+    background: var(--order-bg, transparent);
+  }
+
+  .merged-cell-host.vertical-merged-host {
+    background: var(--order-bg, transparent);
+  }
+
+  .cell-merged {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-color: var(--order-border, #60a5fa);
+    background: var(--order-bg, #eff6ff);
+
+    .cell-order-list,
+    .cell-order-block {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  .cell-vertical-single,
+  .cell-vertical-top,
+  .cell-vertical-middle,
+  .cell-vertical-bottom {
+    min-height: 78px;
+    height: 100%;
+    padding: 0;
+    border-color: var(--order-border, #60a5fa);
+    background: var(--order-bg, #eff6ff);
+
+    .cell-order-block {
+      min-height: 0;
+      height: 100%;
+      border-inline: 0;
+      border-color: var(--order-border, #60a5fa);
+    }
+  }
+
+  .cell-vertical-top {
+    border-bottom: 0;
+    border-radius: 0.5rem 0.5rem 0 0;
+
+    .cell-order-block {
+      border-bottom: 0;
+      border-radius: 0.45rem 0.45rem 0 0;
+    }
+  }
+
+  .cell-vertical-middle {
+    border-block: 0;
+    border-radius: 0;
+
+    .cell-order-block {
+      border-block: 0;
+      border-radius: 0;
+    }
+  }
+
+  .cell-vertical-bottom {
+    border-top: 0;
+    border-radius: 0 0 0.5rem 0.5rem;
+
+    .cell-order-block {
+      border-top: 0;
+      border-radius: 0 0 0.45rem 0.45rem;
+    }
+  }
+
   .cell-double-row {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
     margin: 0.15rem 0 0.35rem;
-    flex-wrap: wrap;
-  }
-
-  .cell-warn {
-    font-size: 0.85rem;
-    line-height: 1;
   }
 
   .cell-double-badge {
     font-size: 0.62rem;
     font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     color: #b45309;
     background: #fef3c7;
     border: 1px solid #fcd34d;
-    border-radius: 9999px;
     padding: 0.1rem 0.45rem;
   }
 
@@ -450,6 +502,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+    flex: 1 1 auto;
     width: 100%;
   }
 
@@ -460,16 +513,16 @@
     width: 100%;
     padding: 0.35rem 0.25rem;
     border-radius: 0.4rem;
-    border: 1px solid #93c5fd;
-    background: #eff6ff;
+    border: 1px solid var(--order-border, #93c5fd);
+    background: var(--order-bg, #eff6ff);
     cursor: pointer;
     text-align: center;
     line-height: 1.2;
-    transition: background 0.12s ease, border-color 0.12s ease;
 
-    &:hover {
-      background: #dbeafe;
-      border-color: #3b82f6;
+    &.order-hovered {
+      border-color: var(--order-border, #3b82f6);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--order-border, #3b82f6) 45%, transparent);
+      transform: scale(1.015);
     }
 
     .cell-name {
@@ -479,10 +532,24 @@
     .cell-phone {
       font-size: 0.68rem;
     }
+
+    .cell-return-time {
+      max-width: 100%;
+      overflow: hidden;
+      font-size: 0.64rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .cell-order-block--continuation {
+    border-block: 0;
+    border-radius: 0;
+    padding: 0;
   }
 
   .cell-add-another {
-    margin-top: 0.35rem;
+    margin-top: auto;
     width: 100%;
     padding: 0.25rem 0.2rem;
     border: none;

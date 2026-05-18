@@ -15,6 +15,12 @@ public interface IOrderRepository
 
     Task<bool> ExistsForSlotAsync(string equipmentType, DateOnly orderDate, TimeSlot timeSlot, int? excludeOrderId = null, CancellationToken cancellationToken = default);
 
+    Task<OrderSlotConflictDto?> FindSlotConflictAsync(
+        IReadOnlyCollection<string> equipmentDefinitionIds,
+        IReadOnlyCollection<OrderShiftDto> shifts,
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<EquipmentDefinitionDeleteFutureOrderDto>> GetFutureOrdersForEquipmentTypeAsync(
         string equipmentType,
         DateOnly todayInclusive,
@@ -34,5 +40,10 @@ public interface IOrderRepository
     /// <summary>Orders whose primary or secondary phone matches any of the given digit strings.</summary>
     Task<List<Order>> GetOrdersForCustomerPhonesAsync(
         IReadOnlyCollection<string> normalizedDigitPhones,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasActiveOrFutureOrdersForCustomerPhonesAsync(
+        IReadOnlyCollection<string> normalizedDigitPhones,
+        DateOnly todayInclusive,
         CancellationToken cancellationToken = default);
 }

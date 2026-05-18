@@ -20,97 +20,103 @@
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי המשמרת</h2>
 
-      <div class="slot-row">
-        <div class="slot-field slot-field--equipment">
-          <label class="form-label">סוג ציוד <span class="text-rose-500">*</span></label>
-          <div class="slot-field__fill">
-            <div class="slot-field__control-wrap">
-              <select formControlName="equipmentType" class="form-input form-input--compact w-full">
+      <div class="reservation-row">
+        <div class="reservation-field reservation-field--equipment">
+          <label class="form-label">תאי ציוד <span class="text-rose-500">*</span></label>
+          <div class="multi-select">
+            <button type="button" class="multi-select__trigger" (click)="toggleEquipmentDropdown()">
+              <span>{{ selectedEquipmentSummary() }}</span>
+              <span class="multi-select__chevron">▾</span>
+            </button>
+            @if (equipmentDropdownOpen()) {
+              <div class="multi-select__panel">
                 @for (slot of bookingEquipmentSlotIds(); track slot) {
-                  <option [value]="slot">{{ slotDropdownLabel(slot) }}</option>
+                  <label class="multi-select__option">
+                    <input
+                      type="checkbox"
+                      [checked]="isEquipmentSelected(slot)"
+                      (change)="toggleEquipmentSelection(slot, $any($event.target).checked)"
+                    />
+                    <span>{{ slotDropdownLabel(slot) }}</span>
+                  </label>
                 } @empty {
-                  <option value="">אין תאי רמקול זמינים</option>
+                  <p class="text-sm text-slate-500">אין תאי רמקול זמינים</p>
                 }
-              </select>
-            </div>
-          </div>
-          <div class="field-message-anchor field-message-anchor--equipment-foot" aria-hidden="true">
-            <div class="field-message-anchor__content"></div>
-          </div>
-        </div>
-
-        <div class="slot-field slot-field--shift">
-          <label class="form-label">משמרת <span class="text-rose-500">*</span></label>
-          <div class="slot-field__fill">
-            <div class="slot-field__control-wrap">
-              <select formControlName="timeSlot" class="form-input form-input--compact w-full">
-                @for (slot of timeSlots; track slot) {
-                  <option [ngValue]="slot" [disabled]="!isTimeSlotSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
-                }
-              </select>
-            </div>
-          </div>
-          <div class="field-message-anchor field-message-anchor--shift-invalid">
-            <div class="field-message-anchor__content">
-              @if (form.errors?.['shiftNotAllowedForDate']) {
-                <p class="form-error">המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- Hebrew date — master input; `orderDate` stays in sync for the API (not shown). -->
-        <div class="slot-field slot-field--date">
-          <label class="form-label">תאריך עברי <span class="text-rose-500">*</span></label>
-          <div class="slot-field__fill">
-            <div class="slot-field__control-wrap">
-              <div class="hebrew-date-row">
-                <select
-                  formControlName="hebrewDay"
-                  class="form-input form-input--compact hebrew-day"
-                  aria-label="יום עברי"
-                >
-                  @for (d of dayOptions(); track d) {
-                    <option [ngValue]="d">{{ dayLabel(d) }}</option>
-                  }
-                </select>
-                <select
-                  formControlName="hebrewMonth"
-                  class="form-input form-input--compact hebrew-month"
-                  aria-label="חודש עברי"
-                >
-                  @for (m of monthOptions(); track m.value) {
-                    <option [ngValue]="m.value">{{ m.label }}</option>
-                  }
-                </select>
-                <select
-                  formControlName="hebrewYear"
-                  class="form-input form-input--compact hebrew-year"
-                  aria-label="שנה עברית"
-                >
-                  @for (y of yearOptions(); track y) {
-                    <option [ngValue]="y">{{ yearLabel(y) }}</option>
-                  }
-                </select>
-                <div
-                  class="gregorian-chip"
-                  role="status"
-                  [attr.aria-label]="'תאריך לועזי: ' + gregorianDisplay()"
-                >
-                  <span class="gregorian-chip__label">תאריך לועזי</span>
-                  <span class="gregorian-chip__value">{{ gregorianDisplay() }}</span>
-                </div>
               </div>
-            </div>
+            }
           </div>
-          <div class="field-message-anchor field-message-anchor--slot-date">
-            <div class="field-message-anchor__content">
-              @if (form.errors?.['orderDateInPast']) {
-                <p class="form-error">לא ניתן לבחור תאריך שעבר</p>
-              }
-            </div>
-          </div>
+          @if (selectedEquipmentIdsControl.touched && selectedEquipmentIdsControl.errors?.['required']) {
+            <p class="form-error mt-2">יש לבחור לפחות תא ציוד אחד</p>
+          }
         </div>
+
+        <div class="reservation-field reservation-field--date">
+          <label class="range-label">תאריך התחלה</label>
+          <input type="date" formControlName="startDate" class="form-input form-input--compact" />
+        </div>
+        <div class="reservation-field reservation-field--shift">
+          <label class="range-label">משמרת התחלה</label>
+          <select formControlName="startShift" class="form-input form-input--compact">
+            @for (slot of timeSlots; track slot) {
+              <option [ngValue]="slot" [disabled]="!isStartShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
+            }
+          </select>
+        </div>
+        <div class="reservation-field reservation-field--date">
+          <label class="range-label">תאריך סיום</label>
+          <input type="date" formControlName="endDate" class="form-input form-input--compact" />
+        </div>
+        <div class="reservation-field reservation-field--shift">
+          <label class="range-label">משמרת סיום</label>
+          <select formControlName="endShift" class="form-input form-input--compact">
+            @for (slot of timeSlots; track slot) {
+              <option [ngValue]="slot" [disabled]="!isEndShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
+      <div class="reservation-errors">
+        @if (form.errors?.['orderDateInPast']) {
+          <p class="form-error">לא ניתן לבחור תאריך שעבר</p>
+        }
+        @if (form.errors?.['rangeInvalid']) {
+          <p class="form-error">מועד הסיום חייב להיות אחרי מועד ההתחלה</p>
+        }
+        @if (form.errors?.['shiftNotAllowedForDate']) {
+          <p class="form-error">אחת המשמרות אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
+        }
+        @if (form.errors?.['shiftsRequired'] && selectedShiftSlots.touched) {
+          <p class="form-error">יש להוסיף לפחות מועד אחד להזמנה</p>
+        }
+      </div>
+
+      <div class="range-summary">
+        <span class="range-summary__title">סיכום טווח:</span>
+        <span>{{ rangeSummary() }}</span>
+      </div>
+
+      <div class="return-time-group">
+        <span class="return-time-title">שעת החזרה</span>
+        <div class="return-time-options">
+          @for (type of returnTimeTypes; track type) {
+            <label class="return-time-option">
+              <input type="radio" formControlName="returnTimeType" [value]="type" />
+              <span>{{ returnTimeTypeLabels[type] }}</span>
+            </label>
+            @if (type === returnTimeTypeEnum.SpecificTime && form.controls['returnTimeType'].value === returnTimeTypeEnum.SpecificTime) {
+              <input
+                type="time"
+                formControlName="customReturnTime"
+                class="form-input return-time-input ltr-field"
+                aria-label="שעת החזרה מדויקת"
+              />
+            }
+          }
+        </div>
+        @if (form.errors?.['returnTimeRequired'] && form.controls['customReturnTime'].touched) {
+          <p class="form-error mt-2">יש להזין שעת החזרה</p>
+        }
       </div>
 
       <div class="duplicate-alert-anchor">
@@ -132,7 +138,7 @@
                 <line x1="12" y1="8" x2="12" y2="12"></line>
                 <line x1="12" y1="16" x2="12.01" y2="16"></line>
               </svg>
-              <span>שים לב: כבר קיימת הזמנה לסוג ציוד זה בתאריך ובמשמרת שנבחרו.</span>
+              <span>שים לב: לפחות אחד מתאי הציוד והמועדים שנבחרו כבר תפוס.</span>
             </div>
           }
         </div>

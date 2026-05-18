@@ -1,5 +1,6 @@
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.Mapping;
 
@@ -8,9 +9,16 @@ public static class OrderMapper
     public static OrderDto ToDto(Order order) => new()
     {
         Id = order.Id,
-        EquipmentType = order.EquipmentType,
-        OrderDate = order.OrderDate,
-        TimeSlot = order.TimeSlot,
+        EquipmentDefinitionIds = order.Equipments
+            .OrderBy(e => e.EquipmentDefinition?.SortOrder ?? int.MaxValue)
+            .ThenBy(e => e.EquipmentDefinitionId)
+            .Select(e => e.EquipmentDefinitionId)
+            .ToList(),
+        Shifts = order.Shifts
+            .OrderBy(s => s.OrderDate)
+            .ThenBy(s => s.TimeSlot)
+            .Select(ToDto)
+            .ToList(),
         CustomerName = order.CustomerName,
         Phone = order.Phone,
         Phone2 = order.Phone2,
@@ -19,9 +27,17 @@ public static class OrderMapper
         DepositOnName = order.DepositOnName,
         PaymentAmount = order.PaymentAmount,
         IsPaid = order.IsPaid,
+        ReturnTimeType = order.ReturnTimeType,
+        CustomReturnTime = order.CustomReturnTime,
         Notes = order.Notes,
         CreatedAt = order.CreatedAt,
         LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList()
+    };
+
+    public static OrderShiftDto ToDto(OrderShift shift) => new()
+    {
+        OrderDate = shift.OrderDate,
+        TimeSlot = shift.TimeSlot
     };
 
     public static OrderLoanedEquipmentDto ToDto(OrderLoanedEquipment le) => new()
@@ -43,9 +59,6 @@ public static class OrderMapper
 
     public static Order ToEntity(OrderCreateUpdateDto dto) => new()
     {
-        EquipmentType = dto.EquipmentType.Trim(),
-        OrderDate = dto.OrderDate,
-        TimeSlot = dto.TimeSlot,
         CustomerName = NullIfBlank(dto.CustomerName),
         Phone = dto.Phone.Trim(),
         Phone2 = NullIfBlank(dto.Phone2),
@@ -54,8 +67,27 @@ public static class OrderMapper
         DepositOnName = NullIfBlank(dto.DepositOnName),
         PaymentAmount = dto.PaymentAmount,
         IsPaid = dto.IsPaid,
+        ReturnTimeType = dto.ReturnTimeType,
+        CustomReturnTime = NormalizeCustomReturnTime(dto),
         Notes = NullIfBlank(dto.Notes),
+        Equipments = NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds)
+            .Select(ToEntity)
+            .ToList(),
+        Shifts = NormalizeShifts(dto.Shifts)
+            .Select(ToEntity)
+            .ToList(),
         LoanedEquipments = dto.LoanedEquipments.Select(ToEntity).ToList()
+    };
+
+    public static OrderEquipment ToEntity(string equipmentDefinitionId) => new()
+    {
+        EquipmentDefinitionId = equipmentDefinitionId
+    };
+
+    public static OrderShift ToEntity(OrderShiftDto dto) => new()
+    {
+        OrderDate = dto.OrderDate,
+        TimeSlot = dto.TimeSlot
     };
 
     public static OrderLoanedEquipment ToEntity(OrderLoanedEquipmentDto dto)
@@ -88,9 +120,6 @@ public static class OrderMapper
 
     public static void ApplyTo(OrderCreateUpdateDto dto, Order entity)
     {
-        entity.EquipmentType = dto.EquipmentType.Trim();
-        entity.OrderDate = dto.OrderDate;
-        entity.TimeSlot = dto.TimeSlot;
         entity.CustomerName = NullIfBlank(dto.CustomerName);
         entity.Phone = dto.Phone.Trim();
         entity.Phone2 = NullIfBlank(dto.Phone2);
@@ -99,7 +128,28 @@ public static class OrderMapper
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.PaymentAmount = dto.PaymentAmount;
         entity.IsPaid = dto.IsPaid;
+        entity.ReturnTimeType = dto.ReturnTimeType;
+        entity.CustomReturnTime = NormalizeCustomReturnTime(dto);
         entity.Notes = NullIfBlank(dto.Notes);
+    }
+
+    public static IReadOnlyList<string> NormalizeEquipmentDefinitionIds(IEnumerable<string>? ids)
+    {
+        return (ids ?? [])
+            .Select(id => id.Trim())
+            .Where(id => id.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public static IReadOnlyList<OrderShiftDto> NormalizeShifts(IEnumerable<OrderShiftDto>? shifts)
+    {
+        return (shifts ?? [])
+            .GroupBy(s => new { s.OrderDate, s.TimeSlot })
+            .Select(g => g.First())
+            .OrderBy(s => s.OrderDate)
+            .ThenBy(s => s.TimeSlot)
+            .ToList();
     }
 
     /// <summary>
@@ -114,5 +164,12 @@ public static class OrderMapper
         }
         var trimmed = value.Trim();
         return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    private static string? NormalizeCustomReturnTime(OrderCreateUpdateDto dto)
+    {
+        return dto.ReturnTimeType == ReturnTimeType.SpecificTime
+            ? NullIfBlank(dto.CustomReturnTime)
+            : null;
     }
 }

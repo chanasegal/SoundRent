@@ -43,17 +43,10 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto> CreateOrderAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken = default)
     {
-        ValidateDayAndSlotRules(dto.OrderDate, dto.TimeSlot);
-        await ValidateBookingSlotExistsAsync(dto.EquipmentType, cancellationToken);
-        await ValidateMaintenanceModeForCreateAsync(dto.EquipmentType, cancellationToken);
-
-        var slotTaken = await _orderRepository.ExistsForSlotAsync(
-            dto.EquipmentType.Trim(), dto.OrderDate, dto.TimeSlot, excludeOrderId: null, cancellationToken);
-
-        if (slotTaken && !dto.AllowDoubleBooking)
-        {
-            throw new ValidationException("מועד זה כבר תפוס עבור ציוד זה");
-        }
+        ExtendMorningEndShiftForLateReturn(dto);
+        var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
+        var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        await ValidateReservationRequestAsync(equipmentIds, shifts, excludeOrderId: null, cancellationToken);
 
         var entity = OrderMapper.ToEntity(dto);
         await _orderRepository.AddAsync(entity, cancellationToken);
@@ -68,21 +61,26 @@ public class OrderService : IOrderService
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
-        ValidateDayAndSlotRules(dto.OrderDate, dto.TimeSlot);
-        await ValidateBookingSlotExistsAsync(dto.EquipmentType, cancellationToken);
-        await ValidateMaintenanceModeForCreateAsync(dto.EquipmentType, cancellationToken);
-
-        var slotTaken = await _orderRepository.ExistsForSlotAsync(
-            dto.EquipmentType.Trim(), dto.OrderDate, dto.TimeSlot, excludeOrderId: id, cancellationToken);
-
-        if (slotTaken && !dto.AllowDoubleBooking)
-        {
-            throw new ValidationException("מועד זה כבר תפוס עבור ציוד זה");
-        }
+        ExtendMorningEndShiftForLateReturn(dto);
+        var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
+        var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        await ValidateReservationRequestAsync(equipmentIds, shifts, excludeOrderId: id, cancellationToken);
 
         OrderMapper.ApplyTo(dto, existing);
 
-        // Replace child collection (simple, predictable strategy for an admin tool).
+        // Replace child collections (simple, predictable strategy for an admin tool).
+        existing.Equipments.Clear();
+        foreach (var equipmentId in equipmentIds)
+        {
+            existing.Equipments.Add(OrderMapper.ToEntity(equipmentId));
+        }
+
+        existing.Shifts.Clear();
+        foreach (var shift in shifts)
+        {
+            existing.Shifts.Add(OrderMapper.ToEntity(shift));
+        }
+
         existing.LoanedEquipments.Clear();
         foreach (var item in dto.LoanedEquipments)
         {
@@ -121,6 +119,11 @@ public class OrderService : IOrderService
 
     private static void ValidateDayAndSlotRules(DateOnly orderDate, TimeSlot timeSlot)
     {
+        if (orderDate == default)
+        {
+            throw new ValidationException("יש להזין תאריך הזמנה");
+        }
+
         // Friday → Morning only.
         if (orderDate.DayOfWeek == DayOfWeek.Friday && timeSlot != TimeSlot.Morning)
         {
@@ -131,6 +134,50 @@ public class OrderService : IOrderService
         if (orderDate.DayOfWeek == DayOfWeek.Saturday && timeSlot != TimeSlot.Evening)
         {
             throw new ValidationException("במוצאי שבת ניתן להזמין רק במשמרת ערב");
+        }
+    }
+
+    private async Task ValidateReservationRequestAsync(
+        IReadOnlyList<string> equipmentIds,
+        IReadOnlyList<OrderShiftDto> shifts,
+        int? excludeOrderId,
+        CancellationToken cancellationToken)
+    {
+        if (equipmentIds.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות ציוד אחד");
+        }
+
+        if (shifts.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות מועד אחד");
+        }
+
+        if (!AreShiftsStrictlyConsecutive(shifts))
+        {
+            throw new ValidationException("הזמנה בודדת חייבת להכיל מועדים רצופים בלבד");
+        }
+
+        foreach (var shift in shifts)
+        {
+            ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
+        }
+
+        foreach (var equipmentId in equipmentIds)
+        {
+            await ValidateBookingSlotExistsAsync(equipmentId, cancellationToken);
+            await ValidateMaintenanceModeForCreateAsync(equipmentId, cancellationToken);
+        }
+
+        var conflict = await _orderRepository.FindSlotConflictAsync(
+            equipmentIds, shifts, excludeOrderId, cancellationToken);
+        if (conflict is not null)
+        {
+            var equipmentLabel = string.IsNullOrWhiteSpace(conflict.EquipmentDisplayName)
+                ? conflict.EquipmentDefinitionId
+                : conflict.EquipmentDisplayName;
+            throw new ValidationException(
+                $"הציוד {equipmentLabel} כבר תפוס בתאריך {conflict.OrderDate:yyyy-MM-dd} במשמרת {ShiftLabel(conflict.TimeSlot)}");
         }
     }
 
@@ -154,5 +201,110 @@ public class OrderService : IOrderService
         {
             throw new ValidationException("יש לבחור ערך ציוד תקין מהרשימה");
         }
+    }
+
+    private static string ShiftLabel(TimeSlot timeSlot) => timeSlot switch
+    {
+        TimeSlot.Morning => "בוקר",
+        TimeSlot.Evening => "ערב",
+        _ => timeSlot.ToString()
+    };
+
+    private static void ExtendMorningEndShiftForLateReturn(OrderCreateUpdateDto dto)
+    {
+        if (dto.ReturnTimeType is not (ReturnTimeType.LateNight or ReturnTimeType.NextMorning))
+        {
+            return;
+        }
+
+        var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        var lastShift = shifts.LastOrDefault();
+        if (lastShift is null || lastShift.TimeSlot != TimeSlot.Morning)
+        {
+            return;
+        }
+
+        dto.Shifts = OrderMapper.NormalizeShifts(shifts.Append(new OrderShiftDto
+        {
+            OrderDate = lastShift.OrderDate,
+            TimeSlot = TimeSlot.Evening
+        })).ToList();
+    }
+
+    private static bool AreShiftsStrictlyConsecutive(IReadOnlyList<OrderShiftDto> shifts)
+    {
+        if (shifts.Count <= 1)
+        {
+            return true;
+        }
+
+        var ordered = shifts
+            .OrderBy(s => s.OrderDate)
+            .ThenBy(s => ShiftOrder(s.TimeSlot))
+            .ToList();
+        var expected = GenerateContinuousShifts(
+            ordered[0].OrderDate,
+            ordered[0].TimeSlot,
+            ordered[^1].OrderDate,
+            ordered[^1].TimeSlot);
+
+        if (expected.Count != ordered.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < expected.Count; i++)
+        {
+            if (expected[i].OrderDate != ordered[i].OrderDate ||
+                expected[i].TimeSlot != ordered[i].TimeSlot)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static List<OrderShiftDto> GenerateContinuousShifts(
+        DateOnly startDate,
+        TimeSlot startShift,
+        DateOnly endDate,
+        TimeSlot endShift)
+    {
+        var result = new List<OrderShiftDto>();
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
+        {
+            foreach (var shift in ValidShiftsForDate(date))
+            {
+                if (CompareShift(date, shift, startDate, startShift) >= 0 &&
+                    CompareShift(date, shift, endDate, endShift) <= 0)
+                {
+                    result.Add(new OrderShiftDto { OrderDate = date, TimeSlot = shift });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<TimeSlot> ValidShiftsForDate(DateOnly date)
+    {
+        return date.DayOfWeek switch
+        {
+            DayOfWeek.Friday => [TimeSlot.Morning],
+            DayOfWeek.Saturday => [TimeSlot.Evening],
+            _ => [TimeSlot.Morning, TimeSlot.Evening]
+        };
+    }
+
+    private static int CompareShift(DateOnly aDate, TimeSlot aShift, DateOnly bDate, TimeSlot bShift)
+    {
+        var dateCompare = aDate.CompareTo(bDate);
+        return dateCompare != 0 ? dateCompare : ShiftOrder(aShift).CompareTo(ShiftOrder(bShift));
+    }
+
+    private static int ShiftOrder(TimeSlot shift)
+    {
+        return shift == TimeSlot.Morning ? 1 : 2;
     }
 }

@@ -26,6 +26,8 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly rows = signal<CustomerDto[]>([]);
   protected readonly loading = signal(false);
   protected readonly saving = signal(false);
+  protected readonly deletingPhone = signal<string | null>(null);
+  protected readonly exportInProgress = signal(false);
   protected readonly editOpen = signal(false);
   protected readonly isNewCustomer = signal(false);
   protected readonly historyOpen = signal(false);
@@ -148,7 +150,95 @@ export class CustomersAdminComponent implements OnInit {
     this.historyOpen.set(false);
   }
 
+  protected deleteCustomer(row: CustomerDto): void {
+    const label = row.fullName?.trim() || row.phone1;
+    if (!confirm(`האם אתה בטוח שברצונך למחוק את הלקוח ${label}?`)) {
+      return;
+    }
+
+    this.deletingPhone.set(row.phone1);
+    this.data
+      .deleteCustomer(row.phone1)
+      .pipe(finalize(() => this.deletingPhone.set(null)))
+      .subscribe({
+        next: (ok) => {
+          if (!ok) {
+            return;
+          }
+          this.toast.success('הלקוח נמחק');
+          this.runSearch(this.searchInput.value.trim());
+        }
+      });
+  }
+
+  protected exportToCustomersExcel(): void {
+    if (this.exportInProgress()) {
+      return;
+    }
+
+    this.exportInProgress.set(true);
+    this.data
+      .exportCustomersExcel()
+      .pipe(finalize(() => this.exportInProgress.set(false)))
+      .subscribe({
+        next: (response) => {
+          const blob = response?.body;
+          if (!blob) {
+            return;
+          }
+
+          const fileName =
+            this.fileNameFromContentDisposition(response.headers.get('content-disposition')) ??
+            `customers_backup_${this.todayFileStamp()}.xlsx`;
+
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          this.toast.success('קובץ Excel של הלקוחות הורד');
+        }
+      });
+  }
+
   protected slotLabel(slot: TimeSlot): string {
     return this.timeSlotLabels[slot] ?? String(slot);
+  }
+
+  protected orderPrimaryDate(order: OrderDto): string {
+    return order.shifts[0]?.orderDate ?? '—';
+  }
+
+  protected orderShiftLabels(order: OrderDto): string {
+    return order.shifts.map((s) => this.slotLabel(s.timeSlot)).join(', ');
+  }
+
+  protected orderEquipmentIds(order: OrderDto): string {
+    return order.equipmentDefinitionIds.join(', ');
+  }
+
+  private fileNameFromContentDisposition(header: string | null): string | null {
+    if (!header) {
+      return null;
+    }
+
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]);
+    }
+
+    const asciiMatch = /filename="?([^";]+)"?/i.exec(header);
+    return asciiMatch?.[1] ?? null;
+  }
+
+  private todayFileStamp(): string {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
   }
 }

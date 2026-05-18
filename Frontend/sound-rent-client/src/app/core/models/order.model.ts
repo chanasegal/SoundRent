@@ -1,4 +1,4 @@
-import { DepositType, LoanedEquipmentType, TimeSlot } from './enums';
+import { DepositType, LoanedEquipmentType, ReturnTimeType, TimeSlot } from './enums';
 
 export interface LoanedEquipmentNoteDto {
   id?: number;
@@ -14,12 +14,16 @@ export interface OrderLoanedEquipmentDto {
   notes: LoanedEquipmentNoteDto[];
 }
 
-export interface OrderDto {
-  id: number;
-  /** Booking slot (e.g. 715-A, 910NX-B). */
-  equipmentType: string;
+export interface OrderShiftDto {
   orderDate: string; // ISO yyyy-MM-dd
   timeSlot: TimeSlot;
+}
+
+export interface OrderDto {
+  id: number;
+  /** Booking slot ids (e.g. 715-A, 910NX-B). */
+  equipmentDefinitionIds: string[];
+  shifts: OrderShiftDto[];
   customerName?: string | null;
   phone: string;
   phone2?: string | null;
@@ -28,16 +32,17 @@ export interface OrderDto {
   depositOnName?: string | null;
   paymentAmount?: number | null;
   isPaid: boolean;
+  returnTimeType: ReturnTimeType;
+  customReturnTime?: string | null;
   notes?: string | null;
   createdAt: string;
   loanedEquipments: OrderLoanedEquipmentDto[];
 }
 
 export interface OrderCreateUpdateDto {
-  /** Booking slot (e.g. 715-A, 910NX-B). */
-  equipmentType: string;
-  orderDate: string; // ISO yyyy-MM-dd
-  timeSlot: TimeSlot;
+  /** Booking slot ids (e.g. 715-A, 910NX-B). */
+  equipmentDefinitionIds: string[];
+  shifts: OrderShiftDto[];
   customerName?: string | null;
   phone: string;
   phone2?: string | null;
@@ -46,8 +51,10 @@ export interface OrderCreateUpdateDto {
   depositOnName?: string | null;
   paymentAmount?: number | null;
   isPaid: boolean;
+  returnTimeType: ReturnTimeType;
+  customReturnTime?: string | null;
   notes?: string | null;
   loanedEquipments: OrderLoanedEquipmentDto[];
-  /** When true, server allows another order in the same equipment/date/slot. */
+  /** Legacy field; server-side validation now blocks overlapping grid cells. */
   allowDoubleBooking?: boolean;
 }

@@ -6,10 +6,12 @@ public class OrderDto
 {
     public int Id { get; set; }
 
-    /// <summary>Booking slot (e.g. 715-A).</summary>
-    public string EquipmentType { get; set; } = string.Empty;
-    public DateOnly OrderDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
+    /// <summary>Booking-slot ids, e.g. 715-A / 910NX-B.</summary>
+    public List<string> EquipmentDefinitionIds { get; set; } = new();
+
+    /// <summary>Requested date/shift slots reserved by this order.</summary>
+    public List<OrderShiftDto> Shifts { get; set; } = new();
+
     public string? CustomerName { get; set; }
     public string Phone { get; set; } = string.Empty;
     public string? Phone2 { get; set; }
@@ -18,6 +20,8 @@ public class OrderDto
     public string? DepositOnName { get; set; }
     public decimal? PaymentAmount { get; set; }
     public bool IsPaid { get; set; }
+    public ReturnTimeType ReturnTimeType { get; set; }
+    public string? CustomReturnTime { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
 

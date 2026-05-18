@@ -1,19 +1,16 @@
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
-public class OrderCreateUpdateDto
+public class OrderCreateUpdateDto : IValidatableObject
 {
-    [Required(ErrorMessage = "יש לבחור סוג ציוד")]
-    [MaxLength(64, ErrorMessage = "ערך ציוד לא תקין")]
-    public string EquipmentType { get; set; } = string.Empty;
+    [MinLength(1, ErrorMessage = "יש לבחור לפחות ציוד אחד")]
+    public List<string> EquipmentDefinitionIds { get; set; } = new();
 
-    [Required(ErrorMessage = "יש להזין תאריך הזמנה")]
-    public DateOnly OrderDate { get; set; }
-
-    [Required(ErrorMessage = "יש לבחור משמרת")]
-    public TimeSlot TimeSlot { get; set; }
+    [MinLength(1, ErrorMessage = "יש לבחור לפחות מועד אחד")]
+    public List<OrderShiftDto> Shifts { get; set; } = new();
 
     [MaxLength(100, ErrorMessage = "שם הלקוח לא יכול לחרוג מ-100 תווים")]
     public string? CustomerName { get; set; }
@@ -37,13 +34,26 @@ public class OrderCreateUpdateDto
 
     public bool IsPaid { get; set; }
 
+    public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
+
+    [MaxLength(20, ErrorMessage = "שעת ההחזרה לא יכולה לחרוג מ-20 תווים")]
+    public string? CustomReturnTime { get; set; }
+
     [MaxLength(1000, ErrorMessage = "ההערות לא יכולות לחרוג מ-1000 תווים")]
     public string? Notes { get; set; }
 
     public List<OrderLoanedEquipmentDto> LoanedEquipments { get; set; } = new();
 
-    /// <summary>
-    /// When true, allows creating or moving an order into a slot that already has another order for the same equipment.
-    /// </summary>
+    /// <summary>Legacy client field; double-booking is blocked by server validation.</summary>
     public bool AllowDoubleBooking { get; set; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (ReturnTimeType == ReturnTimeType.SpecificTime && string.IsNullOrWhiteSpace(CustomReturnTime))
+        {
+            yield return new ValidationResult(
+                "יש להזין שעת החזרה",
+                new[] { nameof(CustomReturnTime) });
+        }
+    }
 }
