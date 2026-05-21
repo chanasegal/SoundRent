@@ -22,8 +22,8 @@
 
       <div class="reservation-row">
         <div class="reservation-field reservation-field--equipment">
-          <label class="form-label">תאי ציוד <span class="text-rose-500">*</span></label>
-          <div class="multi-select">
+          <label class="form-label reservation-field__label">תאי ציוד <span class="text-rose-500">*</span></label>
+          <div class="multi-select reservation-field__control">
             <button type="button" class="multi-select__trigger" (click)="toggleEquipmentDropdown()">
               <span>{{ selectedEquipmentSummary() }}</span>
               <span class="multi-select__chevron">▾</span>
@@ -51,24 +51,56 @@
         </div>
 
         <div class="reservation-field reservation-field--date">
-          <label class="range-label">תאריך התחלה</label>
-          <input type="date" formControlName="startDate" class="form-input form-input--compact" />
+          <label class="form-label reservation-field__label">תאריך התחלה</label>
+          <div class="hebrew-date-picker-group">
+            <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
+              @for (day of startDayOptions(); track day) {
+                <option [value]="day">{{ dayLabel(day) }}</option>
+              }
+            </select>
+            <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
+              @for (month of startMonthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
+              @for (year of startYearOptions(); track year) {
+                <option [value]="year">{{ yearLabel(year) }}</option>
+              }
+            </select>
+          </div>
         </div>
         <div class="reservation-field reservation-field--shift">
-          <label class="range-label">משמרת התחלה</label>
-          <select formControlName="startShift" class="form-input form-input--compact">
+          <label class="form-label reservation-field__label">משמרת התחלה</label>
+          <select formControlName="startShift" class="form-input form-input--compact reservation-field__control">
             @for (slot of timeSlots; track slot) {
               <option [ngValue]="slot" [disabled]="!isStartShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
             }
           </select>
         </div>
         <div class="reservation-field reservation-field--date">
-          <label class="range-label">תאריך סיום</label>
-          <input type="date" formControlName="endDate" class="form-input form-input--compact" />
+          <label class="form-label reservation-field__label">תאריך סיום</label>
+          <div class="hebrew-date-picker-group">
+            <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
+              @for (day of endDayOptions(); track day) {
+                <option [value]="day">{{ dayLabel(day) }}</option>
+              }
+            </select>
+            <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
+              @for (month of endMonthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
+              @for (year of endYearOptions(); track year) {
+                <option [value]="year">{{ yearLabel(year) }}</option>
+              }
+            </select>
+          </div>
         </div>
         <div class="reservation-field reservation-field--shift">
-          <label class="range-label">משמרת סיום</label>
-          <select formControlName="endShift" class="form-input form-input--compact">
+          <label class="form-label reservation-field__label">משמרת סיום</label>
+          <select formControlName="endShift" class="form-input form-input--compact reservation-field__control">
             @for (slot of timeSlots; track slot) {
               <option [ngValue]="slot" [disabled]="!isEndShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
             }

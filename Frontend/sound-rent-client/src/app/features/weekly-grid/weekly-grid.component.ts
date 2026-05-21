@@ -463,25 +463,17 @@ export class WeeklyGridComponent implements OnInit {
   protected returnTimeLabel(order: OrderDto): string {
     switch (order.returnTimeType) {
       case ReturnTimeType.NextMorning:
-        return 'החזרה 08:00';
+        return 'עד 08:00';
       case ReturnTimeType.SpecificTime:
-        return `החזרה ${order.customReturnTime ?? ''}`.trim();
+        return `עד ${order.customReturnTime ?? ''}`.trim();
       case ReturnTimeType.LateNight:
       default:
-        return 'החזרה לילה';
+        return 'עד הלילה';
     }
   }
 
   protected isVerticalContinuation(segment: GridSlotSegment): boolean {
     return segment.verticalPosition === 'middle' || segment.verticalPosition === 'bottom';
-  }
-
-  protected isGenericExtraColumn(col: WeeklyGridColumnDef): boolean {
-    return !!col.bookingSlot && col.baseEquipment === null;
-  }
-
-  protected isGenericExtraCell(cell: GridCell): boolean {
-    return !!cell.bookingSlot && bookingSlotToBaseEquipment(cell.bookingSlot) === null;
   }
 
   protected dayFirstColumnRowSpan(row: GridRow): number {

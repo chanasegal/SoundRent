@@ -263,15 +263,6 @@
     box-sizing: border-box;
   }
 
-  th.weekly-grid-data-col.col-generic-slot:not(.maintenance-header),
-  td.weekly-grid-data-col.col-generic-slot:not(.maintenance-column) {
-    box-shadow: inset 2px 0 0 0 rgba(14, 165, 233, 0.4);
-  }
-
-  td.weekly-grid-data-col.col-generic-slot:not(.maintenance-column) {
-    background-color: rgba(248, 250, 252, 0.75);
-  }
-
   .maintenance-column {
     background: repeating-linear-gradient(
       135deg,

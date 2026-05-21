@@ -199,8 +199,6 @@ export class OrderFormComponent implements OnInit {
   // the Gregorian `orderDate` is derived from them and kept in sync.
   // -----------------------------------------------------------------
 
-  /** Read-only Gregorian line derived from Hebrew selection (e.g. "יום רביעי, 13/05/2026"). */
-  protected readonly gregorianDisplay = signal('');
 
   protected readonly slotTakenSig = signal(false);
 
@@ -224,57 +222,18 @@ export class OrderFormComponent implements OnInit {
   /** Pulse triggered every time we want to re-evaluate `slotTakenSig`. */
   private readonly slotCheckTrigger$ = new Subject<void>();
 
-  /** Selected Hebrew year, exposed as a signal for use in computeds. */
-  private readonly hebrewYearSig = signal<number>(0);
-
-  /** Selected Hebrew month, exposed as a signal for use in computeds. */
-  private readonly hebrewMonthSig = signal<number>(0);
-
-  /**
-   * Year options for the dropdown. Includes a generous window around the
-   * current Hebrew year and is automatically extended to include any
-   * external year (e.g. from an edited order or a query param).
-   */
+  private readonly startHebrewYearSig = signal<number>(0);
+  private readonly startHebrewMonthSig = signal<number>(0);
+  private readonly endHebrewYearSig = signal<number>(0);
+  private readonly endHebrewMonthSig = signal<number>(0);
   private readonly extraYearsSig = signal<number[]>([]);
 
-  protected readonly yearOptions = computed<number[]>(() => {
-    const currentYear = this.hebrew.toHebrewParts(new Date()).year;
-    const base = new Set<number>();
-    for (let y = currentYear - 2; y <= currentYear + 5; y++) {
-      base.add(y);
-    }
-    for (const y of this.extraYearsSig()) {
-      base.add(y);
-    }
-    let years = [...base].sort((a, b) => a - b);
-    if (this.editingId() === null) {
-      const filtered = years.filter((y) => this.hebrewYearHasSelectableFutureDay(y));
-      if (filtered.length > 0) {
-        years = filtered;
-      }
-    }
-    return years;
-  });
-
-  /** Months available for the currently-selected Hebrew year (handles leap years). In create mode, omits months with no today-or-future day. */
-  protected readonly monthOptions = computed<HebrewMonthOption[]>(() => {
-    const year = this.hebrewYearSig();
-    if (!year) return [];
-    const all = this.hebrew.monthsForYear(year);
-    if (this.editingId() !== null) {
-      return all;
-    }
-    return all.filter((m) => this.allowedHebrewDaysInMonth(year, m.value, false).length > 0);
-  });
-
-  /** Days available for the current month/year combination (29 or 30). In create mode, past Gregorian days are omitted. */
-  protected readonly dayOptions = computed<number[]>(() => {
-    const year = this.hebrewYearSig();
-    const month = this.hebrewMonthSig();
-    if (!year || !month) return [];
-    const allowPast = this.editingId() !== null;
-    return this.allowedHebrewDaysInMonth(year, month, allowPast);
-  });
+  protected readonly startYearOptions = computed(() => this.yearOptionsForEndpoint('start'));
+  protected readonly endYearOptions = computed(() => this.yearOptionsForEndpoint('end'));
+  protected readonly startMonthOptions = computed(() => this.monthOptionsForEndpoint('start'));
+  protected readonly endMonthOptions = computed(() => this.monthOptionsForEndpoint('end'));
+  protected readonly startDayOptions = computed(() => this.dayOptionsForEndpoint('start'));
+  protected readonly endDayOptions = computed(() => this.dayOptionsForEndpoint('end'));
 
   // Convenience accessors for the template.
   protected get equipmentList(): FormArray {
@@ -344,6 +303,7 @@ export class OrderFormComponent implements OnInit {
     queueMicrotask(() => this.resetScrollForOrderForm());
 
     this.wireSlotAvailabilityCheck();
+    this.wireHebrewRangeSync();
     this.wireRangeSync();
     this.wireCustomerPhoneLookup();
     this.wireLoanedEquipmentQuantitySync();
@@ -402,13 +362,13 @@ export class OrderFormComponent implements OnInit {
     if (notes) {
       patch['notes'] = notes;
     }
-    if (date) {
-      patch['startDate'] = date;
-      patch['endDate'] = date;
+    if (Object.keys(patch).length > 0) {
+      this.form.patchValue(patch as never, { emitEvent: false });
     }
 
-    if (Object.keys(patch).length > 0) {
-      this.form.patchValue(patch as never, { emitEvent: true });
+    if (date) {
+      this.setHebrewFromIso(date, 'start');
+      this.setHebrewFromIso(date, 'end');
     }
 
     this.syncShiftsFromRange();
@@ -574,16 +534,21 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected clearForm(): void {
+    const todayIso = this.toIso(new Date());
+    const todayParts = this.hebrew.toHebrewParts(new Date());
     this.form.reset({
       equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
-      startDate: this.form.controls['startDate'].value,
+      startDate: todayIso,
       startShift: TimeSlot.Morning,
-      endDate: this.form.controls['startDate'].value,
+      endDate: todayIso,
       endShift: TimeSlot.Morning,
-      orderDate: this.form.controls['startDate'].value,
-      hebrewYear: this.form.controls['hebrewYear'].value,
-      hebrewMonth: this.form.controls['hebrewMonth'].value,
-      hebrewDay: this.form.controls['hebrewDay'].value,
+      orderDate: todayIso,
+      startHebrewYear: todayParts.year,
+      startHebrewMonth: todayParts.month,
+      startHebrewDay: todayParts.day,
+      endHebrewYear: todayParts.year,
+      endHebrewMonth: todayParts.month,
+      endHebrewDay: todayParts.day,
       customerName: '',
       phone: '',
       phone2: '',
@@ -596,6 +561,12 @@ export class OrderFormComponent implements OnInit {
       customReturnTime: '',
       notes: ''
     });
+    this.startHebrewYearSig.set(todayParts.year);
+    this.startHebrewMonthSig.set(todayParts.month);
+    this.endHebrewYearSig.set(todayParts.year);
+    this.endHebrewMonthSig.set(todayParts.month);
+    this.syncHebrewEndpointToIso('start', false);
+    this.syncHebrewEndpointToIso('end', false);
     this.selectedShiftSlots.clear();
     this.syncShiftsFromRange();
     this.equipmentList.controls.forEach((row, idx) => {
@@ -653,9 +624,12 @@ export class OrderFormComponent implements OnInit {
         orderDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
         shifts: this.fb.array([]),
 
-        hebrewYear: this.fb.nonNullable.control<number>(parts.year, Validators.required),
-        hebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
-        hebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
+        startHebrewYear: this.fb.nonNullable.control<number>(parts.year, Validators.required),
+        startHebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
+        startHebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
+        endHebrewYear: this.fb.nonNullable.control<number>(parts.year, Validators.required),
+        endHebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
+        endHebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
 
         customerName: ['', Validators.maxLength(100)],
         phone: ['', [Validators.required, Validators.maxLength(20), OrderFormComponent.phoneLengthValidator]],
@@ -1046,84 +1020,105 @@ export class OrderFormComponent implements OnInit {
     return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   }
 
-  private wireHebrewSync(): void {
-    const yearCtrl = this.form.controls['hebrewYear'];
-    const monthCtrl = this.form.controls['hebrewMonth'];
-    const dayCtrl = this.form.controls['hebrewDay'];
-
-    this.hebrewYearSig.set(Number(yearCtrl.value));
-    this.hebrewMonthSig.set(Number(monthCtrl.value));
-    this.ensureYearInOptions(Number(yearCtrl.value));
-    this.syncFromHebrew();
-
-    yearCtrl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((y) => {
-        this.hebrewYearSig.set(Number(y));
-        this.ensureYearInOptions(Number(y));
-        this.normalizeHebrewSelection();
-        this.syncFromHebrew();
-      });
-
-    monthCtrl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((m) => {
-        this.hebrewMonthSig.set(Number(m));
-        this.normalizeHebrewSelection();
-        this.syncFromHebrew();
-      });
-
-    dayCtrl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
-        this.normalizeHebrewSelection();
-        this.syncFromHebrew();
-      });
+  private wireHebrewRangeSync(): void {
+    this.wireHebrewEndpointSync('start');
+    this.wireHebrewEndpointSync('end');
   }
 
-  /**
-   * Adjusts the Hebrew month/day if they aren't valid for the currently-selected
-   * year (e.g. Adar II in a non-leap year, or day 30 in a 29-day month).
-   * Uses `emitEvent: false` to avoid re-entering the value-change subscriptions.
-   */
-  private normalizeHebrewSelection(): void {
-    const yearCtrl = this.form.controls['hebrewYear'];
-    const monthCtrl = this.form.controls['hebrewMonth'];
-    const dayCtrl = this.form.controls['hebrewDay'];
+  private wireHebrewEndpointSync(endpoint: 'start' | 'end'): void {
+    const yearCtrl = this.form.controls[`${endpoint}HebrewYear`];
+    const monthCtrl = this.form.controls[`${endpoint}HebrewMonth`];
+    const dayCtrl = this.form.controls[`${endpoint}HebrewDay`];
+
+    if (endpoint === 'start') {
+      this.startHebrewYearSig.set(Number(yearCtrl.value));
+      this.startHebrewMonthSig.set(Number(monthCtrl.value));
+    } else {
+      this.endHebrewYearSig.set(Number(yearCtrl.value));
+      this.endHebrewMonthSig.set(Number(monthCtrl.value));
+    }
+
+    this.ensureYearInOptions(Number(yearCtrl.value));
+    this.syncHebrewEndpointToIso(endpoint, false);
+
+    yearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((y) => {
+      if (endpoint === 'start') {
+        this.startHebrewYearSig.set(Number(y));
+      } else {
+        this.endHebrewYearSig.set(Number(y));
+      }
+      this.ensureYearInOptions(Number(y));
+      this.normalizeHebrewSelection(endpoint);
+      this.syncHebrewEndpointToIso(endpoint, true);
+    });
+
+    monthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((m) => {
+      if (endpoint === 'start') {
+        this.startHebrewMonthSig.set(Number(m));
+      } else {
+        this.endHebrewMonthSig.set(Number(m));
+      }
+      this.normalizeHebrewSelection(endpoint);
+      this.syncHebrewEndpointToIso(endpoint, true);
+    });
+
+    dayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.normalizeHebrewSelection(endpoint);
+      this.syncHebrewEndpointToIso(endpoint, true);
+    });
+  }
+
+  private normalizeHebrewSelection(endpoint: 'start' | 'end'): void {
+    const yearCtrl = this.form.controls[`${endpoint}HebrewYear`];
+    const monthCtrl = this.form.controls[`${endpoint}HebrewMonth`];
+    const dayCtrl = this.form.controls[`${endpoint}HebrewDay`];
 
     let year = Number(yearCtrl.value);
     let month = Number(monthCtrl.value);
     let day = Number(dayCtrl.value);
 
-    if (!year || !month || !day) return;
+    if (!year || !month || !day) {
+      return;
+    }
 
     if (!this.hebrew.isLeapYear(year) && month === 13) {
       month = 12;
       monthCtrl.setValue(month, { emitEvent: false });
-      this.hebrewMonthSig.set(month);
+      if (endpoint === 'start') {
+        this.startHebrewMonthSig.set(month);
+      } else {
+        this.endHebrewMonthSig.set(month);
+      }
     }
 
     const allowPast = this.editingId() !== null;
     if (!allowPast) {
-      const ys = this.yearOptions();
+      const ys = this.yearOptionsForEndpoint(endpoint);
       if (ys.length > 0 && !ys.includes(year)) {
         const y2 = ys.find((yy) => yy >= year) ?? ys[ys.length - 1]!;
         yearCtrl.setValue(y2, { emitEvent: false });
-        this.hebrewYearSig.set(y2);
+        if (endpoint === 'start') {
+          this.startHebrewYearSig.set(y2);
+        } else {
+          this.endHebrewYearSig.set(y2);
+        }
         year = y2;
       }
 
-      const monthOpts = this.monthOptions();
+      const monthOpts = this.monthOptionsForEndpoint(endpoint);
       if (monthOpts.length > 0 && !monthOpts.some((m) => m.value === month)) {
         const m2 = monthOpts[0]!.value;
         monthCtrl.setValue(m2, { emitEvent: false });
-        this.hebrewMonthSig.set(m2);
+        if (endpoint === 'start') {
+          this.startHebrewMonthSig.set(m2);
+        } else {
+          this.endHebrewMonthSig.set(m2);
+        }
         month = m2;
       }
 
-      let allowed = this.allowedHebrewDaysInMonth(year, month, false);
-      if (allowed.length === 0) {
-        this.patchHebrewToToday();
+      if (this.allowedHebrewDaysInMonth(year, month, false).length === 0) {
+        this.patchHebrewToToday(endpoint);
         return;
       }
     }
@@ -1134,8 +1129,7 @@ export class OrderFormComponent implements OnInit {
 
     const maxDay = this.hebrew.daysInMonth(month, year);
     if (day > maxDay) {
-      day = maxDay;
-      dayCtrl.setValue(day, { emitEvent: false });
+      dayCtrl.setValue(maxDay, { emitEvent: false });
     }
 
     if (!allowPast) {
@@ -1180,53 +1174,58 @@ export class OrderFormComponent implements OnInit {
     return false;
   }
 
-  /** Snap Hebrew controls to today's civil date (used when no valid day remains in the chosen month). */
-  private patchHebrewToToday(): void {
+  private patchHebrewToToday(endpoint: 'start' | 'end'): void {
     const parts = this.hebrew.toHebrewParts(new Date());
     this.ensureYearInOptions(parts.year);
     this.form.patchValue(
       {
-        hebrewYear: parts.year,
-        hebrewMonth: parts.month,
-        hebrewDay: parts.day
+        [`${endpoint}HebrewYear`]: parts.year,
+        [`${endpoint}HebrewMonth`]: parts.month,
+        [`${endpoint}HebrewDay`]: parts.day
       },
       { emitEvent: false }
     );
-    this.hebrewYearSig.set(parts.year);
-    this.hebrewMonthSig.set(parts.month);
+    if (endpoint === 'start') {
+      this.startHebrewYearSig.set(parts.year);
+      this.startHebrewMonthSig.set(parts.month);
+    } else {
+      this.endHebrewYearSig.set(parts.year);
+      this.endHebrewMonthSig.set(parts.month);
+    }
+    this.syncHebrewEndpointToIso(endpoint, false);
   }
 
-  /**
-   * Reads the three Hebrew controls and pushes the resulting Gregorian date
-   * into `orderDate` (ISO). Safe to call any time after `buildForm()`.
-   */
-  private syncFromHebrew(): void {
-    const year = Number(this.form.controls['hebrewYear'].value);
-    const month = Number(this.form.controls['hebrewMonth'].value);
-    const day = Number(this.form.controls['hebrewDay'].value);
+  private syncHebrewEndpointToIso(endpoint: 'start' | 'end', emitDateChange: boolean): void {
+    const year = Number(this.form.controls[`${endpoint}HebrewYear`].value);
+    const month = Number(this.form.controls[`${endpoint}HebrewMonth`].value);
+    const day = Number(this.form.controls[`${endpoint}HebrewDay`].value);
+
+    const isoControlName = endpoint === 'start' ? 'startDate' : 'endDate';
+    const shiftControlName = endpoint === 'start' ? 'startShift' : 'endShift';
 
     if (!year || !month || !day) {
-      this.gregorianDisplay.set('');
       return;
     }
 
     const greg = this.hebrew.toGregorian(year, month, day);
     const iso = this.toIso(greg);
-    this.form.controls['orderDate'].setValue(iso, { emitEvent: false });
-    this.gregorianDisplay.set(this.hebrew.formatGregorianWithDayName(greg));
-    this.slotCheckTrigger$.next();
-    this.constrainTimeSlotToGregorianDate();
+    this.form.controls[isoControlName].setValue(iso, { emitEvent: emitDateChange });
+    this.constrainShiftForDate(iso, shiftControlName);
+    if (endpoint === 'start') {
+      this.form.controls['orderDate'].setValue(iso, { emitEvent: false });
+    }
     this.form.updateValueAndValidity({ emitEvent: false });
+    if (emitDateChange) {
+      this.slotCheckTrigger$.next();
+    }
   }
 
-
-  private constrainTimeSlotToGregorianDate(): void {
-    const iso = this.form.controls['orderDate'].value;
-    const d = typeof iso === 'string' ? this.hebrew.parseIso(iso) : null;
+  private constrainShiftForDate(iso: string, shiftControlName: 'startShift' | 'endShift'): void {
+    const d = this.hebrew.parseIso(iso);
     if (!d) {
       return;
     }
-    const slotCtrl = this.form.controls['startShift'];
+    const slotCtrl = this.form.controls[shiftControlName];
     const current = slotCtrl.value as TimeSlot;
     const dow = d.getDay();
     if (dow === 5 && current !== TimeSlot.Morning) {
@@ -1236,36 +1235,82 @@ export class OrderFormComponent implements OnInit {
     }
   }
 
-  /**
-   * Sets the Hebrew controls (and the derived Gregorian display) from an
-   * external ISO `yyyy-MM-dd` Gregorian string — used when loading an existing
-   * order or pre-filling from grid/waitlist query params.
-   */
-  private setHebrewFromIso(iso: string, emitEvent = false): void {
+  private setHebrewFromIso(iso: string, endpoint: 'start' | 'end', emitDateChange = true): void {
     const parts = this.hebrew.isoToHebrewParts(iso);
-    if (!parts) return;
+    if (!parts) {
+      return;
+    }
 
     this.ensureYearInOptions(parts.year);
-
     this.form.patchValue(
       {
-        hebrewYear: parts.year,
-        hebrewMonth: parts.month,
-        hebrewDay: parts.day,
-        orderDate: iso
+        [`${endpoint}HebrewYear`]: parts.year,
+        [`${endpoint}HebrewMonth`]: parts.month,
+        [`${endpoint}HebrewDay`]: parts.day
       },
-      { emitEvent }
+      { emitEvent: false }
     );
 
-    this.hebrewYearSig.set(parts.year);
-    this.hebrewMonthSig.set(parts.month);
-    this.syncFromHebrew();
+    if (endpoint === 'start') {
+      this.startHebrewYearSig.set(parts.year);
+      this.startHebrewMonthSig.set(parts.month);
+    } else {
+      this.endHebrewYearSig.set(parts.year);
+      this.endHebrewMonthSig.set(parts.month);
+    }
+
+    this.syncHebrewEndpointToIso(endpoint, emitDateChange);
+  }
+
+  private yearOptionsForEndpoint(endpoint: 'start' | 'end'): number[] {
+    const currentYear = this.hebrew.toHebrewParts(new Date()).year;
+    const base = new Set<number>();
+    for (let y = currentYear - 2; y <= currentYear + 5; y++) {
+      base.add(y);
+    }
+    for (const y of this.extraYearsSig()) {
+      base.add(y);
+    }
+    let years = [...base].sort((a, b) => a - b);
+    if (this.editingId() === null) {
+      const filtered = years.filter((y) => this.hebrewYearHasSelectableFutureDay(y));
+      if (filtered.length > 0) {
+        years = filtered;
+      }
+    }
+    return years;
+  }
+
+  private monthOptionsForEndpoint(endpoint: 'start' | 'end'): HebrewMonthOption[] {
+    const year = endpoint === 'start' ? this.startHebrewYearSig() : this.endHebrewYearSig();
+    if (!year) {
+      return [];
+    }
+    const all = this.hebrew.monthsForYear(year);
+    if (this.editingId() !== null) {
+      return all;
+    }
+    return all.filter((m) => this.allowedHebrewDaysInMonth(year, m.value, false).length > 0);
+  }
+
+  private dayOptionsForEndpoint(endpoint: 'start' | 'end'): number[] {
+    const year = endpoint === 'start' ? this.startHebrewYearSig() : this.endHebrewYearSig();
+    const month = endpoint === 'start' ? this.startHebrewMonthSig() : this.endHebrewMonthSig();
+    if (!year || !month) {
+      return [];
+    }
+    const allowPast = this.editingId() !== null;
+    return this.allowedHebrewDaysInMonth(year, month, allowPast);
   }
 
   /** Ensures the given year is selectable in the year dropdown. */
   private ensureYearInOptions(year: number): void {
-    if (!year) return;
-    if (!this.yearOptions().includes(year)) {
+    if (!year) {
+      return;
+    }
+    const inStart = this.startYearOptions().includes(year);
+    const inEnd = this.endYearOptions().includes(year);
+    if (!inStart && !inEnd) {
       this.extraYearsSig.update((arr) => (arr.includes(year) ? arr : [...arr, year]));
     }
   }
@@ -1299,11 +1344,15 @@ export class OrderFormComponent implements OnInit {
           .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
         const firstShift = shifts[0];
         const lastShift = shifts[shifts.length - 1];
+        const startIso = firstShift?.orderDate ?? this.form.controls['startDate'].value;
+        const endIso =
+          lastShift?.orderDate ?? firstShift?.orderDate ?? this.form.controls['endDate'].value;
+
         this.form.patchValue({
           equipmentDefinitionIds,
-          startDate: firstShift?.orderDate ?? this.form.controls['startDate'].value,
+          startDate: startIso,
           startShift: firstShift?.timeSlot ?? TimeSlot.Morning,
-          endDate: lastShift?.orderDate ?? firstShift?.orderDate ?? this.form.controls['endDate'].value,
+          endDate: endIso,
           endShift: lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning,
           customerName: order.customerName ?? '',
           phone: order.phone,
@@ -1317,6 +1366,9 @@ export class OrderFormComponent implements OnInit {
           customReturnTime: order.customReturnTime ?? '',
           notes: order.notes ?? ''
         });
+
+        this.setHebrewFromIso(startIso, 'start', false);
+        this.setHebrewFromIso(endIso, 'end', false);
         this.syncShiftsFromRange();
 
         // Map server rows → 16 form rows by type.

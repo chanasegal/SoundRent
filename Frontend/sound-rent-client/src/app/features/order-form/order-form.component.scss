@@ -162,25 +162,45 @@
     display: flex;
     flex-direction: row;
     align-items: flex-end;
-    gap: 1rem;
+    gap: 1.25rem;
     width: 100%;
   }
 
   .reservation-field {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.375rem;
     min-width: 0;
   }
 
+  .reservation-field__label {
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+
+  .reservation-field__control,
+  .reservation-field--date .hebrew-date-picker-group,
+  .reservation-field--equipment .multi-select__trigger {
+    width: 100%;
+  }
+
   .reservation-field--equipment {
-    flex: 1 1 18rem;
-    max-width: 300px;
+    flex: 1 1 16rem;
+    max-width: 280px;
   }
 
   .reservation-field--date {
-    flex: 0 1 10.5rem;
+    flex: 0 1 13.5rem;
+    min-width: 12rem;
   }
 
   .reservation-field--shift {
-    flex: 0 1 8.5rem;
+    flex: 0 0 7.75rem;
+  }
+
+  .reservation-row .form-input--compact {
+    min-height: $slot-control-height;
   }
 
   .reservation-errors {
@@ -380,75 +400,60 @@
     min-width: 0;
   }
 
-  .hebrew-date-row {
+  .hebrew-date-picker-group {
     display: flex;
-    flex-wrap: nowrap;
     align-items: center;
-    justify-content: flex-start;
-    gap: 0.625rem;
+    gap: 4px;
     min-width: 0;
     width: 100%;
+    min-height: $slot-control-height;
+    padding: 0 0.35rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &:focus-within {
+      border-color: #002244;
+      box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+    }
   }
 
-  .hebrew-date-row .form-input {
-    width: auto;
-    min-width: 0;
-  }
-
-  .hebrew-day {
-    flex: 0 0 4rem;
-    text-align: center;
-  }
-
-  .hebrew-month {
-    flex: 0 0 7rem;
-  }
-
-  .hebrew-year {
-    flex: 0 0 5.25rem;
-    text-align: center;
-  }
-
-  /*
-   * Read-only Gregorian summary (RTL: after Hebrew selects = visually to the left).
-   * Fixed height matches slot-row selects.
-   */
-  .gregorian-chip {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: stretch;
+  .hebrew-date-picker-group__select {
     flex: 1 1 auto;
     min-width: 0;
-    height: $slot-control-height;
-    min-height: $slot-control-height;
-    max-height: $slot-control-height;
-    padding: 0.15rem 0.55rem;
-    border-radius: 0.5rem;
-    border: 1px dashed #94a3b8;
-    background-color: #f8fafc;
-    box-sizing: border-box;
-    user-select: none;
-    pointer-events: none;
-  }
-
-  .gregorian-chip__label {
-    font-size: 0.625rem;
-    font-weight: 600;
-    color: #64748b;
-    line-height: 1.1;
-    white-space: nowrap;
-  }
-
-  .gregorian-chip__value {
+    height: calc(#{$slot-control-height} - 4px);
+    margin: 0;
+    padding: 0 0.15rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
     font-size: 0.8125rem;
-    font-weight: 500;
+    font-weight: 600;
     color: #0f172a;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    direction: rtl;
+    cursor: pointer;
+    appearance: auto;
+
+    &:focus {
+      outline: none;
+      background: #f8fafc;
+    }
+
+    &--day {
+      flex: 0 0 3.25rem;
+      text-align: center;
+    }
+
+    &--month {
+      flex: 1 1 5.5rem;
+      min-width: 4.5rem;
+    }
+
+    &--year {
+      flex: 0 0 4.5rem;
+      text-align: center;
+    }
   }
 
   /*
@@ -478,15 +483,9 @@
       grid-column: 1 / -1;
     }
 
-    .hebrew-date-row {
+    .hebrew-date-picker-group {
       flex-wrap: wrap;
-    }
-
-    .gregorian-chip {
-      flex: 1 1 100%;
-      min-height: $slot-control-height;
-      max-height: none;
-      height: auto;
+      row-gap: 2px;
     }
   }
 

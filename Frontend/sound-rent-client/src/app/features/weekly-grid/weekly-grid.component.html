@@ -122,7 +122,6 @@
                 class="weekly-grid-data-col border-b border-l border-[#003366] px-0.5 py-1.5 text-center font-semibold"
                 [class.maintenance-column]="isColumnMaintenance(col)"
                 [class.maintenance-header]="isColumnMaintenance(col)"
-                [class.col-generic-slot]="isGenericExtraColumn(col)"
               >
                 <div class="header-cell-content header-equipment-label">
                   @if (isColumnMaintenance(col)) {
@@ -155,7 +154,6 @@
                     [class.merged-cell-host]="segment.merged"
                     [class.vertical-merged-host]="isVerticalContinuation(segment) || segment.verticalPosition === 'top'"
                     [class.maintenance-column]="segment.cell.isMaintenance"
-                    [class.col-generic-slot]="isGenericExtraCell(segment.cell)"
                     [ngStyle]="segment.orders.length === 1 ? orderBlockStyle(segment.orders[0]) : null"
                   >
                     @if (segment.orders.length === 0) {
@@ -248,7 +246,6 @@
                     [class.merged-cell-host]="segment.merged"
                     [class.vertical-merged-host]="isVerticalContinuation(segment) || segment.verticalPosition === 'top'"
                     [class.maintenance-column]="segment.cell.isMaintenance"
-                    [class.col-generic-slot]="isGenericExtraCell(segment.cell)"
                     [ngStyle]="segment.orders.length === 1 ? orderBlockStyle(segment.orders[0]) : null"
                   >
                     @if (segment.orders.length === 0) {
