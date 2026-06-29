@@ -102,6 +102,27 @@ public class OrdersController : ControllerBase
             equipmentType, orderDate, timeSlot, excludeOrderId, cancellationToken);
         return Ok(new SlotTakenResponse(taken));
     }
+
+    [HttpPost("{id:int}/cancel")]
+    public async Task<ActionResult<OrderDto>> Cancel(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var order = await _orderService.CancelOrderAsync(id, cancellationToken);
+            return Ok(order);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:int}/mark-as-paid")]
+    public async Task<ActionResult<OrderDto>> MarkAsPaid(int id, CancellationToken cancellationToken)
+    {
+        var order = await _orderService.MarkOrderAsPaidAsync(id, cancellationToken);
+        return Ok(order);
+    }
 }
 
 public record SlotTakenResponse(bool Taken);

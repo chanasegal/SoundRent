@@ -27,7 +27,7 @@ public class OrderRepository : IOrderRepository
     {
         return WithOrderGraph(_db.Orders)
             .AsSplitQuery()
-            .Where(o => o.Shifts.Any(s => s.OrderDate >= startDate && s.OrderDate <= endDate))
+            .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= startDate && s.OrderDate <= endDate))
             .OrderBy(o => o.Shifts.Min(s => s.OrderDate))
             .ThenBy(o => o.Id)
             .AsNoTracking()
@@ -53,6 +53,7 @@ public class OrderRepository : IOrderRepository
     {
         var trimmed = equipmentType.Trim();
         var query = _db.Orders.AsNoTracking().Where(o =>
+            !o.IsCancelled &&
             o.Equipments.Any(e => e.EquipmentDefinitionId == trimmed) &&
             o.Shifts.Any(s => s.OrderDate == orderDate && s.TimeSlot == timeSlot));
 
@@ -89,6 +90,7 @@ public class OrderRepository : IOrderRepository
             .AsSplitQuery()
             .AsNoTracking()
             .Where(o =>
+                !o.IsCancelled &&
                 o.Equipments.Any(e => equipmentSet.Contains(e.EquipmentDefinitionId)) &&
                 o.Shifts.Any(s => dates.Contains(s.OrderDate) && timeSlots.Contains(s.TimeSlot)));
 
@@ -136,6 +138,7 @@ public class OrderRepository : IOrderRepository
         return await _db.Orders
             .AsNoTracking()
             .Where(o =>
+                !o.IsCancelled &&
                 o.Equipments.Any(e => e.EquipmentDefinitionId == trimmed) &&
                 o.Shifts.Any(s => s.OrderDate >= todayInclusive))
             .OrderBy(o => o.Shifts.Where(s => s.OrderDate >= todayInclusive).Min(s => s.OrderDate))
@@ -224,7 +227,7 @@ public class OrderRepository : IOrderRepository
 
         var orders = await _db.Orders
             .AsNoTracking()
-            .Where(o => o.Shifts.Any(s => s.OrderDate >= todayInclusive))
+            .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= todayInclusive))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -234,6 +237,28 @@ public class OrderRepository : IOrderRepository
             var p2 = PhoneNumberNormalizer.DigitsOnly(o.Phone2);
             return set.Contains(p) || (!string.IsNullOrEmpty(p2) && set.Contains(p2));
         });
+    }
+
+    public Task<List<Order>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        return WithOrderGraph(_db.Orders)
+            .AsSplitQuery()
+            .Where(o => o.IsCancelled)
+            .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
+            .ThenByDescending(o => o.Id)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<List<Order>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        return WithOrderGraph(_db.Orders)
+            .AsSplitQuery()
+            .Where(o => !o.IsPaid)
+            .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
+            .ThenByDescending(o => o.Id)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
     }
 
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)

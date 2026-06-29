@@ -32,6 +32,12 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(o => o.IsPaid)
+            .HasDefaultValue(true);
+
+        builder.Property(o => o.IsCancelled)
+            .HasDefaultValue(false);
+
         builder.Property(o => o.ReturnTimeType)
             .HasDefaultValue(ReturnTimeType.LateNight);
 

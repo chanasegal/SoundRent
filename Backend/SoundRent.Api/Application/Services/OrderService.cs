@@ -117,6 +117,43 @@ public class OrderService : IOrderService
             equipmentType.Trim(), orderDate, timeSlot, excludeOrderId, cancellationToken);
     }
 
+    public async Task<List<OrderDto>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        var orders = await _orderRepository.GetCancelledOrdersAsync(cancellationToken);
+        return orders.Select(OrderMapper.ToDto).ToList();
+    }
+
+    public async Task<List<OrderDto>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        var orders = await _orderRepository.GetUnpaidOrdersAsync(cancellationToken);
+        return orders.Select(OrderMapper.ToDto).ToList();
+    }
+
+    public async Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("ההזמנה כבר בוטלה");
+        }
+
+        existing.IsCancelled = true;
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+        return OrderMapper.ToDto(existing);
+    }
+
+    public async Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        existing.IsPaid = true;
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+        return OrderMapper.ToDto(existing);
+    }
+
     private static void ValidateDayAndSlotRules(DateOnly orderDate, TimeSlot timeSlot)
     {
         if (orderDate == default)

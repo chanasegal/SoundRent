@@ -7,18 +7,18 @@
         <div class="toolbar-side toolbar-pickers">
           <div class="toolbar-group">
             <select
-              [value]="selectedGregorianMonth()"
-              (change)="onGregorianMonthChange($event)"
+              [ngModel]="selectedGregorianMonth()"
+              (ngModelChange)="onGregorianMonthModelChange($event)"
               class="toolbar-input"
             >
               @for (month of gregorianMonths; track month.value) {
-                <option [value]="month.value">{{ month.label }}</option>
+                <option [ngValue]="month.value">{{ month.label }}</option>
               }
             </select>
             <input
               type="number"
               [value]="selectedGregorianYear()"
-              (input)="onGregorianYearInput($event)"
+              (change)="onGregorianYearChange($event)"
               min="1900"
               max="2200"
               class="toolbar-input toolbar-year-input"
@@ -35,21 +35,21 @@
 
           <div class="toolbar-group">
             <select
-              [value]="selectedHebrewMonth()"
-              (change)="onHebrewMonthChange($event)"
+              [ngModel]="selectedHebrewMonth()"
+              (ngModelChange)="onHebrewMonthModelChange($event)"
               class="toolbar-input"
             >
-              @for (month of getHebrewMonthOptions(); track month.value) {
-                <option [value]="month.value">{{ month.label }}</option>
+              @for (month of hebrewMonthOptions(); track month.value) {
+                <option [ngValue]="month.value">{{ month.label }}</option>
               }
             </select>
             <select
-              [value]="selectedHebrewYear()"
-              (change)="onHebrewYearChange($event)"
+              [ngModel]="selectedHebrewYear()"
+              (ngModelChange)="onHebrewYearModelChange($event)"
               class="toolbar-input"
             >
-              @for (year of hebrewYearOptions; track year.value) {
-                <option [value]="year.value">{{ year.label }}</option>
+              @for (year of hebrewYearOptions(); track year.value) {
+                <option [ngValue]="year.value">{{ year.label }}</option>
               }
             </select>
             <button
@@ -204,6 +204,13 @@
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
                             >
+                              @if (hasOrderNotes(o)) {
+                                <span
+                                  class="cell-notes-indicator"
+                                  [title]="orderNotesTooltip(o)"
+                                  aria-label="יש הערות"
+                                >💡</span>
+                              }
                               <span class="cell-name">{{ o.customerName }}</span>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
@@ -296,6 +303,13 @@
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
                             >
+                              @if (hasOrderNotes(o)) {
+                                <span
+                                  class="cell-notes-indicator"
+                                  [title]="orderNotesTooltip(o)"
+                                  aria-label="יש הערות"
+                                >💡</span>
+                              }
                               <span class="cell-name">{{ o.customerName }}</span>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {

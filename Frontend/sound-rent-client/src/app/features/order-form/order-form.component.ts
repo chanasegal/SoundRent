@@ -158,6 +158,7 @@ export class OrderFormComponent implements OnInit {
   protected readonly returnTimeTypeEnum = ReturnTimeType;
 
   protected readonly editingId = signal<number | null>(null);
+  protected readonly orderCancelled = signal(false);
   protected readonly isEdit = computed(() => this.editingId() !== null);
   protected readonly title = computed(() => (this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה'));
   protected readonly submitting = signal(false);
@@ -556,7 +557,7 @@ export class OrderFormComponent implements OnInit {
       depositType: null,
       depositOnName: '',
       paymentAmount: null,
-      isPaid: false,
+      isPaid: true,
       returnTimeType: ReturnTimeType.LateNight,
       customReturnTime: '',
       notes: ''
@@ -605,6 +606,31 @@ export class OrderFormComponent implements OnInit {
       });
   }
 
+  protected cancel(): void {
+    const id = this.editingId();
+    if (id === null || this.orderCancelled()) {
+      return;
+    }
+    if (!confirm('לבטל את ההזמנה? המשבצות בלוח השבועי יתפנו מיד.')) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.data
+      .cancelOrder(id)
+      .pipe(finalize(() => this.submitting.set(false)))
+      .subscribe({
+        next: (order) => {
+          if (order === null) {
+            return;
+          }
+          this.toast.success('ההזמנה בוטלה בהצלחה');
+          const iso = this.form.controls['startDate'].value;
+          this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
+        }
+      });
+  }
+
   // -----------------------------------------------------------------
   // Form construction
   // -----------------------------------------------------------------
@@ -638,7 +664,7 @@ export class OrderFormComponent implements OnInit {
         depositType: [null as DepositType | null],
         depositOnName: ['', Validators.maxLength(100)],
         paymentAmount: [null as number | null, [Validators.min(0)]],
-        isPaid: [false],
+        isPaid: [true],
         returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(ReturnTimeType.LateNight, Validators.required),
         customReturnTime: ['', Validators.maxLength(20)],
         notes: ['', Validators.maxLength(1000)],
@@ -1337,6 +1363,7 @@ export class OrderFormComponent implements OnInit {
           this.navigateAfterOrderFlow();
           return;
         }
+        this.orderCancelled.set(!!order.isCancelled);
         this.existingCustomerMatch.set(null);
         const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
           .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));

@@ -3,14 +3,15 @@ import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
+import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
 
 @Component({
   selector: 'app-layout',
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, MemoDropdownComponent],
   template: `
     <div class="flex min-h-screen flex-col bg-slate-50">
       <header class="bg-[#002244] text-white shadow-md">
-        <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
+        <div class="layout-header mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
           <div class="flex items-center gap-6">
             <a routerLink="/dashboard" class="text-xl font-bold tracking-tight">
               מערכת שבועית
@@ -31,16 +32,14 @@ import { AuthService } from '../../core/services/auth.service';
                 routerLinkActive="bg-white/10 text-white"
                 class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
               >לקוחות</a>
+              <a
+                routerLink="/reports"
+                routerLinkActive="bg-white/10 text-white"
+                class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+              >דוחות</a>
             </nav>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="hidden text-sm text-sky-100 md:inline">שלום, {{ auth.username() }}</span>
-            <button
-              type="button"
-              class="rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-              (click)="auth.logout()"
-            >יציאה</button>
-          </div>
+          <app-memo-dropdown />
         </div>
       </header>
 
@@ -48,11 +47,24 @@ import { AuthService } from '../../core/services/auth.service';
         <router-outlet></router-outlet>
       </main>
 
-      <footer class="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-        © {{ year }} מערכת שבועית
+      <footer class="layout-footer">
+        <div class="layout-footer__inner">
+          @if (auth.username()) {
+            <span class="layout-footer__greeting">שלום, {{ auth.username() }}</span>
+          }
+          <button
+            type="button"
+            class="layout-footer__logout"
+            (click)="auth.logout()"
+          >
+            יציאה
+          </button>
+          <p class="layout-footer__copy">© {{ year }} מערכת שבועית</p>
+        </div>
       </footer>
     </div>
-  `
+  `,
+  styleUrl: './layout.component.scss'
 })
 export class LayoutComponent {
   protected readonly auth = inject(AuthService);

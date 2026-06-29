@@ -27,6 +27,7 @@ public static class OrderMapper
         DepositOnName = order.DepositOnName,
         PaymentAmount = order.PaymentAmount,
         IsPaid = order.IsPaid,
+        IsCancelled = order.IsCancelled,
         ReturnTimeType = order.ReturnTimeType,
         CustomReturnTime = order.CustomReturnTime,
         Notes = order.Notes,

@@ -46,4 +46,8 @@ public interface IOrderRepository
         IReadOnlyCollection<string> normalizedDigitPhones,
         DateOnly todayInclusive,
         CancellationToken cancellationToken = default);
+
+    Task<List<Order>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default);
+
+    Task<List<Order>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
 }

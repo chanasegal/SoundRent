@@ -300,6 +300,52 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.GeneralMemoController",
+    "Method": "Get",
+    "RelativePath": "api/memo",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.GeneralMemoDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.GeneralMemoController",
+    "Method": "Save",
+    "RelativePath": "api/memo",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.GeneralMemoUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.GeneralMemoDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "Create",
     "RelativePath": "api/Orders",
@@ -400,6 +446,58 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "Cancel",
+    "RelativePath": "api/Orders/{id}/cancel",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.OrderDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "MarkAsPaid",
+    "RelativePath": "api/Orders/{id}/mark-as-paid",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.OrderDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "ExportAll",
     "RelativePath": "api/Orders/export-all",
     "HttpMethod": "GET",
@@ -473,6 +571,46 @@
         "IsRequired": false
       }
     ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ReportsController",
+    "Method": "GetCancelledOrders",
+    "RelativePath": "api/reports/cancelled-orders",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ReportsController",
+    "Method": "GetUnpaidOrders",
+    "RelativePath": "api/reports/unpaid-orders",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",

@@ -1,0 +1,51 @@
+<div #memoRoot class="memo-root">
+  <button
+    type="button"
+    class="memo-trigger"
+    [class.memo-trigger--active]="open()"
+    (click)="toggle($event)"
+    title="תזכיר"
+    aria-label="תזכיר"
+    [attr.aria-expanded]="open()"
+  >
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path>
+      <path d="M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"></path>
+      <path d="M9 14l2 2 4-4"></path>
+    </svg>
+  </button>
+
+  @if (open()) {
+    <div class="memo-panel" role="dialog" aria-label="תזכיר" (click)="$event.stopPropagation()">
+      <div class="memo-panel__header">
+        <h2 class="memo-panel__title">תזכיר</h2>
+        @if (saving()) {
+          <span class="memo-panel__status">שומר…</span>
+        } @else if (lastSavedAt()) {
+          <span class="memo-panel__status">נשמר</span>
+        }
+      </div>
+
+      @if (loading()) {
+        <p class="memo-panel__loading">טוען…</p>
+      } @else {
+        <textarea
+          class="memo-panel__textarea"
+          [formControl]="contentControl"
+          rows="8"
+          placeholder="הערות, תזכורות ומשימות…"
+        ></textarea>
+        <div class="memo-panel__actions">
+          <button
+            type="button"
+            class="memo-panel__save"
+            [disabled]="saving()"
+            (click)="saveMemo(true)"
+          >
+            שמור
+          </button>
+        </div>
+      }
+    </div>
+  }
+</div>

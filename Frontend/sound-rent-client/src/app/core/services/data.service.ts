@@ -9,6 +9,7 @@ import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
 import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto } from '../models/equipment-definition.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
+import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
 import { ToastService } from './toast.service';
 
 /** Response of `GET /api/orders/slot-taken` — purely informational. */
@@ -21,9 +22,11 @@ export class DataService {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastService);
   private readonly ordersBase = `${environment.apiBaseUrl}/orders`;
+  private readonly reportsBase = `${environment.apiBaseUrl}/reports`;
   private readonly waitlistBase = `${environment.apiBaseUrl}/waitlist`;
   private readonly equipmentDefinitionsBase = `${environment.apiBaseUrl}/equipmentdefinitions`;
   private readonly customersBase = `${environment.apiBaseUrl}/customers`;
+  private readonly memoBase = `${environment.apiBaseUrl}/memo`;
 
   private notifyHttpError(error: unknown): void {
     this.toast.error(getApiErrorMessage(error));
@@ -123,6 +126,42 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of(false);
+      })
+    );
+  }
+
+  cancelOrder(id: number): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.ordersBase}/${id}/cancel`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  markOrderAsPaid(id: number): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.ordersBase}/${id}/mark-as-paid`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  getCancelledOrdersReport(): Observable<OrderDto[]> {
+    return this.http.get<OrderDto[]>(`${this.reportsBase}/cancelled-orders`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  getUnpaidOrdersReport(): Observable<OrderDto[]> {
+    return this.http.get<OrderDto[]>(`${this.reportsBase}/unpaid-orders`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
       })
     );
   }
@@ -248,6 +287,24 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
+      })
+    );
+  }
+
+  getGeneralMemo(): Observable<GeneralMemoDto | null> {
+    return this.http.get<GeneralMemoDto>(this.memoBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  saveGeneralMemo(payload: GeneralMemoUpdateDto): Observable<GeneralMemoDto | null> {
+    return this.http.post<GeneralMemoDto>(this.memoBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
       })
     );
   }

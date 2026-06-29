@@ -8,9 +8,25 @@
       <h1 class="text-2xl font-bold text-[#002244]">{{ title() }}</h1>
     </div>
     @if (isEdit()) {
-      <button type="button" class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50" (click)="delete()">
-        מחק הזמנה
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        @if (!orderCancelled()) {
+          <button
+            type="button"
+            class="rounded-lg border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100"
+            [disabled]="submitting()"
+            (click)="cancel()"
+          >
+            ביטול הזמנה
+          </button>
+        } @else {
+          <span class="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600">
+            הזמנה מבוטלת
+          </span>
+        }
+        <button type="button" class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50" (click)="delete()">
+          מחק הזמנה
+        </button>
+      </div>
     }
   </div>
 

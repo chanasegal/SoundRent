@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, computed, effect, inject, OnInit, signal, untracked } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
 import { forkJoin, finalize } from 'rxjs';
@@ -28,6 +28,7 @@ import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-m
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
 
 interface WeeklyGridColumnDef {
   id: string;
@@ -118,22 +119,40 @@ const LEAP_HEBREW_MONTH_OPTIONS = [
   { value: months.ADAR_II, label: "אדר ב׳ (Adar II)" }
 ] as const;
 
-const ORDER_COLORS = [
-  { bg: '#dbeafe', border: '#60a5fa' },
-  { bg: '#dcfce7', border: '#4ade80' },
-  { bg: '#fef3c7', border: '#f59e0b' },
-  { bg: '#ede9fe', border: '#8b5cf6' },
-  { bg: '#cffafe', border: '#06b6d4' },
-  { bg: '#ffe4e6', border: '#fb7185' }
-] as const;
+interface DashboardDateFilterState {
+  weekStart: Date;
+  gregorianMonth: number;
+  gregorianYear: number;
+  hebrewMonth: number;
+  hebrewYear: number;
+}
+
+function createInitialDashboardDateState(): DashboardDateFilterState {
+  const hebrewSvc = inject(HebrewDateService);
+  const route = inject(ActivatedRoute);
+  const raw = route.snapshot.queryParamMap.get('date');
+  const anchor = raw ? hebrewSvc.parseIso(raw.trim()) ?? new Date() : new Date();
+  const weekStart = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const monthAnchor = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const hebrew = hebrewSvc.toHebrewParts(monthAnchor);
+  return {
+    weekStart,
+    gregorianMonth: anchor.getMonth(),
+    gregorianYear: anchor.getFullYear(),
+    hebrewMonth: hebrew.month,
+    hebrewYear: hebrew.year
+  };
+}
 
 @Component({
   selector: 'app-weekly-grid',
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule],
   templateUrl: './weekly-grid.component.html',
   styleUrl: './weekly-grid.component.scss'
 })
 export class WeeklyGridComponent implements OnInit {
+  private readonly initialDateState = createInitialDashboardDateState();
   private readonly data = inject(DataService);
   private readonly exportSvc = inject(ExportService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
@@ -161,7 +180,7 @@ export class WeeklyGridComponent implements OnInit {
 
   protected readonly gridDataColumnCount = computed(() => this.gridColumns().length);
 
-  protected readonly weekStart = signal<Date>(this.startOfWeek(new Date()));
+  protected readonly weekStart = signal<Date>(this.initialDateState.weekStart);
   protected readonly orders = signal<OrderDto[]>([]);
   protected readonly waitlistEntries = signal<WaitlistEntryDto[]>([]);
   protected readonly waitlistSaving = signal(false);
@@ -175,11 +194,20 @@ export class WeeklyGridComponent implements OnInit {
     notes: ['', Validators.maxLength(1000)]
   });
   protected readonly gregorianMonths = GREGORIAN_MONTH_OPTIONS;
-  protected readonly hebrewYearOptions = this.generateHebrewYears();
-  protected readonly selectedGregorianMonth = signal<number>(new Date().getMonth());
-  protected readonly selectedGregorianYear = signal<number>(new Date().getFullYear());
-  protected readonly selectedHebrewMonth = signal<number>(new HDate(new Date()).getMonth());
-  protected readonly selectedHebrewYear = signal<number>(new HDate(new Date()).getFullYear());
+  protected readonly selectedGregorianMonth = signal(this.initialDateState.gregorianMonth);
+  protected readonly selectedGregorianYear = signal(this.initialDateState.gregorianYear);
+  protected readonly selectedHebrewMonth = signal(this.initialDateState.hebrewMonth);
+  protected readonly selectedHebrewYear = signal(this.initialDateState.hebrewYear);
+
+  protected readonly hebrewMonthOptions = computed(() =>
+    this.isHebrewLeapYear(this.selectedHebrewYear())
+      ? LEAP_HEBREW_MONTH_OPTIONS
+      : COMMON_HEBREW_MONTH_OPTIONS
+  );
+
+  protected readonly hebrewYearOptions = computed(() =>
+    this.buildHebrewYearOptions(this.selectedHebrewYear())
+  );
 
   protected readonly weekEnd = computed(() => this.addDays(this.weekStart(), 6));
 
@@ -207,9 +235,27 @@ export class WeeklyGridComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const anchor = this.parseOrderDateFromQuery() ?? new Date();
-    this.navigateToDate(anchor);
     this.load();
+  }
+
+  protected onGregorianMonthModelChange(value: number): void {
+    this.selectedGregorianMonth.set(value);
+    this.applyGregorianSelection();
+  }
+
+  protected onHebrewMonthModelChange(value: number): void {
+    this.selectedHebrewMonth.set(value);
+    this.applyHebrewSelection();
+  }
+
+  protected onHebrewYearModelChange(value: number): void {
+    this.selectedHebrewYear.set(value);
+    const monthOptions = this.hebrewMonthOptions();
+    const monthStillValid = monthOptions.some((m) => m.value === this.selectedHebrewMonth());
+    if (!monthStillValid) {
+      this.selectedHebrewMonth.set(monthOptions[monthOptions.length - 1].value);
+    }
+    this.applyHebrewSelection();
   }
 
   protected previousWeek(): void {
@@ -323,58 +369,21 @@ export class WeeklyGridComponent implements OnInit {
     return parts.join(' | ');
   }
 
-  protected onGregorianMonthChange(event: Event): void {
-    const value = Number((event.target as HTMLSelectElement).value);
-    this.selectedGregorianMonth.set(value);
-  }
-
-  protected onGregorianYearInput(event: Event): void {
+  protected onGregorianYearChange(event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
-    if (!Number.isNaN(value)) {
-      this.selectedGregorianYear.set(value);
+    if (Number.isNaN(value)) {
+      return;
     }
+    this.selectedGregorianYear.set(value);
+    this.applyGregorianSelection();
   }
 
   protected showGregorianDate(): void {
-    const target = new Date(this.selectedGregorianYear(), this.selectedGregorianMonth(), 1);
-    if (Number.isNaN(target.getTime())) {
-      this.toast.error('שנה לועזית לא תקינה');
-      return;
-    }
-    this.navigateToDate(target);
-    this.load();
-  }
-
-  protected getHebrewMonthOptions(): ReadonlyArray<{ value: number; label: string }> {
-    return this.isHebrewLeapYear(this.selectedHebrewYear())
-      ? LEAP_HEBREW_MONTH_OPTIONS
-      : COMMON_HEBREW_MONTH_OPTIONS;
-  }
-
-  protected onHebrewMonthChange(event: Event): void {
-    const value = Number((event.target as HTMLSelectElement).value);
-    this.selectedHebrewMonth.set(value);
-  }
-
-  protected onHebrewYearChange(event: Event): void {
-    const value = Number((event.target as HTMLSelectElement).value);
-    this.selectedHebrewYear.set(value);
-
-    const monthOptions = this.getHebrewMonthOptions();
-    const monthStillValid = monthOptions.some((m) => m.value === this.selectedHebrewMonth());
-    if (!monthStillValid) {
-      this.selectedHebrewMonth.set(monthOptions[monthOptions.length - 1].value);
-    }
+    this.applyGregorianSelection();
   }
 
   protected showHebrewDate(): void {
-    try {
-      const target = new HDate(1, this.selectedHebrewMonth(), this.selectedHebrewYear()).greg();
-      this.navigateToDate(target);
-      this.load();
-    } catch {
-      this.toast.error('תאריך עברי לא תקין');
-    }
+    this.applyHebrewSelection();
   }
 
   protected onEmptyCellClick(cell: GridCell): void {
@@ -453,11 +462,19 @@ export class WeeklyGridComponent implements OnInit {
   }
 
   protected orderBlockStyle(order: OrderDto): Record<string, string> {
-    const color = ORDER_COLORS[Math.abs(order.id) % ORDER_COLORS.length]!;
+    const color = customerOrderColors(customerColorKey(order));
     return {
       '--order-bg': color.bg,
       '--order-border': color.border
     };
+  }
+
+  protected hasOrderNotes(order: OrderDto): boolean {
+    return (order.notes ?? '').trim().length > 0;
+  }
+
+  protected orderNotesTooltip(order: OrderDto): string {
+    return (order.notes ?? '').trim();
   }
 
   protected returnTimeLabel(order: OrderDto): string {
@@ -599,7 +616,7 @@ export class WeeklyGridComponent implements OnInit {
 
   private navigateToDate(date: Date): void {
     this.weekStart.set(this.startOfWeek(date));
-    this.syncDateSelectors(date);
+    this.syncFiltersFromDate(date);
   }
 
   /** When opening the board from the order flow, `?date=yyyy-MM-dd` selects that week (Sunday-based). */
@@ -611,22 +628,76 @@ export class WeeklyGridComponent implements OnInit {
     return this.hebrew.parseIso(raw.trim());
   }
 
-  private syncDateSelectors(date: Date): void {
-    this.selectedGregorianMonth.set(date.getMonth());
-    this.selectedGregorianYear.set(date.getFullYear());
-    const hd = new HDate(date);
-    this.selectedHebrewMonth.set(hd.getMonth());
-    this.selectedHebrewYear.set(hd.getFullYear());
+  private syncFiltersFromDate(date: Date): void {
+    this.syncFiltersFromGregorianMonthYear(date.getFullYear(), date.getMonth());
   }
 
-  private generateHebrewYears(): ReadonlyArray<{ value: number; label: string }> {
+  private syncFiltersFromGregorianMonthYear(gregorianYear: number, gregorianMonth: number): void {
+    const anchor = new Date(gregorianYear, gregorianMonth, 1);
+    this.selectedGregorianMonth.set(anchor.getMonth());
+    this.selectedGregorianYear.set(anchor.getFullYear());
+    const hebrew = this.hebrew.toHebrewParts(anchor);
+    this.selectedHebrewMonth.set(hebrew.month);
+    this.selectedHebrewYear.set(hebrew.year);
+  }
+
+  private syncFiltersFromHebrewMonthYear(hebrewYear: number, hebrewMonth: number): void {
+    const anchor = this.hebrew.toGregorian(hebrewYear, hebrewMonth, 1);
+    this.selectedHebrewMonth.set(hebrewMonth);
+    this.selectedHebrewYear.set(hebrewYear);
+    this.selectedGregorianMonth.set(anchor.getMonth());
+    this.selectedGregorianYear.set(anchor.getFullYear());
+  }
+
+  private applyGregorianSelection(): void {
+    const gregorianYear = this.selectedGregorianYear();
+    const gregorianMonth = this.selectedGregorianMonth();
+    const target = new Date(gregorianYear, gregorianMonth, 1);
+    if (Number.isNaN(target.getTime())) {
+      this.toast.error('שנה לועזית לא תקינה');
+      return;
+    }
+    this.syncFiltersFromGregorianMonthYear(gregorianYear, gregorianMonth);
+    this.weekStart.set(this.startOfWeek(target));
+    this.load();
+  }
+
+  private applyHebrewSelection(): void {
+    const hebrewYear = this.selectedHebrewYear();
+    const hebrewMonth = this.selectedHebrewMonth();
+    try {
+      const target = this.hebrew.toGregorian(hebrewYear, hebrewMonth, 1);
+      this.syncFiltersFromHebrewMonthYear(hebrewYear, hebrewMonth);
+      this.weekStart.set(this.startOfWeek(target));
+      this.load();
+    } catch {
+      this.toast.error('תאריך עברי לא תקין');
+    }
+  }
+
+  private buildHebrewYearOptions(selectedYear: number): ReadonlyArray<{ value: number; label: string }> {
     const currentYear = new HDate(new Date()).getFullYear();
+    let minYear = currentYear - 5;
+    let maxYear = currentYear + 5;
+    if (selectedYear < minYear) {
+      minYear = selectedYear;
+    }
+    if (selectedYear > maxYear) {
+      maxYear = selectedYear;
+    }
+
     const options: Array<{ value: number; label: string }> = [];
-    for (let year = currentYear - 5; year <= currentYear + 5; year++) {
-      const hebrewYearLabel = new HDate(1, months.TISHREI, year).renderGematriya().split(' ').pop() ?? `${year}`;
-      options.push({ value: year, label: hebrewYearLabel });
+    for (let year = minYear; year <= maxYear; year++) {
+      options.push({
+        value: year,
+        label: this.hebrewYearLabel(year)
+      });
     }
     return options;
+  }
+
+  private hebrewYearLabel(year: number): string {
+    return new HDate(1, months.TISHREI, year).renderGematriya().split(' ').pop() ?? `${year}`;
   }
 
   private isHebrewLeapYear(year: number): boolean {

@@ -40,6 +40,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IWaitlistService, WaitlistService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IGeneralMemoService, GeneralMemoService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 // --- Authentication (JWT) ------------------------------------------------

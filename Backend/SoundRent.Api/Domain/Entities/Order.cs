@@ -27,7 +27,9 @@ public class Order
 
     public decimal? PaymentAmount { get; set; }
 
-    public bool IsPaid { get; set; }
+    public bool IsPaid { get; set; } = true;
+
+    public bool IsCancelled { get; set; }
 
     public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
 

@@ -115,6 +115,39 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("EquipmentDefinitions", (string)null);
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.GeneralMemo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)")
+                        .HasDefaultValue("");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GeneralMemos", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Content = "",
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                        });
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.LoanedEquipmentNote", b =>
                 {
                     b.Property<int>("Id")
@@ -174,8 +207,15 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int?>("DepositType")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsCancelled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsPaid")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)

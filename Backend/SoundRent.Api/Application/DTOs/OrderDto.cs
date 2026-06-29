@@ -20,6 +20,8 @@ public class OrderDto
     public string? DepositOnName { get; set; }
     public decimal? PaymentAmount { get; set; }
     public bool IsPaid { get; set; }
+
+    public bool IsCancelled { get; set; }
     public ReturnTimeType ReturnTimeType { get; set; }
     public string? CustomReturnTime { get; set; }
     public string? Notes { get; set; }

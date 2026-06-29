@@ -10,13 +10,16 @@ const TOKEN_KEY = 'soundrent.token';
 const USER_KEY = 'soundrent.username';
 const EXPIRES_KEY = 'soundrent.expires';
 
+/** Persists auth across browser restarts; cleared only on explicit logout or expiry. */
+const AUTH_STORAGE: Storage = localStorage;
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
 
   private readonly _token = signal<string | null>(this.readToken());
-  private readonly _username = signal<string | null>(localStorage.getItem(USER_KEY));
+  private readonly _username = signal<string | null>(AUTH_STORAGE.getItem(USER_KEY));
 
   readonly token = this._token.asReadonly();
   readonly username = this._username.asReadonly();
@@ -29,9 +32,9 @@ export class AuthService {
   }
 
   logout(redirect = true): void {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(EXPIRES_KEY);
+    AUTH_STORAGE.removeItem(TOKEN_KEY);
+    AUTH_STORAGE.removeItem(USER_KEY);
+    AUTH_STORAGE.removeItem(EXPIRES_KEY);
     this._token.set(null);
     this._username.set(null);
     if (redirect) {
@@ -40,23 +43,23 @@ export class AuthService {
   }
 
   private persist(response: AuthResponse): void {
-    localStorage.setItem(TOKEN_KEY, response.token);
-    localStorage.setItem(USER_KEY, response.username);
-    localStorage.setItem(EXPIRES_KEY, response.expiresAt);
+    AUTH_STORAGE.setItem(TOKEN_KEY, response.token);
+    AUTH_STORAGE.setItem(USER_KEY, response.username);
+    AUTH_STORAGE.setItem(EXPIRES_KEY, response.expiresAt);
     this._token.set(response.token);
     this._username.set(response.username);
   }
 
   private readToken(): string | null {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const expires = localStorage.getItem(EXPIRES_KEY);
+    const token = AUTH_STORAGE.getItem(TOKEN_KEY);
+    const expires = AUTH_STORAGE.getItem(EXPIRES_KEY);
     if (!token || !expires) {
       return null;
     }
     if (new Date(expires).getTime() <= Date.now()) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-      localStorage.removeItem(EXPIRES_KEY);
+      AUTH_STORAGE.removeItem(TOKEN_KEY);
+      AUTH_STORAGE.removeItem(USER_KEY);
+      AUTH_STORAGE.removeItem(EXPIRES_KEY);
       return null;
     }
     return token;

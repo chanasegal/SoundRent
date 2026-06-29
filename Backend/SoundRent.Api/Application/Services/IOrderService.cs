@@ -29,4 +29,12 @@ public interface IOrderService
         TimeSlot timeSlot,
         int? excludeOrderId,
         CancellationToken cancellationToken = default);
+
+    Task<List<OrderDto>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default);
+
+    Task<List<OrderDto>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
+
+    Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default);
+
+    Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default);
 }

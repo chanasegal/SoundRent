@@ -1,0 +1,209 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-[#002244]">דוחות</h1>
+      <p class="mt-1 text-sm text-slate-600">הזמנות מבוטלות וחובות פתוחים</p>
+    </div>
+    <a
+      routerLink="/dashboard"
+      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
+    >
+      ▶ חזרה ללוח
+    </a>
+  </div>
+
+  <div class="reports-tabs" role="tablist" aria-label="דוחות">
+    <button
+      type="button"
+      role="tab"
+      class="reports-tab"
+      [class.reports-tab--active]="activeTab() === 'cancelled'"
+      [attr.aria-selected]="activeTab() === 'cancelled'"
+      (click)="switchTab('cancelled')"
+    >
+      הזמנות מבוטלות
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="reports-tab"
+      [class.reports-tab--active]="activeTab() === 'unpaid'"
+      [attr.aria-selected]="activeTab() === 'unpaid'"
+      (click)="switchTab('unpaid')"
+    >
+      חובות פתוחים (לא שולם)
+    </button>
+  </div>
+
+  @if (activeTab() === 'cancelled') {
+    <section class="reports-panel" role="tabpanel" aria-label="הזמנות מבוטלות">
+      <div class="reports-panel__toolbar">
+        <div class="reports-panel__title-row">
+          <h2 class="text-lg font-bold text-[#002244]">הזמנות מבוטלות</h2>
+          <button
+            type="button"
+            class="reports-export-btn"
+            [disabled]="exportCancelledInProgress() || cancelledOrders().length === 0"
+            (click)="exportCancelledToExcel()"
+            title="הורדת רשימת הזמנות מבוטלות ל-Excel"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 17v2h14v-2"></path>
+            </svg>
+            {{ exportCancelledInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
+          </button>
+        </div>
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          [disabled]="loadingCancelled()"
+          (click)="loadCancelled()"
+        >
+          רענון
+        </button>
+      </div>
+
+      @if (loadingCancelled()) {
+        <p class="reports-empty">טוען…</p>
+      } @else if (cancelledOrders().length === 0) {
+        <p class="reports-empty">אין הזמנות מבוטלות</p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="reports-table">
+            <thead>
+              <tr>
+                <th>שם לקוח</th>
+                <th>טלפון</th>
+                <th>ציוד</th>
+                <th>תאריך התחלה</th>
+                <th>תאריך סיום</th>
+                <th>סכום כולל</th>
+                <th class="text-center">פעולה</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (order of cancelledOrders(); track order.id) {
+                <tr>
+                  <td>{{ order.customerName || '—' }}</td>
+                  <td class="font-mono text-xs" dir="ltr">{{ order.phone }}</td>
+                  <td>{{ equipmentLabel(order) }}</td>
+                  <td>{{ startHebrewDate(order) }}</td>
+                  <td>{{ endHebrewDate(order) }}</td>
+                  <td class="font-semibold text-[#002244]">{{ formatAmount(order) }}</td>
+                  <td class="text-center">
+                    <button
+                      type="button"
+                      class="reports-delete-btn"
+                      [disabled]="deletingOrderId() === order.id"
+                      (click)="deleteCancelledOrder(order)"
+                      title="מחיקה"
+                      aria-label="מחיקה"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16"></path>
+                        <path d="M10 11v6"></path>
+                        <path d="M14 11v6"></path>
+                        <path d="M6 7l1 14h10l1-14"></path>
+                        <path d="M9 7V4h6v3"></path>
+                      </svg>
+                      מחיקה
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+  } @else {
+    <section class="reports-panel" role="tabpanel" aria-label="חובות פתוחים">
+      <div class="reports-panel__toolbar">
+        <div class="reports-panel__title-row">
+          <h2 class="text-lg font-bold text-[#002244]">חובות פתוחים (לא שולם)</h2>
+          <button
+            type="button"
+            class="reports-export-btn"
+            [disabled]="exportUnpaidInProgress() || unpaidOrders().length === 0"
+            (click)="exportUnpaidToExcel()"
+            title="הורדת רשימת חובות פתוחים ל-Excel"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 17v2h14v-2"></path>
+            </svg>
+            {{ exportUnpaidInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
+          </button>
+        </div>
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          [disabled]="loadingUnpaid()"
+          (click)="loadUnpaid()"
+        >
+          רענון
+        </button>
+      </div>
+
+      @if (loadingUnpaid()) {
+        <p class="reports-empty">טוען…</p>
+      } @else if (unpaidOrders().length === 0) {
+        <p class="reports-empty">אין חובות פתוחים 🎉</p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="reports-table">
+            <thead>
+              <tr>
+                <th>שם לקוח</th>
+                <th>טלפון</th>
+                <th>ציוד</th>
+                <th>תאריך התחלה</th>
+                <th>תאריך סיום</th>
+                <th>סכום כולל</th>
+                <th>סטטוס</th>
+                <th class="text-center">פעולה</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (order of unpaidOrders(); track order.id) {
+                <tr>
+                  <td>{{ order.customerName || '—' }}</td>
+                  <td class="font-mono text-xs" dir="ltr">{{ order.phone }}</td>
+                  <td>{{ equipmentLabel(order) }}</td>
+                  <td>{{ startHebrewDate(order) }}</td>
+                  <td>{{ endHebrewDate(order) }}</td>
+                  <td class="font-semibold text-[#002244]">{{ formatAmount(order) }}</td>
+                  <td>
+                    <span
+                      class="reports-status"
+                      [class.reports-status--cancelled]="order.isCancelled"
+                    >
+                      {{ orderStatusLabel(order) }}
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    <button
+                      type="button"
+                      class="reports-mark-paid-btn"
+                      [disabled]="markingPaidId() === order.id"
+                      (click)="markAsPaid(order)"
+                      title="סמן כשולם"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 6 9 17l-5-5"></path>
+                      </svg>
+                      סמן כשולם
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+  }
+</div>

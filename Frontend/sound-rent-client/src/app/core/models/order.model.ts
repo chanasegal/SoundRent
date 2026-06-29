@@ -32,6 +32,7 @@ export interface OrderDto {
   depositOnName?: string | null;
   paymentAmount?: number | null;
   isPaid: boolean;
+  isCancelled: boolean;
   returnTimeType: ReturnTimeType;
   customReturnTime?: string | null;
   notes?: string | null;

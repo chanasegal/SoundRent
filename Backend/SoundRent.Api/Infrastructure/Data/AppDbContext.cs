@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
     public DbSet<EquipmentDefinition> EquipmentDefinitions => Set<EquipmentDefinition>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -32,7 +32,7 @@ public class OrderCreateUpdateDto : IValidatableObject
 
     public decimal? PaymentAmount { get; set; }
 
-    public bool IsPaid { get; set; }
+    public bool IsPaid { get; set; } = true;
 
     public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
 

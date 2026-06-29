@@ -1,0 +1,121 @@
+.memo-root {
+  position: relative;
+}
+
+.memo-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 0.65rem;
+  background: #9ca3af;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover,
+  &--active {
+    background: #6b7280;
+    box-shadow: 0 2px 8px rgb(15 23 42 / 0.18);
+  }
+
+  svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+.memo-panel {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  z-index: 50;
+  width: min(22rem, calc(100vw - 2rem));
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #fff;
+  padding: 0.85rem;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 0.14);
+}
+
+.memo-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.memo-panel__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #002244;
+}
+
+.memo-panel__status {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.memo-panel__loading {
+  padding: 1rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.memo-panel__textarea {
+  display: block;
+  width: 100%;
+  min-height: 10rem;
+  max-height: 16rem;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #0f172a;
+  background: #f8fafc;
+
+  &:focus {
+    outline: none;
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 2px rgb(14 165 233 / 0.15);
+    background: #fff;
+  }
+}
+
+.memo-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.65rem;
+}
+
+.memo-panel__save {
+  border: none;
+  border-radius: 0.55rem;
+  background: #002244;
+  color: #fff;
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #003366;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
