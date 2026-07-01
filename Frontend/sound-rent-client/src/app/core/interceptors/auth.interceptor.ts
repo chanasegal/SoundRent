@@ -14,7 +14,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(cloned).pipe(
     catchError((error) => {
-      if (error?.status === 401) {
+      const isLoginAttempt = req.url.includes('/auth/login');
+      if (error?.status === 401 && !isLoginAttempt) {
         auth.logout();
       }
       return throwError(() => error);

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
@@ -49,6 +50,20 @@ public class OrderCreateUpdateDto : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone) });
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(Phone2, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone2) });
+        }
+
         if (ReturnTimeType == ReturnTimeType.SpecificTime && string.IsNullOrWhiteSpace(CustomReturnTime))
         {
             yield return new ValidationResult(

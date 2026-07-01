@@ -1,6 +1,8 @@
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
+using SoundRent.Api.Application.PhoneNumbers;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
@@ -24,13 +26,20 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        var order = await _orderRepository.GetByIdAsync(id, cancellationToken);
+        var order = await _orderRepository.GetByIdForReadAsync(id, cancellationToken);
         return order is null ? null : OrderMapper.ToDto(order);
     }
 
-    public async Task<List<OrderDto>> GetWeeklyOrdersAsync(DateOnly startDate, CancellationToken cancellationToken = default)
+    public async Task<List<OrderDto>> GetWeeklyOrdersAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        CancellationToken cancellationToken = default)
     {
-        var endDate = startDate.AddDays(6);
+        if (endDate < startDate)
+        {
+            throw new ValidationException("תאריך הסיום חייב להיות באותו יום או אחרי תאריך ההתחלה");
+        }
+
         var orders = await _orderRepository.GetByDateRangeAsync(startDate, endDate, cancellationToken);
         return orders.Select(OrderMapper.ToDto).ToList();
     }
@@ -43,10 +52,17 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto> CreateOrderAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken = default)
     {
+        NormalizeAndValidateOrderPhones(dto);
         ExtendMorningEndShiftForLateReturn(dto);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
-        await ValidateReservationRequestAsync(equipmentIds, shifts, excludeOrderId: null, cancellationToken);
+        await ValidateReservationRequestAsync(
+            equipmentIds,
+            shifts,
+            excludeOrderId: null,
+            allowDoubleBooking: dto.AllowDoubleBooking,
+            priorEquipmentIds: null,
+            cancellationToken);
 
         var entity = OrderMapper.ToEntity(dto);
         await _orderRepository.AddAsync(entity, cancellationToken);
@@ -61,10 +77,20 @@ public class OrderService : IOrderService
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
+        NormalizeAndValidateOrderPhones(dto);
         ExtendMorningEndShiftForLateReturn(dto);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
-        await ValidateReservationRequestAsync(equipmentIds, shifts, excludeOrderId: id, cancellationToken);
+        var priorEquipmentIds = OrderMapper
+            .NormalizeEquipmentDefinitionIds(existing.Equipments.Select(e => e.EquipmentDefinitionId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await ValidateReservationRequestAsync(
+            equipmentIds,
+            shifts,
+            excludeOrderId: id,
+            allowDoubleBooking: dto.AllowDoubleBooking,
+            priorEquipmentIds,
+            cancellationToken);
 
         OrderMapper.ApplyTo(dto, existing);
 
@@ -154,6 +180,22 @@ public class OrderService : IOrderService
         return OrderMapper.ToDto(existing);
     }
 
+    private static void NormalizeAndValidateOrderPhones(OrderCreateUpdateDto dto)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var p1))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var p2))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        dto.Phone = p1;
+        dto.Phone2 = p2;
+    }
+
     private static void ValidateDayAndSlotRules(DateOnly orderDate, TimeSlot timeSlot)
     {
         if (orderDate == default)
@@ -178,6 +220,8 @@ public class OrderService : IOrderService
         IReadOnlyList<string> equipmentIds,
         IReadOnlyList<OrderShiftDto> shifts,
         int? excludeOrderId,
+        bool allowDoubleBooking,
+        IReadOnlySet<string>? priorEquipmentIds,
         CancellationToken cancellationToken)
     {
         if (equipmentIds.Count == 0)
@@ -200,10 +244,31 @@ public class OrderService : IOrderService
             ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
         }
 
+        var definitions = await _equipmentDefinitions.GetByIdsAsync(equipmentIds, cancellationToken);
+        var definitionsById = definitions.ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);
+
         foreach (var equipmentId in equipmentIds)
         {
-            await ValidateBookingSlotExistsAsync(equipmentId, cancellationToken);
-            await ValidateMaintenanceModeForCreateAsync(equipmentId, cancellationToken);
+            var trimmed = equipmentId.Trim();
+            if (!definitionsById.TryGetValue(trimmed, out var def))
+            {
+                throw new ValidationException("יש לבחור ערך ציוד תקין מהרשימה");
+            }
+
+            if (priorEquipmentIds?.Contains(equipmentId) == true)
+            {
+                continue;
+            }
+
+            if (def.IsMaintenanceMode)
+            {
+                throw new ValidationException("הציוד בתיקון - לא ניתן להוסיף הזמנה חדשה");
+            }
+        }
+
+        if (allowDoubleBooking)
+        {
+            return;
         }
 
         var conflict = await _orderRepository.FindSlotConflictAsync(
@@ -215,28 +280,6 @@ public class OrderService : IOrderService
                 : conflict.EquipmentDisplayName;
             throw new ValidationException(
                 $"הציוד {equipmentLabel} כבר תפוס בתאריך {conflict.OrderDate:yyyy-MM-dd} במשמרת {ShiftLabel(conflict.TimeSlot)}");
-        }
-    }
-
-    private async Task ValidateMaintenanceModeForCreateAsync(
-        string bookingSlot,
-        CancellationToken cancellationToken)
-    {
-        var trimmed = bookingSlot.Trim();
-        var def = await _equipmentDefinitions.GetByIdAsync(trimmed, cancellationToken);
-        if (def is null || !def.IsMaintenanceMode)
-        {
-            return;
-        }
-
-        throw new ValidationException("הציוד בתיקון - לא ניתן להוסיף הזמנה חדשה");
-    }
-
-    private async Task ValidateBookingSlotExistsAsync(string? slot, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(slot) || !await _equipmentDefinitions.ExistsAsync(slot, cancellationToken))
-        {
-            throw new ValidationException("יש לבחור ערך ציוד תקין מהרשימה");
         }
     }
 

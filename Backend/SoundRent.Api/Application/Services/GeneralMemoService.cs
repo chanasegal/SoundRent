@@ -16,7 +16,15 @@ public class GeneralMemoService : IGeneralMemoService
 
     public async Task<GeneralMemoDto> GetAsync(CancellationToken cancellationToken = default)
     {
-        var memo = await EnsureMemoRowAsync(cancellationToken);
+        var memo = await _db.GeneralMemos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == GeneralMemo.SingletonId, cancellationToken);
+
+        if (memo is null)
+        {
+            memo = await EnsureMemoRowAsync(cancellationToken);
+        }
+
         return ToDto(memo);
     }
 

@@ -14,6 +14,14 @@ public interface ICustomerRepository
 
     Task UpsertAsync(Customer customer, CancellationToken cancellationToken = default);
 
+    Task UpdateFieldsAsync(Customer customer, CancellationToken cancellationToken = default);
+
+    /// <summary>Re-keys the customer and cascades the new primary phone to orders and waitlist entries.</summary>
+    Task ReplacePhone1WithCascadeAsync(
+        string oldPhone1,
+        Customer updated,
+        CancellationToken cancellationToken = default);
+
     void Remove(Customer customer);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

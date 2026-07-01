@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
-using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -20,6 +19,14 @@ public class OrderRepository : IOrderRepository
     {
         return WithOrderGraph(_db.Orders)
             .AsSplitQuery()
+            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+    }
+
+    public Task<Order?> GetByIdForReadAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return WithOrderGraph(_db.Orders)
+            .AsSplitQuery()
+            .AsNoTracking()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
@@ -86,9 +93,12 @@ public class OrderRepository : IOrderRepository
             .Select(s => (s.OrderDate, s.TimeSlot))
             .ToHashSet();
 
-        var query = WithOrderGraph(_db.Orders)
-            .AsSplitQuery()
+        var query = _db.Orders
             .AsNoTracking()
+            .Include(o => o.Equipments)
+            .ThenInclude(e => e.EquipmentDefinition)
+            .Include(o => o.Shifts)
+            .AsSplitQuery()
             .Where(o =>
                 !o.IsCancelled &&
                 o.Equipments.Any(e => equipmentSet.Contains(e.EquipmentDefinitionId)) &&
@@ -189,27 +199,15 @@ public class OrderRepository : IOrderRepository
             return new List<Order>();
         }
 
-        var set = new HashSet<string>(normalizedDigitPhones.Where(p => p.Length > 0));
-        var orders = await _db.Orders
+        var phones = normalizedDigitPhones.Where(p => p.Length > 0).Distinct().ToList();
+
+        return await WithOrderGraph(_db.Orders)
             .AsNoTracking()
-            .Include(o => o.Equipments)
-            .ThenInclude(e => e.EquipmentDefinition)
-            .Include(o => o.Shifts)
-            .Include(o => o.LoanedEquipments)
-            .ThenInclude(le => le.Notes)
             .AsSplitQuery()
+            .Where(o => phones.Contains(o.Phone) || (o.Phone2 != null && phones.Contains(o.Phone2)))
             .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
             .ThenByDescending(o => o.Id)
             .ToListAsync(cancellationToken);
-
-        return orders
-            .Where(o =>
-            {
-                var p = PhoneNumberNormalizer.DigitsOnly(o.Phone);
-                var p2 = PhoneNumberNormalizer.DigitsOnly(o.Phone2);
-                return set.Contains(p) || (!string.IsNullOrEmpty(p2) && set.Contains(p2));
-            })
-            .ToList();
     }
 
     public async Task<bool> HasActiveOrFutureOrdersForCustomerPhonesAsync(
@@ -225,18 +223,13 @@ public class OrderRepository : IOrderRepository
             return false;
         }
 
-        var orders = await _db.Orders
+        return await _db.Orders
             .AsNoTracking()
-            .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= todayInclusive))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        return orders.Any(o =>
-        {
-            var p = PhoneNumberNormalizer.DigitsOnly(o.Phone);
-            var p2 = PhoneNumberNormalizer.DigitsOnly(o.Phone2);
-            return set.Contains(p) || (!string.IsNullOrEmpty(p2) && set.Contains(p2));
-        });
+            .Where(o =>
+                !o.IsCancelled &&
+                o.Shifts.Any(s => s.OrderDate >= todayInclusive) &&
+                (set.Contains(o.Phone) || (o.Phone2 != null && set.Contains(o.Phone2))))
+            .AnyAsync(cancellationToken);
     }
 
     public Task<List<Order>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default)

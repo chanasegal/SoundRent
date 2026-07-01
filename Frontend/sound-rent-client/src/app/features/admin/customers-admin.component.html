@@ -146,18 +146,24 @@
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 1 (מפתח) <span class="text-rose-500">*</span></label>
           <input formControlName="phone1" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
+          @if (!isNewCustomer()) {
+            <p class="mt-1 text-xs text-amber-700">שינוי מספר הטלפון הראשי יעדכן גם את כל ההזמנות והרשומות המשויכות ללקוח.</p>
+          }
           @if (editForm.controls.phone1.touched && editForm.controls.phone1.errors?.['required']) {
             <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
           }
-          @if (editForm.controls.phone1.touched && editForm.controls.phone1.errors?.['pattern']) {
-            <p class="mt-1 text-xs text-rose-600">9 או 10 ספרות</p>
+          @if (editForm.controls.phone1.touched && editForm.controls.phone1.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+          }
+          @if (phone1ServerError()) {
+            <p class="mt-1 text-xs text-rose-600">{{ phone1ServerError() }}</p>
           }
         </div>
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 2</label>
           <input formControlName="phone2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
-          @if (editForm.controls.phone2.touched && editForm.controls.phone2.errors?.['pattern']) {
-            <p class="mt-1 text-xs text-rose-600">9 או 10 ספרות או ריק</p>
+          @if (editForm.controls.phone2.touched && editForm.controls.phone2.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
           }
         </div>
         <div>
@@ -179,7 +185,7 @@
           <button
             type="submit"
             class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
-            [disabled]="saving()"
+            [disabled]="saving() || editForm.invalid"
           >
             {{ saving() ? 'שומר…' : 'שמירה' }}
           </button>
@@ -197,7 +203,7 @@
     (click)="closeHistory()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -213,25 +219,44 @@
         } @else if (historyOrders().length === 0) {
           <p class="py-8 text-center text-slate-500">אין הזמנות ללקוח זה</p>
         } @else {
-          <table class="w-full border-collapse text-right text-sm">
+          <table class="history-orders-table w-full border-collapse text-right text-sm">
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
                 <th class="px-2 py-2 font-semibold">תאריך</th>
+                <th class="px-2 py-2 font-semibold">תאריך עברי</th>
+                <th class="px-2 py-2 font-semibold">שעת יצירה</th>
                 <th class="px-2 py-2 font-semibold">משמרת</th>
                 <th class="px-2 py-2 font-semibold">ציוד</th>
                 <th class="px-2 py-2 font-semibold">שם</th>
-                <th class="px-2 py-2 font-semibold"></th>
+                <th class="px-2 py-2 font-semibold">פעולות</th>
               </tr>
             </thead>
             <tbody>
               @for (o of historyOrders(); track o.id) {
                 <tr class="border-b border-slate-100">
-                  <td class="px-2 py-2 whitespace-nowrap">{{ orderPrimaryDate(o) }}</td>
+                  <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ orderPrimaryDate(o) }}</td>
+                  <td class="px-2 py-2 whitespace-nowrap">{{ orderHebrewDate(o) }}</td>
+                  <td class="px-2 py-2 whitespace-nowrap history-created-at" dir="ltr">{{ orderCreatedTime(o) }}</td>
                   <td class="px-2 py-2">{{ orderShiftLabels(o) }}</td>
                   <td class="px-2 py-2 font-mono text-xs" dir="ltr">{{ orderEquipmentIds(o) }}</td>
                   <td class="px-2 py-2">{{ o.customerName || '—' }}</td>
                   <td class="px-2 py-2 text-left whitespace-nowrap">
-                    <a class="text-sm font-semibold text-[#002244] underline hover:text-[#003366]" [routerLink]="['/orders', o.id]">עריכה</a>
+                    <div class="history-order-actions">
+                      <button
+                        type="button"
+                        class="history-order-action history-order-action--renew"
+                        (click)="renewOrder(o)"
+                        title="חדש הזמנה"
+                      >
+                        חדש הזמנה
+                      </button>
+                      <a
+                        class="history-order-action history-order-action--edit"
+                        [routerLink]="['/orders', o.id]"
+                      >
+                        עריכה
+                      </a>
+                    </div>
                   </td>
                 </tr>
               }

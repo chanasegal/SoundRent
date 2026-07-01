@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 
@@ -15,6 +15,7 @@ import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-equipment-slots-admin',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ReactiveFormsModule],
   templateUrl: './equipment-slots-admin.component.html',
   styleUrl: './equipment-slots-admin.component.scss'
@@ -37,6 +38,9 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   protected readonly saving = signal(false);
+  protected readonly editSaving = signal(false);
+  protected readonly editOpen = signal(false);
+  protected readonly editingId = signal<string | null>(null);
   protected readonly deletingId = signal<string | null>(null);
   protected readonly futureOrdersModal = signal<EquipmentDefinitionDeleteFutureOrder[] | null>(null);
   protected readonly maintenanceTogglingId = signal<string | null>(null);
@@ -47,11 +51,17 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     category: ['Speakers', Validators.required]
   });
 
+  protected readonly editForm = this.fb.group({
+    displayName: ['', [Validators.required, Validators.maxLength(200)]],
+    sortOrder: [0, [Validators.required, Validators.min(0), Validators.max(1_000_000)]]
+  });
+
   ngOnInit(): void {
     this.refresh();
   }
 
   protected refresh(): void {
+    this.store.invalidate();
     this.store.load().subscribe();
   }
 
@@ -76,10 +86,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           this.maintenanceSync.notifyMaintenanceChanged();
         }
       });
-  }
-
-  protected rows(): EquipmentDefinitionDto[] {
-    return this.store.definitions();
   }
 
   protected submitAdd(): void {
@@ -113,7 +119,62 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             displayName: '',
             category: 'Speakers'
           });
-          this.refresh();
+          this.store.upsertDefinition(created);
+        }
+      });
+  }
+
+  protected rows(): EquipmentDefinitionDto[] {
+    return this.store.definitions();
+  }
+
+  protected openEdit(row: EquipmentDefinitionDto): void {
+    this.editingId.set(row.id);
+    this.editForm.reset({
+      displayName: row.displayName,
+      sortOrder: row.sortOrder
+    });
+    this.editOpen.set(true);
+  }
+
+  protected closeEdit(): void {
+    this.editOpen.set(false);
+    this.editingId.set(null);
+  }
+
+  protected saveEdit(): void {
+    const id = this.editingId();
+    if (!id) {
+      return;
+    }
+    if (this.editForm.invalid) {
+      this.editForm.markAllAsTouched();
+      this.toast.error('אנא תקנו את השדות המסומנים');
+      return;
+    }
+
+    const v = this.editForm.getRawValue();
+    const sortOrder = Number(v.sortOrder);
+    if (!Number.isFinite(sortOrder)) {
+      this.toast.error('סדר חייב להיות מספר שלם');
+      return;
+    }
+
+    this.editSaving.set(true);
+    this.data
+      .updateEquipmentDefinition(id, {
+        displayName: (v.displayName ?? '').trim(),
+        sortOrder: Math.trunc(sortOrder)
+      })
+      .pipe(finalize(() => this.editSaving.set(false)))
+      .subscribe({
+        next: (updated) => {
+          if (updated === null) {
+            return;
+          }
+          this.toast.success('התא עודכן');
+          this.store.upsertDefinition(updated);
+          this.closeEdit();
         }
       });
   }
@@ -131,7 +192,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       next: () => {
         this.deletingId.set(null);
         this.toast.success('התא נמחק');
-        this.refresh();
+        this.store.removeDefinition(row.id);
       },
       error: (err: unknown) => {
         this.deletingId.set(null);

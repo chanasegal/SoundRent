@@ -30,5 +30,8 @@ public class WaitlistEntryConfiguration : IEntityTypeConfiguration<WaitlistEntry
 
         builder.HasIndex(e => new { e.EquipmentType, e.WaitlistDate })
             .HasDatabaseName("IX_WaitlistEntries_Equipment_Date");
+
+        builder.HasIndex(e => e.WaitlistDate)
+            .HasDatabaseName("IX_WaitlistEntries_WaitlistDate");
     }
 }

@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<EquipmentDefinition> EquipmentDefinitions => Set<EquipmentDefinition>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
+    public DbSet<LostEquipment> LostEquipments => Set<LostEquipment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

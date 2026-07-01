@@ -24,14 +24,36 @@ public static class PhoneNumberNormalizer
         return sb.ToString();
     }
 
-    /// <summary>Israeli-style numbers used in the app: 9 or 10 digits after stripping separators.</summary>
-    public static bool IsValidStoredPhone(string? digits)
+    /// <summary>Israeli mobile (05xxxxxxxx) or landline (02/03/04/07/08/09 + 7 digits).</summary>
+    public static bool IsValidIsraeliPhone(string? digits)
     {
         if (string.IsNullOrEmpty(digits))
         {
             return false;
         }
 
-        return digits.Length is 9 or 10;
+        foreach (var c in digits)
+        {
+            if (!char.IsDigit(c))
+            {
+                return false;
+            }
+        }
+
+        if (digits.Length == 10 && digits.StartsWith("05", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (digits.Length == 9)
+        {
+            var prefix = digits[..2];
+            return prefix is "02" or "03" or "04" or "07" or "08" or "09";
+        }
+
+        return false;
     }
+
+    /// <summary>Israeli mobile (05xxxxxxxx) or landline (02/03/04/07/08/09 + 7 digits).</summary>
+    public static bool IsValidStoredPhone(string? digits) => IsValidIsraeliPhone(digits);
 }

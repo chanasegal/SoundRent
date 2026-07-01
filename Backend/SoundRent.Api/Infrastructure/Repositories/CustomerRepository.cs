@@ -78,6 +78,55 @@ public class CustomerRepository : ICustomerRepository
         tracked.UpdatedAt = customer.UpdatedAt;
     }
 
+    public async Task UpdateFieldsAsync(Customer customer, CancellationToken cancellationToken = default)
+    {
+        var tracked = await _db.Customers
+            .FirstOrDefaultAsync(c => c.Phone1 == customer.Phone1, cancellationToken)
+            ?? throw new InvalidOperationException($"Customer {customer.Phone1} was not found for update.");
+
+        tracked.Phone2 = customer.Phone2;
+        tracked.FullName = customer.FullName;
+        tracked.Address = customer.Address;
+        tracked.Notes = customer.Notes;
+        tracked.UpdatedAt = customer.UpdatedAt;
+    }
+
+    public async Task ReplacePhone1WithCascadeAsync(
+        string oldPhone1,
+        Customer updated,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _db.Orders
+                .Where(o => o.Phone == oldPhone1)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(o => o.Phone, updated.Phone1),
+                    cancellationToken);
+
+            await _db.WaitlistEntries
+                .Where(w => w.Phone == oldPhone1)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(w => w.Phone, updated.Phone1),
+                    cancellationToken);
+
+            var existing = await _db.Customers
+                .FirstOrDefaultAsync(c => c.Phone1 == oldPhone1, cancellationToken)
+                ?? throw new InvalidOperationException($"Customer {oldPhone1} was not found for phone change.");
+
+            _db.Customers.Remove(existing);
+            await _db.Customers.AddAsync(updated, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
     public void Remove(Customer customer)
     {
         _db.Customers.Remove(customer);

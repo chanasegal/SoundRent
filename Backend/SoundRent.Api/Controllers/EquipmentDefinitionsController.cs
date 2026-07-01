@@ -51,6 +51,28 @@ public class EquipmentDefinitionsController : ControllerBase
         return Ok(ToDto(entity));
     }
 
+    [HttpPut("{id}")]
+    public async Task<ActionResult<EquipmentDefinitionDto>> Update(
+        string id,
+        [FromBody] EquipmentDefinitionUpdateDto dto,
+        CancellationToken cancellationToken)
+    {
+        var entity = await _repository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("הגדרת הציוד לא נמצאה");
+
+        var displayName = dto.DisplayName.Trim();
+        if (string.IsNullOrEmpty(displayName))
+        {
+            throw new ValidationException("יש להזין שם תצוגה");
+        }
+
+        entity.DisplayName = displayName;
+        entity.SortOrder = dto.SortOrder;
+        await _repository.SaveChangesAsync(cancellationToken);
+
+        return Ok(ToDto(entity));
+    }
+
     [HttpPost]
     public async Task<ActionResult<EquipmentDefinitionDto>> Create(
         [FromBody] EquipmentDefinitionCreateDto dto,

@@ -136,4 +136,3 @@ C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\ExcelNumberFormat.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\RBush.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SixLabors.Fonts.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\System.IO.Packaging.dll
-C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

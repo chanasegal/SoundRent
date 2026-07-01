@@ -77,15 +77,24 @@
                   <span class="text-slate-400">—</span>
                 }
               </td>
-              <td class="px-3 py-2 text-left">
-                <button
-                  type="button"
-                  class="text-sm font-medium text-rose-700 hover:text-rose-900 disabled:opacity-40"
-                  [disabled]="deletingId() === row.id"
-                  (click)="deleteRow(row)"
-                >
-                  {{ deletingId() === row.id ? 'מוחק…' : 'מחק' }}
-                </button>
+              <td class="px-3 py-2">
+                <div class="slot-actions">
+                  <button
+                    type="button"
+                    class="slot-action-btn slot-action-btn--edit"
+                    (click)="openEdit(row)"
+                  >
+                    עריכה
+                  </button>
+                  <button
+                    type="button"
+                    class="slot-action-btn slot-action-btn--delete"
+                    [disabled]="deletingId() === row.id"
+                    (click)="deleteRow(row)"
+                  >
+                    {{ deletingId() === row.id ? 'מוחק…' : 'מחק' }}
+                  </button>
+                </div>
               </td>
             </tr>
           } @empty {
@@ -98,6 +107,75 @@
     </div>
   </section>
 </div>
+
+@if (editOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="slot-edit-modal-title"
+    (click)="closeEdit()"
+  >
+    <div
+      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="slot-edit-modal-title" class="text-lg font-bold text-[#002244]">עריכת תא הזמנה</h2>
+        @if (editingId(); as slotId) {
+          <p class="mt-1 text-sm text-slate-600">
+            מזהה:
+            <span class="font-mono" dir="ltr">{{ slotId }}</span>
+          </p>
+        }
+      </div>
+      <form [formGroup]="editForm" (ngSubmit)="saveEdit()" class="space-y-4 px-5 py-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם תצוגה <span class="text-rose-500">*</span></label>
+          <input formControlName="displayName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
+          @if (editForm.controls.displayName.touched && editForm.controls.displayName.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">סדר <span class="text-rose-500">*</span></label>
+          <input
+            formControlName="sortOrder"
+            type="number"
+            min="0"
+            step="1"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            autocomplete="off"
+          />
+          <p class="mt-1 text-xs text-slate-500">מספר נמוך יותר מוצג מוקדם יותר בלוח השבועי.</p>
+          @if (editForm.controls.sortOrder.touched && editForm.controls.sortOrder.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (editForm.controls.sortOrder.touched && editForm.controls.sortOrder.errors?.['min']) {
+            <p class="mt-1 text-xs text-rose-600">הערך חייב להיות 0 ומעלה</p>
+          }
+        </div>
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeEdit()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="editSaving() || editForm.invalid"
+          >
+            {{ editSaving() ? 'שומר…' : 'שמור' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
 
 @if (futureOrdersModal(); as blocked) {
   <div

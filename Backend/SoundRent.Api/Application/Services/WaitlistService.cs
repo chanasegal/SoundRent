@@ -14,9 +14,16 @@ public class WaitlistService : IWaitlistService
         _repository = repository;
     }
 
-    public async Task<List<WaitlistEntryDto>> GetWeeklyAsync(DateOnly startDate, CancellationToken cancellationToken = default)
+    public async Task<List<WaitlistEntryDto>> GetWeeklyAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        CancellationToken cancellationToken = default)
     {
-        var endDate = startDate.AddDays(6);
+        if (endDate < startDate)
+        {
+            throw new ValidationException("תאריך הסיום חייב להיות באותו יום או אחרי תאריך ההתחלה");
+        }
+
         var list = await _repository.GetByDateRangeAsync(startDate, endDate, cancellationToken);
         return list.Select(ToDto).ToList();
     }

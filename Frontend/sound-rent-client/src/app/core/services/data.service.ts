@@ -6,10 +6,15 @@ import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
 import { TimeSlot } from '../models/enums';
 import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
-import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto } from '../models/equipment-definition.model';
+import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto } from '../models/equipment-definition.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
+import {
+  LostEquipmentCreateDto,
+  LostEquipmentDto,
+  LostEquipmentUpdateDto
+} from '../models/lost-equipment.model';
 import { ToastService } from './toast.service';
 
 /** Response of `GET /api/orders/slot-taken` — purely informational. */
@@ -27,13 +32,14 @@ export class DataService {
   private readonly equipmentDefinitionsBase = `${environment.apiBaseUrl}/equipmentdefinitions`;
   private readonly customersBase = `${environment.apiBaseUrl}/customers`;
   private readonly memoBase = `${environment.apiBaseUrl}/memo`;
+  private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
 
   private notifyHttpError(error: unknown): void {
     this.toast.error(getApiErrorMessage(error));
   }
 
-  getWeeklyOrders(startDate: string): Observable<OrderDto[]> {
-    const params = new HttpParams().set('startDate', startDate);
+  getWeeklyOrders(startDate: string, endDate: string): Observable<OrderDto[]> {
+    const params = new HttpParams().set('startDate', startDate).set('endDate', endDate);
     return this.http.get<OrderDto[]>(`${this.ordersBase}/weekly`, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
@@ -52,8 +58,8 @@ export class DataService {
     );
   }
 
-  getWeeklyWaitlist(startDate: string): Observable<WaitlistEntryDto[]> {
-    const params = new HttpParams().set('startDate', startDate);
+  getWeeklyWaitlist(startDate: string, endDate: string): Observable<WaitlistEntryDto[]> {
+    const params = new HttpParams().set('startDate', startDate).set('endDate', endDate);
     return this.http.get<WaitlistEntryDto[]>(`${this.waitlistBase}/weekly`, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
@@ -227,6 +233,19 @@ export class DataService {
     );
   }
 
+  updateEquipmentDefinition(
+    id: string,
+    payload: EquipmentDefinitionUpdateDto
+  ): Observable<EquipmentDefinitionDto | null> {
+    const enc = encodeURIComponent(id);
+    return this.http.put<EquipmentDefinitionDto>(`${this.equipmentDefinitionsBase}/${enc}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   /**
    * Deletes a booking-slot definition. Errors are not swallowed here so callers
    * can handle validation payloads (e.g. future orders blocking delete).
@@ -257,6 +276,11 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  updateCustomer(originalPhone1: string, payload: CustomerUpsertDto): Observable<CustomerDto> {
+    const enc = encodeURIComponent(originalPhone1);
+    return this.http.put<CustomerDto>(`${this.customersBase}/${enc}`, payload);
   }
 
   deleteCustomer(phone1Digits: string): Observable<boolean> {
@@ -305,6 +329,43 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
+      })
+    );
+  }
+
+  getLostEquipment(): Observable<LostEquipmentDto[]> {
+    return this.http.get<LostEquipmentDto[]>(this.lostEquipmentBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createLostEquipment(payload: LostEquipmentCreateDto): Observable<LostEquipmentDto | null> {
+    return this.http.post<LostEquipmentDto>(this.lostEquipmentBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateLostEquipment(id: number, payload: LostEquipmentUpdateDto): Observable<LostEquipmentDto | null> {
+    return this.http.put<LostEquipmentDto>(`${this.lostEquipmentBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteLostEquipment(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.lostEquipmentBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
       })
     );
   }

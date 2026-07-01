@@ -10,3 +10,43 @@ tr.row-in-maintenance {
 tr.row-in-maintenance:hover {
   background-color: rgb(226 232 240);
 }
+
+.slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.slot-action-btn {
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.slot-action-btn--edit {
+  color: #002244;
+
+  &:hover:not(:disabled) {
+    color: #003366;
+    text-decoration: underline;
+  }
+}
+
+.slot-action-btn--delete {
+  color: #b91c1c;
+  font-weight: 500;
+
+  &:hover:not(:disabled) {
+    color: #7f1d1d;
+  }
+}

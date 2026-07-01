@@ -1,9 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, effect, inject, OnInit, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
-import { forkJoin, finalize } from 'rxjs';
+import { forkJoin, finalize, Subscription } from 'rxjs';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -80,6 +81,7 @@ interface GridRow {
   isShabbat: boolean;
   morning: GridSlotSegment[] | null;
   evening: GridSlotSegment[] | null;
+  waitlist: WaitlistEntryDto[];
 }
 
 const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -147,11 +149,12 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 
 @Component({
   selector: 'app-weekly-grid',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ReactiveFormsModule],
   templateUrl: './weekly-grid.component.html',
   styleUrl: './weekly-grid.component.scss'
 })
-export class WeeklyGridComponent implements OnInit {
+export class WeeklyGridComponent {
   private readonly initialDateState = createInitialDashboardDateState();
   private readonly data = inject(DataService);
   private readonly exportSvc = inject(ExportService);
@@ -162,6 +165,11 @@ export class WeeklyGridComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+
+  private weekLoadSub: Subscription | null = null;
+  private lastLoadedWeekKey = '';
+  private weekLoadInFlightKey = '';
 
   protected readonly equipmentTypes = EQUIPMENT_TYPE_ORDER;
   protected readonly equipmentLabels = EQUIPMENT_TYPE_LABELS;
@@ -229,13 +237,15 @@ export class WeeklyGridComponent implements OnInit {
         return;
       }
       untracked(() => {
-        this.equipmentSlots.load().subscribe();
+        this.equipmentSlots.load({ force: true }).subscribe();
       });
     });
-  }
 
-  ngOnInit(): void {
-    this.load();
+    effect(() => {
+      const start = this.toIsoDate(this.weekStart());
+      const end = this.toIsoDate(this.weekEnd());
+      untracked(() => this.loadWeekData(start, end));
+    });
   }
 
   protected onGregorianMonthModelChange(value: number): void {
@@ -260,17 +270,14 @@ export class WeeklyGridComponent implements OnInit {
 
   protected previousWeek(): void {
     this.navigateToDate(this.addDays(this.weekStart(), -7));
-    this.load();
   }
 
   protected nextWeek(): void {
     this.navigateToDate(this.addDays(this.weekStart(), 7));
-    this.load();
   }
 
   protected goToday(): void {
     this.navigateToDate(new Date());
-    this.load();
   }
 
   protected exportAllOrdersBackupToExcel(): void {
@@ -304,14 +311,15 @@ export class WeeklyGridComponent implements OnInit {
           const orderRows = sortedOrders.map((o) => this.orderToBackupExcelRow(o));
           const waitlistRows = sortedWaitlist.map((e) => this.waitlistToBackupExcelRow(e));
           const stamp = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jerusalem' });
-          this.exportSvc.exportMultiSheetExcel(
-            [
-              { sheetName: 'הזמנות', rows: orderRows },
-              { sheetName: 'רשימת המתנה', rows: waitlistRows }
-            ],
-            `גיבוי_מלא_${stamp}`
-          );
-          this.toast.success('קובץ Excel הורד (הזמנות + רשימת המתנה)');
+          void this.exportSvc
+            .exportMultiSheetExcel(
+              [
+                { sheetName: 'הזמנות', rows: orderRows },
+                { sheetName: 'רשימת המתנה', rows: waitlistRows }
+              ],
+              `גיבוי_מלא_${stamp}`
+            )
+            .then(() => this.toast.success('קובץ Excel הורד (הזמנות + רשימת המתנה)'));
         }
       });
   }
@@ -437,10 +445,6 @@ export class WeeklyGridComponent implements OnInit {
     return `${cell.columnId}-${cell.date.getTime()}-${cell.timeSlot}`;
   }
 
-  protected segmentTrackKey(segment: GridSlotSegment): string {
-    return segment.key;
-  }
-
   /** Label for bookings / ARIA (Hebrew display for slot keys). */
   protected cellBookingLabel(cell: GridCell): string {
     return this.equipmentSlots.displayLabel(cell.bookingSlot);
@@ -504,17 +508,6 @@ export class WeeklyGridComponent implements OnInit {
     return n;
   }
 
-  protected waitlistForDay(date: Date): WaitlistEntryDto[] {
-    const iso = this.toIsoDate(date);
-    return this
-      .waitlistEntries()
-      .filter((e) => e.date === iso)
-      .sort((a, b) => {
-        const eq = a.equipmentType.localeCompare(b.equipmentType);
-        return eq !== 0 ? eq : a.id - b.id;
-      });
-  }
-
   protected waitlistBadgeTitle(entry: WaitlistEntryDto): string {
     const parts = [this.equipmentLabels[entry.equipmentType]];
     if (entry.notes?.trim()) {
@@ -564,7 +557,7 @@ export class WeeklyGridComponent implements OnInit {
           }
           this.toast.success('נוסף לרשימת ההמתנה');
           this.closeWaitlistModal();
-          this.load();
+          this.reloadCurrentWeek();
         }
       });
   }
@@ -580,7 +573,7 @@ export class WeeklyGridComponent implements OnInit {
           return;
         }
         this.toast.success('הוסר מרשימת ההמתנה');
-        this.load();
+        this.reloadCurrentWeek();
       }
     });
   }
@@ -601,17 +594,44 @@ export class WeeklyGridComponent implements OnInit {
     return col.isUnderMaintenance;
   }
 
-  private load(): void {
-    const start = this.toIsoDate(this.weekStart());
-    forkJoin({
-      orders: this.data.getWeeklyOrders(start),
-      waitlist: this.data.getWeeklyWaitlist(start)
-    }).subscribe({
-      next: ({ orders, waitlist }) => {
-        this.orders.set(orders);
-        this.waitlistEntries.set(waitlist);
-      }
-    });
+  private reloadCurrentWeek(): void {
+    this.lastLoadedWeekKey = '';
+    this.loadWeekData(this.toIsoDate(this.weekStart()), this.toIsoDate(this.weekEnd()));
+  }
+
+  private loadWeekData(start: string, end: string): void {
+    const key = `${start}|${end}`;
+    if (key === this.lastLoadedWeekKey) {
+      return;
+    }
+    if (key === this.weekLoadInFlightKey) {
+      return;
+    }
+
+    this.weekLoadSub?.unsubscribe();
+    this.weekLoadInFlightKey = key;
+
+    this.weekLoadSub = forkJoin({
+      orders: this.data.getWeeklyOrders(start, end),
+      waitlist: this.data.getWeeklyWaitlist(start, end)
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ orders, waitlist }) => {
+          if (this.weekLoadInFlightKey !== key) {
+            return;
+          }
+          this.weekLoadInFlightKey = '';
+          this.lastLoadedWeekKey = key;
+          this.orders.set(orders);
+          this.waitlistEntries.set(waitlist);
+        },
+        error: () => {
+          if (this.weekLoadInFlightKey === key) {
+            this.weekLoadInFlightKey = '';
+          }
+        }
+      });
   }
 
   private navigateToDate(date: Date): void {
@@ -659,7 +679,6 @@ export class WeeklyGridComponent implements OnInit {
     }
     this.syncFiltersFromGregorianMonthYear(gregorianYear, gregorianMonth);
     this.weekStart.set(this.startOfWeek(target));
-    this.load();
   }
 
   private applyHebrewSelection(): void {
@@ -669,7 +688,6 @@ export class WeeklyGridComponent implements OnInit {
       const target = this.hebrew.toGregorian(hebrewYear, hebrewMonth, 1);
       this.syncFiltersFromHebrewMonthYear(hebrewYear, hebrewMonth);
       this.weekStart.set(this.startOfWeek(target));
-      this.load();
     } catch {
       this.toast.error('תאריך עברי לא תקין');
     }
@@ -721,6 +739,19 @@ export class WeeklyGridComponent implements OnInit {
       list.sort((a, b) => a.id - b.id);
     }
 
+    const waitlistByIso = new Map<string, WaitlistEntryDto[]>();
+    for (const entry of this.waitlistEntries()) {
+      const bucket = waitlistByIso.get(entry.date) ?? [];
+      bucket.push(entry);
+      waitlistByIso.set(entry.date, bucket);
+    }
+    for (const [, list] of waitlistByIso) {
+      list.sort((a, b) => {
+        const eq = a.equipmentType.localeCompare(b.equipmentType);
+        return eq !== 0 ? eq : a.id - b.id;
+      });
+    }
+
     const rows: GridRow[] = [];
     for (let i = 0; i < 7; i++) {
       const date = this.addDays(start, i);
@@ -759,7 +790,8 @@ export class WeeklyGridComponent implements OnInit {
         gregorian: this.formatDate(date),
         isShabbat: isFriday || isSaturday,
         morning,
-        evening
+        evening,
+        waitlist: waitlistByIso.get(iso) ?? []
       });
     }
     return rows;

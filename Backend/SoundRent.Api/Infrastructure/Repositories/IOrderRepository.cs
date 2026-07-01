@@ -8,6 +8,9 @@ public interface IOrderRepository
 {
     Task<Order?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
+    /// <summary>Read-only order fetch with full graph (no change tracking).</summary>
+    Task<Order?> GetByIdForReadAsync(int id, CancellationToken cancellationToken = default);
+
     Task<List<Order>> GetByDateRangeAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
 
     /// <summary>All orders with loaned-equipment graph (backup / full export).</summary>

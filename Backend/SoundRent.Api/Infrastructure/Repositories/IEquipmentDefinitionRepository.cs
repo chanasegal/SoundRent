@@ -10,6 +10,10 @@ public interface IEquipmentDefinitionRepository
 
     Task<EquipmentDefinition?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<EquipmentDefinition>> GetByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(EquipmentDefinition entity, CancellationToken cancellationToken = default);
 
     void Remove(EquipmentDefinition entity);

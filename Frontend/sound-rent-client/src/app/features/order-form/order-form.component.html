@@ -218,8 +218,8 @@
               @if (form.controls['phone'].touched) {
                 @if (form.controls['phone'].errors?.['required']) {
                   <p class="form-error">יש להזין מספר טלפון</p>
-                } @else if (form.controls['phone'].errors?.['phoneLength']) {
-                  <p class="form-error">מספר טלפון חייב להיות 9 או 10 ספרות</p>
+                } @else if (form.controls['phone'].errors?.['israeliPhone']) {
+                  <p class="form-error">{{ israeliPhoneInvalidMessage }}</p>
                 }
               }
               @if (showCustomerFillButton(); as cust) {
@@ -246,8 +246,8 @@
           />
           <div class="field-message-anchor field-message-anchor--phone2">
             <div class="field-message-anchor__content">
-              @if (form.controls['phone2'].touched && form.controls['phone2'].errors?.['phoneLength']) {
-                <p class="form-error">מספר טלפון חייב להיות 9 או 10 ספרות</p>
+              @if (form.controls['phone2'].touched && form.controls['phone2'].errors?.['israeliPhone']) {
+                <p class="form-error">{{ israeliPhoneInvalidMessage }}</p>
               }
             </div>
           </div>
@@ -323,6 +323,7 @@
                     inputmode="numeric"
                     pattern="[0-9]*"
                     appIntegerOnly
+                    zeroDefault
                     formControlName="quantity"
                     class="qty-input"
                   />

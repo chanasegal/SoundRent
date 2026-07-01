@@ -1,0 +1,150 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">ציוד שנשכח</h1>
+    <button
+      type="button"
+      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      (click)="refresh()"
+    >
+      רענון
+    </button>
+  </div>
+
+  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-4 text-lg font-bold text-[#002244]">הוספת פריט</h2>
+    <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="grid gap-4 md:grid-cols-2">
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח <span class="text-rose-500">*</span></label>
+        <input formControlName="customerName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
+        @if (addForm.controls.customerName.touched && addForm.controls.customerName.errors?.['required']) {
+          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+        }
+      </div>
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">תאריך עברי <span class="text-rose-500">*</span></label>
+        <input formControlName="hebrewDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="למשל: כ״ג תמוז תשפ״ה" autocomplete="off" />
+        @if (addForm.controls.hebrewDate.touched && addForm.controls.hebrewDate.errors?.['required']) {
+          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+        }
+      </div>
+      <div class="md:col-span-2">
+        <label class="mb-1 block text-sm font-medium text-slate-700">תיאור פריט <span class="text-rose-500">*</span></label>
+        <input formControlName="itemDescription" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
+        @if (addForm.controls.itemDescription.touched && addForm.controls.itemDescription.errors?.['required']) {
+          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+        }
+      </div>
+      <div class="md:col-span-2">
+        <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
+        <textarea formControlName="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+      </div>
+      <div class="md:col-span-2">
+        <button
+          type="submit"
+          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="saving() || addForm.invalid"
+        >
+          {{ saving() ? 'שומר…' : 'הוסף לרשימה' }}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-bold text-[#002244]">רשימת ציוד שנשכח</h2>
+      <button
+        type="button"
+        class="lost-export-btn"
+        [disabled]="exportInProgress() || rows().length === 0"
+        (click)="exportToExcel()"
+        title="הורדה כקובץ Excel"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v11"></path>
+          <path d="m8 10 4 4 4-4"></path>
+          <path d="M5 17v2h14v-2"></path>
+        </svg>
+        {{ exportInProgress() ? 'מייצא…' : 'הורדה כקובץ Excel' }}
+      </button>
+    </div>
+
+    @if (loading()) {
+      <p class="py-6 text-center text-sm text-slate-500">טוען…</p>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">שם לקוח</th>
+              <th class="px-3 py-2 font-semibold">תיאור פריט</th>
+              <th class="px-3 py-2 font-semibold">תאריך עברי</th>
+              <th class="px-3 py-2 font-semibold">הערות</th>
+              <th class="px-3 py-2 font-semibold">סטטוס</th>
+              <th class="px-3 py-2 text-center font-semibold">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of rows(); track row.id) {
+              <tr class="border-b border-slate-100 transition hover:bg-slate-50/80" [ngClass]="statusRowClass(row.status)">
+                <td class="px-3 py-2">{{ row.customerName }}</td>
+                <td class="px-3 py-2">{{ row.itemDescription }}</td>
+                <td class="px-3 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
+                <td class="px-3 py-2 max-w-xs truncate" [title]="row.notes ?? ''">{{ row.notes || '—' }}</td>
+                <td class="px-3 py-2">
+                  <span [ngClass]="statusBadgeClass(row.status)">
+                    {{ statusLabels[row.status] }}
+                  </span>
+                </td>
+                <td class="px-3 py-2">
+                  <div class="lost-actions">
+                    <button
+                      type="button"
+                      class="status-action status-action--pending"
+                      [disabled]="statusUpdatingId() === row.id || row.status === statusEnum.Pending"
+                      (click)="setStatus(row, statusEnum.Pending)"
+                      title="סמן כממתין"
+                    >
+                      ממתין
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--notified"
+                      [disabled]="statusUpdatingId() === row.id || row.status === statusEnum.Notified"
+                      (click)="setStatus(row, statusEnum.Notified)"
+                      title="סמן שהודיעו ללקוח"
+                    >
+                      הודיעו
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--returned"
+                      [disabled]="statusUpdatingId() === row.id || row.status === statusEnum.Returned"
+                      (click)="setStatus(row, statusEnum.Returned)"
+                      title="סמן כהוחזר"
+                    >
+                      הוחזר
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--delete"
+                      [disabled]="deletingId() === row.id"
+                      (click)="deleteRow(row)"
+                      title="מחק"
+                    >
+                      {{ deletingId() === row.id ? '…' : 'מחק' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6" class="px-3 py-8 text-center text-slate-500">אין רשומות</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</div>

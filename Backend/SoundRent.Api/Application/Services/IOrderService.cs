@@ -7,7 +7,10 @@ public interface IOrderService
 {
     Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
-    Task<List<OrderDto>> GetWeeklyOrdersAsync(DateOnly startDate, CancellationToken cancellationToken = default);
+    Task<List<OrderDto>> GetWeeklyOrdersAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Every order in the database (any date), for full Excel backup.</summary>
     Task<List<OrderDto>> GetAllOrdersForExportAsync(CancellationToken cancellationToken = default);

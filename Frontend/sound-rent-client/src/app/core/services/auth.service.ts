@@ -18,12 +18,19 @@ export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
 
-  private readonly _token = signal<string | null>(this.readToken());
-  private readonly _username = signal<string | null>(AUTH_STORAGE.getItem(USER_KEY));
+  private readonly _token = signal<string | null>(null);
+  private readonly _username = signal<string | null>(null);
 
   readonly token = this._token.asReadonly();
   readonly username = this._username.asReadonly();
   readonly isAuthenticated = computed(() => !!this._token());
+
+  /** Called from APP_INITIALIZER before routing so guards see persisted auth immediately. */
+  initializeFromStorage(): void {
+    const token = this.readToken();
+    this._token.set(token);
+    this._username.set(token ? AUTH_STORAGE.getItem(USER_KEY) : null);
+  }
 
   login(request: LoginRequest) {
     return this.http

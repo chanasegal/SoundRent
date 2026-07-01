@@ -147,7 +147,7 @@
                   <div class="mt-0.5 text-xs text-slate-500">{{ row.gregorian }}</div>
                   <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
                 </th>
-                @for (segment of row.morning; track segmentTrackKey(segment)) {
+                @for (segment of row.morning; track segment.key) {
                   <td
                     class="cell-host weekly-grid-data-col p-0.5 align-top"
                     [attr.colspan]="segment.colspan"
@@ -246,7 +246,7 @@
                     <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
                   </th>
                 }
-                @for (segment of row.evening; track segmentTrackKey(segment)) {
+                @for (segment of row.evening; track segment.key) {
                   <td
                     class="cell-host weekly-grid-data-col p-0.5 align-top"
                     [attr.colspan]="segment.colspan"
@@ -347,7 +347,7 @@
                     </button>
                   </div>
                   <div class="waitlist-badge-strip">
-                    @for (w of waitlistForDay(row.date); track w.id) {
+                    @for (w of row.waitlist; track w.id) {
                       <div class="waitlist-phone-badge" [attr.title]="waitlistBadgeTitle(w)">
                         <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
                         @if (w.notes?.trim()) {

@@ -1,9 +1,10 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-toaster',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="pointer-events-none fixed left-1/2 top-4 z-[1100] flex w-full max-w-md -translate-x-1/2 flex-col gap-2 px-4">
       @for (toast of toaster.toasts(); track toast.id) {

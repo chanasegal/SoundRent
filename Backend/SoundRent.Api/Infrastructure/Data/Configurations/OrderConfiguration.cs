@@ -50,6 +50,19 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.CreatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        builder.HasIndex(o => o.Phone)
+            .HasDatabaseName("IX_Orders_Phone");
+
+        builder.HasIndex(o => o.Phone2)
+            .HasDatabaseName("IX_Orders_Phone2")
+            .HasFilter("\"Phone2\" IS NOT NULL");
+
+        builder.HasIndex(o => o.IsCancelled)
+            .HasDatabaseName("IX_Orders_IsCancelled");
+
+        builder.HasIndex(o => o.IsPaid)
+            .HasDatabaseName("IX_Orders_IsPaid");
+
         builder.HasMany(o => o.Equipments)
             .WithOne(e => e.Order)
             .HasForeignKey(e => e.OrderId)

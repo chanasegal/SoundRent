@@ -17,8 +17,7 @@ public class EquipmentService : IEquipmentService
 
     public async Task<List<EquipmentDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureAllEquipmentRowsExistAsync(cancellationToken);
-        var rows = await _equipmentRepository.GetAllAsync(cancellationToken);
+        var rows = await EnsureAllEquipmentRowsExistInternalAsync(cancellationToken);
         return rows.Select(ToDto).ToList();
     }
 
@@ -49,6 +48,11 @@ public class EquipmentService : IEquipmentService
 
     public async Task EnsureAllEquipmentRowsExistAsync(CancellationToken cancellationToken = default)
     {
+        await EnsureAllEquipmentRowsExistInternalAsync(cancellationToken);
+    }
+
+    private async Task<List<Equipment>> EnsureAllEquipmentRowsExistInternalAsync(CancellationToken cancellationToken = default)
+    {
         var existingRows = await _equipmentRepository.GetAllAsync(cancellationToken);
         var existingTypes = existingRows.Select(x => x.EquipmentType).ToHashSet();
 
@@ -64,11 +68,12 @@ public class EquipmentService : IEquipmentService
 
         if (missing.Count == 0)
         {
-            return;
+            return existingRows;
         }
 
         await _equipmentRepository.AddRangeAsync(missing, cancellationToken);
         await _equipmentRepository.SaveChangesAsync(cancellationToken);
+        return await _equipmentRepository.GetAllAsync(cancellationToken);
     }
 
     private static EquipmentDto ToDto(Equipment entity)

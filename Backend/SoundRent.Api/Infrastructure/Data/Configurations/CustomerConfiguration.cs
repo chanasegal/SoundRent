@@ -34,5 +34,8 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.HasIndex(c => c.Phone2)
             .HasDatabaseName("IX_Customers_Phone2")
             .HasFilter("\"Phone2\" IS NOT NULL");
+
+        builder.HasIndex(c => c.UpdatedAt)
+            .HasDatabaseName("IX_Customers_UpdatedAt");
     }
 }

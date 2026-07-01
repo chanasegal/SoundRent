@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Application.Validation;
 
 namespace SoundRent.Api.Application.DTOs;
 
-public class CustomerUpsertDto
+public class CustomerUpsertDto : IValidatableObject
 {
     [Required]
     [MaxLength(20)]
@@ -19,4 +20,21 @@ public class CustomerUpsertDto
 
     [MaxLength(4000)]
     public string? Notes { get; set; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone1, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone1) });
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(Phone2, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone2) });
+        }
+    }
 }

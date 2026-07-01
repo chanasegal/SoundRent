@@ -1,5 +1,5 @@
 import { CommonModule, DOCUMENT } from '@angular/common';
-import { Component, afterNextRender, computed, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, afterNextRender, computed, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
@@ -12,7 +12,7 @@ import {
   Validators
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subject, debounceTime, distinctUntilChanged, EMPTY, finalize, map, of, startWith, switchMap, tap } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, EMPTY, finalize, forkJoin, map, of, startWith, switchMap, tap } from 'rxjs';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -27,13 +27,20 @@ import {
 } from '../../core/models/enums';
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
-import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
+import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
+import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import {
+  israeliPhoneValidator,
+  ISRAELI_PHONE_INVALID_MESSAGE,
+  isValidIsraeliPhone,
+  optionalIsraeliPhoneValidator
+} from '../../core/validators/israeli-phone.validator';
 
 interface LoanedRowMeta {
   type: LoanedEquipmentType;
@@ -42,6 +49,7 @@ interface LoanedRowMeta {
 
 @Component({
   selector: 'app-order-form',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ReactiveFormsModule, RouterLink, IntegerOnlyDirective],
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
@@ -56,6 +64,7 @@ export class OrderFormComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
+  private readonly customers = inject(CustomersStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
 
   protected readonly bookingEquipmentSlotIds = computed(() =>
@@ -156,6 +165,7 @@ export class OrderFormComponent implements OnInit {
   ];
   protected readonly returnTimeTypeLabels = RETURN_TIME_TYPE_LABELS;
   protected readonly returnTimeTypeEnum = ReturnTimeType;
+  protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
   protected readonly editingId = signal<number | null>(null);
   protected readonly orderCancelled = signal(false);
@@ -180,7 +190,7 @@ export class OrderFormComponent implements OnInit {
         return;
       }
       untracked(() => {
-        this.equipmentSlots.load().subscribe();
+        this.equipmentSlots.load({ force: true }).subscribe();
       });
     });
 
@@ -209,7 +219,7 @@ export class OrderFormComponent implements OnInit {
   /** Digits-only snapshot of Phone1 for template visibility (updated on every keystroke). */
   private readonly phone1DigitsSig = signal('');
 
-  /** Customer fill CTA: new orders only, Phone1 non-empty, match found, not yet applied from this offer. */
+  /** Customer fill CTA: new orders only, Phone1 non-empty, match found, fields not already filled. */
   protected readonly showCustomerFillButton = computed((): CustomerDto | null => {
     if (this.isEdit()) {
       return null;
@@ -217,7 +227,11 @@ export class OrderFormComponent implements OnInit {
     if (this.phone1DigitsSig().length === 0) {
       return null;
     }
-    return this.existingCustomerMatch();
+    const hit = this.existingCustomerMatch();
+    if (!hit || this.customerFieldsAlreadyMatch(hit)) {
+      return null;
+    }
+    return hit;
   });
 
   /** Pulse triggered every time we want to re-evaluate `slotTakenSig`. */
@@ -317,6 +331,12 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
+    const renewFrom = this.route.snapshot.queryParamMap.get('renewFrom');
+    if (renewFrom && /^\d+$/.test(renewFrom)) {
+      this.loadOrderForRenewal(Number(renewFrom));
+      return;
+    }
+
     this.applyCreateModeFromQueryParams();
   }
 
@@ -393,7 +413,7 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    this.sendSave();
+    this.sendSaveWithConflictOverride();
   }
 
   protected applyExistingCustomerFill(): void {
@@ -460,8 +480,8 @@ export class OrderFormComponent implements OnInit {
     }
     const phoneCtrl = this.form.controls['phone'];
     const phone2Ctrl = this.form.controls['phone2'];
-    if (phoneCtrl.errors?.['phoneLength'] || phone2Ctrl.errors?.['phoneLength']) {
-      return 'מספר טלפון חייב להיות 9 או 10 ספרות';
+    if (phoneCtrl.errors?.['israeliPhone'] || phone2Ctrl.errors?.['israeliPhone']) {
+      return ISRAELI_PHONE_INVALID_MESSAGE;
     }
     return 'אנא מלאו את כל השדות הנדרשים';
   }
@@ -511,27 +531,82 @@ export class OrderFormComponent implements OnInit {
     return trimmed;
   }
 
-  private sendSave(): void {
-    const payload = this.toPayload();
+  private sendSaveWithConflictOverride(): void {
+    const basePayload = this.toPayload();
     this.submitting.set(true);
 
-    const id = this.editingId();
-    const obs$ = id !== null
-      ? this.data.updateOrder(id, payload)
-      : this.data.createOrder(payload);
+    this.hasAnyBookingConflict(basePayload)
+      .pipe(
+        switchMap((hasConflict) => {
+          if (!hasConflict) {
+            return this.sendSaveRequest(basePayload);
+          }
 
-    obs$
-      .pipe(finalize(() => this.submitting.set(false)))
+          const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
+          if (!confirmed) {
+            return of(null);
+          }
+
+          return this.sendSaveRequest({
+            ...basePayload,
+            allowDoubleBooking: true
+          });
+        }),
+        finalize(() => this.submitting.set(false))
+      )
       .subscribe({
         next: (saved) => {
           if (saved === null) {
             return;
           }
           this.existingCustomerMatch.set(null);
+          this.customers.upsertFromPayload({
+            phone1: OrderFormComponent.digitsOnly(String(basePayload.phone ?? '')),
+            phone2:
+              OrderFormComponent.digitsOnly(String(basePayload.phone2 ?? '')).length > 0
+                ? OrderFormComponent.digitsOnly(String(basePayload.phone2 ?? ''))
+                : null,
+            fullName: basePayload.customerName ?? null,
+            address: basePayload.address ?? null
+          });
+          const id = this.editingId();
           this.toast.success(id !== null ? 'ההזמנה עודכנה בהצלחה' : 'ההזמנה נשמרה בהצלחה');
           this.navigateAfterOrderFlow(saved.shifts?.[0]?.orderDate);
         }
       });
+  }
+
+  private sendSaveRequest(payload: OrderCreateUpdateDto) {
+    const id = this.editingId();
+    return id !== null
+      ? this.data.updateOrder(id, payload)
+      : this.data.createOrder(payload);
+  }
+
+  private hasAnyBookingConflict(payload: OrderCreateUpdateDto) {
+    const equipmentIds = payload.equipmentDefinitionIds ?? [];
+    const shifts = payload.shifts ?? [];
+    if (equipmentIds.length === 0 || shifts.length === 0) {
+      return of(false);
+    }
+
+    const excludeOrderId = this.editingId() ?? undefined;
+    const checks = equipmentIds.flatMap((equipmentType) =>
+      shifts.map((shift) =>
+        this.data.checkSlotTaken(
+          equipmentType,
+          shift.orderDate,
+          shift.timeSlot,
+          excludeOrderId
+        )
+      )
+    );
+
+    if (checks.length === 0) {
+      return of(false);
+    }
+
+    return forkJoin(checks).pipe(map((results) => results.some((r) => r.taken)));
   }
 
   protected clearForm(): void {
@@ -658,8 +733,8 @@ export class OrderFormComponent implements OnInit {
         endHebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
 
         customerName: ['', Validators.maxLength(100)],
-        phone: ['', [Validators.required, Validators.maxLength(20), OrderFormComponent.phoneLengthValidator]],
-        phone2: ['', [Validators.maxLength(20), OrderFormComponent.phoneLengthValidator]],
+        phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+        phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
         address: ['', Validators.maxLength(200)],
         depositType: [null as DepositType | null],
         depositOnName: ['', Validators.maxLength(100)],
@@ -696,19 +771,6 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
   // Validators
   // -----------------------------------------------------------------
-
-  /**
-   * A phone number, when provided, must contain exactly 9 or 10 digits.
-   * Empty values pass — the "required" check is handled separately by
-   * `Validators.required` on the `phone` control only.
-   */
-  private static phoneLengthValidator(control: AbstractControl): ValidationErrors | null {
-    const raw = control.value;
-    if (raw === null || raw === undefined) return null;
-    const value = String(raw).trim();
-    if (value.length === 0) return null;
-    return /^\d{9,10}$/.test(value) ? null : { phoneLength: true };
-  }
 
   private static digitsOnly(raw: string): string {
     return raw.replace(/\D/g, '');
@@ -973,7 +1035,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   /**
-   * When Phone1 is a valid 9–10 digit value, search the customer directory.
+   * When Phone1 is a valid Israeli number, search the customer directory.
    * If a row matches Phone1 or Phone2, surface a one-click fill for name/address.
    */
   private wireCustomerPhoneLookup(): void {
@@ -987,11 +1049,11 @@ export class OrderFormComponent implements OnInit {
         map(() => OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''))),
         distinctUntilChanged(),
         switchMap((digits) => {
-          if (digits.length !== 9 && digits.length !== 10) {
+          if (!isValidIsraeliPhone(digits)) {
             this.existingCustomerMatch.set(null);
             return EMPTY;
           }
-          return this.data.searchCustomers(digits).pipe(map((list) => ({ list, digits })));
+          return this.customers.search(digits).pipe(map((list) => ({ list, digits })));
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -1003,8 +1065,24 @@ export class OrderFormComponent implements OnInit {
         const hit = list.find(
           (c) => c.phone1 === digits || (!!c.phone2 && c.phone2 === digits)
         );
-        this.existingCustomerMatch.set(hit ?? null);
+        this.existingCustomerMatch.set(
+          hit && !this.customerFieldsAlreadyMatch(hit) ? hit : null
+        );
       });
+  }
+
+  /** True when name/address on the form already cover the matched directory row. */
+  private customerFieldsAlreadyMatch(c: CustomerDto): boolean {
+    const formName = String(this.form.controls['customerName'].value ?? '').trim();
+    if (!formName) {
+      return false;
+    }
+    const dirName = (c.fullName ?? '').trim();
+    const formAddress = String(this.form.controls['address'].value ?? '').trim();
+    const dirAddress = (c.address ?? '').trim();
+    const nameMatches = !dirName || formName === dirName;
+    const addressMatches = !formAddress || !dirAddress || formAddress === dirAddress;
+    return nameMatches && addressMatches;
   }
 
   private setNotesArrayLength(group: FormGroup, target: number): void {
@@ -1345,8 +1423,8 @@ export class OrderFormComponent implements OnInit {
     const notes = this.fb.array<FormControl<string>>([]);
     const g = this.fb.group({
       loanedEquipmentType: this.fb.nonNullable.control(type),
-      quantity: this.fb.nonNullable.control(0, [Validators.min(0)]),
-      expectedNoteCount: this.fb.nonNullable.control(0, [Validators.min(0)]),
+      quantity: this.fb.control(0, [Validators.min(0)]),
+      expectedNoteCount: this.fb.control(0, [Validators.min(0)]),
       notes
     });
     return g;
@@ -1364,66 +1442,123 @@ export class OrderFormComponent implements OnInit {
           return;
         }
         this.orderCancelled.set(!!order.isCancelled);
-        this.existingCustomerMatch.set(null);
-        const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
-          .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));
-        const shifts = [...(order.shifts ?? [])]
-          .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
-        const firstShift = shifts[0];
-        const lastShift = shifts[shifts.length - 1];
-        const startIso = firstShift?.orderDate ?? this.form.controls['startDate'].value;
-        const endIso =
-          lastShift?.orderDate ?? firstShift?.orderDate ?? this.form.controls['endDate'].value;
-
-        this.form.patchValue({
-          equipmentDefinitionIds,
-          startDate: startIso,
-          startShift: firstShift?.timeSlot ?? TimeSlot.Morning,
-          endDate: endIso,
-          endShift: lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning,
-          customerName: order.customerName ?? '',
-          phone: order.phone,
-          phone2: order.phone2 ?? '',
-          address: order.address ?? '',
-          depositType: order.depositType ?? null,
-          depositOnName: order.depositOnName ?? '',
-          paymentAmount: order.paymentAmount ?? null,
-          isPaid: order.isPaid,
-          returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
-          customReturnTime: order.customReturnTime ?? '',
-          notes: order.notes ?? ''
-        });
-
-        this.setHebrewFromIso(startIso, 'start', false);
-        this.setHebrewFromIso(endIso, 'end', false);
-        this.syncShiftsFromRange();
-
-        // Map server rows → 16 form rows by type.
-        const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
-        for (const row of order.loanedEquipments) {
-          byType.set(row.loanedEquipmentType, row);
-        }
-
-        this.equipmentList.controls.forEach((control, idx) => {
-          const type = LOANED_EQUIPMENT_ORDER[idx]!;
-          const row = byType.get(type);
-          const g = control as FormGroup;
-          if (!row) {
-            g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
-            this.setNotesArrayLength(g, 0);
-            return;
-          }
-
-          const quantity = this.toNonNegativeInteger(row.quantity);
-          g.patchValue({ quantity, expectedNoteCount: quantity }, { emitEvent: false });
-          this.setNotesArrayLength(g, quantity);
-          const notesFa = g.get('notes') as FormArray<FormControl<string>>;
-          for (let o = 0; o < quantity; o++) {
-            const fromServer = row.notes?.find((n) => n.ordinal === o)?.content ?? '';
-            notesFa.at(o).setValue(fromServer ?? '');
-          }
-        });
+        this.populateFormFromOrder(order, 'edit');
         queueMicrotask(() => this.resetScrollForOrderForm());
+      }
+    });
+  }
+
+  /** Pre-fills a new order from an existing booking; dates are reset to today. */
+  private loadOrderForRenewal(id: number): void {
+    this.data.getOrderById(id).subscribe({
+      next: (order) => {
+        if (order === null) {
+          this.toast.error('לא נמצאה ההזמנה לחידוש');
+          this.navigateAfterOrderFlow();
+          return;
+        }
+        this.orderCancelled.set(false);
+        this.existingCustomerMatch.set(null);
+        this.populateFormFromOrder(order, 'renew');
+        this.toast.show('הטופס מולא מהזמנה קודמת — התאריך עודכן להיום', 'info');
+        queueMicrotask(() => this.resetScrollForOrderForm());
+      }
+    });
+  }
+
+  private populateFormFromOrder(order: OrderDto, mode: 'edit' | 'renew'): void {
+    if (mode === 'edit') {
+      this.existingCustomerMatch.set(null);
+    }
+
+    const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
+      .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));
+    const shifts = [...(order.shifts ?? [])]
+      .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
+    const firstShift = shifts[0];
+    const lastShift = shifts[shifts.length - 1];
+
+    let startIso: string;
+    let endIso: string;
+    let startShift: TimeSlot;
+    let endShift: TimeSlot;
+
+    if (mode === 'renew') {
+      const todayIso = this.toIso(new Date());
+      startIso = todayIso;
+      endIso = todayIso;
+      const allowedToday = this.availableTimeSlots(todayIso);
+      const originalStart = firstShift?.timeSlot ?? TimeSlot.Morning;
+      const originalEnd = lastShift?.timeSlot ?? originalStart;
+      startShift = allowedToday.includes(originalStart)
+        ? originalStart
+        : (allowedToday[0] ?? TimeSlot.Morning);
+      endShift = allowedToday.includes(originalEnd)
+        ? originalEnd
+        : (allowedToday[allowedToday.length - 1] ?? startShift);
+      if (this.compareShiftEndpoints(startIso, startShift, endIso, endShift) < 0) {
+        endShift = startShift;
+      }
+    } else {
+      startIso = firstShift?.orderDate ?? (this.form.controls['startDate'].value as string);
+      endIso = lastShift?.orderDate ?? firstShift?.orderDate ?? (this.form.controls['endDate'].value as string);
+      startShift = firstShift?.timeSlot ?? TimeSlot.Morning;
+      endShift = lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning;
+    }
+
+    this.form.patchValue(
+      {
+        equipmentDefinitionIds,
+        startDate: startIso,
+        startShift,
+        endDate: endIso,
+        endShift,
+        customerName: order.customerName ?? '',
+        phone: order.phone,
+        phone2: order.phone2 ?? '',
+        address: order.address ?? '',
+        depositType: order.depositType ?? null,
+        depositOnName: order.depositOnName ?? '',
+        paymentAmount: order.paymentAmount ?? null,
+        isPaid: mode === 'renew' ? false : order.isPaid,
+        returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
+        customReturnTime: order.customReturnTime ?? '',
+        notes: order.notes ?? ''
+      },
+      { emitEvent: mode !== 'renew' }
+    );
+
+    if (mode === 'renew') {
+      this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(String(order.phone ?? '')));
+      this.existingCustomerMatch.set(null);
+    }
+
+    this.setHebrewFromIso(startIso, 'start', false);
+    this.setHebrewFromIso(endIso, 'end', false);
+    this.syncShiftsFromRange();
+
+    const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
+    for (const row of order.loanedEquipments ?? []) {
+      byType.set(row.loanedEquipmentType, row);
+    }
+
+    this.equipmentList.controls.forEach((control, idx) => {
+      const type = LOANED_EQUIPMENT_ORDER[idx]!;
+      const row = byType.get(type);
+      const g = control as FormGroup;
+      if (!row) {
+        g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
+        this.setNotesArrayLength(g, 0);
+        return;
+      }
+
+      const quantity = this.toNonNegativeInteger(row.quantity);
+      g.patchValue({ quantity, expectedNoteCount: quantity }, { emitEvent: false });
+      this.setNotesArrayLength(g, quantity);
+      const notesFa = g.get('notes') as FormArray<FormControl<string>>;
+      for (let o = 0; o < quantity; o++) {
+        const fromServer = row.notes?.find((n) => n.ordinal === o)?.content ?? '';
+        notesFa.at(o).setValue(fromServer ?? '');
       }
     });
   }
@@ -1477,9 +1612,7 @@ export class OrderFormComponent implements OnInit {
         : null,
       notes: this.optionalText(v['notes']),
       loanedEquipments: loaned,
-      // Always allow saving — the form no longer guards against duplicate
-      // slot bookings, so we bypass the server's slot-conflict check.
-      allowDoubleBooking: true
+      allowDoubleBooking: false
     };
   }
 

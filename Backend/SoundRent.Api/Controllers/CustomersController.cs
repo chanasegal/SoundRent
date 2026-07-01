@@ -46,6 +46,16 @@ public class CustomersController : ControllerBase
         return Ok(saved);
     }
 
+    [HttpPut("{phone}")]
+    public async Task<ActionResult<CustomerDto>> Update(
+        string phone,
+        [FromBody] CustomerUpsertDto dto,
+        CancellationToken cancellationToken)
+    {
+        var saved = await _customerService.UpdateAsync(phone, dto, cancellationToken);
+        return Ok(saved);
+    }
+
     [HttpGet("{phone}/orders")]
     public async Task<ActionResult<List<OrderDto>>> Orders(string phone, CancellationToken cancellationToken)
     {

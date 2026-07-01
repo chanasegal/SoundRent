@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
@@ -14,6 +14,7 @@ type ReportsTab = 'cancelled' | 'unpaid';
 
 @Component({
   selector: 'app-reports-view',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, RouterLink],
   templateUrl: './reports-view.component.html',
   styleUrl: './reports-view.component.scss'
@@ -83,15 +84,13 @@ export class ReportsViewComponent implements OnInit {
       return;
     }
     this.exportCancelledInProgress.set(true);
-    try {
-      this.exportSvc.exportToExcel(
+    void this.exportSvc
+      .exportToExcel(
         rows.map((o) => this.toExcelRow(o)),
         `cancelled_orders_${this.todayFileStamp()}.xlsx`
-      );
-      this.toast.success('קובץ Excel הורד');
-    } finally {
-      this.exportCancelledInProgress.set(false);
-    }
+      )
+      .then(() => this.toast.success('קובץ Excel הורד'))
+      .finally(() => this.exportCancelledInProgress.set(false));
   }
 
   protected exportUnpaidToExcel(): void {
@@ -104,15 +103,13 @@ export class ReportsViewComponent implements OnInit {
       return;
     }
     this.exportUnpaidInProgress.set(true);
-    try {
-      this.exportSvc.exportToExcel(
+    void this.exportSvc
+      .exportToExcel(
         rows.map((o) => this.toExcelRow(o, true)),
         `unpaid_orders_${this.todayFileStamp()}.xlsx`
-      );
-      this.toast.success('קובץ Excel הורד');
-    } finally {
-      this.exportUnpaidInProgress.set(false);
-    }
+      )
+      .then(() => this.toast.success('קובץ Excel הורד'))
+      .finally(() => this.exportUnpaidInProgress.set(false));
   }
 
   protected markAsPaid(order: OrderDto): void {

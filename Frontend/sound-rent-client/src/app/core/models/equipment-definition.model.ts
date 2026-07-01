@@ -13,6 +13,11 @@ export interface EquipmentDefinitionCreateDto {
   sortOrder: number;
 }
 
+export interface EquipmentDefinitionUpdateDto {
+  displayName: string;
+  sortOrder: number;
+}
+
 /** Payload from DELETE equipment-definition 400 when future/today orders block deletion */
 export interface EquipmentDefinitionDeleteFutureOrder {
   orderId: number;

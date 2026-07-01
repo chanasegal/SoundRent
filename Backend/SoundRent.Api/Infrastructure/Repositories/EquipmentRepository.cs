@@ -17,6 +17,7 @@ public class EquipmentRepository : IEquipmentRepository
     public Task<List<Equipment>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return _db.Equipments
+            .AsNoTracking()
             .OrderBy(e => e.EquipmentType)
             .ToListAsync(cancellationToken);
     }

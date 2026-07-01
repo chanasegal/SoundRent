@@ -1,4 +1,5 @@
 using SoundRent.Api.Application.DTOs;
+using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 
@@ -61,8 +62,8 @@ public static class OrderMapper
     public static Order ToEntity(OrderCreateUpdateDto dto) => new()
     {
         CustomerName = NullIfBlank(dto.CustomerName),
-        Phone = dto.Phone.Trim(),
-        Phone2 = NullIfBlank(dto.Phone2),
+        Phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone),
+        Phone2 = NormalizeOptionalPhone(dto.Phone2),
         Address = NullIfBlank(dto.Address),
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
@@ -122,8 +123,8 @@ public static class OrderMapper
     public static void ApplyTo(OrderCreateUpdateDto dto, Order entity)
     {
         entity.CustomerName = NullIfBlank(dto.CustomerName);
-        entity.Phone = dto.Phone.Trim();
-        entity.Phone2 = NullIfBlank(dto.Phone2);
+        entity.Phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone);
+        entity.Phone2 = NormalizeOptionalPhone(dto.Phone2);
         entity.Address = NullIfBlank(dto.Address);
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
@@ -151,6 +152,12 @@ public static class OrderMapper
             .OrderBy(s => s.OrderDate)
             .ThenBy(s => s.TimeSlot)
             .ToList();
+    }
+
+    private static string? NormalizeOptionalPhone(string? value)
+    {
+        var digits = PhoneNumberNormalizer.DigitsOnly(value);
+        return digits.Length == 0 ? null : digits;
     }
 
     /// <summary>

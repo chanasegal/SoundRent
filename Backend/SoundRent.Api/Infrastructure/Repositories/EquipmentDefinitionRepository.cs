@@ -35,6 +35,32 @@ public class EquipmentDefinitionRepository : IEquipmentDefinitionRepository
         return _db.EquipmentDefinitions.FirstOrDefaultAsync(e => e.Id == trimmed, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<EquipmentDefinition>> GetByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0)
+        {
+            return Array.Empty<EquipmentDefinition>();
+        }
+
+        var trimmedIds = ids
+            .Select(id => id.Trim())
+            .Where(id => id.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (trimmedIds.Count == 0)
+        {
+            return Array.Empty<EquipmentDefinition>();
+        }
+
+        return await _db.EquipmentDefinitions
+            .AsNoTracking()
+            .Where(e => trimmedIds.Contains(e.Id))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddAsync(EquipmentDefinition entity, CancellationToken cancellationToken = default)
     {
         await _db.EquipmentDefinitions.AddAsync(entity, cancellationToken);

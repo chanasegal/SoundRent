@@ -2,6 +2,7 @@ using ClosedXML.Excel;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Infrastructure.Repositories;
@@ -69,16 +70,14 @@ public class CustomerService : ICustomerService
 
     public async Task<CustomerDto> UpsertAsync(CustomerUpsertDto dto, CancellationToken cancellationToken = default)
     {
-        var p1 = PhoneNumberNormalizer.DigitsOnly(dto.Phone1);
-        if (!PhoneNumberNormalizer.IsValidStoredPhone(p1))
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone1, out var p1))
         {
-            throw new ValidationException("מספר טלפון ראשי לא תקין");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
 
-        var p2 = string.IsNullOrWhiteSpace(dto.Phone2) ? null : PhoneNumberNormalizer.DigitsOnly(dto.Phone2);
-        if (!string.IsNullOrEmpty(p2) && !PhoneNumberNormalizer.IsValidStoredPhone(p2))
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var p2))
         {
-            throw new ValidationException("מספר טלפון משני לא תקין");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
 
         if (p2 == p1)
@@ -103,13 +102,68 @@ public class CustomerService : ICustomerService
         return ToDto(saved!);
     }
 
+    public async Task<CustomerDto> UpdateAsync(
+        string originalPhoneFromRoute,
+        CustomerUpsertDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var originalP1 = NormalizeRoutePhone(originalPhoneFromRoute);
+
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone1, out var newP1))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var p2))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (p2 == newP1)
+        {
+            throw new ValidationException("לא ניתן לשכפל את אותו מספר בשתי השדות");
+        }
+
+        _ = await _customers.GetTrackedByPhone1Async(originalP1, cancellationToken)
+            ?? throw new NotFoundException("הלקוח לא נמצא");
+
+        var entity = new Customer
+        {
+            Phone1 = newP1,
+            Phone2 = p2,
+            FullName = NullIfWhiteSpace(dto.FullName),
+            Address = NullIfWhiteSpace(dto.Address),
+            Notes = NullIfWhiteSpace(dto.Notes),
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        if (!string.Equals(newP1, originalP1, StringComparison.Ordinal))
+        {
+            var taken = await _customers.GetByPhone1Async(newP1, cancellationToken);
+            if (taken is not null)
+            {
+                throw new ValidationException(IsraeliPhoneValidator.Phone1AlreadyTakenMessage);
+            }
+
+            await _customers.ReplacePhone1WithCascadeAsync(originalP1, entity, cancellationToken);
+        }
+        else
+        {
+            await _customers.UpdateFieldsAsync(entity, cancellationToken);
+            await _customers.SaveChangesAsync(cancellationToken);
+        }
+
+        var saved = await _customers.GetByPhone1Async(newP1, cancellationToken);
+        return ToDto(saved!);
+    }
+
     public async Task<List<OrderDto>> GetOrdersByPhone1Async(string phoneFromRoute, CancellationToken cancellationToken = default)
     {
         var raw = Uri.UnescapeDataString(phoneFromRoute ?? string.Empty);
         var p1 = PhoneNumberNormalizer.DigitsOnly(raw);
         if (!PhoneNumberNormalizer.IsValidStoredPhone(p1))
         {
-            throw new ValidationException("מספר טלפון לא תקין");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
 
         var customer = await _customers.GetByPhone1Async(p1, cancellationToken)
@@ -127,14 +181,9 @@ public class CustomerService : ICustomerService
 
     public async Task DeleteAsync(string phoneFromRoute, CancellationToken cancellationToken = default)
     {
-        var raw = Uri.UnescapeDataString(phoneFromRoute ?? string.Empty);
-        var p1 = PhoneNumberNormalizer.DigitsOnly(raw);
-        if (!PhoneNumberNormalizer.IsValidStoredPhone(p1))
-        {
-            throw new ValidationException("מספר טלפון לא תקין");
-        }
+        var originalP1 = NormalizeRoutePhone(phoneFromRoute);
 
-        var customer = await _customers.GetTrackedByPhone1Async(p1, cancellationToken)
+        var customer = await _customers.GetTrackedByPhone1Async(originalP1, cancellationToken)
             ?? throw new NotFoundException("הלקוח לא נמצא");
 
         var phones = new List<string> { customer.Phone1 };
@@ -205,5 +254,17 @@ public class CustomerService : ICustomerService
 
         var t = s.Trim();
         return t.Length == 0 ? null : t;
+    }
+
+    private static string NormalizeRoutePhone(string phoneFromRoute)
+    {
+        var raw = Uri.UnescapeDataString(phoneFromRoute ?? string.Empty);
+        var p1 = PhoneNumberNormalizer.DigitsOnly(raw);
+        if (!PhoneNumberNormalizer.IsValidStoredPhone(p1))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        return p1;
     }
 }

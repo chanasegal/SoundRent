@@ -4,7 +4,10 @@ namespace SoundRent.Api.Application.Services;
 
 public interface IWaitlistService
 {
-    Task<List<WaitlistEntryDto>> GetWeeklyAsync(DateOnly startDate, CancellationToken cancellationToken = default);
+    Task<List<WaitlistEntryDto>> GetWeeklyAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Every waitlist entry for Excel backup (sorted by requested date, then date added).</summary>
     Task<List<WaitlistEntryDto>> GetAllForExportAsync(CancellationToken cancellationToken = default);

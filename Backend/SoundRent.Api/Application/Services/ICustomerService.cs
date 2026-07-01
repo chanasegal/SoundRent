@@ -12,6 +12,11 @@ public interface ICustomerService
 
     Task<CustomerDto> UpsertAsync(CustomerUpsertDto dto, CancellationToken cancellationToken = default);
 
+    Task<CustomerDto> UpdateAsync(
+        string originalPhoneFromRoute,
+        CustomerUpsertDto dto,
+        CancellationToken cancellationToken = default);
+
     Task<List<OrderDto>> GetOrdersByPhone1Async(string phoneFromRoute, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string phoneFromRoute, CancellationToken cancellationToken = default);

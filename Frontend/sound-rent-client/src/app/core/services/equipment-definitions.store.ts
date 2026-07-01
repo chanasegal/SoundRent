@@ -1,8 +1,12 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Observable, map, tap } from 'rxjs';
+import { finalize, map, Observable, of, shareReplay, tap } from 'rxjs';
 
 import { EquipmentDefinitionDto } from '../models/equipment-definition.model';
 import { DataService } from './data.service';
+
+export interface EquipmentDefinitionsLoadOptions {
+  force?: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class EquipmentDefinitionsStore {
@@ -10,13 +14,57 @@ export class EquipmentDefinitionsStore {
 
   readonly definitions = signal<EquipmentDefinitionDto[]>([]);
 
-  load(): Observable<void> {
-    return this.data.getEquipmentDefinitions().pipe(
+  private loaded = false;
+  private loadInFlight: Observable<void> | null = null;
+
+  load(options?: EquipmentDefinitionsLoadOptions): Observable<void> {
+    const force = options?.force === true;
+    if (this.loaded && !force) {
+      return of(undefined);
+    }
+    if (this.loadInFlight && !force) {
+      return this.loadInFlight;
+    }
+
+    if (force) {
+      this.loadInFlight = null;
+    }
+
+    this.loadInFlight = this.data.getEquipmentDefinitions().pipe(
       tap((rows) => {
         this.definitions.set(rows ?? []);
+        this.loaded = true;
       }),
-      map(() => undefined)
+      map(() => undefined),
+      finalize(() => {
+        this.loadInFlight = null;
+      }),
+      shareReplay(1)
     );
+    return this.loadInFlight;
+  }
+
+  invalidate(): void {
+    this.loaded = false;
+    this.loadInFlight = null;
+  }
+
+  upsertDefinition(dto: EquipmentDefinitionDto): void {
+    this.definitions.update((rows) => {
+      const idx = rows.findIndex((d) => d.id === dto.id);
+      if (idx >= 0) {
+        const next = [...rows];
+        next[idx] = dto;
+        return next.sort((a, b) => a.sortOrder - b.sortOrder);
+      }
+      return [...rows, dto].sort((a, b) => a.sortOrder - b.sortOrder);
+    });
+    this.loaded = true;
+  }
+
+  removeDefinition(id: string): void {
+    const trimmed = id.trim();
+    this.definitions.update((rows) => rows.filter((d) => d.id !== trimmed));
   }
 
   hasSlot(id: string): boolean {

@@ -1,4 +1,4 @@
-import { Directive, ElementRef, HostListener, inject } from '@angular/core';
+import { booleanAttribute, Directive, ElementRef, HostListener, inject, Input } from '@angular/core';
 import { NgControl } from '@angular/forms';
 
 /**
@@ -10,6 +10,8 @@ import { NgControl } from '@angular/forms';
  * - Re-sanitizes on `input` as a safety net for IME / mobile keyboards / programmatic input.
  * - Keeps any bound `FormControl` in sync, converting to a `number` when the
  *   underlying element is `type="number"` and to a plain string otherwise.
+ * - With `zeroDefault`, focusing a field whose value is `0` clears it for
+ *   immediate entry; focusing any other value selects it. Blur on empty restores `0`.
  *
  * Pair this directive with `inputmode="numeric"` and `pattern="[0-9]*"` on the
  * element itself so mobile devices surface the numeric keypad.
@@ -21,7 +23,8 @@ import { NgControl } from '@angular/forms';
  *   inputmode="numeric"
  *   pattern="[0-9]*"
  *   appIntegerOnly
- *   formControlName="paymentAmount"
+ *   zeroDefault
+ *   formControlName="quantity"
  * />
  * ```
  */
@@ -30,11 +33,54 @@ import { NgControl } from '@angular/forms';
   standalone: true
 })
 export class IntegerOnlyDirective {
+  /** When true, focus on `0` selects the value; blur on empty restores `0`. */
+  @Input({ transform: booleanAttribute }) zeroDefault = false;
+
   /** Keys that would produce a non-integer value (decimal, exponent, sign). */
   private static readonly BLOCKED_KEYS = new Set(['.', ',', 'e', 'E', '+', '-']);
 
   private readonly el = inject<ElementRef<HTMLInputElement>>(ElementRef);
   private readonly ngControl = inject(NgControl, { optional: true });
+
+  @HostListener('focus')
+  onFocus(): void {
+    if (!this.zeroDefault) {
+      return;
+    }
+
+    queueMicrotask(() => {
+      const target = this.el.nativeElement;
+      const controlValue = this.ngControl?.control?.value;
+      const display = target.value;
+      const num = Number(controlValue ?? display);
+
+      if (display === '' || controlValue === null || controlValue === undefined) {
+        return;
+      }
+
+      if (num === 0) {
+        this.writeValue('', undefined, false);
+        return;
+      }
+
+      try {
+        target.select();
+      } catch {
+        // Ignore — partial selection is still usable.
+      }
+    });
+  }
+
+  @HostListener('blur')
+  onBlur(): void {
+    if (!this.zeroDefault) {
+      return;
+    }
+
+    if (this.el.nativeElement.value.trim() === '') {
+      this.writeValue('0');
+    }
+  }
 
   @HostListener('keydown', ['$event'])
   onKeydown(event: KeyboardEvent): void {
@@ -73,7 +119,7 @@ export class IntegerOnlyDirective {
    * Writes the sanitized value back to both the DOM and the bound `FormControl`,
    * mirroring the native type so the rest of the form sees the value it expects.
    */
-  private writeValue(value: string, caret?: number): void {
+  private writeValue(value: string, caret?: number, emitEvent = true): void {
     const target = this.el.nativeElement;
     target.value = value;
 
@@ -89,7 +135,7 @@ export class IntegerOnlyDirective {
       const isNumber = target.type === 'number';
       const next: number | string | null =
         value === '' ? null : isNumber ? Number(value) : value;
-      this.ngControl.control.setValue(next);
+      this.ngControl.control.setValue(next, { emitEvent });
     }
   }
 }

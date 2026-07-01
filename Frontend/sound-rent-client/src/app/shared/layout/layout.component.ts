@@ -1,5 +1,4 @@
-import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
@@ -7,7 +6,8 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
 
 @Component({
   selector: 'app-layout',
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, MemoDropdownComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, MemoDropdownComponent],
   template: `
     <div class="flex min-h-screen flex-col bg-slate-50">
       <header class="bg-[#002244] text-white shadow-md">
@@ -32,6 +32,11 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
                 routerLinkActive="bg-white/10 text-white"
                 class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
               >לקוחות</a>
+              <a
+                routerLink="/admin/lost-equipment"
+                routerLinkActive="bg-white/10 text-white"
+                class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+              >ציוד שנשכח</a>
               <a
                 routerLink="/reports"
                 routerLinkActive="bg-white/10 text-white"

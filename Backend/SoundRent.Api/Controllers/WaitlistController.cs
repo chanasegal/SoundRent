@@ -20,9 +20,10 @@ public class WaitlistController : ControllerBase
     [HttpGet("weekly")]
     public async Task<ActionResult<List<WaitlistEntryDto>>> GetWeekly(
         [FromQuery] DateOnly startDate,
+        [FromQuery] DateOnly endDate,
         CancellationToken cancellationToken)
     {
-        var list = await _waitlistService.GetWeeklyAsync(startDate, cancellationToken);
+        var list = await _waitlistService.GetWeeklyAsync(startDate, endDate, cancellationToken);
         return Ok(list);
     }
 

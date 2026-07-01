@@ -1,27 +1,39 @@
 import { CommonModule } from '@angular/common';
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, finalize } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 
 import { CustomerDto, CustomerUpsertDto } from '../../core/models/customer.model';
 import { OrderDto } from '../../core/models/order.model';
 import { TIME_SLOT_LABELS, TimeSlot } from '../../core/models/enums';
+import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
+import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import {
+  israeliPhoneValidator,
+  ISRAELI_PHONE_INVALID_MESSAGE,
+  optionalIsraeliPhoneValidator
+} from '../../core/validators/israeli-phone.validator';
 
 @Component({
   selector: 'app-customers-admin',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ReactiveFormsModule, RouterLink],
   templateUrl: './customers-admin.component.html',
   styleUrl: './customers-admin.component.scss'
 })
 export class CustomersAdminComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly customers = inject(CustomersStore);
+  private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   protected readonly rows = signal<CustomerDto[]>([]);
   protected readonly loading = signal(false);
@@ -30,6 +42,8 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly exportInProgress = signal(false);
   protected readonly editOpen = signal(false);
   protected readonly isNewCustomer = signal(false);
+  protected readonly editOriginalPhone1 = signal('');
+  protected readonly phone1ServerError = signal<string | null>(null);
   protected readonly historyOpen = signal(false);
   protected readonly historyLoading = signal(false);
   protected readonly historyOrders = signal<OrderDto[]>([]);
@@ -38,14 +52,18 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly searchInput = this.fb.nonNullable.control('');
 
   protected readonly editForm = this.fb.group({
-    phone1: ['', [Validators.required, Validators.maxLength(20), Validators.pattern(/^\d{9,10}$/)]],
-    phone2: ['', [Validators.maxLength(20), Validators.pattern(/^$|^\d{9,10}$/)]],
+    phone1: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+    phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
     fullName: ['', Validators.maxLength(200)],
     address: ['', Validators.maxLength(500)],
     notes: ['', Validators.maxLength(4000)]
   });
 
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
+  protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
+
+  private static readonly PHONE1_CHANGE_CONFIRM =
+    'האם אתם בטוחים שברצונכם לשנות את מספר הטלפון הראשי? פעולה זו תעדכן את מספר הטלפון בכל ההזמנות המשויכות ללקוח זה. לחצו על אישור להמשך.';
 
   ngOnInit(): void {
     this.runSearch('');
@@ -57,8 +75,8 @@ export class CustomersAdminComponent implements OnInit {
 
   protected runSearch(q: string): void {
     this.loading.set(true);
-    this.data
-      .searchCustomers(q.trim())
+    this.customers
+      .search(q.trim())
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
         next: (list) => {
@@ -69,6 +87,8 @@ export class CustomersAdminComponent implements OnInit {
 
   protected openAdd(): void {
     this.isNewCustomer.set(true);
+    this.editOriginalPhone1.set('');
+    this.phone1ServerError.set(null);
     this.editForm.reset({
       phone1: '',
       phone2: '',
@@ -82,6 +102,8 @@ export class CustomersAdminComponent implements OnInit {
 
   protected openEdit(c: CustomerDto): void {
     this.isNewCustomer.set(false);
+    this.editOriginalPhone1.set(c.phone1);
+    this.phone1ServerError.set(null);
     this.editForm.patchValue({
       phone1: c.phone1,
       phone2: c.phone2 ?? '',
@@ -89,15 +111,17 @@ export class CustomersAdminComponent implements OnInit {
       address: c.address ?? '',
       notes: c.notes ?? ''
     });
-    this.editForm.controls.phone1.disable();
+    this.editForm.controls.phone1.enable();
     this.editOpen.set(true);
   }
 
   protected closeEdit(): void {
     this.editOpen.set(false);
+    this.phone1ServerError.set(null);
   }
 
   protected saveEdit(): void {
+    this.phone1ServerError.set(null);
     if (this.editForm.invalid) {
       this.editForm.markAllAsTouched();
       this.toast.error('אנא תקנו את השדות המסומנים');
@@ -115,6 +139,45 @@ export class CustomersAdminComponent implements OnInit {
       notes: (raw.notes ?? '').trim() || null
     };
 
+    if (this.isNewCustomer()) {
+      this.persistNewCustomer(payload);
+      return;
+    }
+
+    const originalPhone1 = this.editOriginalPhone1();
+    const phoneChanged = phone1 !== originalPhone1;
+    if (phoneChanged && !confirm(CustomersAdminComponent.PHONE1_CHANGE_CONFIRM)) {
+      return;
+    }
+
+    this.saving.set(true);
+    this.data
+      .updateCustomer(originalPhone1, payload)
+      .pipe(finalize(() => this.saving.set(false)))
+      .subscribe({
+        next: (saved) => {
+          if (phoneChanged) {
+            this.customers.replacePhone1(originalPhone1, saved);
+          } else {
+            this.customers.upsert(saved);
+          }
+          this.toast.success(phoneChanged ? 'פרטי הלקוח ומספר הטלפון עודכנו' : 'הלקוח נשמר');
+          this.closeEdit();
+          this.runSearch(this.searchInput.value.trim());
+        },
+        error: (err: HttpErrorResponse) => {
+          const message = this.extractPhone1ServerError(err);
+          if (message) {
+            this.phone1ServerError.set(message);
+            this.editForm.controls.phone1.markAsTouched();
+            return;
+          }
+          this.toast.error(this.apiErrorMessage(err));
+        }
+      });
+  }
+
+  private persistNewCustomer(payload: CustomerUpsertDto): void {
     this.saving.set(true);
     this.data
       .upsertCustomer(payload)
@@ -124,11 +187,25 @@ export class CustomersAdminComponent implements OnInit {
           if (saved === null) {
             return;
           }
+          this.customers.upsert(saved);
           this.toast.success('הלקוח נשמר');
           this.closeEdit();
           this.runSearch(this.searchInput.value.trim());
         }
       });
+  }
+
+  private extractPhone1ServerError(err: HttpErrorResponse): string | null {
+    const body = err.error;
+    if (!body || typeof body !== 'object' || !('message' in body)) {
+      return null;
+    }
+    const message = String((body as { message?: unknown }).message ?? '').trim();
+    return message.length > 0 ? message : null;
+  }
+
+  private apiErrorMessage(err: HttpErrorResponse): string {
+    return this.extractPhone1ServerError(err) ?? 'אירעה שגיאה בשמירת הלקוח';
   }
 
   protected openHistory(phone1: string): void {
@@ -150,6 +227,14 @@ export class CustomersAdminComponent implements OnInit {
     this.historyOpen.set(false);
   }
 
+  /** Opens a new order form pre-filled from a past booking; date is set to today on the form. */
+  protected renewOrder(order: OrderDto): void {
+    this.closeHistory();
+    void this.router.navigate(['/orders/new'], {
+      queryParams: { renewFrom: order.id }
+    });
+  }
+
   protected deleteCustomer(row: CustomerDto): void {
     const label = row.fullName?.trim() || row.phone1;
     if (!confirm(`האם אתה בטוח שברצונך למחוק את הלקוח ${label}?`)) {
@@ -165,6 +250,7 @@ export class CustomersAdminComponent implements OnInit {
           if (!ok) {
             return;
           }
+          this.customers.remove(row.phone1);
           this.toast.success('הלקוח נמחק');
           this.runSearch(this.searchInput.value.trim());
         }
@@ -210,6 +296,35 @@ export class CustomersAdminComponent implements OnInit {
 
   protected orderPrimaryDate(order: OrderDto): string {
     return order.shifts[0]?.orderDate ?? '—';
+  }
+
+  protected orderHebrewDate(order: OrderDto): string {
+    const iso = order.shifts[0]?.orderDate;
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : iso;
+  }
+
+  protected orderCreatedTime(order: OrderDto): string {
+    const raw = order.createdAt?.trim();
+    if (!raw) {
+      return '—';
+    }
+    const created = new Date(raw);
+    if (Number.isNaN(created.getTime())) {
+      return raw;
+    }
+    return created.toLocaleString('he-IL', {
+      timeZone: 'Asia/Jerusalem',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
   }
 
   protected orderShiftLabels(order: OrderDto): string {

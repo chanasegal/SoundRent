@@ -55,6 +55,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Customers_Phone2")
                         .HasFilter("\"Phone2\" IS NOT NULL");
 
+                    b.HasIndex("UpdatedAt")
+                        .HasDatabaseName("IX_Customers_UpdatedAt");
+
                     b.ToTable("Customers", (string)null);
                 });
 
@@ -175,6 +178,59 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("LoanedEquipmentNotes", (string)null);
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.LostEquipment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("HebrewDate")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ItemDescription")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_LostEquipments_CreatedAt");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_LostEquipments_Status");
+
+                    b.ToTable("LostEquipments", (string)null);
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>
                 {
                     b.Property<int>("Id")
@@ -239,6 +295,19 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDefaultValue(2);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("IsCancelled")
+                        .HasDatabaseName("IX_Orders_IsCancelled");
+
+                    b.HasIndex("IsPaid")
+                        .HasDatabaseName("IX_Orders_IsPaid");
+
+                    b.HasIndex("Phone")
+                        .HasDatabaseName("IX_Orders_Phone");
+
+                    b.HasIndex("Phone2")
+                        .HasDatabaseName("IX_Orders_Phone2")
+                        .HasFilter("\"Phone2\" IS NOT NULL");
 
                     b.ToTable("Orders", (string)null);
                 });
@@ -372,6 +441,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("date");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("WaitlistDate")
+                        .HasDatabaseName("IX_WaitlistEntries_WaitlistDate");
 
                     b.HasIndex("EquipmentType", "WaitlistDate")
                         .HasDatabaseName("IX_WaitlistEntries_Equipment_Date");

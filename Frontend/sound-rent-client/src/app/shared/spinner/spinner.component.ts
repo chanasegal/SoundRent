@@ -1,9 +1,10 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { LoadingService } from '../../core/services/loading.service';
 
 @Component({
   selector: 'app-spinner',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading.isLoading()) {
       <div class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
