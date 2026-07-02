@@ -6,7 +6,8 @@ import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
 import { TimeSlot } from '../models/enums';
 import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
-import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto } from '../models/equipment-definition.model';
+import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
+import { OrderShiftDto } from '../models/order.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
@@ -203,6 +204,23 @@ export class DataService {
         return of([]);
       })
     );
+  }
+
+  /**
+   * Bulk occupancy probe for the order-form equipment dropdown — one request
+   * returns every equipment slot with an `isOccupied` flag for the given shifts.
+   */
+  getEquipmentAvailability(
+    shifts: OrderShiftDto[],
+    excludeOrderId?: number
+  ): Observable<EquipmentDefinitionAvailabilityDto[]> {
+    const body: { shifts: OrderShiftDto[]; excludeOrderId?: number } = { shifts };
+    if (excludeOrderId != null) {
+      body.excludeOrderId = excludeOrderId;
+    }
+    return this.http
+      .post<EquipmentDefinitionAvailabilityDto[]>(`${this.equipmentDefinitionsBase}/availability`, body)
+      .pipe(catchError(() => of([])));
   }
 
   patchEquipmentDefinitionMaintenance(

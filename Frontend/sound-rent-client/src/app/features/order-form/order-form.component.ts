@@ -12,7 +12,7 @@ import {
   Validators
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subject, debounceTime, distinctUntilChanged, EMPTY, finalize, forkJoin, map, of, startWith, switchMap, tap } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, EMPTY, finalize, map, of, startWith, switchMap, tap } from 'rxjs';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -28,6 +28,7 @@ import {
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
 import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
+import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { CustomersStore } from '../../core/services/customers.store';
@@ -110,6 +111,10 @@ export class OrderFormComponent implements OnInit {
     return this.selectedEquipmentIdsControl.value.includes(slot);
   }
 
+  protected isEquipmentOccupied(slot: string): boolean {
+    return this.equipmentOccupiedById()[slot] === true;
+  }
+
   protected readonly equipmentDropdownOpen = signal(false);
 
   protected toggleEquipmentDropdown(): void {
@@ -134,7 +139,7 @@ export class OrderFormComponent implements OnInit {
       : current.filter((id) => id !== slot);
     this.selectedEquipmentIdsControl.setValue([...new Set(next)]);
     this.selectedEquipmentIdsControl.markAsTouched();
-    this.slotCheckTrigger$.next();
+    this.refreshSlotTakenWarning();
   }
 
   protected selectedShiftRows(): OrderShiftDto[] {
@@ -213,6 +218,9 @@ export class OrderFormComponent implements OnInit {
 
   protected readonly slotTakenSig = signal(false);
 
+  /** Occupancy flags from the bulk availability endpoint, keyed by equipment slot id. */
+  private readonly equipmentOccupiedById = signal<Record<string, boolean>>({});
+
   /** Offer one-click fill when a saved customer matches the typed Phone1 (or Phone2). */
   protected readonly existingCustomerMatch = signal<CustomerDto | null>(null);
 
@@ -234,8 +242,8 @@ export class OrderFormComponent implements OnInit {
     return hit;
   });
 
-  /** Pulse triggered every time we want to re-evaluate `slotTakenSig`. */
-  private readonly slotCheckTrigger$ = new Subject<void>();
+  /** Pulse triggered when shifts change and equipment availability should be re-fetched. */
+  private readonly availabilityFetchTrigger$ = new Subject<void>();
 
   private readonly startHebrewYearSig = signal<number>(0);
   private readonly startHebrewMonthSig = signal<number>(0);
@@ -317,7 +325,7 @@ export class OrderFormComponent implements OnInit {
   ngOnInit(): void {
     queueMicrotask(() => this.resetScrollForOrderForm());
 
-    this.wireSlotAvailabilityCheck();
+    this.wireEquipmentAvailability();
     this.wireHebrewRangeSync();
     this.wireRangeSync();
     this.wireCustomerPhoneLookup();
@@ -591,22 +599,12 @@ export class OrderFormComponent implements OnInit {
     }
 
     const excludeOrderId = this.editingId() ?? undefined;
-    const checks = equipmentIds.flatMap((equipmentType) =>
-      shifts.map((shift) =>
-        this.data.checkSlotTaken(
-          equipmentType,
-          shift.orderDate,
-          shift.timeSlot,
-          excludeOrderId
-        )
-      )
+    return this.data.getEquipmentAvailability(shifts, excludeOrderId).pipe(
+      map((items) => {
+        const occupied = new Set(items.filter((item) => item.isOccupied).map((item) => item.id));
+        return equipmentIds.some((id) => occupied.has(id));
+      })
     );
-
-    if (checks.length === 0) {
-      return of(false);
-    }
-
-    return forkJoin(checks).pipe(map((results) => results.some((r) => r.taken)));
   }
 
   protected clearForm(): void {
@@ -632,7 +630,7 @@ export class OrderFormComponent implements OnInit {
       depositType: null,
       depositOnName: '',
       paymentAmount: null,
-      isPaid: true,
+      isUnpaid: false,
       returnTimeType: ReturnTimeType.LateNight,
       customReturnTime: '',
       notes: ''
@@ -739,7 +737,7 @@ export class OrderFormComponent implements OnInit {
         depositType: [null as DepositType | null],
         depositOnName: ['', Validators.maxLength(100)],
         paymentAmount: [null as number | null, [Validators.min(0)]],
-        isPaid: [true],
+        isUnpaid: [false],
         returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(ReturnTimeType.LateNight, Validators.required),
         customReturnTime: ['', Validators.maxLength(20)],
         notes: ['', Validators.maxLength(1000)],
@@ -899,44 +897,50 @@ export class OrderFormComponent implements OnInit {
    * Also runs once synchronously to initialize the Gregorian display from today's date.
    */
   /**
-   * Subscribes the slot-availability probe to all inputs that can affect
-   * uniqueness (equipment, time-slot, and the resulting Gregorian date).
-   *
-   * Hebrew-date changes feed this pipeline through `syncFromHebrew()` which
-   * calls `slotCheckTrigger$.next()` after updating `orderDate`. Form changes
-   * are debounced and the in-flight request is cancelled by `switchMap`, so
-   * rapid dropdown changes only result in a single HTTP call.
-   *
-   * The check is purely informational: failures and missing fields silently
-   * collapse to "not taken", never blocking the user from saving.
+   * Fetches equipment occupancy for the current shift range in one request and
+   * updates the dropdown badges plus the duplicate-booking warning bar.
    */
-  private wireSlotAvailabilityCheck(): void {
+  private wireEquipmentAvailability(): void {
     this.selectedEquipmentIdsControl.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.slotCheckTrigger$.next());
+      .subscribe(() => this.refreshSlotTakenWarning());
 
-    this.selectedShiftSlots.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.slotCheckTrigger$.next());
-
-    this.slotCheckTrigger$
+    this.availabilityFetchTrigger$
       .pipe(
         debounceTime(200),
-        switchMap(() => {
-          const equipmentType = this.selectedEquipmentIdsControl.value[0];
-          const selectedShift = (this.selectedShiftSlots.getRawValue() as OrderShiftDto[])[0];
-
-          if (!equipmentType || !this.equipmentSlots.hasSpeakerSlot(equipmentType) || !selectedShift) {
-            return of({ taken: false });
-          }
-
-          const excludeId = this.editingId() ?? undefined;
-          return this.data.checkSlotTaken(equipmentType, selectedShift.orderDate, selectedShift.timeSlot, excludeId);
-        }),
-        distinctUntilChanged((a, b) => a.taken === b.taken),
+        switchMap(() => this.loadEquipmentAvailability()),
         takeUntilDestroyed(this.destroyRef)
       )
-      .subscribe((result) => this.slotTakenSig.set(result.taken));
+      .subscribe((occupied) => {
+        this.equipmentOccupiedById.set(occupied);
+        this.refreshSlotTakenWarning();
+      });
+  }
+
+  private loadEquipmentAvailability() {
+    const shifts = this.selectedShiftRows();
+    if (shifts.length === 0) {
+      return of({});
+    }
+
+    const excludeId = this.editingId() ?? undefined;
+    return this.data.getEquipmentAvailability(shifts, excludeId).pipe(
+      map((items) => this.toOccupiedMap(items))
+    );
+  }
+
+  private toOccupiedMap(items: EquipmentDefinitionAvailabilityDto[]): Record<string, boolean> {
+    const map: Record<string, boolean> = {};
+    for (const item of items) {
+      map[item.id] = item.isOccupied;
+    }
+    return map;
+  }
+
+  private refreshSlotTakenWarning(): void {
+    const occupied = this.equipmentOccupiedById();
+    const selected = this.selectedEquipmentIdsControl.value ?? [];
+    this.slotTakenSig.set(selected.some((id) => occupied[id] === true));
   }
 
   private wireRangeSync(): void {
@@ -980,7 +984,7 @@ export class OrderFormComponent implements OnInit {
     }
     this.form.controls['orderDate'].setValue(startDate, { emitEvent: false });
     this.form.updateValueAndValidity({ emitEvent: false });
-    this.slotCheckTrigger$.next();
+    this.availabilityFetchTrigger$.next();
   }
 
   private generateContinuousShifts(
@@ -1319,9 +1323,6 @@ export class OrderFormComponent implements OnInit {
       this.form.controls['orderDate'].setValue(iso, { emitEvent: false });
     }
     this.form.updateValueAndValidity({ emitEvent: false });
-    if (emitDateChange) {
-      this.slotCheckTrigger$.next();
-    }
   }
 
   private constrainShiftForDate(iso: string, shiftControlName: 'startShift' | 'endShift'): void {
@@ -1520,7 +1521,7 @@ export class OrderFormComponent implements OnInit {
         depositType: order.depositType ?? null,
         depositOnName: order.depositOnName ?? '',
         paymentAmount: order.paymentAmount ?? null,
-        isPaid: mode === 'renew' ? false : order.isPaid,
+        isUnpaid: mode === 'renew' ? true : order.isUnpaid,
         returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
         customReturnTime: order.customReturnTime ?? '',
         notes: order.notes ?? ''
@@ -1605,7 +1606,7 @@ export class OrderFormComponent implements OnInit {
       paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
         ? null
         : Math.max(0, Math.trunc(Number(v['paymentAmount']))),
-      isPaid: !!v['isPaid'],
+      isUnpaid: !!v['isUnpaid'],
       returnTimeType: (v['returnTimeType'] as ReturnTimeType | null) ?? ReturnTimeType.LateNight,
       customReturnTime: (v['returnTimeType'] as ReturnTimeType | null) === ReturnTimeType.SpecificTime
         ? this.optionalText(v['customReturnTime'])

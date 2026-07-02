@@ -31,7 +31,7 @@ export interface OrderDto {
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
-  isPaid: boolean;
+  isUnpaid: boolean;
   isCancelled: boolean;
   returnTimeType: ReturnTimeType;
   customReturnTime?: string | null;
@@ -51,7 +51,7 @@ export interface OrderCreateUpdateDto {
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
-  isPaid: boolean;
+  isUnpaid: boolean;
   returnTimeType: ReturnTimeType;
   customReturnTime?: string | null;
   notes?: string | null;

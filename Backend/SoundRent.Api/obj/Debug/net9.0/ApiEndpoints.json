@@ -362,6 +362,32 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefinitionsController",
+    "Method": "GetAvailability",
+    "RelativePath": "api/EquipmentDefinitions/availability",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "SoundRent.Api.Application.DTOs.EquipmentAvailabilityRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.EquipmentDefinitionAvailabilityDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.LostEquipmentController",
     "Method": "GetAll",
     "RelativePath": "api/lost-equipment",

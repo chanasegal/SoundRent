@@ -32,8 +32,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 
-        builder.Property(o => o.IsPaid)
-            .HasDefaultValue(true);
+        builder.Property(o => o.IsUnpaid)
+            .HasDefaultValue(false);
 
         builder.Property(o => o.IsCancelled)
             .HasDefaultValue(false);
@@ -60,8 +60,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasIndex(o => o.IsCancelled)
             .HasDatabaseName("IX_Orders_IsCancelled");
 
-        builder.HasIndex(o => o.IsPaid)
-            .HasDatabaseName("IX_Orders_IsPaid");
+        builder.HasIndex(o => o.IsUnpaid)
+            .HasDatabaseName("IX_Orders_IsUnpaid");
 
         builder.HasMany(o => o.Equipments)
             .WithOne(e => e.Order)

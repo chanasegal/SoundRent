@@ -18,6 +18,14 @@ public interface IOrderRepository
 
     Task<bool> ExistsForSlotAsync(string equipmentType, DateOnly orderDate, TimeSlot timeSlot, int? excludeOrderId = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Equipment definition ids that are booked on at least one of the given shifts.
+    /// </summary>
+    Task<HashSet<string>> GetOccupiedEquipmentIdsForShiftsAsync(
+        IReadOnlyCollection<OrderShiftDto> shifts,
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default);
+
     Task<OrderSlotConflictDto?> FindSlotConflictAsync(
         IReadOnlyCollection<string> equipmentDefinitionIds,
         IReadOnlyCollection<OrderShiftDto> shifts,

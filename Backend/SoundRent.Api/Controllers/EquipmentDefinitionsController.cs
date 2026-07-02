@@ -36,6 +36,32 @@ public class EquipmentDefinitionsController : ControllerBase
         return Ok(rows.Select(ToDto).ToList());
     }
 
+    /// <summary>
+    /// Returns every equipment definition with an <c>isOccupied</c> flag for the
+    /// requested shifts in a single optimized query (no per-item availability calls).
+    /// </summary>
+    [HttpPost("availability")]
+    public async Task<ActionResult<List<EquipmentDefinitionAvailabilityDto>>> GetAvailability(
+        [FromBody] EquipmentAvailabilityRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var shifts = request.Shifts ?? [];
+        var occupied = await _orderRepository.GetOccupiedEquipmentIdsForShiftsAsync(
+            shifts,
+            request.ExcludeOrderId,
+            cancellationToken);
+        var rows = await _repository.GetAllOrderedAsync(cancellationToken);
+        return Ok(rows.Select(r => new EquipmentDefinitionAvailabilityDto
+        {
+            Id = r.Id,
+            DisplayName = r.DisplayName,
+            Category = r.Category,
+            SortOrder = r.SortOrder,
+            IsUnderMaintenance = r.IsMaintenanceMode,
+            IsOccupied = occupied.Contains(r.Id)
+        }).ToList());
+    }
+
     [HttpPatch("{id}/maintenance")]
     public async Task<ActionResult<EquipmentDefinitionDto>> SetMaintenanceMode(
         string id,

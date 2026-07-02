@@ -267,6 +267,24 @@
     }
   }
 
+  .multi-select__option-label {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .equipment-occupied-badge {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #b45309;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 0.35rem;
+    padding: 0.05rem 0.35rem;
+    line-height: 1.25;
+  }
+
   .range-label {
     display: block;
     margin-bottom: 0.2rem;

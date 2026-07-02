@@ -27,7 +27,8 @@ public class Order
 
     public decimal? PaymentAmount { get; set; }
 
-    public bool IsPaid { get; set; } = true;
+    /// <summary>True when the customer still owes payment for this order.</summary>
+    public bool IsUnpaid { get; set; }
 
     public bool IsCancelled { get; set; }
 

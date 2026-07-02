@@ -27,7 +27,7 @@ public static class OrderMapper
         DepositType = order.DepositType,
         DepositOnName = order.DepositOnName,
         PaymentAmount = order.PaymentAmount,
-        IsPaid = order.IsPaid,
+        IsUnpaid = order.IsUnpaid,
         IsCancelled = order.IsCancelled,
         ReturnTimeType = order.ReturnTimeType,
         CustomReturnTime = order.CustomReturnTime,
@@ -68,7 +68,7 @@ public static class OrderMapper
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
         PaymentAmount = dto.PaymentAmount,
-        IsPaid = dto.IsPaid,
+        IsUnpaid = dto.IsUnpaid,
         ReturnTimeType = dto.ReturnTimeType,
         CustomReturnTime = NormalizeCustomReturnTime(dto),
         Notes = NullIfBlank(dto.Notes),
@@ -129,7 +129,7 @@ public static class OrderMapper
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.PaymentAmount = dto.PaymentAmount;
-        entity.IsPaid = dto.IsPaid;
+        entity.IsUnpaid = dto.IsUnpaid;
         entity.ReturnTimeType = dto.ReturnTimeType;
         entity.CustomReturnTime = NormalizeCustomReturnTime(dto);
         entity.Notes = NullIfBlank(dto.Notes);

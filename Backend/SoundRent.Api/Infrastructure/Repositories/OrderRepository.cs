@@ -72,6 +72,39 @@ public class OrderRepository : IOrderRepository
         return query.AnyAsync(cancellationToken);
     }
 
+    public async Task<HashSet<string>> GetOccupiedEquipmentIdsForShiftsAsync(
+        IReadOnlyCollection<OrderShiftDto> shifts,
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (shifts.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var shiftSet = shifts
+            .Select(s => (s.OrderDate, s.TimeSlot))
+            .ToHashSet();
+        var dates = shiftSet.Select(s => s.OrderDate).Distinct().ToList();
+        var timeSlots = shiftSet.Select(s => s.TimeSlot).Distinct().ToList();
+
+        var matches = await (
+            from oe in _db.OrderEquipments.AsNoTracking()
+            join o in _db.Orders.AsNoTracking() on oe.OrderId equals o.Id
+            join os in _db.OrderShifts.AsNoTracking() on o.Id equals os.OrderId
+            where !o.IsCancelled
+                && (!excludeOrderId.HasValue || o.Id != excludeOrderId.Value)
+                && dates.Contains(os.OrderDate)
+                && timeSlots.Contains(os.TimeSlot)
+            select new { oe.EquipmentDefinitionId, os.OrderDate, os.TimeSlot }
+        ).ToListAsync(cancellationToken);
+
+        return matches
+            .Where(m => shiftSet.Contains((m.OrderDate, m.TimeSlot)))
+            .Select(m => m.EquipmentDefinitionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<OrderSlotConflictDto?> FindSlotConflictAsync(
         IReadOnlyCollection<string> equipmentDefinitionIds,
         IReadOnlyCollection<OrderShiftDto> shifts,
@@ -247,7 +280,7 @@ public class OrderRepository : IOrderRepository
     {
         return WithOrderGraph(_db.Orders)
             .AsSplitQuery()
-            .Where(o => !o.IsPaid)
+            .Where(o => o.IsUnpaid)
             .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
             .ThenByDescending(o => o.Id)
             .AsNoTracking()

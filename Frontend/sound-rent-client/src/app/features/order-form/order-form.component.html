@@ -53,7 +53,12 @@
                       [checked]="isEquipmentSelected(slot)"
                       (change)="toggleEquipmentSelection(slot, $any($event.target).checked)"
                     />
-                    <span>{{ slotDropdownLabel(slot) }}</span>
+                    <span class="multi-select__option-label">
+                      {{ slotDropdownLabel(slot) }}
+                      @if (isEquipmentOccupied(slot)) {
+                        <span class="equipment-occupied-badge" aria-label="תפוס">(תפוס) ⚠️</span>
+                      }
+                    </span>
                   </label>
                 } @empty {
                   <p class="text-sm text-slate-500">אין תאי רמקול זמינים</p>
@@ -291,8 +296,8 @@
         </div>
         <div class="flex items-end">
           <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-sky-400">
-            <input type="checkbox" formControlName="isPaid" class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
-            <span>שולם</span>
+            <input type="checkbox" formControlName="isUnpaid" class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
+            <span>לא שולם (חוב)</span>
           </label>
         </div>
       </div>

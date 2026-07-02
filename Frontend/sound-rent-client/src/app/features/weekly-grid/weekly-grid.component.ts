@@ -339,7 +339,7 @@ export class WeeklyGridComponent {
       פיקדון: o.depositType != null ? DEPOSIT_TYPE_LABELS[o.depositType] : '',
       'שם על הפיקדון': o.depositOnName ?? '',
       'סכום תשלום': o.paymentAmount ?? '',
-      שולם: o.isPaid ? 'כן' : 'לא',
+      שולם: o.isUnpaid ? 'לא' : 'כן',
       הערות: o.notes ?? '',
       'ציוד מושאל (פירוט)': this.formatLoanedEquipmentsForBackupExport(o),
       'נוצר בתאריך': o.createdAt

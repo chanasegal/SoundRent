@@ -6,6 +6,15 @@ export interface EquipmentDefinitionDto {
   /** True when this booking slot is marked unavailable for new orders (per-unit maintenance). */
   isUnderMaintenance?: boolean;
 }
+
+export interface EquipmentDefinitionAvailabilityDto extends EquipmentDefinitionDto {
+  isOccupied: boolean;
+}
+
+export interface EquipmentAvailabilityRequest {
+  shifts: { orderDate: string; timeSlot: string }[];
+  excludeOrderId?: number;
+}
 export interface EquipmentDefinitionCreateDto {
   id: string;
   displayName: string;
