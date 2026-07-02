@@ -204,14 +204,16 @@
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
                             >
-                              @if (hasOrderNotes(o)) {
-                                <span
-                                  class="cell-notes-indicator"
-                                  [title]="orderNotesTooltip(o)"
-                                  aria-label="יש הערות"
-                                >💡</span>
-                              }
-                              <span class="cell-name">{{ o.customerName }}</span>
+                              <div class="cell-name-row">
+                                <span class="cell-name">{{ o.customerName }}</span>
+                                @if (hasOrderNotes(o)) {
+                                  <span
+                                    class="cell-notes-indicator"
+                                    [title]="orderNotesTooltip(o)"
+                                    aria-label="יש הערות"
+                                  >💡</span>
+                                }
+                              </div>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabel(o) }}</span>
@@ -303,14 +305,16 @@
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
                             >
-                              @if (hasOrderNotes(o)) {
-                                <span
-                                  class="cell-notes-indicator"
-                                  [title]="orderNotesTooltip(o)"
-                                  aria-label="יש הערות"
-                                >💡</span>
-                              }
-                              <span class="cell-name">{{ o.customerName }}</span>
+                              <div class="cell-name-row">
+                                <span class="cell-name">{{ o.customerName }}</span>
+                                @if (hasOrderNotes(o)) {
+                                  <span
+                                    class="cell-notes-indicator"
+                                    [title]="orderNotesTooltip(o)"
+                                    aria-label="יש הערות"
+                                  >💡</span>
+                                }
+                              </div>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabel(o) }}</span>
