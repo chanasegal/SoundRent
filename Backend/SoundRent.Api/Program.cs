@@ -45,6 +45,8 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IGeneralMemoService, GeneralMemoService>();
 builder.Services.AddScoped<ILostEquipmentRepository, LostEquipmentRepository>();
 builder.Services.AddScoped<ILostEquipmentService, LostEquipmentService>();
+builder.Services.AddScoped<IBlockedDateRepository, BlockedDateRepository>();
+builder.Services.AddScoped<IBlockedDateService, BlockedDateService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 // --- Authentication (JWT) ------------------------------------------------

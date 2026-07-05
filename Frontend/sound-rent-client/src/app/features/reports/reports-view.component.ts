@@ -199,8 +199,8 @@ export class ReportsViewComponent implements OnInit {
       'שם לקוח': order.customerName ?? '',
       טלפון: order.phone,
       ציוד: this.equipmentLabel(order),
-      'תאריך התחלה (עברי)': this.startHebrewDate(order),
-      'תאריך סיום (עברי)': this.endHebrewDate(order),
+      'תאריך התחלה': this.startHebrewDate(order),
+      'תאריך סיום': this.endHebrewDate(order),
       'סכום כולל': order.paymentAmount ?? ''
     };
     if (includeStatus) {

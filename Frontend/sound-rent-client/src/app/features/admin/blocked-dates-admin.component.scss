@@ -1,0 +1,114 @@
+$date-control-height: 2.5rem;
+
+.blocked-date-field {
+  min-width: 0;
+}
+
+.hebrew-date-picker-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+  min-height: $date-control-height;
+  padding: 0 0.35rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: #002244;
+    box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+  }
+}
+
+.hebrew-date-picker-group__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(#{$date-control-height} - 4px);
+  margin: 0;
+  padding: 0 0.15rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+  appearance: auto;
+
+  &:focus {
+    outline: none;
+    background: #f8fafc;
+  }
+
+  &--day {
+    flex: 0 0 3.25rem;
+    text-align: center;
+  }
+
+  &--month {
+    flex: 1 1 5.5rem;
+    min-width: 4.5rem;
+  }
+
+  &--year {
+    flex: 0 0 4.5rem;
+    text-align: center;
+  }
+}
+
+.blocked-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.blocked-action {
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+
+  &--edit {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+
+    &:hover {
+      background: #f8fafc;
+    }
+  }
+
+  &--delete {
+    border: 1px solid #fecaca;
+    background: #fff1f2;
+    color: #be123c;
+
+    &:hover:not(:disabled) {
+      background: #ffe4e6;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.blocked-row-editing {
+  background: #f0f9ff;
+}
+
+@media (max-width: 640px) {
+  .hebrew-date-picker-group {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding: 0.25rem;
+    min-height: auto;
+  }
+}

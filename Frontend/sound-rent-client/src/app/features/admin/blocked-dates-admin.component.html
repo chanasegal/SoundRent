@@ -1,0 +1,153 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">חסימת תאריכים</h1>
+    <button
+      type="button"
+      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      (click)="refresh()"
+    >
+      רענון
+    </button>
+  </div>
+
+  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-1 text-lg font-bold text-[#002244]">
+      {{ editingId() !== null ? 'עריכת חסימה' : 'חסימת טווח תאריכים' }}
+    </h2>
+    <p class="mb-4 text-sm text-slate-600">
+      חסימה מונעת הזמנות חדשות בטווח הנבחר. הזמנות קיימות ימשיכו להופיע בלוח.
+    </p>
+
+    <form [formGroup]="blockForm" (ngSubmit)="submitBlock()" class="grid gap-4 md:grid-cols-2">
+      <div class="blocked-date-field">
+        <label class="mb-1 block text-sm font-medium text-slate-700">מתאריך<span class="text-rose-500">*</span></label>
+        <div class="hebrew-date-picker-group">
+          <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
+            @for (day of startDayOptions(); track day) {
+              <option [value]="day">{{ dayLabel(day) }}</option>
+            }
+          </select>
+          <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
+            @for (month of startMonthOptions(); track month.value) {
+              <option [value]="month.value">{{ month.label }}</option>
+            }
+          </select>
+          <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
+            @for (year of startYearOptions(); track year) {
+              <option [value]="year">{{ yearLabel(year) }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
+      <div class="blocked-date-field">
+        <label class="mb-1 block text-sm font-medium text-slate-700">עד תאריך<span class="text-rose-500">*</span></label>
+        <div class="hebrew-date-picker-group">
+          <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
+            @for (day of endDayOptions(); track day) {
+              <option [value]="day">{{ dayLabel(day) }}</option>
+            }
+          </select>
+          <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
+            @for (month of endMonthOptions(); track month.value) {
+              <option [value]="month.value">{{ month.label }}</option>
+            }
+          </select>
+          <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
+            @for (year of endYearOptions(); track year) {
+              <option [value]="year">{{ yearLabel(year) }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="mb-1 block text-sm font-medium text-slate-700">סיבה (אופציונלי)</label>
+        <input
+          formControlName="reason"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          placeholder='למשל: "נופש משפחתי", "שמחה משפחתית"'
+          autocomplete="off"
+          maxlength="500"
+        />
+      </div>
+      <div class="md:col-span-2 flex flex-wrap gap-2">
+        <button
+          type="submit"
+          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="saving() || blockForm.invalid"
+        >
+          {{ saving() ? 'שומר…' : (editingId() !== null ? 'עדכן חסימה' : 'חסום תאריכים') }}
+        </button>
+        @if (editingId() !== null) {
+          <button
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            (click)="cancelEdit()"
+          >
+            ביטול עריכה
+          </button>
+        }
+      </div>
+    </form>
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-4 text-lg font-bold text-[#002244]">תאריכים חסומים</h2>
+
+    @if (loading()) {
+      <p class="py-6 text-center text-sm text-slate-500">טוען…</p>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">טווח תאריכים</th>
+              <th class="px-3 py-2 font-semibold">סיבה</th>
+              <th class="px-3 py-2 text-center font-semibold">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of rows(); track row.id) {
+              <tr
+                class="border-b border-slate-100 transition hover:bg-slate-50/80"
+                [class.blocked-row-editing]="editingId() === row.id"
+              >
+                <td class="px-3 py-2">
+                  <div class="font-semibold text-[#002244]">{{ formatRangeHebrew(row) }}</div>
+                  <div class="mt-0.5 text-xs text-slate-500">{{ formatRangeGregorian(row) }}</div>
+                </td>
+                <td class="px-3 py-2 max-w-md truncate" [title]="row.reason ?? ''">{{ row.reason || '—' }}</td>
+                <td class="px-3 py-2">
+                  <div class="blocked-actions">
+                    <button
+                      type="button"
+                      class="blocked-action blocked-action--edit"
+                      (click)="startEdit(row)"
+                      title="עריכה"
+                    >
+                      ערוך
+                    </button>
+                    <button
+                      type="button"
+                      class="blocked-action blocked-action--delete"
+                      [disabled]="deletingId() === row.id"
+                      (click)="deleteRow(row)"
+                      title="הסר חסימה"
+                    >
+                      {{ deletingId() === row.id ? '…' : 'הסר' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="3" class="px-3 py-8 text-center text-slate-500">אין תאריכים חסומים</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</div>

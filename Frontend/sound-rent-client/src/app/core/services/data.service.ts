@@ -16,6 +16,11 @@ import {
   LostEquipmentDto,
   LostEquipmentUpdateDto
 } from '../models/lost-equipment.model';
+import {
+  BlockedDateCreateDto,
+  BlockedDateDto,
+  BlockedDateUpdateDto
+} from '../models/blocked-date.model';
 import { ToastService } from './toast.service';
 
 /** Response of `GET /api/orders/slot-taken` — purely informational. */
@@ -34,6 +39,7 @@ export class DataService {
   private readonly customersBase = `${environment.apiBaseUrl}/customers`;
   private readonly memoBase = `${environment.apiBaseUrl}/memo`;
   private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
+  private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
 
   private notifyHttpError(error: unknown): void {
     this.toast.error(getApiErrorMessage(error));
@@ -380,6 +386,50 @@ export class DataService {
 
   deleteLostEquipment(id: number): Observable<boolean> {
     return this.http.delete<void>(`${this.lostEquipmentBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  getBlockedDates(startDate?: string, endDate?: string): Observable<BlockedDateDto[]> {
+    let params = new HttpParams();
+    if (startDate) {
+      params = params.set('startDate', startDate);
+    }
+    if (endDate) {
+      params = params.set('endDate', endDate);
+    }
+    return this.http.get<BlockedDateDto[]>(this.blockedDatesBase, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createBlockedDate(payload: BlockedDateCreateDto): Observable<BlockedDateDto | null> {
+    return this.http.post<BlockedDateDto>(this.blockedDatesBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateBlockedDate(id: number, payload: BlockedDateUpdateDto): Observable<BlockedDateDto | null> {
+    return this.http.put<BlockedDateDto>(`${this.blockedDatesBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteBlockedDate(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.blockedDatesBase}/${id}`).pipe(
       map(() => true),
       catchError((err) => {
         this.notifyHttpError(err);

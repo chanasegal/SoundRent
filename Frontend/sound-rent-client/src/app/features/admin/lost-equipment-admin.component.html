@@ -21,7 +21,7 @@
         }
       </div>
       <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">תאריך עברי <span class="text-rose-500">*</span></label>
+        <label class="mb-1 block text-sm font-medium text-slate-700">תאריך <span class="text-rose-500">*</span></label>
         <input formControlName="hebrewDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="למשל: כ״ג תמוז תשפ״ה" autocomplete="off" />
         @if (addForm.controls.hebrewDate.touched && addForm.controls.hebrewDate.errors?.['required']) {
           <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
@@ -78,7 +78,7 @@
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
               <th class="px-3 py-2 font-semibold">שם לקוח</th>
               <th class="px-3 py-2 font-semibold">תיאור פריט</th>
-              <th class="px-3 py-2 font-semibold">תאריך עברי</th>
+              <th class="px-3 py-2 font-semibold">תאריך</th>
               <th class="px-3 py-2 font-semibold">הערות</th>
               <th class="px-3 py-2 font-semibold">סטטוס</th>
               <th class="px-3 py-2 text-center font-semibold">פעולות</th>

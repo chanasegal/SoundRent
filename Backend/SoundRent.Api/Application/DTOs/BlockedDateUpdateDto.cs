@@ -1,0 +1,15 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace SoundRent.Api.Application.DTOs;
+
+public class BlockedDateUpdateDto
+{
+    [Required(ErrorMessage = "יש להזין תאריך התחלה")]
+    public DateOnly StartDate { get; set; }
+
+    [Required(ErrorMessage = "יש להזין תאריך סיום")]
+    public DateOnly EndDate { get; set; }
+
+    [MaxLength(500, ErrorMessage = "הסיבה לא יכולה לחרוג מ-500 תווים")]
+    public string? Reason { get; set; }
+}

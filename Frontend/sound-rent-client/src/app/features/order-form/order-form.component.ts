@@ -29,6 +29,7 @@ import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slo
 import { CustomerDto } from '../../core/models/customer.model';
 import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
+import { BlockedDateDto, findBlockedDateForIso } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { CustomersStore } from '../../core/services/customers.store';
@@ -126,10 +127,7 @@ export class OrderFormComponent implements OnInit {
     if (selected.length === 0) {
       return 'בחרו תאי ציוד';
     }
-    if (selected.length <= 2) {
-      return selected.map((id) => this.slotDropdownLabel(id)).join(', ');
-    }
-    return `${selected.length} תאי ציוד נבחרו`;
+    return selected.map((id) => this.slotDropdownLabel(id)).join(', ');
   }
 
   protected toggleEquipmentSelection(slot: string, checked: boolean): void {
@@ -245,6 +243,12 @@ export class OrderFormComponent implements OnInit {
   /** Pulse triggered when shifts change and equipment availability should be re-fetched. */
   private readonly availabilityFetchTrigger$ = new Subject<void>();
 
+  /** Active date blocks loaded from the API (new orders only). */
+  private readonly blockedDatesSig = signal<BlockedDateDto[]>([]);
+
+  /** Suppresses range valueChanges handlers while batching start/end setup. */
+  private suppressRangeSync = false;
+
   private readonly startHebrewYearSig = signal<number>(0);
   private readonly startHebrewMonthSig = signal<number>(0);
   private readonly endHebrewYearSig = signal<number>(0);
@@ -325,11 +329,29 @@ export class OrderFormComponent implements OnInit {
   ngOnInit(): void {
     queueMicrotask(() => this.resetScrollForOrderForm());
 
+    this.equipmentSlots.load({ force: true }).subscribe();
+
     this.wireEquipmentAvailability();
     this.wireHebrewRangeSync();
     this.wireRangeSync();
     this.wireCustomerPhoneLookup();
     this.wireLoanedEquipmentQuantitySync();
+
+    this.data.getBlockedDates().subscribe((blocks) => {
+      this.blockedDatesSig.set(blocks);
+      if (!this.isEdit()) {
+        const start = this.form.controls['startDate'].value as string;
+        const block = start ? findBlockedDateForIso(start, blocks) : null;
+        if (block) {
+          this.toast.error(
+            block.reason?.trim()
+              ? `התאריך שנבחר חסום: ${block.reason.trim()}`
+              : 'התאריך שנבחר חסום להזמנות חדשות'
+          );
+        }
+      }
+      this.form.updateValueAndValidity({ emitEvent: false });
+    });
 
     const idParam = this.route.snapshot.paramMap.get('id');
     if (idParam && /^\d+$/.test(idParam)) {
@@ -375,13 +397,6 @@ export class OrderFormComponent implements OnInit {
     if (eq) {
       patch['equipmentDefinitionIds'] = [eq];
     }
-    if (slotRaw !== null && slotRaw !== '') {
-      const slot = this.parseTimeSlotQueryParam(slotRaw);
-      if (slot !== null) {
-        patch['startShift'] = slot;
-        patch['endShift'] = slot;
-      }
-    }
     if (customerName) {
       patch['customerName'] = customerName;
     }
@@ -395,12 +410,84 @@ export class OrderFormComponent implements OnInit {
       this.form.patchValue(patch as never, { emitEvent: false });
     }
 
+    const slot =
+      slotRaw !== null && slotRaw !== '' ? this.parseTimeSlotQueryParam(slotRaw) : null;
+
     if (date) {
-      this.setHebrewFromIso(date, 'start');
-      this.setHebrewFromIso(date, 'end');
+      this.initializeBookingRange(date, slot ?? undefined);
+      return;
     }
 
+    if (slot !== null) {
+      this.runWithoutRangeSync(() => {
+        this.form.patchValue({ startShift: slot, endShift: slot }, { emitEvent: false });
+      });
+      this.syncShiftsFromRange();
+    }
+  }
+
+  /**
+   * Sets start/end date and shift together so validators never see a partial range
+   * (e.g. evening start with morning end on the same day).
+   */
+  private initializeBookingRange(iso: string, slot?: TimeSlot): void {
+    const parts = this.hebrew.isoToHebrewParts(iso);
+    if (!parts) {
+      return;
+    }
+
+    const resolvedSlot = slot ?? (this.form.controls['startShift'].value as TimeSlot);
+    this.ensureYearInOptions(parts.year);
+
+    this.runWithoutRangeSync(() => {
+      this.form.patchValue(
+        {
+          startHebrewYear: parts.year,
+          startHebrewMonth: parts.month,
+          startHebrewDay: parts.day,
+          endHebrewYear: parts.year,
+          endHebrewMonth: parts.month,
+          endHebrewDay: parts.day,
+          startDate: iso,
+          endDate: iso,
+          startShift: resolvedSlot,
+          endShift: resolvedSlot,
+          orderDate: iso
+        },
+        { emitEvent: false }
+      );
+
+      this.startHebrewYearSig.set(parts.year);
+      this.startHebrewMonthSig.set(parts.month);
+      this.endHebrewYearSig.set(parts.year);
+      this.endHebrewMonthSig.set(parts.month);
+
+      this.constrainShiftForDate(iso, 'startShift', false);
+      this.constrainShiftForDate(iso, 'endShift', false);
+      this.coerceEndShiftToValidRange(false);
+    });
+
     this.syncShiftsFromRange();
+
+    if (this.isIsoBlocked(iso)) {
+      this.toast.error('התאריך שנבחר חסום להזמנות חדשות');
+    }
+  }
+
+  private isIsoBlocked(iso: string): boolean {
+    if (this.isEdit()) {
+      return false;
+    }
+    return findBlockedDateForIso(iso, this.blockedDatesSig()) !== null;
+  }
+
+  private runWithoutRangeSync(fn: () => void): void {
+    this.suppressRangeSync = true;
+    try {
+      fn();
+    } finally {
+      this.suppressRangeSync = false;
+    }
   }
 
   private parseTimeSlotQueryParam(raw: string): TimeSlot | null {
@@ -479,6 +566,12 @@ export class OrderFormComponent implements OnInit {
     }
     if (this.form.errors?.['shiftNotAllowedForDate']) {
       return 'המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר, שבת — ערב)';
+    }
+    if (this.form.errors?.['shiftBlocked']) {
+      const reason = this.form.errors['blockedReason'];
+      return typeof reason === 'string' && reason.trim()
+        ? `התאריך חסום להזמנות חדשות: ${reason.trim()}`
+        : 'התאריך חסום להזמנות חדשות';
     }
     if (this.selectedEquipmentIdsControl.errors?.['required']) {
       return 'יש לבחור לפחות תא ציוד אחד';
@@ -760,6 +853,7 @@ export class OrderFormComponent implements OnInit {
           (group: AbstractControl) => this.shiftsRequiredValidator(group),
           (group: AbstractControl) => this.selectedShiftsNotInPastValidator(group),
           (group: AbstractControl) => this.selectedShiftsAllowedValidator(group),
+          (group: AbstractControl) => this.selectedShiftsBlockedValidator(group),
           (group: AbstractControl) => this.returnTimeValidator(group)
         ]
       }
@@ -873,6 +967,27 @@ export class OrderFormComponent implements OnInit {
     return null;
   }
 
+  private selectedShiftsBlockedValidator(group: AbstractControl): ValidationErrors | null {
+    if (this.editingId() !== null) {
+      return null;
+    }
+
+    const shifts = (group.get('shifts') as FormArray | null)?.getRawValue() as OrderShiftDto[] | undefined;
+    if (!shifts || shifts.length === 0) {
+      return null;
+    }
+
+    const blocks = this.blockedDatesSig();
+    for (const shift of shifts) {
+      const block = findBlockedDateForIso(shift.orderDate, blocks);
+      if (block) {
+        return { shiftBlocked: true, blockedReason: block.reason ?? null };
+      }
+    }
+
+    return null;
+  }
+
   private returnTimeValidator(group: AbstractControl): ValidationErrors | null {
     const type = group.get('returnTimeType')?.value as ReturnTimeType | undefined;
     const custom = group.get('customReturnTime')?.value;
@@ -953,7 +1068,12 @@ export class OrderFormComponent implements OnInit {
     for (const control of controls) {
       control.valueChanges
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.syncShiftsFromRange());
+        .subscribe(() => {
+          if (this.suppressRangeSync) {
+            return;
+          }
+          this.syncShiftsFromRange();
+        });
     }
     this.syncShiftsFromRange();
   }
@@ -971,6 +1091,10 @@ export class OrderFormComponent implements OnInit {
     }
     if (!endAllowed.includes(endShift)) {
       endShift = endAllowed[endAllowed.length - 1] ?? TimeSlot.Evening;
+      this.form.controls['endShift'].setValue(endShift, { emitEvent: false });
+    }
+    endShift = this.coerceEndShiftForRange(startDate, startShift, endDate, endShift);
+    if (endShift !== this.form.controls['endShift'].value) {
       this.form.controls['endShift'].setValue(endShift, { emitEvent: false });
     }
     const shifts = this.generateContinuousShifts(startDate, startShift, endDate, endShift);
@@ -1036,6 +1160,46 @@ export class OrderFormComponent implements OnInit {
 
   private shiftOrder(slot: TimeSlot): number {
     return slot === TimeSlot.Morning ? 1 : 2;
+  }
+
+  /**
+   * When start/end share a date, end shift must not precede start shift
+   * (e.g. evening start with morning end on the same day).
+   */
+  private coerceEndShiftForRange(
+    startDate: string,
+    startShift: TimeSlot,
+    endDate: string,
+    endShift: TimeSlot
+  ): TimeSlot {
+    if (this.compareShiftEndpoints(startDate, startShift, endDate, endShift) <= 0) {
+      return endShift;
+    }
+
+    const endAllowed = this.availableTimeSlots(endDate);
+    if (endAllowed.includes(startShift)) {
+      return startShift;
+    }
+
+    const notBeforeStart = endAllowed.filter(
+      (slot) => this.shiftOrder(slot) >= this.shiftOrder(startShift)
+    );
+    if (notBeforeStart.length > 0) {
+      return notBeforeStart[notBeforeStart.length - 1]!;
+    }
+
+    return endAllowed[endAllowed.length - 1] ?? startShift;
+  }
+
+  private coerceEndShiftToValidRange(emitEvent: boolean): void {
+    const startDate = this.form.controls['startDate'].value as string;
+    const endDate = this.form.controls['endDate'].value as string;
+    const startShift = this.form.controls['startShift'].value as TimeSlot;
+    const endShift = this.form.controls['endShift'].value as TimeSlot;
+    const coerced = this.coerceEndShiftForRange(startDate, startShift, endDate, endShift);
+    if (coerced !== endShift) {
+      this.form.controls['endShift'].setValue(coerced, { emitEvent });
+    }
   }
 
   /**
@@ -1268,7 +1432,19 @@ export class OrderFormComponent implements OnInit {
     return days.filter((d) => {
       const g = this.hebrew.toGregorian(year, month, d);
       g.setHours(0, 0, 0, 0);
-      return g.getTime() >= today.getTime();
+      if (allowPast) {
+        return true;
+      }
+      if (g.getTime() < today.getTime()) {
+        return false;
+      }
+      if (this.editingId() === null) {
+        const iso = this.toIso(g);
+        if (findBlockedDateForIso(iso, this.blockedDatesSig()) !== null) {
+          return false;
+        }
+      }
+      return true;
     });
   }
 
@@ -1318,14 +1494,18 @@ export class OrderFormComponent implements OnInit {
     const greg = this.hebrew.toGregorian(year, month, day);
     const iso = this.toIso(greg);
     this.form.controls[isoControlName].setValue(iso, { emitEvent: emitDateChange });
-    this.constrainShiftForDate(iso, shiftControlName);
+    this.constrainShiftForDate(iso, shiftControlName, false);
     if (endpoint === 'start') {
       this.form.controls['orderDate'].setValue(iso, { emitEvent: false });
     }
     this.form.updateValueAndValidity({ emitEvent: false });
   }
 
-  private constrainShiftForDate(iso: string, shiftControlName: 'startShift' | 'endShift'): void {
+  private constrainShiftForDate(
+    iso: string,
+    shiftControlName: 'startShift' | 'endShift',
+    emitEvent = false
+  ): void {
     const d = this.hebrew.parseIso(iso);
     if (!d) {
       return;
@@ -1334,13 +1514,13 @@ export class OrderFormComponent implements OnInit {
     const current = slotCtrl.value as TimeSlot;
     const dow = d.getDay();
     if (dow === 5 && current !== TimeSlot.Morning) {
-      slotCtrl.setValue(TimeSlot.Morning, { emitEvent: true });
+      slotCtrl.setValue(TimeSlot.Morning, { emitEvent });
     } else if (dow === 6 && current !== TimeSlot.Evening) {
-      slotCtrl.setValue(TimeSlot.Evening, { emitEvent: true });
+      slotCtrl.setValue(TimeSlot.Evening, { emitEvent });
     }
   }
 
-  private setHebrewFromIso(iso: string, endpoint: 'start' | 'end', emitDateChange = true): void {
+  private setHebrewFromIso(iso: string, endpoint: 'start' | 'end', emitDateChange = false): void {
     const parts = this.hebrew.isoToHebrewParts(iso);
     if (!parts) {
       return;
@@ -1365,6 +1545,9 @@ export class OrderFormComponent implements OnInit {
     }
 
     this.syncHebrewEndpointToIso(endpoint, emitDateChange);
+    if (endpoint === 'end') {
+      this.coerceEndShiftToValidRange(emitDateChange);
+    }
   }
 
   private yearOptionsForEndpoint(endpoint: 'start' | 'end'): number[] {
@@ -1507,35 +1690,38 @@ export class OrderFormComponent implements OnInit {
       endShift = lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning;
     }
 
-    this.form.patchValue(
-      {
-        equipmentDefinitionIds,
-        startDate: startIso,
-        startShift,
-        endDate: endIso,
-        endShift,
-        customerName: order.customerName ?? '',
-        phone: order.phone,
-        phone2: order.phone2 ?? '',
-        address: order.address ?? '',
-        depositType: order.depositType ?? null,
-        depositOnName: order.depositOnName ?? '',
-        paymentAmount: order.paymentAmount ?? null,
-        isUnpaid: mode === 'renew' ? true : order.isUnpaid,
-        returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
-        customReturnTime: order.customReturnTime ?? '',
-        notes: order.notes ?? ''
-      },
-      { emitEvent: mode !== 'renew' }
-    );
+    this.runWithoutRangeSync(() => {
+      this.form.patchValue(
+        {
+          equipmentDefinitionIds,
+          startDate: startIso,
+          startShift,
+          endDate: endIso,
+          endShift,
+          customerName: order.customerName ?? '',
+          phone: order.phone,
+          phone2: order.phone2 ?? '',
+          address: order.address ?? '',
+          depositType: order.depositType ?? null,
+          depositOnName: order.depositOnName ?? '',
+          paymentAmount: order.paymentAmount ?? null,
+          isUnpaid: mode === 'renew' ? true : order.isUnpaid,
+          returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
+          customReturnTime: order.customReturnTime ?? '',
+          notes: order.notes ?? ''
+        },
+        { emitEvent: false }
+      );
 
-    if (mode === 'renew') {
-      this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(String(order.phone ?? '')));
-      this.existingCustomerMatch.set(null);
-    }
+      if (mode === 'renew') {
+        this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(String(order.phone ?? '')));
+        this.existingCustomerMatch.set(null);
+      }
 
-    this.setHebrewFromIso(startIso, 'start', false);
-    this.setHebrewFromIso(endIso, 'end', false);
+      this.setHebrewFromIso(startIso, 'start', false);
+      this.setHebrewFromIso(endIso, 'end', false);
+    });
+
     this.syncShiftsFromRange();
 
     const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();

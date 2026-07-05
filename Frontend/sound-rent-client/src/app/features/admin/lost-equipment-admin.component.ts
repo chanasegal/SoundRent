@@ -151,7 +151,7 @@ export class LostEquipmentAdminComponent implements OnInit {
     const excelRows = rows.map((row) => ({
       'שם לקוח': row.customerName,
       'תיאור פריט': row.itemDescription,
-      'תאריך עברי': row.hebrewDate,
+      'תאריך': row.hebrewDate,
       הערות: row.notes ?? '',
       סטטוס: this.statusLabels[row.status] ?? row.status
     }));

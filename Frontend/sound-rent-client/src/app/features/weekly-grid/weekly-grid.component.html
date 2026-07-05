@@ -71,6 +71,16 @@
         <div class="toolbar-side toolbar-nav">
           <button
             type="button"
+            (click)="refreshDashboard()"
+            [disabled]="dashboardRefreshing()"
+            class="toolbar-btn toolbar-btn-refresh"
+            title="רענון לוח ההזמנות וסטטוס תחזוקת ציוד"
+            aria-label="רענון"
+          >
+            🔄
+          </button>
+          <button
+            type="button"
             (click)="exportAllOrdersBackupToExcel()"
             [disabled]="exportBackupInProgress()"
             class="toolbar-btn toolbar-btn-export"
@@ -146,6 +156,9 @@
                   <div class="font-bold text-[#002244]">{{ row.dayLabel }}</div>
                   <div class="mt-0.5 text-xs text-slate-500">{{ row.gregorian }}</div>
                   <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
+                  @if (row.isBlockedDay && row.blockedDayLabel) {
+                    <div class="mt-1 text-xs font-semibold text-slate-500">{{ row.blockedDayLabel }}</div>
+                  }
                 </th>
                 @for (segment of row.morning; track segment.key) {
                   <td
@@ -163,10 +176,14 @@
                         class="cell"
                         [class.cell-empty]="true"
                         [class.cell-maintenance]="segment.cell.isMaintenance"
+                        [class.cell-blocked]="segment.cell.isBlocked"
+                        [disabled]="segment.cell.isBlocked || segment.cell.isMaintenance"
                       >
                         <span class="cell-slot">{{ timeSlotLabels['Morning'] }}</span>
                         @if (segment.cell.isMaintenance) {
                           <span class="cell-empty-text">🔧 בתיקון</span>
+                        } @else if (segment.cell.isBlocked) {
+                          <span class="cell-empty-text cell-blocked-text">{{ blockedCellLabel(segment.cell) }}</span>
                         } @else {
                           <span class="cell-empty-text">פנוי</span>
                         }
@@ -206,6 +223,13 @@
                             >
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
+                                @if (hasNameDuplicateOnSameDay(o, row)) {
+                                  <span
+                                    class="cell-name-duplicate-warn"
+                                    [title]="sameDayNameDuplicateTooltip"
+                                    aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
+                                  >⚠️</span>
+                                }
                                 @if (hasOrderNotes(o)) {
                                   <span
                                     class="cell-notes-indicator"
@@ -216,7 +240,7 @@
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
-                                <span class="cell-return-time">{{ returnTimeLabel(o) }}</span>
+                                <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
                               }
                             </button>
                           }
@@ -246,6 +270,9 @@
                     <div class="font-bold text-[#002244]">{{ row.dayLabel }}</div>
                     <div class="mt-0.5 text-xs text-slate-500">{{ row.gregorian }}</div>
                     <div class="text-xs font-semibold text-sky-700">{{ row.hebrewDate }}</div>
+                    @if (row.isBlockedDay && row.blockedDayLabel) {
+                      <div class="mt-1 text-xs font-semibold text-slate-500">{{ row.blockedDayLabel }}</div>
+                    }
                   </th>
                 }
                 @for (segment of row.evening; track segment.key) {
@@ -264,10 +291,14 @@
                         class="cell"
                         [class.cell-empty]="true"
                         [class.cell-maintenance]="segment.cell.isMaintenance"
+                        [class.cell-blocked]="segment.cell.isBlocked"
+                        [disabled]="segment.cell.isBlocked || segment.cell.isMaintenance"
                       >
                         <span class="cell-slot">{{ timeSlotLabels['Evening'] }}</span>
                         @if (segment.cell.isMaintenance) {
                           <span class="cell-empty-text">🔧 בתיקון</span>
+                        } @else if (segment.cell.isBlocked) {
+                          <span class="cell-empty-text cell-blocked-text">{{ blockedCellLabel(segment.cell) }}</span>
                         } @else {
                           <span class="cell-empty-text">פנוי</span>
                         }
@@ -307,6 +338,13 @@
                             >
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
+                                @if (hasNameDuplicateOnSameDay(o, row)) {
+                                  <span
+                                    class="cell-name-duplicate-warn"
+                                    [title]="sameDayNameDuplicateTooltip"
+                                    aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
+                                  >⚠️</span>
+                                }
                                 @if (hasOrderNotes(o)) {
                                   <span
                                     class="cell-notes-indicator"
@@ -317,7 +355,7 @@
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
-                                <span class="cell-return-time">{{ returnTimeLabel(o) }}</span>
+                                <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
                               }
                             </button>
                           }

@@ -139,6 +139,15 @@
         @if (form.errors?.['shiftNotAllowedForDate']) {
           <p class="form-error">אחת המשמרות אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
         }
+        @if (form.errors?.['shiftBlocked']) {
+          <p class="form-error">
+            @if (form.errors?.['blockedReason']) {
+              התאריך חסום להזמנות חדשות: {{ form.errors?.['blockedReason'] }}
+            } @else {
+              התאריך חסום להזמנות חדשות
+            }
+          </p>
+        }
         @if (form.errors?.['shiftsRequired'] && selectedShiftSlots.touched) {
           <p class="form-error">יש להוסיף לפחות מועד אחד להזמנה</p>
         }

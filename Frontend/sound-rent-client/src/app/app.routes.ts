@@ -58,6 +58,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'admin/blocked-dates',
+        loadComponent: () =>
+          import('./features/admin/blocked-dates-admin.component').then(
+            (m) => m.BlockedDatesAdminComponent
+          )
+      },
+      {
         path: 'reports',
         loadComponent: () =>
           import('./features/reports/reports-view.component').then((m) => m.ReportsViewComponent)

@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
-import { forkJoin, finalize, Subscription } from 'rxjs';
+import { forkJoin, finalize, Subscription, timer } from 'rxjs';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -16,13 +16,18 @@ import {
   TIME_SLOT_LABELS,
   TimeSlot
 } from '../../core/models/enums';
-import { OrderDto } from '../../core/models/order.model';
+import { OrderDto, OrderShiftDto } from '../../core/models/order.model';
 import {
   bookingSlotToBaseEquipment,
   defaultBookingSlotForEquipmentType
 } from '../../core/models/booking-slots';
 import { EquipmentDefinitionDto } from '../../core/models/equipment-definition.model';
 import { WaitlistEntryDto } from '../../core/models/waitlist.model';
+import {
+  blockedDateCellLabel,
+  BlockedDateDto,
+  findBlockedDateForIso
+} from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
@@ -57,6 +62,8 @@ interface GridCell {
   orders: OrderDto[];
   disabled: boolean;
   isMaintenance: boolean;
+  isBlocked: boolean;
+  blockedReason: string | null;
   bookingSlot: string;
   date: Date;
   timeSlot: TimeSlot;
@@ -79,12 +86,18 @@ interface GridRow {
   hebrewDate: string;
   gregorian: string;
   isShabbat: boolean;
+  isBlockedDay: boolean;
+  blockedDayLabel: string | null;
   morning: GridSlotSegment[] | null;
   evening: GridSlotSegment[] | null;
   waitlist: WaitlistEntryDto[];
+  /** Order ids on this day that share a last name with another distinct order. */
+  sameDayLastNameDuplicateOrderIds: ReadonlySet<number>;
 }
 
 const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const EMPTY_ORDER_ID_SET: ReadonlySet<number> = new Set();
+const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה על שם זהה היום';
 const GREGORIAN_MONTH_OPTIONS = [
   { value: 0, label: 'ינואר' },
   { value: 1, label: 'פברואר' },
@@ -167,8 +180,9 @@ export class WeeklyGridComponent {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
+  private static readonly POLL_INTERVAL_MS = 30_000;
+
   private weekLoadSub: Subscription | null = null;
-  private lastLoadedWeekKey = '';
   private weekLoadInFlightKey = '';
 
   protected readonly equipmentTypes = EQUIPMENT_TYPE_ORDER;
@@ -191,9 +205,11 @@ export class WeeklyGridComponent {
   protected readonly weekStart = signal<Date>(this.initialDateState.weekStart);
   protected readonly orders = signal<OrderDto[]>([]);
   protected readonly waitlistEntries = signal<WaitlistEntryDto[]>([]);
+  protected readonly blockedDates = signal<BlockedDateDto[]>([]);
   protected readonly waitlistSaving = signal(false);
   protected readonly waitlistModalContext = signal<{ date: Date } | null>(null);
   protected readonly exportBackupInProgress = signal(false);
+  protected readonly dashboardRefreshing = signal(false);
   protected readonly hoveredOrderId = signal<number | null>(null);
 
   protected readonly waitlistModalForm = this.fb.group({
@@ -246,6 +262,20 @@ export class WeeklyGridComponent {
       const end = this.toIsoDate(this.weekEnd());
       untracked(() => this.loadWeekData(start, end));
     });
+
+    timer(WeeklyGridComponent.POLL_INTERVAL_MS, WeeklyGridComponent.POLL_INTERVAL_MS)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        const start = this.toIsoDate(this.weekStart());
+        const end = this.toIsoDate(this.weekEnd());
+        this.loadWeekData(start, end);
+      });
+  }
+
+  protected refreshDashboard(): void {
+    const start = this.toIsoDate(this.weekStart());
+    const end = this.toIsoDate(this.weekEnd());
+    this.loadWeekData(start, end);
   }
 
   protected onGregorianMonthModelChange(value: number): void {
@@ -404,6 +434,11 @@ export class WeeklyGridComponent {
       return;
     }
 
+    if (cell.isBlocked) {
+      this.toast.error(cell.blockedReason ? `התאריך חסום: ${cell.blockedReason}` : 'התאריך חסום להזמנות חדשות');
+      return;
+    }
+
     if (cell.disabled) {
       return;
     }
@@ -428,6 +463,10 @@ export class WeeklyGridComponent {
     }
     if (cell.isMaintenance) {
       this.toast.error('הציוד בתיקון - לא ניתן להוסיף הזמנה חדשה');
+      return;
+    }
+    if (cell.isBlocked) {
+      this.toast.error(cell.blockedReason ? `התאריך חסום: ${cell.blockedReason}` : 'התאריך חסום להזמנות חדשות');
       return;
     }
 
@@ -477,11 +516,43 @@ export class WeeklyGridComponent {
     return (order.notes ?? '').trim().length > 0;
   }
 
+  protected hasNameDuplicateOnSameDay(order: OrderDto, row: GridRow): boolean {
+    return row.sameDayLastNameDuplicateOrderIds.has(order.id);
+  }
+
+  protected readonly sameDayNameDuplicateTooltip = SAME_DAY_NAME_DUPLICATE_TOOLTIP;
+
   protected orderNotesTooltip(order: OrderDto): string {
     return (order.notes ?? '').trim();
   }
 
   protected returnTimeLabel(order: OrderDto): string {
+    return this.finalReturnTimeLabel(order);
+  }
+
+  protected returnTimeLabelForCell(order: OrderDto, cellDate: Date): string {
+    const lastShift = this.orderLastShift(order);
+    if (!lastShift) {
+      return this.finalReturnTimeLabel(order);
+    }
+
+    const cellIso = this.toIsoDate(cellDate);
+    const isOnEndDate = cellIso === lastShift.orderDate;
+
+    if (!isOnEndDate) {
+      const returnDay = this.hebrew.parseIso(lastShift.orderDate);
+      if (returnDay) {
+        const dayName = DAY_NAMES_HE[returnDay.getDay()];
+        if (dayName) {
+          return `מחזיר ב${dayName}`;
+        }
+      }
+    }
+
+    return this.finalReturnTimeLabel(order);
+  }
+
+  private finalReturnTimeLabel(order: OrderDto): string {
     switch (order.returnTimeType) {
       case ReturnTimeType.NextMorning:
         return 'עד 08:00';
@@ -491,6 +562,14 @@ export class WeeklyGridComponent {
       default:
         return 'עד הלילה';
     }
+  }
+
+  private orderLastShift(order: OrderDto): OrderShiftDto | null {
+    const shifts = [...(order.shifts ?? [])].sort(
+      (a, b) =>
+        a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot)
+    );
+    return shifts.length > 0 ? shifts[shifts.length - 1]! : null;
   }
 
   protected isVerticalContinuation(segment: GridSlotSegment): boolean {
@@ -590,41 +669,55 @@ export class WeeklyGridComponent {
     });
   }
 
+  protected blockedCellLabel(cell: GridCell): string {
+    return blockedDateCellLabel({
+      id: 0,
+      startDate: '',
+      endDate: '',
+      reason: cell.blockedReason,
+      createdAt: '',
+      updatedAt: ''
+    });
+  }
+
   protected isColumnMaintenance(col: WeeklyGridColumnDef): boolean {
     return col.isUnderMaintenance;
   }
 
+  private blockForIso(iso: string): BlockedDateDto | null {
+    return findBlockedDateForIso(iso, this.blockedDates());
+  }
+
   private reloadCurrentWeek(): void {
-    this.lastLoadedWeekKey = '';
     this.loadWeekData(this.toIsoDate(this.weekStart()), this.toIsoDate(this.weekEnd()));
   }
 
   private loadWeekData(start: string, end: string): void {
     const key = `${start}|${end}`;
-    if (key === this.lastLoadedWeekKey) {
-      return;
-    }
-    if (key === this.weekLoadInFlightKey) {
-      return;
-    }
 
     this.weekLoadSub?.unsubscribe();
     this.weekLoadInFlightKey = key;
+    this.equipmentSlots.load({ force: true }).subscribe();
 
+    this.dashboardRefreshing.set(true);
     this.weekLoadSub = forkJoin({
       orders: this.data.getWeeklyOrders(start, end),
-      waitlist: this.data.getWeeklyWaitlist(start, end)
+      waitlist: this.data.getWeeklyWaitlist(start, end),
+      blockedDates: this.data.getBlockedDates(start, end)
     })
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        finalize(() => this.dashboardRefreshing.set(false)),
+        takeUntilDestroyed(this.destroyRef)
+      )
       .subscribe({
-        next: ({ orders, waitlist }) => {
+        next: ({ orders, waitlist, blockedDates }) => {
           if (this.weekLoadInFlightKey !== key) {
             return;
           }
           this.weekLoadInFlightKey = '';
-          this.lastLoadedWeekKey = key;
           this.orders.set(orders);
           this.waitlistEntries.set(waitlist);
+          this.blockedDates.set(blockedDates);
         },
         error: () => {
           if (this.weekLoadInFlightKey === key) {
@@ -752,6 +845,8 @@ export class WeeklyGridComponent {
       });
     }
 
+    const sameDayLastNameDuplicates = this.buildSameDayLastNameDuplicateOrderIds(this.orders());
+
     const rows: GridRow[] = [];
     for (let i = 0; i < 7; i++) {
       const date = this.addDays(start, i);
@@ -759,6 +854,8 @@ export class WeeklyGridComponent {
       const isFriday = day === 5;
       const isSaturday = day === 6;
       const iso = this.toIsoDate(date);
+      const dayBlock = this.blockForIso(iso);
+      const blockedDayLabel = dayBlock ? blockedDateCellLabel(dayBlock) : null;
 
       const buildSlot = (slotInner: TimeSlot): GridSlotSegment[] => {
         const cols = this.gridColumns();
@@ -766,12 +863,16 @@ export class WeeklyGridComponent {
         const cells = cols.map((col) => {
           const orders = ordersByColumnId.get(col.id) ?? [];
           const isMaintenance = col.isUnderMaintenance;
+          const isBlocked = dayBlock !== null;
+          const blockedReason = dayBlock?.reason?.trim() || null;
           return {
             columnId: col.id,
             columnHeaderLabel: col.headerLabel,
             orders,
-            disabled: orders.length === 0 && isMaintenance,
+            disabled: orders.length === 0 && (isMaintenance || isBlocked),
             isMaintenance,
+            isBlocked,
+            blockedReason,
             bookingSlot: col.bookingSlot,
             date,
             timeSlot: slotInner
@@ -789,12 +890,73 @@ export class WeeklyGridComponent {
         hebrewDate: this.hebrew.toHebrew(date),
         gregorian: this.formatDate(date),
         isShabbat: isFriday || isSaturday,
+        isBlockedDay: dayBlock !== null,
+        blockedDayLabel,
         morning,
         evening,
-        waitlist: waitlistByIso.get(iso) ?? []
+        waitlist: waitlistByIso.get(iso) ?? [],
+        sameDayLastNameDuplicateOrderIds: sameDayLastNameDuplicates.get(iso) ?? EMPTY_ORDER_ID_SET
       });
     }
     return rows;
+  }
+
+  /**
+   * One pass over all orders: for each calendar day, flag distinct orders that share
+   * the same extracted last name (final whitespace-delimited token).
+   */
+  private buildSameDayLastNameDuplicateOrderIds(orders: OrderDto[]): Map<string, Set<number>> {
+    const lastNameBucketsByDay = new Map<string, Map<string, Set<number>>>();
+
+    for (const order of orders) {
+      const lastNameKey = this.customerLastNameKey(order.customerName);
+      if (!lastNameKey) {
+        continue;
+      }
+
+      const daysOnOrder = new Set((order.shifts ?? []).map((shift) => shift.orderDate));
+      for (const iso of daysOnOrder) {
+        let dayBuckets = lastNameBucketsByDay.get(iso);
+        if (!dayBuckets) {
+          dayBuckets = new Map();
+          lastNameBucketsByDay.set(iso, dayBuckets);
+        }
+        let orderIds = dayBuckets.get(lastNameKey);
+        if (!orderIds) {
+          orderIds = new Set();
+          dayBuckets.set(lastNameKey, orderIds);
+        }
+        orderIds.add(order.id);
+      }
+    }
+
+    const flaggedByDay = new Map<string, Set<number>>();
+    for (const [iso, dayBuckets] of lastNameBucketsByDay) {
+      const flagged = new Set<number>();
+      for (const orderIds of dayBuckets.values()) {
+        if (orderIds.size < 2) {
+          continue;
+        }
+        for (const id of orderIds) {
+          flagged.add(id);
+        }
+      }
+      if (flagged.size > 0) {
+        flaggedByDay.set(iso, flagged);
+      }
+    }
+
+    return flaggedByDay;
+  }
+
+  private customerLastNameKey(fullName: string | null | undefined): string {
+    const normalized = (fullName ?? '').trim().replace(/\s+/g, ' ');
+    if (!normalized) {
+      return '';
+    }
+    const parts = normalized.split(' ');
+    const lastName = parts[parts.length - 1] ?? '';
+    return lastName.toLocaleLowerCase('he-IL');
   }
 
   private cellKey(bookingSlot: string, iso: string, slot: TimeSlot): string {
@@ -832,7 +994,9 @@ export class WeeklyGridComponent {
         merged: colspan > 1,
         verticalPosition,
         renderDetails: verticalPosition === 'single' || verticalPosition === 'top',
-        renderAddAnother: verticalPosition === 'single' || verticalPosition === 'bottom'
+        renderAddAnother:
+          !cell.isBlocked &&
+          (verticalPosition === 'single' || verticalPosition === 'bottom')
       });
       i += colspan;
     }

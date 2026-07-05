@@ -13,15 +13,18 @@ public class OrderService : IOrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IEquipmentDefinitionRepository _equipmentDefinitions;
     private readonly ICustomerService _customerService;
+    private readonly IBlockedDateRepository _blockedDates;
 
     public OrderService(
         IOrderRepository orderRepository,
         IEquipmentDefinitionRepository equipmentDefinitions,
-        ICustomerService customerService)
+        ICustomerService customerService,
+        IBlockedDateRepository blockedDates)
     {
         _orderRepository = orderRepository;
         _equipmentDefinitions = equipmentDefinitions;
         _customerService = customerService;
+        _blockedDates = blockedDates;
     }
 
     public async Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -62,6 +65,7 @@ public class OrderService : IOrderService
             excludeOrderId: null,
             allowDoubleBooking: dto.AllowDoubleBooking,
             priorEquipmentIds: null,
+            validateBlockedDates: true,
             cancellationToken);
 
         var entity = OrderMapper.ToEntity(dto);
@@ -90,6 +94,7 @@ public class OrderService : IOrderService
             excludeOrderId: id,
             allowDoubleBooking: dto.AllowDoubleBooking,
             priorEquipmentIds,
+            validateBlockedDates: false,
             cancellationToken);
 
         OrderMapper.ApplyTo(dto, existing);
@@ -222,6 +227,7 @@ public class OrderService : IOrderService
         int? excludeOrderId,
         bool allowDoubleBooking,
         IReadOnlySet<string>? priorEquipmentIds,
+        bool validateBlockedDates,
         CancellationToken cancellationToken)
     {
         if (equipmentIds.Count == 0)
@@ -243,6 +249,8 @@ public class OrderService : IOrderService
         {
             ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
         }
+
+        await ValidateShiftsNotBlockedAsync(shifts, validateBlockedDates, cancellationToken);
 
         var definitions = await _equipmentDefinitions.GetByIdsAsync(equipmentIds, cancellationToken);
         var definitionsById = definitions.ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);
@@ -280,6 +288,27 @@ public class OrderService : IOrderService
                 : conflict.EquipmentDisplayName;
             throw new ValidationException(
                 $"הציוד {equipmentLabel} כבר תפוס בתאריך {conflict.OrderDate:yyyy-MM-dd} במשמרת {ShiftLabel(conflict.TimeSlot)}");
+        }
+    }
+
+    private async Task ValidateShiftsNotBlockedAsync(
+        IReadOnlyList<OrderShiftDto> shifts,
+        bool validateBlockedDates,
+        CancellationToken cancellationToken)
+    {
+        if (!validateBlockedDates)
+        {
+            return;
+        }
+
+        var uniqueDates = shifts.Select(s => s.OrderDate).Distinct().ToList();
+        foreach (var date in uniqueDates)
+        {
+            if (await _blockedDates.AnyBlockCoversDateAsync(date, cancellationToken))
+            {
+                throw new ValidationException(
+                    $"התאריך {date:yyyy-MM-dd} חסום להזמנות חדשות");
+            }
         }
     }
 
