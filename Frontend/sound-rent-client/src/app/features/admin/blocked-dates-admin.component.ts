@@ -6,15 +6,16 @@ import { finalize } from 'rxjs';
 
 import { BlockedDateDto } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
-import { HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
+import { HebrewDateParts, HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 type HebrewEndpoint = 'start' | 'end';
 
 @Component({
   selector: 'app-blocked-dates-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, HebrewCalendarPickerComponent],
   templateUrl: './blocked-dates-admin.component.html',
   styleUrl: './blocked-dates-admin.component.scss'
 })
@@ -33,10 +34,12 @@ export class BlockedDatesAdminComponent implements OnInit {
   protected readonly deletingId = signal<number | null>(null);
   protected readonly editingId = signal<number | null>(null);
 
-  private readonly startHebrewYearSig = signal(this.initialHebrew.year);
-  private readonly startHebrewMonthSig = signal(this.initialHebrew.month);
-  private readonly endHebrewYearSig = signal(this.initialHebrew.year);
-  private readonly endHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly startHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly startHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly startHebrewDaySig = signal(this.initialHebrew.day);
+  protected readonly endHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly endHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly endHebrewDaySig = signal(this.initialHebrew.day);
   private readonly extraYearsSig = signal<number[]>([]);
 
   protected readonly startYearOptions = computed(() => this.yearOptionsForEndpoint('start'));
@@ -59,6 +62,26 @@ export class BlockedDatesAdminComponent implements OnInit {
 
   protected yearLabel(year: number): string {
     return this.hebrew.yearGematriya(year);
+  }
+
+  protected patchHebrewFromCalendar(
+    endpoint: HebrewEndpoint,
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const patch: Record<string, number> = {};
+    if (part.year !== undefined) {
+      patch[`${endpoint}HebrewYear`] = part.year;
+      this.ensureYearInOptions(part.year);
+    }
+    if (part.month !== undefined) {
+      patch[`${endpoint}HebrewMonth`] = part.month;
+    }
+    if (part.day !== undefined) {
+      patch[`${endpoint}HebrewDay`] = part.day;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.blockForm.patchValue(patch);
+    }
   }
 
   protected refresh(): void {
@@ -203,32 +226,35 @@ export class BlockedDatesAdminComponent implements OnInit {
     const monthCtrl = this.blockForm.controls[`${endpoint}HebrewMonth`];
     const dayCtrl = this.blockForm.controls[`${endpoint}HebrewDay`];
 
-    this.setEndpointHebrewSignals(endpoint, Number(yearCtrl.value), Number(monthCtrl.value));
+    this.setEndpointHebrewSignals(endpoint, Number(yearCtrl.value), Number(monthCtrl.value), Number(dayCtrl.value));
     this.ensureYearInOptions(Number(yearCtrl.value));
 
     yearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((y) => {
-      this.setEndpointHebrewSignals(endpoint, Number(y), Number(monthCtrl.value));
+      this.setEndpointHebrewSignals(endpoint, Number(y), Number(monthCtrl.value), Number(dayCtrl.value));
       this.ensureYearInOptions(Number(y));
       this.normalizeHebrewSelection(endpoint);
     });
 
     monthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((m) => {
-      this.setEndpointHebrewSignals(endpoint, Number(yearCtrl.value), Number(m));
+      this.setEndpointHebrewSignals(endpoint, Number(yearCtrl.value), Number(m), Number(dayCtrl.value));
       this.normalizeHebrewSelection(endpoint);
     });
 
-    dayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+    dayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((d) => {
+      this.setEndpointHebrewSignals(endpoint, Number(yearCtrl.value), Number(monthCtrl.value), Number(d));
       this.normalizeHebrewSelection(endpoint);
     });
   }
 
-  private setEndpointHebrewSignals(endpoint: HebrewEndpoint, year: number, month: number): void {
+  private setEndpointHebrewSignals(endpoint: HebrewEndpoint, year: number, month: number, day: number): void {
     if (endpoint === 'start') {
       this.startHebrewYearSig.set(year);
       this.startHebrewMonthSig.set(month);
+      this.startHebrewDaySig.set(day);
     } else {
       this.endHebrewYearSig.set(year);
       this.endHebrewMonthSig.set(month);
+      this.endHebrewDaySig.set(day);
     }
   }
 
@@ -248,12 +274,14 @@ export class BlockedDatesAdminComponent implements OnInit {
     if (!this.hebrew.isLeapYear(year) && month === 13) {
       month = 12;
       monthCtrl.setValue(month, { emitEvent: false });
-      this.setEndpointHebrewSignals(endpoint, year, month);
+      this.setEndpointHebrewSignals(endpoint, year, month, day);
     }
 
     const maxDay = this.hebrew.daysInMonth(month, year);
     if (day > maxDay) {
+      day = maxDay;
       dayCtrl.setValue(maxDay, { emitEvent: false });
+      this.setEndpointHebrewSignals(endpoint, year, month, day);
     }
   }
 
@@ -272,7 +300,7 @@ export class BlockedDatesAdminComponent implements OnInit {
       },
       { emitEvent: false }
     );
-    this.setEndpointHebrewSignals(endpoint, parts.year, parts.month);
+    this.setEndpointHebrewSignals(endpoint, parts.year, parts.month, parts.day);
   }
 
   private resetFormToToday(): void {
@@ -288,8 +316,10 @@ export class BlockedDatesAdminComponent implements OnInit {
     });
     this.startHebrewYearSig.set(parts.year);
     this.startHebrewMonthSig.set(parts.month);
+    this.startHebrewDaySig.set(parts.day);
     this.endHebrewYearSig.set(parts.year);
     this.endHebrewMonthSig.set(parts.month);
+    this.endHebrewDaySig.set(parts.day);
   }
 
   private hebrewPartsToIso(endpoint: HebrewEndpoint): string | null {

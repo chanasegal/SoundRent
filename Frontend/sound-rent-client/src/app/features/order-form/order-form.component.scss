@@ -180,19 +180,35 @@
   }
 
   .reservation-field__control,
-  .reservation-field--date .hebrew-date-picker-group,
+  .reservation-field--date .hebrew-date-field-row,
   .reservation-field--equipment .multi-select__trigger {
     width: 100%;
+  }
+
+  .hebrew-date-field-row {
+    position: relative;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  .reservation-field--date {
+    flex: 0 1 15.5rem;
+    min-width: 13.5rem;
+    --hebrew-calendar-control-height: #{$slot-control-height};
+  }
+
+  .reservation-field--date .hebrew-date-picker-group {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
   }
 
   .reservation-field--equipment {
     flex: 1 1 16rem;
     max-width: 280px;
-  }
-
-  .reservation-field--date {
-    flex: 0 1 13.5rem;
-    min-width: 12rem;
   }
 
   .reservation-field--shift {
@@ -431,9 +447,8 @@
     align-items: center;
     gap: 4px;
     min-width: 0;
-    width: 100%;
     min-height: $slot-control-height;
-    padding: 0 0.35rem;
+    padding: 0 0.45rem;
     border: 1px solid #cbd5e1;
     border-radius: 0.5rem;
     background: #fff;
@@ -444,6 +459,11 @@
       border-color: #002244;
       box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
     }
+  }
+
+  .hebrew-date-field-row > .hebrew-date-picker-group {
+    flex: 1 1 auto;
+    width: auto;
   }
 
   .hebrew-date-picker-group__select {
@@ -477,8 +497,14 @@
     }
 
     &--year {
-      flex: 0 0 4.5rem;
+      flex: 0 0 5.75rem;
+      min-width: 5.75rem;
+      max-width: 5.75rem;
       text-align: center;
+      padding-inline-start: 0.2rem;
+      padding-inline-end: 1.25rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   }
 
@@ -619,4 +645,64 @@
       box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
     }
   }
+}
+
+.return-modal-backdrop {
+  direction: rtl;
+}
+
+.return-table th,
+.return-table td {
+  white-space: nowrap;
+}
+
+.return-qty-input {
+  width: 4.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+  outline: none;
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.return-custom-name-input {
+  min-width: 10rem;
+  flex: 1 1 auto;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.875rem;
+  outline: none;
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.return-remove-custom-btn {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid #fecaca;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: #fef2f2;
+  }
+}
+
+.return-row--custom {
+  background: #fffbeb;
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
+using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -287,6 +288,80 @@ public class OrderRepository : IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
+    {
+        var loanedRows = await _db.Orders
+            .AsNoTracking()
+            .Where(o => !o.IsCancelled && o.IsReturnProcessed)
+            .SelectMany(o => o.LoanedEquipments
+                .Where(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity)
+                .Select(le => new
+                {
+                    Order = o,
+                    Line = le,
+                    ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate)
+                }))
+            .ToListAsync(cancellationToken);
+
+        var customRows = await _db.OrderCustomMissingItems
+            .AsNoTracking()
+            .Where(i => !i.IsResolved && !i.Order.IsCancelled && i.Order.IsReturnProcessed)
+            .Select(i => new
+            {
+                Order = i.Order,
+                Item = i,
+                ReturnDate = i.Order.Shifts.Max(s => (DateOnly?)s.OrderDate)
+            })
+            .ToListAsync(cancellationToken);
+
+        var loanedDtos = loanedRows.Select(r => new UnreturnedItemDto
+        {
+            OrderId = r.Order.Id,
+            CustomerName = r.Order.CustomerName,
+            Phone = r.Order.Phone,
+            IsCustomItem = false,
+            LoanedEquipmentType = r.Line.LoanedEquipmentType,
+            EquipmentName = LoanedEquipmentTypeLabels.GetLabel(r.Line.LoanedEquipmentType),
+            ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
+            QuantityLoaned = r.Line.Quantity,
+            MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity
+        });
+
+        var customDtos = customRows.Select(r => new UnreturnedItemDto
+        {
+            OrderId = r.Order.Id,
+            CustomerName = r.Order.CustomerName,
+            Phone = r.Order.Phone,
+            IsCustomItem = true,
+            CustomMissingItemId = r.Item.Id,
+            EquipmentName = r.Item.ItemName,
+            ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
+            QuantityLoaned = 0,
+            MissingQuantity = r.Item.MissingQuantity
+        });
+
+        return loanedDtos
+            .Concat(customDtos)
+            .OrderBy(r => r.ReturnDate)
+            .ThenBy(r => r.OrderId)
+            .ThenBy(r => r.IsCustomItem)
+            .ThenBy(r => r.EquipmentName)
+            .ToList();
+    }
+
+    public async Task<OrderCustomMissingItem?> GetCustomMissingItemByIdAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        return await _db.OrderCustomMissingItems
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+    }
+
+    public void AddCustomMissingItem(Order order, OrderCustomMissingItem item)
+    {
+        order.CustomMissingItems.Add(item);
+    }
+
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)
     {
         return query
@@ -294,6 +369,7 @@ public class OrderRepository : IOrderRepository
             .ThenInclude(e => e.EquipmentDefinition)
             .Include(o => o.Shifts)
             .Include(o => o.LoanedEquipments)
-            .ThenInclude(le => le.Notes);
+            .ThenInclude(le => le.Notes)
+            .Include(o => o.CustomMissingItems);
     }
 }

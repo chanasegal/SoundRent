@@ -15,6 +15,10 @@ public class OrderLoanedEquipmentConfiguration : IEntityTypeConfiguration<OrderL
         builder.Property(le => le.Quantity)
             .IsRequired();
 
+        builder.Property(le => le.ReturnedQuantity)
+            .IsRequired()
+            .HasDefaultValue(0);
+
         builder.Property(le => le.ExpectedNoteCount)
             .IsRequired();
 

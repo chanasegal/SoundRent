@@ -5,6 +5,10 @@ import { Observable, catchError, map, of } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
 import { TimeSlot } from '../models/enums';
+import {
+  OrderReturnRequestDto,
+  UnreturnedItemDto
+} from '../models/equipment-return.model';
 import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
 import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
 import { OrderShiftDto } from '../models/order.model';
@@ -157,6 +161,36 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
+      })
+    );
+  }
+
+  recordOrderReturn(id: number, request: OrderReturnRequestDto): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.ordersBase}/${id}/return`, request).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  resolveCustomMissingItem(customMissingItemId: number): Observable<boolean> {
+    return this.http
+      .post<void>(`${this.ordersBase}/custom-missing/${customMissingItemId}/resolve`, {})
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
+  }
+
+  getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
+    return this.http.get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
       })
     );
   }

@@ -1,0 +1,52 @@
+<div class="hebrew-calendar-picker">
+  <button
+    type="button"
+    class="hebrew-calendar-trigger"
+    (click)="toggle($event)"
+    [class.hebrew-calendar-trigger--active]="open()"
+    [attr.aria-expanded]="open()"
+    aria-haspopup="dialog"
+    [attr.aria-label]="ariaLabel()"
+  >
+    📅
+  </button>
+
+  @if (open()) {
+    <button
+      type="button"
+      class="hebrew-calendar-backdrop"
+      (click)="close()"
+      aria-label="סגור לוח שנה"
+      tabindex="-1"
+    ></button>
+    <div class="hebrew-calendar-popup" role="dialog" [attr.aria-label]="dialogLabel()">
+      <div class="hebrew-calendar-popup__header">
+        <button type="button" class="hebrew-calendar-popup__nav" (click)="prevMonth()" aria-label="חודש קודם">‹</button>
+        <span class="hebrew-calendar-popup__title">{{ calendarHeaderLabel() }}</span>
+        <button type="button" class="hebrew-calendar-popup__nav" (click)="nextMonth()" aria-label="חודש הבא">›</button>
+      </div>
+      <div class="hebrew-calendar-popup__weekdays" aria-hidden="true">
+        @for (weekday of calendarWeekdays; track weekday) {
+          <span class="hebrew-calendar-popup__weekday">{{ weekday }}</span>
+        }
+      </div>
+      <div class="hebrew-calendar-popup__grid">
+        @for (cell of calendarCells(); track $index) {
+          @if (cell.day !== null) {
+            <button
+              type="button"
+              class="hebrew-calendar-popup__day"
+              [class.hebrew-calendar-popup__day--selected]="cell.selected"
+              [class.hebrew-calendar-popup__day--today]="cell.today"
+              (click)="selectDay(cell.day)"
+            >
+              {{ dayLabel(cell.day) }}
+            </button>
+          } @else {
+            <span class="hebrew-calendar-popup__pad" aria-hidden="true"></span>
+          }
+        }
+      </div>
+    </div>
+  }
+</div>

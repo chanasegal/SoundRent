@@ -4,7 +4,16 @@ $date-control-height: 2.5rem;
   min-width: 0;
 }
 
+.hebrew-date-field-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
 .hebrew-date-picker-group {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 4px;

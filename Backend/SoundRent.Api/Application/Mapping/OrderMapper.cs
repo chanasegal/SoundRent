@@ -29,11 +29,25 @@ public static class OrderMapper
         PaymentAmount = order.PaymentAmount,
         IsUnpaid = order.IsUnpaid,
         IsCancelled = order.IsCancelled,
+        IsReturnProcessed = order.IsReturnProcessed,
         ReturnTimeType = order.ReturnTimeType,
         CustomReturnTime = order.CustomReturnTime,
         Notes = order.Notes,
         CreatedAt = order.CreatedAt,
-        LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList()
+        LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList(),
+        CustomMissingItems = order.CustomMissingItems
+            .Where(i => !i.IsResolved)
+            .OrderBy(i => i.Id)
+            .Select(ToDto)
+            .ToList()
+    };
+
+    public static OrderCustomMissingItemDto ToDto(OrderCustomMissingItem item) => new()
+    {
+        Id = item.Id,
+        ItemName = item.ItemName,
+        MissingQuantity = item.MissingQuantity,
+        IsResolved = item.IsResolved
     };
 
     public static OrderShiftDto ToDto(OrderShift shift) => new()
@@ -47,6 +61,7 @@ public static class OrderMapper
         Id = le.Id,
         LoanedEquipmentType = le.LoanedEquipmentType,
         Quantity = le.Quantity,
+        ReturnedQuantity = le.ReturnedQuantity,
         ExpectedNoteCount = le.ExpectedNoteCount,
         Notes = le.Notes
             .OrderBy(n => n.Ordinal)

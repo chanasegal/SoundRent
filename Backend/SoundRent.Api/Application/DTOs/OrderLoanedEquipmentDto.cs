@@ -10,6 +10,9 @@ public class OrderLoanedEquipmentDto
     public int Quantity { get; set; }
 
     [Range(0, int.MaxValue)]
+    public int ReturnedQuantity { get; set; }
+
+    [Range(0, int.MaxValue)]
     public int ExpectedNoteCount { get; set; }
 
     public List<LoanedEquipmentNoteDto> Notes { get; set; } = new();

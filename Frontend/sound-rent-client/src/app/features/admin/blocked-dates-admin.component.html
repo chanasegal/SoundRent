@@ -21,43 +21,67 @@
     <form [formGroup]="blockForm" (ngSubmit)="submitBlock()" class="grid gap-4 md:grid-cols-2">
       <div class="blocked-date-field">
         <label class="mb-1 block text-sm font-medium text-slate-700">מתאריך<span class="text-rose-500">*</span></label>
-        <div class="hebrew-date-picker-group">
-          <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
-            @for (day of startDayOptions(); track day) {
-              <option [value]="day">{{ dayLabel(day) }}</option>
-            }
-          </select>
-          <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
-            @for (month of startMonthOptions(); track month.value) {
-              <option [value]="month.value">{{ month.label }}</option>
-            }
-          </select>
-          <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
-            @for (year of startYearOptions(); track year) {
-              <option [value]="year">{{ yearLabel(year) }}</option>
-            }
-          </select>
+        <div class="hebrew-date-field-row">
+          <div class="hebrew-date-picker-group">
+            <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
+              @for (day of startDayOptions(); track day) {
+                <option [value]="day">{{ dayLabel(day) }}</option>
+              }
+            </select>
+            <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
+              @for (month of startMonthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
+              @for (year of startYearOptions(); track year) {
+                <option [value]="year">{{ yearLabel(year) }}</option>
+              }
+            </select>
+          </div>
+          <app-hebrew-calendar-picker
+            [year]="startHebrewYearSig()"
+            [month]="startHebrewMonthSig()"
+            [day]="startHebrewDaySig()"
+            (yearChange)="patchHebrewFromCalendar('start', { year: $event })"
+            (monthChange)="patchHebrewFromCalendar('start', { month: $event })"
+            (dayChange)="patchHebrewFromCalendar('start', { day: $event })"
+            ariaLabel="פתח לוח שנה עברי לתאריך התחלה"
+            dialogLabel="בחירת תאריך התחלה"
+          />
         </div>
       </div>
 
       <div class="blocked-date-field">
         <label class="mb-1 block text-sm font-medium text-slate-700">עד תאריך<span class="text-rose-500">*</span></label>
-        <div class="hebrew-date-picker-group">
-          <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
-            @for (day of endDayOptions(); track day) {
-              <option [value]="day">{{ dayLabel(day) }}</option>
-            }
-          </select>
-          <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
-            @for (month of endMonthOptions(); track month.value) {
-              <option [value]="month.value">{{ month.label }}</option>
-            }
-          </select>
-          <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
-            @for (year of endYearOptions(); track year) {
-              <option [value]="year">{{ yearLabel(year) }}</option>
-            }
-          </select>
+        <div class="hebrew-date-field-row">
+          <div class="hebrew-date-picker-group">
+            <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
+              @for (day of endDayOptions(); track day) {
+                <option [value]="day">{{ dayLabel(day) }}</option>
+              }
+            </select>
+            <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
+              @for (month of endMonthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
+              @for (year of endYearOptions(); track year) {
+                <option [value]="year">{{ yearLabel(year) }}</option>
+              }
+            </select>
+          </div>
+          <app-hebrew-calendar-picker
+            [year]="endHebrewYearSig()"
+            [month]="endHebrewMonthSig()"
+            [day]="endHebrewDaySig()"
+            (yearChange)="patchHebrewFromCalendar('end', { year: $event })"
+            (monthChange)="patchHebrewFromCalendar('end', { month: $event })"
+            (dayChange)="patchHebrewFromCalendar('end', { day: $event })"
+            ariaLabel="פתח לוח שנה עברי לתאריך סיום"
+            dialogLabel="בחירת תאריך סיום"
+          />
         </div>
       </div>
 

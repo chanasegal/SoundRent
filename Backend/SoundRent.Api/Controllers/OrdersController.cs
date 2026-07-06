@@ -37,6 +37,13 @@ public class OrdersController : ControllerBase
         return Ok(orders);
     }
 
+    [HttpGet("unreturned")]
+    public async Task<ActionResult<List<UnreturnedItemDto>>> GetUnreturned(CancellationToken cancellationToken)
+    {
+        var items = await _orderService.GetUnreturnedItemsAsync(cancellationToken);
+        return Ok(items);
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<OrderDto>> GetById(int id, CancellationToken cancellationToken)
     {
@@ -123,6 +130,32 @@ public class OrdersController : ControllerBase
     {
         var order = await _orderService.MarkOrderAsPaidAsync(id, cancellationToken);
         return Ok(order);
+    }
+
+    [HttpPost("{id:int}/return")]
+    public async Task<ActionResult<OrderDto>> RecordReturn(
+        int id,
+        [FromBody] OrderReturnRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var order = await _orderService.RecordReturnAsync(id, request, cancellationToken);
+            return Ok(order);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("custom-missing/{customMissingItemId:int}/resolve")]
+    public async Task<IActionResult> ResolveCustomMissingItem(
+        int customMissingItemId,
+        CancellationToken cancellationToken)
+    {
+        await _orderService.ResolveCustomMissingItemAsync(customMissingItemId, cancellationToken);
+        return NoContent();
     }
 }
 

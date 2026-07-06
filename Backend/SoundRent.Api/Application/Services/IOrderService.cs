@@ -40,4 +40,13 @@ public interface IOrderService
     Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default);
 
     Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default);
+
+    Task<OrderDto> RecordReturnAsync(
+        int id,
+        OrderReturnRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+
+    Task ResolveCustomMissingItemAsync(int customMissingItemId, CancellationToken cancellationToken = default);
 }

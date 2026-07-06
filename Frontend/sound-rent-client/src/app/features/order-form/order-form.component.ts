@@ -28,15 +28,17 @@ import {
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
 import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
+import { OrderReturnRequestDto } from '../../core/models/equipment-return.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
 import { BlockedDateDto, findBlockedDateForIso } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
-import { HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
+import { HebrewDateService, HebrewDateParts, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
   israeliPhoneValidator,
   ISRAELI_PHONE_INVALID_MESSAGE,
@@ -49,10 +51,22 @@ interface LoanedRowMeta {
   label: string;
 }
 
+interface ReturnModalRow {
+  rowId: string;
+  isCustom: boolean;
+  loanedEquipmentType?: LoanedEquipmentType;
+  customItemName?: string;
+  customMissingItemId?: number | null;
+  label: string;
+  quantityLoaned: number | null;
+  quantityReturned: number;
+  customMissingQuantity: number;
+}
+
 @Component({
   selector: 'app-order-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, IntegerOnlyDirective],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, IntegerOnlyDirective, HebrewCalendarPickerComponent],
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
 })
@@ -172,7 +186,17 @@ export class OrderFormComponent implements OnInit {
 
   protected readonly editingId = signal<number | null>(null);
   protected readonly orderCancelled = signal(false);
+  protected readonly loadedOrder = signal<OrderDto | null>(null);
+  protected readonly returnModalOpen = signal(false);
+  protected readonly returnSaving = signal(false);
+  protected readonly returnRows = signal<ReturnModalRow[]>([]);
   protected readonly isEdit = computed(() => this.editingId() !== null);
+  protected readonly canRecordReturn = computed(() => {
+    if (!this.isEdit() || this.orderCancelled()) {
+      return false;
+    }
+    return true;
+  });
   protected readonly title = computed(() => (this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה'));
   protected readonly submitting = signal(false);
 
@@ -249,10 +273,12 @@ export class OrderFormComponent implements OnInit {
   /** Suppresses range valueChanges handlers while batching start/end setup. */
   private suppressRangeSync = false;
 
-  private readonly startHebrewYearSig = signal<number>(0);
-  private readonly startHebrewMonthSig = signal<number>(0);
-  private readonly endHebrewYearSig = signal<number>(0);
-  private readonly endHebrewMonthSig = signal<number>(0);
+  protected readonly startHebrewYearSig = signal<number>(0);
+  protected readonly startHebrewMonthSig = signal<number>(0);
+  protected readonly startHebrewDaySig = signal<number>(0);
+  protected readonly endHebrewYearSig = signal<number>(0);
+  protected readonly endHebrewMonthSig = signal<number>(0);
+  protected readonly endHebrewDaySig = signal<number>(0);
   private readonly extraYearsSig = signal<number[]>([]);
 
   protected readonly startYearOptions = computed(() => this.yearOptionsForEndpoint('start'));
@@ -303,6 +329,26 @@ export class OrderFormComponent implements OnInit {
   /** Gematriya label for a Hebrew year (e.g. 5786 → "תשפ״ו"). */
   protected yearLabel(year: number): string {
     return this.hebrew.yearGematriya(year);
+  }
+
+  protected patchHebrewFromCalendar(
+    endpoint: 'start' | 'end',
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const patch: Record<string, number> = {};
+    if (part.year !== undefined) {
+      patch[`${endpoint}HebrewYear`] = part.year;
+      this.ensureYearInOptions(part.year);
+    }
+    if (part.month !== undefined) {
+      patch[`${endpoint}HebrewMonth`] = part.month;
+    }
+    if (part.day !== undefined) {
+      patch[`${endpoint}HebrewDay`] = part.day;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.form.patchValue(patch);
+    }
   }
 
   /** Window scroll (layout has no inner scroll container). Clears stray focus from inputs to avoid scroll-into-view jumps. */
@@ -457,10 +503,8 @@ export class OrderFormComponent implements OnInit {
         { emitEvent: false }
       );
 
-      this.startHebrewYearSig.set(parts.year);
-      this.startHebrewMonthSig.set(parts.month);
-      this.endHebrewYearSig.set(parts.year);
-      this.endHebrewMonthSig.set(parts.month);
+      this.syncEndpointHebrewSignals('start');
+      this.syncEndpointHebrewSignals('end');
 
       this.constrainShiftForDate(iso, 'startShift', false);
       this.constrainShiftForDate(iso, 'endShift', false);
@@ -728,10 +772,8 @@ export class OrderFormComponent implements OnInit {
       customReturnTime: '',
       notes: ''
     });
-    this.startHebrewYearSig.set(todayParts.year);
-    this.startHebrewMonthSig.set(todayParts.month);
-    this.endHebrewYearSig.set(todayParts.year);
-    this.endHebrewMonthSig.set(todayParts.month);
+    this.syncEndpointHebrewSignals('start');
+    this.syncEndpointHebrewSignals('end');
     this.syncHebrewEndpointToIso('start', false);
     this.syncHebrewEndpointToIso('end', false);
     this.selectedShiftSlots.clear();
@@ -793,6 +835,187 @@ export class OrderFormComponent implements OnInit {
           this.toast.success('ההזמנה בוטלה בהצלחה');
           const iso = this.form.controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
+        }
+      });
+  }
+
+  protected openReturnModal(): void {
+    const order = this.loadedOrder();
+    const id = this.editingId();
+    if (!order || id === null || this.orderCancelled()) {
+      return;
+    }
+
+    const useSavedReturns = order.isReturnProcessed === true;
+
+    const standardRows: ReturnModalRow[] = (order.loanedEquipments ?? [])
+      .filter((row) => row.quantity > 0)
+      .map((row) => ({
+        rowId: `standard-${row.loanedEquipmentType}`,
+        isCustom: false,
+        loanedEquipmentType: row.loanedEquipmentType,
+        label: LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType] ?? String(row.loanedEquipmentType),
+        quantityLoaned: row.quantity,
+        quantityReturned: useSavedReturns
+          ? Math.min(Math.max(row.returnedQuantity ?? 0, 0), row.quantity)
+          : row.quantity,
+        customMissingQuantity: 0
+      }));
+
+    const customRows: ReturnModalRow[] = (order.customMissingItems ?? []).map((item) => ({
+      rowId: `custom-${item.id}`,
+      isCustom: true,
+      customItemName: item.itemName,
+      customMissingItemId: item.id,
+      label: item.itemName,
+      quantityLoaned: null,
+      quantityReturned: 0,
+      customMissingQuantity: item.missingQuantity
+    }));
+
+    const rows = [...standardRows, ...customRows];
+    if (rows.length === 0) {
+      this.toast.show('אין ציוד מושאל להחזרה — ניתן להוסיף פריט חסר ידני', 'info');
+    }
+
+    this.returnRows.set(rows);
+    this.returnModalOpen.set(true);
+  }
+
+  protected closeReturnModal(): void {
+    if (this.returnSaving()) {
+      return;
+    }
+    this.returnModalOpen.set(false);
+  }
+
+  protected markAllReturned(): void {
+    this.returnRows.update((rows) =>
+      rows.map((row) =>
+        row.isCustom || row.quantityLoaned === null
+          ? row
+          : { ...row, quantityReturned: row.quantityLoaned }
+      )
+    );
+  }
+
+  protected addCustomMissingRow(): void {
+    const rowId = `custom-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.returnRows.update((rows) => [
+      ...rows,
+      {
+        rowId,
+        isCustom: true,
+        customItemName: '',
+        customMissingItemId: null,
+        label: '',
+        quantityLoaned: null,
+        quantityReturned: 0,
+        customMissingQuantity: 1
+      }
+    ]);
+  }
+
+  protected removeCustomRow(index: number): void {
+    this.returnRows.update((rows) => rows.filter((_, i) => i !== index));
+  }
+
+  protected updateCustomItemName(index: number, value: string): void {
+    this.returnRows.update((rows) =>
+      rows.map((row, i) =>
+        i === index ? { ...row, customItemName: value, label: value } : row
+      )
+    );
+  }
+
+  protected updateCustomMissingQuantity(index: number, raw: string): void {
+    const parsed = Number.parseInt(raw, 10);
+    const value = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    this.returnRows.update((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, customMissingQuantity: value } : row))
+    );
+  }
+
+  protected updateReturnQuantity(index: number, raw: string): void {
+    const parsed = Number.parseInt(raw, 10);
+    const value = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    this.returnRows.update((rows) =>
+      rows.map((row, i) => {
+        if (i !== index || row.isCustom || row.quantityLoaned === null) {
+          return row;
+        }
+        return { ...row, quantityReturned: Math.min(value, row.quantityLoaned) };
+      })
+    );
+  }
+
+  protected missingReturnCount(row: ReturnModalRow): number {
+    if (row.isCustom) {
+      return row.customMissingQuantity;
+    }
+    if (row.quantityLoaned === null) {
+      return 0;
+    }
+    return Math.max(0, row.quantityLoaned - row.quantityReturned);
+  }
+
+  protected saveReturn(): void {
+    const id = this.editingId();
+    if (id === null || this.returnSaving()) {
+      return;
+    }
+
+    const rows = this.returnRows();
+    const standardRows = rows.filter((row) => !row.isCustom && row.loanedEquipmentType !== undefined);
+    const customRows = rows.filter((row) => row.isCustom);
+
+    const customMissingItems = customRows
+      .map((row) => {
+        const itemName = (row.customItemName ?? '').trim();
+        const payload: OrderReturnRequestDto['customMissingItems'][number] = {
+          itemName,
+          missingQuantity: row.customMissingQuantity
+        };
+        if (row.customMissingItemId != null && row.customMissingItemId > 0) {
+          payload.id = row.customMissingItemId;
+        }
+        return payload;
+      })
+      .filter((row) => row.itemName.length > 0);
+
+    const incompleteCustom = customRows.some(
+      (row) => !(row.customItemName ?? '').trim() && row.customMissingQuantity > 0
+    );
+    if (incompleteCustom) {
+      this.toast.error('יש להזין שם לכל פריט חסר ידני');
+      return;
+    }
+
+    if (standardRows.length === 0 && customMissingItems.length === 0) {
+      this.toast.error('יש להוסיף לפחות פריט אחד להחזרה');
+      return;
+    }
+
+    const request: OrderReturnRequestDto = {
+      items: standardRows.map((row) => ({
+        loanedEquipmentType: row.loanedEquipmentType!,
+        quantityReturned: row.quantityReturned
+      })),
+      customMissingItems
+    };
+
+    this.returnSaving.set(true);
+    this.data
+      .recordOrderReturn(id, request)
+      .pipe(finalize(() => this.returnSaving.set(false)))
+      .subscribe({
+        next: (updated) => {
+          if (updated === null) {
+            return;
+          }
+          this.loadedOrder.set(updated);
+          this.returnModalOpen.set(false);
+          this.toast.success('ההחזרה נשמרה בהצלחה');
         }
       });
   }
@@ -1302,42 +1525,43 @@ export class OrderFormComponent implements OnInit {
     const monthCtrl = this.form.controls[`${endpoint}HebrewMonth`];
     const dayCtrl = this.form.controls[`${endpoint}HebrewDay`];
 
-    if (endpoint === 'start') {
-      this.startHebrewYearSig.set(Number(yearCtrl.value));
-      this.startHebrewMonthSig.set(Number(monthCtrl.value));
-    } else {
-      this.endHebrewYearSig.set(Number(yearCtrl.value));
-      this.endHebrewMonthSig.set(Number(monthCtrl.value));
-    }
-
+    this.syncEndpointHebrewSignals(endpoint);
     this.ensureYearInOptions(Number(yearCtrl.value));
     this.syncHebrewEndpointToIso(endpoint, false);
 
     yearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((y) => {
-      if (endpoint === 'start') {
-        this.startHebrewYearSig.set(Number(y));
-      } else {
-        this.endHebrewYearSig.set(Number(y));
-      }
+      this.syncEndpointHebrewSignals(endpoint);
       this.ensureYearInOptions(Number(y));
       this.normalizeHebrewSelection(endpoint);
       this.syncHebrewEndpointToIso(endpoint, true);
     });
 
-    monthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((m) => {
-      if (endpoint === 'start') {
-        this.startHebrewMonthSig.set(Number(m));
-      } else {
-        this.endHebrewMonthSig.set(Number(m));
-      }
+    monthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.syncEndpointHebrewSignals(endpoint);
       this.normalizeHebrewSelection(endpoint);
       this.syncHebrewEndpointToIso(endpoint, true);
     });
 
     dayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.syncEndpointHebrewSignals(endpoint);
       this.normalizeHebrewSelection(endpoint);
       this.syncHebrewEndpointToIso(endpoint, true);
     });
+  }
+
+  private syncEndpointHebrewSignals(endpoint: 'start' | 'end'): void {
+    const year = Number(this.form.controls[`${endpoint}HebrewYear`].value);
+    const month = Number(this.form.controls[`${endpoint}HebrewMonth`].value);
+    const day = Number(this.form.controls[`${endpoint}HebrewDay`].value);
+    if (endpoint === 'start') {
+      this.startHebrewYearSig.set(year);
+      this.startHebrewMonthSig.set(month);
+      this.startHebrewDaySig.set(day);
+    } else {
+      this.endHebrewYearSig.set(year);
+      this.endHebrewMonthSig.set(month);
+      this.endHebrewDaySig.set(day);
+    }
   }
 
   private normalizeHebrewSelection(endpoint: 'start' | 'end'): void {
@@ -1356,11 +1580,7 @@ export class OrderFormComponent implements OnInit {
     if (!this.hebrew.isLeapYear(year) && month === 13) {
       month = 12;
       monthCtrl.setValue(month, { emitEvent: false });
-      if (endpoint === 'start') {
-        this.startHebrewMonthSig.set(month);
-      } else {
-        this.endHebrewMonthSig.set(month);
-      }
+      this.syncEndpointHebrewSignals(endpoint);
     }
 
     const allowPast = this.editingId() !== null;
@@ -1369,24 +1589,16 @@ export class OrderFormComponent implements OnInit {
       if (ys.length > 0 && !ys.includes(year)) {
         const y2 = ys.find((yy) => yy >= year) ?? ys[ys.length - 1]!;
         yearCtrl.setValue(y2, { emitEvent: false });
-        if (endpoint === 'start') {
-          this.startHebrewYearSig.set(y2);
-        } else {
-          this.endHebrewYearSig.set(y2);
-        }
         year = y2;
+        this.syncEndpointHebrewSignals(endpoint);
       }
 
       const monthOpts = this.monthOptionsForEndpoint(endpoint);
       if (monthOpts.length > 0 && !monthOpts.some((m) => m.value === month)) {
         const m2 = monthOpts[0]!.value;
         monthCtrl.setValue(m2, { emitEvent: false });
-        if (endpoint === 'start') {
-          this.startHebrewMonthSig.set(m2);
-        } else {
-          this.endHebrewMonthSig.set(m2);
-        }
         month = m2;
+        this.syncEndpointHebrewSignals(endpoint);
       }
 
       if (this.allowedHebrewDaysInMonth(year, month, false).length === 0) {
@@ -1414,6 +1626,8 @@ export class OrderFormComponent implements OnInit {
         dayCtrl.setValue(nextUp, { emitEvent: false });
       }
     }
+
+    this.syncEndpointHebrewSignals(endpoint);
   }
 
   /**
@@ -1470,11 +1684,9 @@ export class OrderFormComponent implements OnInit {
       { emitEvent: false }
     );
     if (endpoint === 'start') {
-      this.startHebrewYearSig.set(parts.year);
-      this.startHebrewMonthSig.set(parts.month);
+      this.syncEndpointHebrewSignals('start');
     } else {
-      this.endHebrewYearSig.set(parts.year);
-      this.endHebrewMonthSig.set(parts.month);
+      this.syncEndpointHebrewSignals('end');
     }
     this.syncHebrewEndpointToIso(endpoint, false);
   }
@@ -1536,14 +1748,7 @@ export class OrderFormComponent implements OnInit {
       { emitEvent: false }
     );
 
-    if (endpoint === 'start') {
-      this.startHebrewYearSig.set(parts.year);
-      this.startHebrewMonthSig.set(parts.month);
-    } else {
-      this.endHebrewYearSig.set(parts.year);
-      this.endHebrewMonthSig.set(parts.month);
-    }
-
+    this.syncEndpointHebrewSignals(endpoint);
     this.syncHebrewEndpointToIso(endpoint, emitDateChange);
     if (endpoint === 'end') {
       this.coerceEndShiftToValidRange(emitDateChange);
@@ -1626,6 +1831,7 @@ export class OrderFormComponent implements OnInit {
           return;
         }
         this.orderCancelled.set(!!order.isCancelled);
+        this.loadedOrder.set(order);
         this.populateFormFromOrder(order, 'edit');
         queueMicrotask(() => this.resetScrollForOrderForm());
       }

@@ -1,0 +1,13 @@
+:host {
+  display: block;
+}
+
+.unreturned-table th,
+.unreturned-table td {
+  white-space: nowrap;
+}
+
+.row-removing {
+  opacity: 0;
+  pointer-events: none;
+}

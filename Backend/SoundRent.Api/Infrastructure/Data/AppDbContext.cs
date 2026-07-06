@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<OrderEquipment> OrderEquipments => Set<OrderEquipment>();
     public DbSet<OrderShift> OrderShifts => Set<OrderShift>();
     public DbSet<OrderLoanedEquipment> OrderLoanedEquipments => Set<OrderLoanedEquipment>();
+    public DbSet<OrderCustomMissingItem> OrderCustomMissingItems => Set<OrderCustomMissingItem>();
     public DbSet<LoanedEquipmentNote> LoanedEquipmentNotes => Set<LoanedEquipmentNote>();
     public DbSet<Equipment> Equipments => Set<Equipment>();
     public DbSet<User> Users => Set<User>();

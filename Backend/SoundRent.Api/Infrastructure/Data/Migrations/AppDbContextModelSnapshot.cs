@@ -307,6 +307,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsReturnProcessed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsUnpaid")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -351,6 +356,38 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("Orders", (string)null);
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("IsResolved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("ItemName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("MissingQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "IsResolved")
+                        .HasDatabaseName("IX_OrderCustomMissingItems_Order_Resolved");
+
+                    b.ToTable("OrderCustomMissingItems", (string)null);
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderEquipment", b =>
                 {
                     b.Property<int>("OrderId")
@@ -387,6 +424,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
+
+                    b.Property<int>("ReturnedQuantity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.HasKey("Id");
 
@@ -501,6 +543,17 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("OrderLoanedEquipment");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany("CustomMissingItems")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderEquipment", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.EquipmentDefinition", "EquipmentDefinition")
@@ -549,6 +602,8 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>
                 {
+                    b.Navigation("CustomMissingItems");
+
                     b.Navigation("Equipments");
 
                     b.Navigation("LoanedEquipments");

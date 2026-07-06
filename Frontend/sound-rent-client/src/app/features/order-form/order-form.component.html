@@ -9,6 +9,16 @@
     </div>
     @if (isEdit()) {
       <div class="flex flex-wrap items-center gap-2">
+        @if (canRecordReturn()) {
+          <button
+            type="button"
+            class="rounded-lg border border-emerald-400 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100"
+            [disabled]="submitting() || returnSaving()"
+            (click)="openReturnModal()"
+          >
+            רישום החזרת ציוד
+          </button>
+        }
         @if (!orderCancelled()) {
           <button
             type="button"
@@ -73,22 +83,34 @@
 
         <div class="reservation-field reservation-field--date">
           <label class="form-label reservation-field__label">תאריך התחלה</label>
-          <div class="hebrew-date-picker-group">
-            <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
-              @for (day of startDayOptions(); track day) {
-                <option [value]="day">{{ dayLabel(day) }}</option>
-              }
-            </select>
-            <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
-              @for (month of startMonthOptions(); track month.value) {
-                <option [value]="month.value">{{ month.label }}</option>
-              }
-            </select>
-            <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
-              @for (year of startYearOptions(); track year) {
-                <option [value]="year">{{ yearLabel(year) }}</option>
-              }
-            </select>
+          <div class="hebrew-date-field-row">
+            <div class="hebrew-date-picker-group">
+              <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
+                @for (day of startDayOptions(); track day) {
+                  <option [value]="day">{{ dayLabel(day) }}</option>
+                }
+              </select>
+              <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
+                @for (month of startMonthOptions(); track month.value) {
+                  <option [value]="month.value">{{ month.label }}</option>
+                }
+              </select>
+              <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
+                @for (year of startYearOptions(); track year) {
+                  <option [value]="year">{{ yearLabel(year) }}</option>
+                }
+              </select>
+            </div>
+            <app-hebrew-calendar-picker
+              [year]="startHebrewYearSig()"
+              [month]="startHebrewMonthSig()"
+              [day]="startHebrewDaySig()"
+              (yearChange)="patchHebrewFromCalendar('start', { year: $event })"
+              (monthChange)="patchHebrewFromCalendar('start', { month: $event })"
+              (dayChange)="patchHebrewFromCalendar('start', { day: $event })"
+              ariaLabel="פתח לוח שנה עברי לתאריך התחלה"
+              dialogLabel="בחירת תאריך התחלה"
+            />
           </div>
         </div>
         <div class="reservation-field reservation-field--shift">
@@ -101,22 +123,34 @@
         </div>
         <div class="reservation-field reservation-field--date">
           <label class="form-label reservation-field__label">תאריך סיום</label>
-          <div class="hebrew-date-picker-group">
-            <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
-              @for (day of endDayOptions(); track day) {
-                <option [value]="day">{{ dayLabel(day) }}</option>
-              }
-            </select>
-            <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
-              @for (month of endMonthOptions(); track month.value) {
-                <option [value]="month.value">{{ month.label }}</option>
-              }
-            </select>
-            <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
-              @for (year of endYearOptions(); track year) {
-                <option [value]="year">{{ yearLabel(year) }}</option>
-              }
-            </select>
+          <div class="hebrew-date-field-row">
+            <div class="hebrew-date-picker-group">
+              <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
+                @for (day of endDayOptions(); track day) {
+                  <option [value]="day">{{ dayLabel(day) }}</option>
+                }
+              </select>
+              <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
+                @for (month of endMonthOptions(); track month.value) {
+                  <option [value]="month.value">{{ month.label }}</option>
+                }
+              </select>
+              <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
+                @for (year of endYearOptions(); track year) {
+                  <option [value]="year">{{ yearLabel(year) }}</option>
+                }
+              </select>
+            </div>
+            <app-hebrew-calendar-picker
+              [year]="endHebrewYearSig()"
+              [month]="endHebrewMonthSig()"
+              [day]="endHebrewDaySig()"
+              (yearChange)="patchHebrewFromCalendar('end', { year: $event })"
+              (monthChange)="patchHebrewFromCalendar('end', { month: $event })"
+              (dayChange)="patchHebrewFromCalendar('end', { day: $event })"
+              ariaLabel="פתח לוח שנה עברי לתאריך סיום"
+              dialogLabel="בחירת תאריך סיום"
+            />
           </div>
         </div>
         <div class="reservation-field reservation-field--shift">
@@ -413,3 +447,148 @@
     </div>
   </form>
 </div>
+
+@if (returnModalOpen()) {
+  <div
+    class="return-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="return-modal-title"
+    (click)="closeReturnModal()"
+  >
+    <div
+      class="return-modal w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">רישום החזרת ציוד</h2>
+        <button
+          type="button"
+          class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+          [disabled]="returnSaving()"
+          (click)="markAllReturned()"
+        >
+          סמן הכל כהוחזר
+        </button>
+      </div>
+
+      <div class="overflow-x-auto px-5 py-4">
+        <table class="return-table w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">פריט</th>
+              <th class="px-3 py-2 font-semibold text-center">כמות מושאלת</th>
+              <th class="px-3 py-2 font-semibold text-center">כמות שהוחזרה</th>
+              <th class="px-3 py-2 font-semibold text-center">חסר</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of returnRows(); track row.rowId; let i = $index) {
+              <tr class="border-b border-slate-100 odd:bg-slate-50/50" [class.return-row--custom]="row.isCustom">
+                <td class="px-3 py-2.5 font-medium text-[#002244]">
+                  @if (row.isCustom) {
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="text"
+                        maxlength="200"
+                        class="return-custom-name-input"
+                        placeholder="שם הפריט החסר"
+                        [value]="row.customItemName ?? ''"
+                        [disabled]="returnSaving()"
+                        (input)="updateCustomItemName(i, $any($event.target).value)"
+                      />
+                      <button
+                        type="button"
+                        class="return-remove-custom-btn"
+                        [disabled]="returnSaving()"
+                        (click)="removeCustomRow(i)"
+                        aria-label="הסר פריט"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  } @else {
+                    {{ row.label }}
+                  }
+                </td>
+                <td class="px-3 py-2.5 text-center">
+                  @if (row.isCustom) {
+                    <span class="text-slate-400">—</span>
+                  } @else {
+                    {{ row.quantityLoaned }}
+                  }
+                </td>
+                <td class="px-3 py-2.5 text-center">
+                  @if (row.isCustom) {
+                    <span class="text-slate-400">—</span>
+                  } @else {
+                    <input
+                      type="number"
+                      min="0"
+                      [max]="row.quantityLoaned"
+                      step="1"
+                      inputmode="numeric"
+                      class="return-qty-input"
+                      [value]="row.quantityReturned"
+                      [disabled]="returnSaving()"
+                      (input)="updateReturnQuantity(i, $any($event.target).value)"
+                    />
+                  }
+                </td>
+                <td class="px-3 py-2.5 text-center">
+                  @if (row.isCustom) {
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputmode="numeric"
+                      class="return-qty-input"
+                      [value]="row.customMissingQuantity"
+                      [disabled]="returnSaving()"
+                      (input)="updateCustomMissingQuantity(i, $any($event.target).value)"
+                    />
+                  } @else if (missingReturnCount(row) > 0) {
+                    <span class="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">
+                      {{ missingReturnCount(row) }}
+                    </span>
+                  } @else {
+                    <span class="text-emerald-600">✓</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <div class="mt-3">
+          <button
+            type="button"
+            class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800"
+            [disabled]="returnSaving()"
+            (click)="addCustomMissingRow()"
+          >
+            + הוסף פריט חסר ידני
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          [disabled]="returnSaving()"
+          (click)="closeReturnModal()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="returnSaving()"
+          (click)="saveReturn()"
+        >
+          {{ returnSaving() ? 'שומר…' : 'שמור החזרה' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

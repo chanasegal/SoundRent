@@ -3,6 +3,7 @@ using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Application.Validation;
+using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
@@ -112,10 +113,18 @@ public class OrderService : IOrderService
             existing.Shifts.Add(OrderMapper.ToEntity(shift));
         }
 
+        var priorReturns = existing.LoanedEquipments
+            .ToDictionary(le => le.LoanedEquipmentType, le => le.ReturnedQuantity);
         existing.LoanedEquipments.Clear();
         foreach (var item in dto.LoanedEquipments)
         {
-            existing.LoanedEquipments.Add(OrderMapper.ToEntity(item));
+            var entity = OrderMapper.ToEntity(item);
+            if (priorReturns.TryGetValue(entity.LoanedEquipmentType, out var returned))
+            {
+                entity.ReturnedQuantity = Math.Min(returned, entity.Quantity);
+            }
+
+            existing.LoanedEquipments.Add(entity);
         }
 
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -183,6 +192,119 @@ public class OrderService : IOrderService
         existing.IsUnpaid = false;
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
+    }
+
+    public async Task<OrderDto> RecordReturnAsync(
+        int id,
+        OrderReturnRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var items = request.Items ?? [];
+        var customMissingItems = request.CustomMissingItems ?? [];
+
+        if (items.Count == 0 && customMissingItems.Count == 0)
+        {
+            throw new ValidationException("יש לספק לפחות פריט אחד להחזרה");
+        }
+
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("לא ניתן לרשום החזרה להזמנה מבוטלת");
+        }
+
+        var byType = existing.LoanedEquipments
+            .ToDictionary(le => le.LoanedEquipmentType);
+
+        foreach (var item in items)
+        {
+            if (!byType.TryGetValue(item.LoanedEquipmentType, out var line))
+            {
+                throw new ValidationException($"סוג הציוד {LoanedEquipmentTypeLabels.GetLabel(item.LoanedEquipmentType)} לא קיים בהזמנה");
+            }
+
+            if (item.QuantityReturned < 0 || item.QuantityReturned > line.Quantity)
+            {
+                throw new ValidationException(
+                    $"כמות ההחזרה עבור {LoanedEquipmentTypeLabels.GetLabel(item.LoanedEquipmentType)} חייבת להיות בין 0 ל-{line.Quantity}");
+            }
+
+            line.ReturnedQuantity = item.QuantityReturned;
+        }
+
+        var pendingCustomById = existing.CustomMissingItems
+            .Where(i => !i.IsResolved)
+            .ToDictionary(i => i.Id);
+        var keptCustomIds = new HashSet<int>();
+
+        foreach (var custom in customMissingItems)
+        {
+            var name = custom.ItemName.Trim();
+            if (name.Length == 0)
+            {
+                throw new ValidationException("יש להזין שם לפריט חסר ידני");
+            }
+
+            if (custom.MissingQuantity < 1)
+            {
+                throw new ValidationException($"כמות חסרה עבור \"{name}\" חייבת להיות לפחות 1");
+            }
+
+            if (custom.Id is int existingCustomId && existingCustomId > 0)
+            {
+                if (!pendingCustomById.TryGetValue(existingCustomId, out var tracked))
+                {
+                    throw new ValidationException("פריט חסר ידני לא נמצא");
+                }
+
+                tracked.ItemName = name;
+                tracked.MissingQuantity = custom.MissingQuantity;
+                keptCustomIds.Add(existingCustomId);
+                continue;
+            }
+
+            _orderRepository.AddCustomMissingItem(existing, new OrderCustomMissingItem
+            {
+                ItemName = name,
+                MissingQuantity = custom.MissingQuantity,
+                IsResolved = false
+            });
+        }
+
+        foreach (var stale in pendingCustomById.Values.Where(i => !keptCustomIds.Contains(i.Id)).ToList())
+        {
+            existing.CustomMissingItems.Remove(stale);
+        }
+
+        existing.IsReturnProcessed = true;
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+        return OrderMapper.ToDto(existing);
+    }
+
+    public Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
+    }
+
+    public async Task ResolveCustomMissingItemAsync(int customMissingItemId, CancellationToken cancellationToken = default)
+    {
+        if (customMissingItemId <= 0)
+        {
+            throw new ValidationException("מזהה פריט חסר ידני אינו תקין");
+        }
+
+        var item = await _orderRepository.GetCustomMissingItemByIdAsync(customMissingItemId, cancellationToken)
+            ?? throw new NotFoundException("פריט חסר ידני לא נמצא");
+
+        if (item.IsResolved)
+        {
+            return;
+        }
+
+        item.IsResolved = true;
+        await _orderRepository.SaveChangesAsync(cancellationToken);
     }
 
     private static void NormalizeAndValidateOrderPhones(OrderCreateUpdateDto dto)

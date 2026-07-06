@@ -1,0 +1,72 @@
+<div class="mx-auto max-w-7xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">פריטים שלא חזרו</h1>
+    <button
+      type="button"
+      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      (click)="refresh()"
+    >
+      רענון
+    </button>
+  </div>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    @if (loading()) {
+      <p class="py-8 text-center text-sm text-slate-500">טוען…</p>
+    } @else if (rows().length === 0) {
+      <p class="py-8 text-center text-sm text-slate-500">אין פריטים שלא חזרו 🎉</p>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="unreturned-table w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">שם לקוח</th>
+              <th class="px-3 py-2 font-semibold">טלפון</th>
+              <th class="px-3 py-2 font-semibold">ציוד</th>
+              <th class="px-3 py-2 font-semibold text-center">כמות חסרה</th>
+              <th class="px-3 py-2 font-semibold">תאריך החזרה</th>
+              <th class="px-3 py-2 font-semibold text-center">הזמנה#</th>
+              <th class="px-3 py-2 font-semibold text-center">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of rows(); track rowKey(row)) {
+              <tr
+                class="border-b border-slate-100 transition-opacity duration-300 odd:bg-slate-50/50"
+                [class.row-removing]="isRemoving(row)"
+              >
+                <td class="px-3 py-2.5">{{ row.customerName || '—' }}</td>
+                <td class="px-3 py-2.5 font-mono" dir="ltr">{{ formatPhone(row.phone) }}</td>
+                <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.equipmentName }}</td>
+                <td class="px-3 py-2.5 text-center">
+                  <span class="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">
+                    {{ row.missingQuantity }}
+                  </span>
+                </td>
+                <td class="px-3 py-2.5">{{ formatReturnDate(row.returnDate) }}</td>
+                <td class="px-3 py-2.5 text-center">
+                  <a
+                    [routerLink]="['/orders', row.orderId]"
+                    class="font-semibold text-sky-700 hover:text-sky-900 hover:underline"
+                  >
+                    {{ row.orderId }}
+                  </a>
+                </td>
+                <td class="px-3 py-2.5 text-center">
+                  <button
+                    type="button"
+                    class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                    [disabled]="isReturning(row) || isRemoving(row)"
+                    (click)="quickReturn(row)"
+                  >
+                    {{ isReturning(row) ? 'שומר…' : 'סמן כהוחזר' }}
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</div>

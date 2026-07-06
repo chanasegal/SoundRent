@@ -58,6 +58,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'admin/unreturned-items',
+        loadComponent: () =>
+          import('./features/admin/unreturned-items-admin.component').then(
+            (m) => m.UnreturnedItemsAdminComponent
+          )
+      },
+      {
         path: 'admin/blocked-dates',
         loadComponent: () =>
           import('./features/admin/blocked-dates-admin.component').then(

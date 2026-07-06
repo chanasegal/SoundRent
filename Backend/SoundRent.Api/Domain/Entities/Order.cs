@@ -32,6 +32,9 @@ public class Order
 
     public bool IsCancelled { get; set; }
 
+    /// <summary>True after warehouse staff saved a return check-in for this order.</summary>
+    public bool IsReturnProcessed { get; set; }
+
     public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
 
     [MaxLength(20)]
@@ -47,4 +50,6 @@ public class Order
     public ICollection<OrderShift> Shifts { get; set; } = new List<OrderShift>();
 
     public ICollection<OrderLoanedEquipment> LoanedEquipments { get; set; } = new List<OrderLoanedEquipment>();
+
+    public ICollection<OrderCustomMissingItem> CustomMissingItems { get; set; } = new List<OrderCustomMissingItem>();
 }

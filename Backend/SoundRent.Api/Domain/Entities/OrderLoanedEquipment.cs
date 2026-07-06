@@ -14,6 +14,9 @@ public class OrderLoanedEquipment
 
     public int Quantity { get; set; }
 
+    /// <summary>How many units have been checked back in.</summary>
+    public int ReturnedQuantity { get; set; }
+
     /// <summary>How many detail note inputs apply to this line (UI + persisted notes).</summary>
     public int ExpectedNoteCount { get; set; }
 

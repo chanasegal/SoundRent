@@ -38,6 +38,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.IsCancelled)
             .HasDefaultValue(false);
 
+        builder.Property(o => o.IsReturnProcessed)
+            .HasDefaultValue(false);
+
         builder.Property(o => o.ReturnTimeType)
             .HasDefaultValue(ReturnTimeType.LateNight);
 
@@ -76,6 +79,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasMany(o => o.LoanedEquipments)
             .WithOne(le => le.Order)
             .HasForeignKey(le => le.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(o => o.CustomMissingItems)
+            .WithOne(i => i.Order)
+            .HasForeignKey(i => i.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
