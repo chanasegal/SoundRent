@@ -12,6 +12,13 @@ public class OrderLoanedEquipmentConfiguration : IEntityTypeConfiguration<OrderL
 
         builder.HasKey(le => le.Id);
 
+        builder.Property(le => le.IsCustomItem)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.Property(le => le.CustomItemName)
+            .HasMaxLength(200);
+
         builder.Property(le => le.Quantity)
             .IsRequired();
 
@@ -22,9 +29,9 @@ public class OrderLoanedEquipmentConfiguration : IEntityTypeConfiguration<OrderL
         builder.Property(le => le.ExpectedNoteCount)
             .IsRequired();
 
-        // Prevent the same loaned equipment type appearing twice on the same order.
         builder.HasIndex(le => new { le.OrderId, le.LoanedEquipmentType })
             .IsUnique()
+            .HasFilter("\"IsCustomItem\" = false")
             .HasDatabaseName("IX_OrderLoanedEquipments_Order_Type_Unique");
     }
 }

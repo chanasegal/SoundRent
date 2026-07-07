@@ -174,18 +174,6 @@ export class DataService {
     );
   }
 
-  resolveCustomMissingItem(customMissingItemId: number): Observable<boolean> {
-    return this.http
-      .post<void>(`${this.ordersBase}/custom-missing/${customMissingItemId}/resolve`, {})
-      .pipe(
-        map(() => true),
-        catchError((err) => {
-          this.notifyHttpError(err);
-          return of(false);
-        })
-      );
-  }
-
   getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
     return this.http.get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`).pipe(
       catchError((err) => {

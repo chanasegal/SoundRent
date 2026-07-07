@@ -396,7 +396,9 @@ export class WeeklyGridComponent {
     }
     const parts: string[] = [];
     for (const le of items) {
-      const label = LOANED_EQUIPMENT_LABELS[le.loanedEquipmentType] ?? String(le.loanedEquipmentType);
+      const label = le.isCustomItem
+        ? (le.customItemName?.trim() || 'פריט נוסף')
+        : LOANED_EQUIPMENT_LABELS[le.loanedEquipmentType!] ?? String(le.loanedEquipmentType);
       const noteTexts = (le.notes ?? [])
         .filter((n) => (n.content ?? '').trim().length > 0)
         .sort((a, b) => a.ordinal - b.ordinal)

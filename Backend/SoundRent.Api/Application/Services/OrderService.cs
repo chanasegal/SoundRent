@@ -58,6 +58,7 @@ public class OrderService : IOrderService
     {
         NormalizeAndValidateOrderPhones(dto);
         ExtendMorningEndShiftForLateReturn(dto);
+        ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
         await ValidateReservationRequestAsync(
@@ -84,6 +85,7 @@ public class OrderService : IOrderService
 
         NormalizeAndValidateOrderPhones(dto);
         ExtendMorningEndShiftForLateReturn(dto);
+        ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
         var priorEquipmentIds = OrderMapper
@@ -114,18 +116,8 @@ public class OrderService : IOrderService
         }
 
         var priorReturns = existing.LoanedEquipments
-            .ToDictionary(le => le.LoanedEquipmentType, le => le.ReturnedQuantity);
-        existing.LoanedEquipments.Clear();
-        foreach (var item in dto.LoanedEquipments)
-        {
-            var entity = OrderMapper.ToEntity(item);
-            if (priorReturns.TryGetValue(entity.LoanedEquipmentType, out var returned))
-            {
-                entity.ReturnedQuantity = Math.Min(returned, entity.Quantity);
-            }
-
-            existing.LoanedEquipments.Add(entity);
-        }
+            .ToDictionary(le => le.Id, le => le.ReturnedQuantity);
+        SyncLoanedEquipments(existing, dto.LoanedEquipments, priorReturns);
 
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
@@ -200,9 +192,7 @@ public class OrderService : IOrderService
         CancellationToken cancellationToken = default)
     {
         var items = request.Items ?? [];
-        var customMissingItems = request.CustomMissingItems ?? [];
-
-        if (items.Count == 0 && customMissingItems.Count == 0)
+        if (items.Count == 0)
         {
             throw new ValidationException("יש לספק לפחות פריט אחד להחזרה");
         }
@@ -215,67 +205,23 @@ public class OrderService : IOrderService
             throw new ValidationException("לא ניתן לרשום החזרה להזמנה מבוטלת");
         }
 
-        var byType = existing.LoanedEquipments
-            .ToDictionary(le => le.LoanedEquipmentType);
+        var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
 
         foreach (var item in items)
         {
-            if (!byType.TryGetValue(item.LoanedEquipmentType, out var line))
+            if (!byLineId.TryGetValue(item.LoanedEquipmentId, out var line))
             {
-                throw new ValidationException($"סוג הציוד {LoanedEquipmentTypeLabels.GetLabel(item.LoanedEquipmentType)} לא קיים בהזמנה");
+                throw new ValidationException("פריט מושאל לא נמצא בהזמנה");
             }
 
+            var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
             if (item.QuantityReturned < 0 || item.QuantityReturned > line.Quantity)
             {
                 throw new ValidationException(
-                    $"כמות ההחזרה עבור {LoanedEquipmentTypeLabels.GetLabel(item.LoanedEquipmentType)} חייבת להיות בין 0 ל-{line.Quantity}");
+                    $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
             }
 
             line.ReturnedQuantity = item.QuantityReturned;
-        }
-
-        var pendingCustomById = existing.CustomMissingItems
-            .Where(i => !i.IsResolved)
-            .ToDictionary(i => i.Id);
-        var keptCustomIds = new HashSet<int>();
-
-        foreach (var custom in customMissingItems)
-        {
-            var name = custom.ItemName.Trim();
-            if (name.Length == 0)
-            {
-                throw new ValidationException("יש להזין שם לפריט חסר ידני");
-            }
-
-            if (custom.MissingQuantity < 1)
-            {
-                throw new ValidationException($"כמות חסרה עבור \"{name}\" חייבת להיות לפחות 1");
-            }
-
-            if (custom.Id is int existingCustomId && existingCustomId > 0)
-            {
-                if (!pendingCustomById.TryGetValue(existingCustomId, out var tracked))
-                {
-                    throw new ValidationException("פריט חסר ידני לא נמצא");
-                }
-
-                tracked.ItemName = name;
-                tracked.MissingQuantity = custom.MissingQuantity;
-                keptCustomIds.Add(existingCustomId);
-                continue;
-            }
-
-            _orderRepository.AddCustomMissingItem(existing, new OrderCustomMissingItem
-            {
-                ItemName = name,
-                MissingQuantity = custom.MissingQuantity,
-                IsResolved = false
-            });
-        }
-
-        foreach (var stale in pendingCustomById.Values.Where(i => !keptCustomIds.Contains(i.Id)).ToList())
-        {
-            existing.CustomMissingItems.Remove(stale);
         }
 
         existing.IsReturnProcessed = true;
@@ -288,23 +234,125 @@ public class OrderService : IOrderService
         return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
     }
 
-    public async Task ResolveCustomMissingItemAsync(int customMissingItemId, CancellationToken cancellationToken = default)
+    private static void ValidateLoanedEquipments(IReadOnlyCollection<OrderLoanedEquipmentDto> items)
     {
-        if (customMissingItemId <= 0)
+        foreach (var item in items)
         {
-            throw new ValidationException("מזהה פריט חסר ידני אינו תקין");
+            if (item.IsCustomItem)
+            {
+                if (string.IsNullOrWhiteSpace(item.CustomItemName))
+                {
+                    throw new ValidationException("יש להזין שם לפריט חופשי");
+                }
+
+                if (item.Quantity < 1)
+                {
+                    throw new ValidationException($"כמות עבור \"{item.CustomItemName.Trim()}\" חייבת להיות לפחות 1");
+                }
+
+                continue;
+            }
+
+            if (item.LoanedEquipmentType is null)
+            {
+                throw new ValidationException("סוג ציוד מושאל חסר");
+            }
+        }
+    }
+
+    private static void SyncLoanedEquipments(
+        Order order,
+        IEnumerable<OrderLoanedEquipmentDto> incomingDtos,
+        IReadOnlyDictionary<int, int>? priorReturnsById = null)
+    {
+        var incoming = incomingDtos.ToList();
+        var matched = new HashSet<OrderLoanedEquipment>();
+
+        foreach (var dto in incoming)
+        {
+            if (dto.IsCustomItem)
+            {
+                if (dto.Quantity < 1)
+                {
+                    continue;
+                }
+            }
+            else if (dto.Quantity <= 0)
+            {
+                continue;
+            }
+
+            OrderLoanedEquipment? line = null;
+            if (dto.Id > 0)
+            {
+                line = order.LoanedEquipments.FirstOrDefault(l => l.Id == dto.Id);
+            }
+
+            if (line is null && !dto.IsCustomItem && dto.LoanedEquipmentType is LoanedEquipmentType type)
+            {
+                line = order.LoanedEquipments.FirstOrDefault(l => !l.IsCustomItem && l.LoanedEquipmentType == type);
+            }
+
+            if (line is not null)
+            {
+                var returned = line.ReturnedQuantity;
+                ApplyLoanedEquipmentDto(line, dto);
+                if (priorReturnsById is not null && priorReturnsById.TryGetValue(line.Id, out var priorReturned))
+                {
+                    returned = priorReturned;
+                }
+
+                line.ReturnedQuantity = Math.Min(returned, line.Quantity);
+                matched.Add(line);
+                continue;
+            }
+
+            var created = OrderMapper.ToEntity(dto);
+            order.LoanedEquipments.Add(created);
+            matched.Add(created);
         }
 
-        var item = await _orderRepository.GetCustomMissingItemByIdAsync(customMissingItemId, cancellationToken)
-            ?? throw new NotFoundException("פריט חסר ידני לא נמצא");
-
-        if (item.IsResolved)
+        foreach (var stale in order.LoanedEquipments.Where(l => !matched.Contains(l)).ToList())
         {
+            order.LoanedEquipments.Remove(stale);
+        }
+    }
+
+    private static void ApplyLoanedEquipmentDto(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
+    {
+        if (dto.IsCustomItem)
+        {
+            line.IsCustomItem = true;
+            line.CustomItemName = dto.CustomItemName?.Trim();
+            line.LoanedEquipmentType = null;
+            line.Quantity = dto.Quantity;
+            line.ExpectedNoteCount = 0;
+            line.Notes.Clear();
             return;
         }
 
-        item.IsResolved = true;
-        await _orderRepository.SaveChangesAsync(cancellationToken);
+        line.IsCustomItem = false;
+        line.CustomItemName = null;
+        line.LoanedEquipmentType = dto.LoanedEquipmentType;
+        line.Quantity = dto.Quantity;
+
+        var expected = Math.Max(0, dto.ExpectedNoteCount);
+        line.ExpectedNoteCount = expected;
+        line.Notes.Clear();
+
+        var byOrdinal = (dto.Notes ?? [])
+            .GroupBy(n => n.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        for (var i = 0; i < expected; i++)
+        {
+            byOrdinal.TryGetValue(i, out var noteDto);
+            line.Notes.Add(new LoanedEquipmentNote
+            {
+                Ordinal = i,
+                Content = string.IsNullOrWhiteSpace(noteDto?.Content) ? null : noteDto.Content.Trim()
+            });
+        }
     }
 
     private static void NormalizeAndValidateOrderPhones(OrderCreateUpdateDto dto)

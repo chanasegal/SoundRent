@@ -108,7 +108,7 @@
               (yearChange)="patchHebrewFromCalendar('start', { year: $event })"
               (monthChange)="patchHebrewFromCalendar('start', { month: $event })"
               (dayChange)="patchHebrewFromCalendar('start', { day: $event })"
-              ariaLabel="פתח לוח שנה עברי לתאריך התחלה"
+              ariaLabel="פתח לוח שנה לתאריך התחלה"
               dialogLabel="בחירת תאריך התחלה"
             />
           </div>
@@ -148,7 +148,7 @@
               (yearChange)="patchHebrewFromCalendar('end', { year: $event })"
               (monthChange)="patchHebrewFromCalendar('end', { month: $event })"
               (dayChange)="patchHebrewFromCalendar('end', { day: $event })"
-              ariaLabel="פתח לוח שנה עברי לתאריך סיום"
+              ariaLabel="פתח לוח שנה  לתאריך סיום"
               dialogLabel="בחירת תאריך סיום"
             />
           </div>
@@ -411,6 +411,66 @@
           </tbody>
         </table>
       </div>
+
+      <div class="mt-4">
+        @if (customLoanedList.length > 0) {
+          <div class="overflow-hidden rounded-xl ring-1 ring-amber-200">
+            <table class="loaned-table w-full">
+              <thead>
+                <tr class="bg-amber-50 text-amber-950">
+                  <th class="px-3 py-2 text-right">פריט נוסף</th>
+                  <th class="w-24 px-3 py-2 text-center">כמות</th>
+                  <th class="w-16 px-3 py-2 text-center"></th>
+                </tr>
+              </thead>
+              <tbody formArrayName="customLoanedItems">
+                @for (row of customLoanedList.controls; track $index; let i = $index) {
+                  <tr [formGroupName]="i" class="border-t border-amber-100 odd:bg-amber-50/40">
+                    <td class="px-3 py-2 align-middle">
+                      <input
+                        type="text"
+                        maxlength="200"
+                        formControlName="customItemName"
+                        class="custom-loaned-name-input"
+                        placeholder="למשל: נרתיק של בוקסה"
+                      />
+                    </td>
+                    <td class="px-3 py-2 align-middle">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputmode="numeric"
+                        appIntegerOnly
+                        formControlName="quantity"
+                        class="qty-input"
+                      />
+                    </td>
+                    <td class="px-3 py-2 text-center align-middle">
+                      <button
+                        type="button"
+                        class="custom-loaned-remove-btn"
+                        (click)="removeCustomLoanedItem(i)"
+                        aria-label="הסר פריט"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <button
+          type="button"
+          class="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800"
+          (click)="addCustomLoanedItem()"
+        >
+          + הוסף פריט  
+        </button>
+      </div>
     </section>
 
     <!-- General notes -->
@@ -484,70 +544,24 @@
           </thead>
           <tbody>
             @for (row of returnRows(); track row.rowId; let i = $index) {
-              <tr class="border-b border-slate-100 odd:bg-slate-50/50" [class.return-row--custom]="row.isCustom">
-                <td class="px-3 py-2.5 font-medium text-[#002244]">
-                  @if (row.isCustom) {
-                    <div class="flex items-center gap-2">
-                      <input
-                        type="text"
-                        maxlength="200"
-                        class="return-custom-name-input"
-                        placeholder="שם הפריט החסר"
-                        [value]="row.customItemName ?? ''"
-                        [disabled]="returnSaving()"
-                        (input)="updateCustomItemName(i, $any($event.target).value)"
-                      />
-                      <button
-                        type="button"
-                        class="return-remove-custom-btn"
-                        [disabled]="returnSaving()"
-                        (click)="removeCustomRow(i)"
-                        aria-label="הסר פריט"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  } @else {
-                    {{ row.label }}
-                  }
+              <tr class="border-b border-slate-100 odd:bg-slate-50/50">
+                <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.label }}</td>
+                <td class="px-3 py-2.5 text-center">{{ row.quantityLoaned }}</td>
+                <td class="px-3 py-2.5 text-center">
+                  <input
+                    type="number"
+                    min="0"
+                    [max]="row.quantityLoaned"
+                    step="1"
+                    inputmode="numeric"
+                    class="return-qty-input"
+                    [value]="row.quantityReturned"
+                    [disabled]="returnSaving()"
+                    (input)="updateReturnQuantity(i, $any($event.target).value)"
+                  />
                 </td>
                 <td class="px-3 py-2.5 text-center">
-                  @if (row.isCustom) {
-                    <span class="text-slate-400">—</span>
-                  } @else {
-                    {{ row.quantityLoaned }}
-                  }
-                </td>
-                <td class="px-3 py-2.5 text-center">
-                  @if (row.isCustom) {
-                    <span class="text-slate-400">—</span>
-                  } @else {
-                    <input
-                      type="number"
-                      min="0"
-                      [max]="row.quantityLoaned"
-                      step="1"
-                      inputmode="numeric"
-                      class="return-qty-input"
-                      [value]="row.quantityReturned"
-                      [disabled]="returnSaving()"
-                      (input)="updateReturnQuantity(i, $any($event.target).value)"
-                    />
-                  }
-                </td>
-                <td class="px-3 py-2.5 text-center">
-                  @if (row.isCustom) {
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      inputmode="numeric"
-                      class="return-qty-input"
-                      [value]="row.customMissingQuantity"
-                      [disabled]="returnSaving()"
-                      (input)="updateCustomMissingQuantity(i, $any($event.target).value)"
-                    />
-                  } @else if (missingReturnCount(row) > 0) {
+                  @if (missingReturnCount(row) > 0) {
                     <span class="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">
                       {{ missingReturnCount(row) }}
                     </span>
@@ -559,16 +573,6 @@
             }
           </tbody>
         </table>
-        <div class="mt-3">
-          <button
-            type="button"
-            class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800"
-            [disabled]="returnSaving()"
-            (click)="addCustomMissingRow()"
-          >
-            + הוסף פריט חסר ידני
-          </button>
-        </div>
       </div>
 
       <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">

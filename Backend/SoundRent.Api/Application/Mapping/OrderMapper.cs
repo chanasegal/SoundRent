@@ -34,21 +34,15 @@ public static class OrderMapper
         CustomReturnTime = order.CustomReturnTime,
         Notes = order.Notes,
         CreatedAt = order.CreatedAt,
-        LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList(),
-        CustomMissingItems = order.CustomMissingItems
-            .Where(i => !i.IsResolved)
-            .OrderBy(i => i.Id)
-            .Select(ToDto)
-            .ToList()
+        LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList()
     };
 
-    public static OrderCustomMissingItemDto ToDto(OrderCustomMissingItem item) => new()
-    {
-        Id = item.Id,
-        ItemName = item.ItemName,
-        MissingQuantity = item.MissingQuantity,
-        IsResolved = item.IsResolved
-    };
+    public static string GetLoanedEquipmentDisplayName(OrderLoanedEquipment le) =>
+        le.IsCustomItem
+            ? (le.CustomItemName ?? string.Empty)
+            : le.LoanedEquipmentType is { } type
+                ? LoanedEquipmentTypeLabels.GetLabel(type)
+                : string.Empty;
 
     public static OrderShiftDto ToDto(OrderShift shift) => new()
     {
@@ -59,19 +53,23 @@ public static class OrderMapper
     public static OrderLoanedEquipmentDto ToDto(OrderLoanedEquipment le) => new()
     {
         Id = le.Id,
+        IsCustomItem = le.IsCustomItem,
         LoanedEquipmentType = le.LoanedEquipmentType,
+        CustomItemName = le.CustomItemName,
         Quantity = le.Quantity,
         ReturnedQuantity = le.ReturnedQuantity,
         ExpectedNoteCount = le.ExpectedNoteCount,
-        Notes = le.Notes
-            .OrderBy(n => n.Ordinal)
-            .Select(n => new LoanedEquipmentNoteDto
-            {
-                Id = n.Id,
-                Ordinal = n.Ordinal,
-                Content = n.Content
-            })
-            .ToList()
+        Notes = le.IsCustomItem
+            ? new List<LoanedEquipmentNoteDto>()
+            : le.Notes
+                .OrderBy(n => n.Ordinal)
+                .Select(n => new LoanedEquipmentNoteDto
+                {
+                    Id = n.Id,
+                    Ordinal = n.Ordinal,
+                    Content = n.Content
+                })
+                .ToList()
     };
 
     public static Order ToEntity(OrderCreateUpdateDto dto) => new()
@@ -109,11 +107,27 @@ public static class OrderMapper
 
     public static OrderLoanedEquipment ToEntity(OrderLoanedEquipmentDto dto)
     {
+        if (dto.IsCustomItem)
+        {
+            return new OrderLoanedEquipment
+            {
+                IsCustomItem = true,
+                CustomItemName = NullIfBlank(dto.CustomItemName),
+                Quantity = Math.Max(0, dto.Quantity),
+                ReturnedQuantity = 0,
+                ExpectedNoteCount = 0,
+                Notes = new List<LoanedEquipmentNote>()
+            };
+        }
+
         var expected = Math.Max(0, dto.ExpectedNoteCount);
         var entity = new OrderLoanedEquipment
         {
-            LoanedEquipmentType = dto.LoanedEquipmentType,
+            IsCustomItem = false,
+            LoanedEquipmentType = dto.LoanedEquipmentType
+                ?? throw new InvalidOperationException("Loaned equipment type is required for standard items"),
             Quantity = dto.Quantity,
+            ReturnedQuantity = 0,
             ExpectedNoteCount = expected,
             Notes = new List<LoanedEquipmentNote>()
         };

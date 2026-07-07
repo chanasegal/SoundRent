@@ -29,6 +29,4 @@ public class OrderDto
     public DateTime CreatedAt { get; set; }
 
     public List<OrderLoanedEquipmentDto> LoanedEquipments { get; set; } = new();
-
-    public List<OrderCustomMissingItemDto> CustomMissingItems { get; set; } = new();
 }

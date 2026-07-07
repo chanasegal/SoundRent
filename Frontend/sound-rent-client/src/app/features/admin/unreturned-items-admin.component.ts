@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { finalize, map, Observable, of } from 'rxjs';
+import { finalize, map } from 'rxjs';
 
 import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import { DataService } from '../../core/services/data.service';
@@ -40,10 +40,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   }
 
   protected rowKey(row: UnreturnedItemDto): string {
-    if (row.isCustomItem && row.customMissingItemId != null) {
-      return `${row.orderId}-custom-${row.customMissingItemId}`;
-    }
-    return `${row.orderId}-${row.loanedEquipmentType}`;
+    return `${row.orderId}-line-${row.loanedEquipmentId}`;
   }
 
   protected isReturning(row: UnreturnedItemDto): boolean {
@@ -74,24 +71,17 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     }
 
     this.returningKeys.update((set) => new Set(set).add(key));
-
-    const action$: Observable<boolean> =
-      row.isCustomItem && row.customMissingItemId != null
-        ? this.data.resolveCustomMissingItem(row.customMissingItemId)
-        : this.data
-            .recordOrderReturn(row.orderId, {
-              items: [
-                {
-                  loanedEquipmentType: row.loanedEquipmentType!,
-                  quantityReturned: row.quantityLoaned
-                }
-              ],
-              customMissingItems: []
-            })
-            .pipe(map((updated) => updated !== null));
-
-    action$
+    this.data
+      .recordOrderReturn(row.orderId, {
+        items: [
+          {
+            loanedEquipmentId: row.loanedEquipmentId,
+            quantityReturned: row.quantityLoaned
+          }
+        ]
+      })
       .pipe(
+        map((updated) => updated !== null),
         finalize(() =>
           this.returningKeys.update((set) => {
             const next = new Set(set);

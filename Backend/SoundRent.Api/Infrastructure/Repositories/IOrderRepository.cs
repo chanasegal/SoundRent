@@ -63,8 +63,4 @@ public interface IOrderRepository
     Task<List<Order>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
 
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
-
-    Task<OrderCustomMissingItem?> GetCustomMissingItemByIdAsync(int id, CancellationToken cancellationToken = default);
-
-    void AddCustomMissingItem(Order order, OrderCustomMissingItem item);
 }

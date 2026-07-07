@@ -1,5 +1,4 @@
 import { DepositType, LoanedEquipmentType, ReturnTimeType, TimeSlot } from './enums';
-import { OrderCustomMissingItemDto } from './equipment-return.model';
 
 export interface LoanedEquipmentNoteDto {
   id?: number;
@@ -9,7 +8,9 @@ export interface LoanedEquipmentNoteDto {
 
 export interface OrderLoanedEquipmentDto {
   id?: number;
-  loanedEquipmentType: LoanedEquipmentType;
+  isCustomItem?: boolean;
+  loanedEquipmentType?: LoanedEquipmentType | null;
+  customItemName?: string | null;
   quantity: number;
   returnedQuantity?: number;
   expectedNoteCount: number;
@@ -41,7 +42,6 @@ export interface OrderDto {
   notes?: string | null;
   createdAt: string;
   loanedEquipments: OrderLoanedEquipmentDto[];
-  customMissingItems?: OrderCustomMissingItemDto[];
 }
 
 export interface OrderCreateUpdateDto {

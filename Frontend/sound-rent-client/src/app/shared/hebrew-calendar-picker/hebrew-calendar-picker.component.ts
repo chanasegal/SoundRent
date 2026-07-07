@@ -37,7 +37,7 @@ export class HebrewCalendarPickerComponent {
   readonly month = model.required<number>();
   readonly day = model.required<number>();
 
-  readonly ariaLabel = input('פתח לוח שנה עברי');
+  readonly ariaLabel = input('פתח לוח שנה ');
   readonly dialogLabel = input('בחירת תאריך');
 
   protected readonly open = signal(false);

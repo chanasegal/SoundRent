@@ -53,14 +53,10 @@ interface LoanedRowMeta {
 
 interface ReturnModalRow {
   rowId: string;
-  isCustom: boolean;
-  loanedEquipmentType?: LoanedEquipmentType;
-  customItemName?: string;
-  customMissingItemId?: number | null;
+  loanedEquipmentId: number;
   label: string;
-  quantityLoaned: number | null;
+  quantityLoaned: number;
   quantityReturned: number;
-  customMissingQuantity: number;
 }
 
 @Component({
@@ -291,6 +287,10 @@ export class OrderFormComponent implements OnInit {
   // Convenience accessors for the template.
   protected get equipmentList(): FormArray {
     return this.form.get('loanedEquipments') as FormArray;
+  }
+
+  protected get customLoanedList(): FormArray {
+    return this.form.get('customLoanedItems') as FormArray;
   }
 
   protected get selectedEquipmentIdsControl(): FormControl<string[]> {
@@ -848,34 +848,23 @@ export class OrderFormComponent implements OnInit {
 
     const useSavedReturns = order.isReturnProcessed === true;
 
-    const standardRows: ReturnModalRow[] = (order.loanedEquipments ?? [])
-      .filter((row) => row.quantity > 0)
+    const rows: ReturnModalRow[] = (order.loanedEquipments ?? [])
+      .filter((row) => row.quantity > 0 && row.id != null && row.id > 0)
       .map((row) => ({
-        rowId: `standard-${row.loanedEquipmentType}`,
-        isCustom: false,
-        loanedEquipmentType: row.loanedEquipmentType,
-        label: LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType] ?? String(row.loanedEquipmentType),
+        rowId: `line-${row.id}`,
+        loanedEquipmentId: row.id!,
+        label: row.isCustomItem
+          ? (row.customItemName?.trim() || 'פריט נוסף')
+          : LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType),
         quantityLoaned: row.quantity,
         quantityReturned: useSavedReturns
           ? Math.min(Math.max(row.returnedQuantity ?? 0, 0), row.quantity)
-          : row.quantity,
-        customMissingQuantity: 0
+          : row.quantity
       }));
 
-    const customRows: ReturnModalRow[] = (order.customMissingItems ?? []).map((item) => ({
-      rowId: `custom-${item.id}`,
-      isCustom: true,
-      customItemName: item.itemName,
-      customMissingItemId: item.id,
-      label: item.itemName,
-      quantityLoaned: null,
-      quantityReturned: 0,
-      customMissingQuantity: item.missingQuantity
-    }));
-
-    const rows = [...standardRows, ...customRows];
     if (rows.length === 0) {
-      this.toast.show('אין ציוד מושאל להחזרה — ניתן להוסיף פריט חסר ידני', 'info');
+      this.toast.show('אין ציוד מושאל להחזרה בהזמנה זו', 'info');
+      return;
     }
 
     this.returnRows.set(rows);
@@ -891,48 +880,7 @@ export class OrderFormComponent implements OnInit {
 
   protected markAllReturned(): void {
     this.returnRows.update((rows) =>
-      rows.map((row) =>
-        row.isCustom || row.quantityLoaned === null
-          ? row
-          : { ...row, quantityReturned: row.quantityLoaned }
-      )
-    );
-  }
-
-  protected addCustomMissingRow(): void {
-    const rowId = `custom-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.returnRows.update((rows) => [
-      ...rows,
-      {
-        rowId,
-        isCustom: true,
-        customItemName: '',
-        customMissingItemId: null,
-        label: '',
-        quantityLoaned: null,
-        quantityReturned: 0,
-        customMissingQuantity: 1
-      }
-    ]);
-  }
-
-  protected removeCustomRow(index: number): void {
-    this.returnRows.update((rows) => rows.filter((_, i) => i !== index));
-  }
-
-  protected updateCustomItemName(index: number, value: string): void {
-    this.returnRows.update((rows) =>
-      rows.map((row, i) =>
-        i === index ? { ...row, customItemName: value, label: value } : row
-      )
-    );
-  }
-
-  protected updateCustomMissingQuantity(index: number, raw: string): void {
-    const parsed = Number.parseInt(raw, 10);
-    const value = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
-    this.returnRows.update((rows) =>
-      rows.map((row, i) => (i === index ? { ...row, customMissingQuantity: value } : row))
+      rows.map((row) => ({ ...row, quantityReturned: row.quantityLoaned }))
     );
   }
 
@@ -940,23 +888,31 @@ export class OrderFormComponent implements OnInit {
     const parsed = Number.parseInt(raw, 10);
     const value = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
     this.returnRows.update((rows) =>
-      rows.map((row, i) => {
-        if (i !== index || row.isCustom || row.quantityLoaned === null) {
-          return row;
-        }
-        return { ...row, quantityReturned: Math.min(value, row.quantityLoaned) };
-      })
+      rows.map((row, i) =>
+        i === index
+          ? { ...row, quantityReturned: Math.min(value, row.quantityLoaned) }
+          : row
+      )
     );
   }
 
   protected missingReturnCount(row: ReturnModalRow): number {
-    if (row.isCustom) {
-      return row.customMissingQuantity;
-    }
-    if (row.quantityLoaned === null) {
-      return 0;
-    }
     return Math.max(0, row.quantityLoaned - row.quantityReturned);
+  }
+
+  protected loanedEquipmentLabel(row: OrderLoanedEquipmentDto): string {
+    if (row.isCustomItem) {
+      return row.customItemName?.trim() || 'פריט נוסף';
+    }
+    return LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType);
+  }
+
+  protected addCustomLoanedItem(): void {
+    this.customLoanedList.push(this.buildCustomLoanedRow());
+  }
+
+  protected removeCustomLoanedItem(index: number): void {
+    this.customLoanedList.removeAt(index);
   }
 
   protected saveReturn(): void {
@@ -966,42 +922,16 @@ export class OrderFormComponent implements OnInit {
     }
 
     const rows = this.returnRows();
-    const standardRows = rows.filter((row) => !row.isCustom && row.loanedEquipmentType !== undefined);
-    const customRows = rows.filter((row) => row.isCustom);
-
-    const customMissingItems = customRows
-      .map((row) => {
-        const itemName = (row.customItemName ?? '').trim();
-        const payload: OrderReturnRequestDto['customMissingItems'][number] = {
-          itemName,
-          missingQuantity: row.customMissingQuantity
-        };
-        if (row.customMissingItemId != null && row.customMissingItemId > 0) {
-          payload.id = row.customMissingItemId;
-        }
-        return payload;
-      })
-      .filter((row) => row.itemName.length > 0);
-
-    const incompleteCustom = customRows.some(
-      (row) => !(row.customItemName ?? '').trim() && row.customMissingQuantity > 0
-    );
-    if (incompleteCustom) {
-      this.toast.error('יש להזין שם לכל פריט חסר ידני');
-      return;
-    }
-
-    if (standardRows.length === 0 && customMissingItems.length === 0) {
-      this.toast.error('יש להוסיף לפחות פריט אחד להחזרה');
+    if (rows.length === 0) {
+      this.toast.error('אין פריטים להחזרה');
       return;
     }
 
     const request: OrderReturnRequestDto = {
-      items: standardRows.map((row) => ({
-        loanedEquipmentType: row.loanedEquipmentType!,
+      items: rows.map((row) => ({
+        loanedEquipmentId: row.loanedEquipmentId,
         quantityReturned: row.quantityReturned
-      })),
-      customMissingItems
+      }))
     };
 
     this.returnSaving.set(true);
@@ -1060,7 +990,8 @@ export class OrderFormComponent implements OnInit {
 
         loanedEquipments: this.fb.array(
           LOANED_EQUIPMENT_ORDER.map((type) => this.buildEquipmentRow(type))
-        )
+        ),
+        customLoanedItems: this.fb.array<FormGroup>([])
       },
       {
         // Wrap in an arrow at the call site so `this` is bound when Angular
@@ -1819,6 +1750,14 @@ export class OrderFormComponent implements OnInit {
     return g;
   }
 
+  private buildCustomLoanedRow(item?: OrderLoanedEquipmentDto): FormGroup {
+    return this.fb.group({
+      id: [item?.id ?? null],
+      customItemName: [(item?.customItemName ?? '').trim(), [Validators.required, Validators.maxLength(200)]],
+      quantity: [item?.quantity ?? 1, [Validators.required, Validators.min(1)]]
+    });
+  }
+
   // -----------------------------------------------------------------
   // Load (edit mode)
   // -----------------------------------------------------------------
@@ -1932,7 +1871,20 @@ export class OrderFormComponent implements OnInit {
 
     const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
     for (const row of order.loanedEquipments ?? []) {
-      byType.set(row.loanedEquipmentType, row);
+      if (row.isCustomItem) {
+        continue;
+      }
+      if (row.loanedEquipmentType != null) {
+        byType.set(row.loanedEquipmentType, row);
+      }
+    }
+
+    this.customLoanedList.clear();
+    for (const row of order.loanedEquipments ?? []) {
+      if (!row.isCustomItem) {
+        continue;
+      }
+      this.customLoanedList.push(this.buildCustomLoanedRow(row));
     }
 
     this.equipmentList.controls.forEach((control, idx) => {
@@ -1979,12 +1931,29 @@ export class OrderFormComponent implements OnInit {
           notes.push({ ordinal: o, content: text.length > 0 ? text : null });
         }
         return {
+          isCustomItem: false,
           loanedEquipmentType: row['loanedEquipmentType'] as LoanedEquipmentType,
           quantity,
           expectedNoteCount: expected,
           notes
         };
       });
+
+    const customLoaned: OrderLoanedEquipmentDto[] = (v['customLoanedItems'] as Record<string, unknown>[])
+      .map((row) => {
+        const name = String(row['customItemName'] ?? '').trim();
+        const quantity = this.toNonNegativeInteger(row['quantity']);
+        const id = row['id'];
+        return {
+          ...(typeof id === 'number' && id > 0 ? { id } : {}),
+          isCustomItem: true,
+          customItemName: name,
+          quantity,
+          expectedNoteCount: 0,
+          notes: []
+        } satisfies OrderLoanedEquipmentDto;
+      })
+      .filter((row) => row.customItemName && row.customItemName.length > 0 && row.quantity > 0);
 
     return {
       equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
@@ -2004,7 +1973,7 @@ export class OrderFormComponent implements OnInit {
         ? this.optionalText(v['customReturnTime'])
         : null,
       notes: this.optionalText(v['notes']),
-      loanedEquipments: loaned,
+      loanedEquipments: [...loaned, ...customLoaned],
       allowDoubleBooking: false
     };
   }

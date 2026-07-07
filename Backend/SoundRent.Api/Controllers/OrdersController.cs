@@ -148,15 +148,6 @@ public class OrdersController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
-
-    [HttpPost("custom-missing/{customMissingItemId:int}/resolve")]
-    public async Task<IActionResult> ResolveCustomMissingItem(
-        int customMissingItemId,
-        CancellationToken cancellationToken)
-    {
-        await _orderService.ResolveCustomMissingItemAsync(customMissingItemId, cancellationToken);
-        return NoContent();
-    }
 }
 
 public record SlotTakenResponse(bool Taken);

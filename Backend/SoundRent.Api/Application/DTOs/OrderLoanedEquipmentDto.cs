@@ -6,7 +6,12 @@ namespace SoundRent.Api.Application.DTOs;
 public class OrderLoanedEquipmentDto
 {
     public int Id { get; set; }
-    public LoanedEquipmentType LoanedEquipmentType { get; set; }
+    public bool IsCustomItem { get; set; }
+    public LoanedEquipmentType? LoanedEquipmentType { get; set; }
+
+    [MaxLength(200)]
+    public string? CustomItemName { get; set; }
+
     public int Quantity { get; set; }
 
     [Range(0, int.MaxValue)]

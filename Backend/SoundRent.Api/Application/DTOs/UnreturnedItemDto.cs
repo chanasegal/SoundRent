@@ -7,8 +7,8 @@ public class UnreturnedItemDto
     public int OrderId { get; set; }
     public string? CustomerName { get; set; }
     public string Phone { get; set; } = string.Empty;
+    public int LoanedEquipmentId { get; set; }
     public bool IsCustomItem { get; set; }
-    public int? CustomMissingItemId { get; set; }
     public LoanedEquipmentType? LoanedEquipmentType { get; set; }
     public string EquipmentName { get; set; } = string.Empty;
     public DateOnly ReturnDate { get; set; }

@@ -814,22 +814,6 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
-    "Method": "ResolveCustomMissingItem",
-    "RelativePath": "api/Orders/custom-missing/{customMissingItemId}/resolve",
-    "HttpMethod": "POST",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "customMissingItemId",
-        "Type": "System.Int32",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "ExportAll",
     "RelativePath": "api/Orders/export-all",
     "HttpMethod": "GET",

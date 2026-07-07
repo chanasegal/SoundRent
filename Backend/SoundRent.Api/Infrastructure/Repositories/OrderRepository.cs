@@ -290,7 +290,7 @@ public class OrderRepository : IOrderRepository
 
     public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
     {
-        var loanedRows = await _db.Orders
+        var rows = await _db.Orders
             .AsNoTracking()
             .Where(o => !o.IsCancelled && o.IsReturnProcessed)
             .SelectMany(o => o.LoanedEquipments
@@ -301,65 +301,24 @@ public class OrderRepository : IOrderRepository
                     Line = le,
                     ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate)
                 }))
+            .OrderBy(r => r.ReturnDate ?? DateOnly.MinValue)
+            .ThenBy(r => r.Order.Id)
+            .ThenBy(r => r.Line.Id)
             .ToListAsync(cancellationToken);
 
-        var customRows = await _db.OrderCustomMissingItems
-            .AsNoTracking()
-            .Where(i => !i.IsResolved && !i.Order.IsCancelled && i.Order.IsReturnProcessed)
-            .Select(i => new
-            {
-                Order = i.Order,
-                Item = i,
-                ReturnDate = i.Order.Shifts.Max(s => (DateOnly?)s.OrderDate)
-            })
-            .ToListAsync(cancellationToken);
-
-        var loanedDtos = loanedRows.Select(r => new UnreturnedItemDto
+        return rows.Select(r => new UnreturnedItemDto
         {
             OrderId = r.Order.Id,
             CustomerName = r.Order.CustomerName,
             Phone = r.Order.Phone,
-            IsCustomItem = false,
+            LoanedEquipmentId = r.Line.Id,
+            IsCustomItem = r.Line.IsCustomItem,
             LoanedEquipmentType = r.Line.LoanedEquipmentType,
-            EquipmentName = LoanedEquipmentTypeLabels.GetLabel(r.Line.LoanedEquipmentType),
+            EquipmentName = OrderMapper.GetLoanedEquipmentDisplayName(r.Line),
             ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
             QuantityLoaned = r.Line.Quantity,
             MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity
-        });
-
-        var customDtos = customRows.Select(r => new UnreturnedItemDto
-        {
-            OrderId = r.Order.Id,
-            CustomerName = r.Order.CustomerName,
-            Phone = r.Order.Phone,
-            IsCustomItem = true,
-            CustomMissingItemId = r.Item.Id,
-            EquipmentName = r.Item.ItemName,
-            ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
-            QuantityLoaned = 0,
-            MissingQuantity = r.Item.MissingQuantity
-        });
-
-        return loanedDtos
-            .Concat(customDtos)
-            .OrderBy(r => r.ReturnDate)
-            .ThenBy(r => r.OrderId)
-            .ThenBy(r => r.IsCustomItem)
-            .ThenBy(r => r.EquipmentName)
-            .ToList();
-    }
-
-    public async Task<OrderCustomMissingItem?> GetCustomMissingItemByIdAsync(
-        int id,
-        CancellationToken cancellationToken = default)
-    {
-        return await _db.OrderCustomMissingItems
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
-    }
-
-    public void AddCustomMissingItem(Order order, OrderCustomMissingItem item)
-    {
-        order.CustomMissingItems.Add(item);
+        }).ToList();
     }
 
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)
@@ -369,7 +328,6 @@ public class OrderRepository : IOrderRepository
             .ThenInclude(e => e.EquipmentDefinition)
             .Include(o => o.Shifts)
             .Include(o => o.LoanedEquipments)
-            .ThenInclude(le => le.Notes)
-            .Include(o => o.CustomMissingItems);
+            .ThenInclude(le => le.Notes);
     }
 }

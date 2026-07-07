@@ -47,6 +47,4 @@ public interface IOrderService
         CancellationToken cancellationToken = default);
 
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
-
-    Task ResolveCustomMissingItemAsync(int customMissingItemId, CancellationToken cancellationToken = default);
 }
