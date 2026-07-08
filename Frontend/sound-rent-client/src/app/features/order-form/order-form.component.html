@@ -42,225 +42,91 @@
 
   <form [formGroup]="form" (ngSubmit)="submit()" class="space-y-5">
 
-    <!-- Booking slot section -->
-    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-      <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי המשמרת</h2>
-
-      <div class="reservation-row">
-        <div class="reservation-field reservation-field--equipment">
-          <label class="form-label reservation-field__label">תאי ציוד <span class="text-rose-500">*</span></label>
-          <div class="multi-select reservation-field__control">
-            <button type="button" class="multi-select__trigger" (click)="toggleEquipmentDropdown()">
-              <span>{{ selectedEquipmentSummary() }}</span>
-              <span class="multi-select__chevron">▾</span>
-            </button>
-            @if (equipmentDropdownOpen()) {
-              <div class="multi-select__panel">
-                @for (slot of bookingEquipmentSlotIds(); track slot) {
-                  <label class="multi-select__option">
-                    <input
-                      type="checkbox"
-                      [checked]="isEquipmentSelected(slot)"
-                      (change)="toggleEquipmentSelection(slot, $any($event.target).checked)"
-                    />
-                    <span class="multi-select__option-label">
-                      {{ slotDropdownLabel(slot) }}
-                      @if (isEquipmentOccupied(slot)) {
-                        <span class="equipment-occupied-badge" aria-label="תפוס">(תפוס) ⚠️</span>
-                      }
-                    </span>
-                  </label>
-                } @empty {
-                  <p class="text-sm text-slate-500">אין תאי רמקול זמינים</p>
-                }
-              </div>
-            }
-          </div>
-          @if (selectedEquipmentIdsControl.touched && selectedEquipmentIdsControl.errors?.['required']) {
-            <p class="form-error mt-2">יש לבחור לפחות תא ציוד אחד</p>
-          }
-        </div>
-
-        <div class="reservation-field reservation-field--date">
-          <label class="form-label reservation-field__label">תאריך התחלה</label>
-          <div class="hebrew-date-field-row">
-            <div class="hebrew-date-picker-group">
-              <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
-                @for (day of startDayOptions(); track day) {
-                  <option [value]="day">{{ dayLabel(day) }}</option>
-                }
-              </select>
-              <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
-                @for (month of startMonthOptions(); track month.value) {
-                  <option [value]="month.value">{{ month.label }}</option>
-                }
-              </select>
-              <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
-                @for (year of startYearOptions(); track year) {
-                  <option [value]="year">{{ yearLabel(year) }}</option>
-                }
-              </select>
-            </div>
-            <app-hebrew-calendar-picker
-              [year]="startHebrewYearSig()"
-              [month]="startHebrewMonthSig()"
-              [day]="startHebrewDaySig()"
-              (yearChange)="patchHebrewFromCalendar('start', { year: $event })"
-              (monthChange)="patchHebrewFromCalendar('start', { month: $event })"
-              (dayChange)="patchHebrewFromCalendar('start', { day: $event })"
-              ariaLabel="פתח לוח שנה לתאריך התחלה"
-              dialogLabel="בחירת תאריך התחלה"
-            />
-          </div>
-        </div>
-        <div class="reservation-field reservation-field--shift">
-          <label class="form-label reservation-field__label">משמרת התחלה</label>
-          <select formControlName="startShift" class="form-input form-input--compact reservation-field__control">
-            @for (slot of timeSlots; track slot) {
-              <option [ngValue]="slot" [disabled]="!isStartShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
-            }
-          </select>
-        </div>
-        <div class="reservation-field reservation-field--date">
-          <label class="form-label reservation-field__label">תאריך סיום</label>
-          <div class="hebrew-date-field-row">
-            <div class="hebrew-date-picker-group">
-              <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
-                @for (day of endDayOptions(); track day) {
-                  <option [value]="day">{{ dayLabel(day) }}</option>
-                }
-              </select>
-              <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
-                @for (month of endMonthOptions(); track month.value) {
-                  <option [value]="month.value">{{ month.label }}</option>
-                }
-              </select>
-              <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
-                @for (year of endYearOptions(); track year) {
-                  <option [value]="year">{{ yearLabel(year) }}</option>
-                }
-              </select>
-            </div>
-            <app-hebrew-calendar-picker
-              [year]="endHebrewYearSig()"
-              [month]="endHebrewMonthSig()"
-              [day]="endHebrewDaySig()"
-              (yearChange)="patchHebrewFromCalendar('end', { year: $event })"
-              (monthChange)="patchHebrewFromCalendar('end', { month: $event })"
-              (dayChange)="patchHebrewFromCalendar('end', { day: $event })"
-              ariaLabel="פתח לוח שנה  לתאריך סיום"
-              dialogLabel="בחירת תאריך סיום"
-            />
-          </div>
-        </div>
-        <div class="reservation-field reservation-field--shift">
-          <label class="form-label reservation-field__label">משמרת סיום</label>
-          <select formControlName="endShift" class="form-input form-input--compact reservation-field__control">
-            @for (slot of timeSlots; track slot) {
-              <option [ngValue]="slot" [disabled]="!isEndShiftSelectable(slot)">{{ timeSlotLabels[slot] }}</option>
-            }
-          </select>
-        </div>
-      </div>
-
-      <div class="reservation-errors">
-        @if (form.errors?.['orderDateInPast']) {
-          <p class="form-error">לא ניתן לבחור תאריך שעבר</p>
-        }
-        @if (form.errors?.['rangeInvalid']) {
-          <p class="form-error">מועד הסיום חייב להיות אחרי מועד ההתחלה</p>
-        }
-        @if (form.errors?.['shiftNotAllowedForDate']) {
-          <p class="form-error">אחת המשמרות אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
-        }
-        @if (form.errors?.['shiftBlocked']) {
-          <p class="form-error">
-            @if (form.errors?.['blockedReason']) {
-              התאריך חסום להזמנות חדשות: {{ form.errors?.['blockedReason'] }}
-            } @else {
-              התאריך חסום להזמנות חדשות
-            }
-          </p>
-        }
-        @if (form.errors?.['shiftsRequired'] && selectedShiftSlots.touched) {
-          <p class="form-error">יש להוסיף לפחות מועד אחד להזמנה</p>
-        }
-      </div>
-
-      <div class="range-summary">
-        <span class="range-summary__title">סיכום טווח:</span>
-        <span>{{ rangeSummary() }}</span>
-      </div>
-
-      <div class="return-time-group">
-        <span class="return-time-title">שעת החזרה</span>
-        <div class="return-time-options">
-          @for (type of returnTimeTypes; track type) {
-            <label class="return-time-option">
-              <input type="radio" formControlName="returnTimeType" [value]="type" />
-              <span>{{ returnTimeTypeLabels[type] }}</span>
-            </label>
-            @if (type === returnTimeTypeEnum.SpecificTime && form.controls['returnTimeType'].value === returnTimeTypeEnum.SpecificTime) {
-              <input
-                type="time"
-                formControlName="customReturnTime"
-                class="form-input return-time-input ltr-field"
-                aria-label="שעת החזרה מדויקת"
-              />
-            }
-          }
-        </div>
-        @if (form.errors?.['returnTimeRequired'] && form.controls['customReturnTime'].touched) {
-          <p class="form-error mt-2">יש להזין שעת החזרה</p>
-        }
-      </div>
-
-      <div class="duplicate-alert-anchor">
-        <div class="duplicate-alert-anchor__inner">
-          @if (slotTakenSig()) {
-            <div class="duplicate-warning-bar" role="status" aria-live="polite">
-              <svg
-                class="duplicate-warning-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-              </svg>
-              <span>שים לב: לפחות אחד מתאי הציוד והמועדים שנבחרו כבר תפוס.</span>
-            </div>
-          }
-        </div>
-      </div>
-
-    </section>
-
-    <!-- Customer section -->
+    <!-- Customer section (always first) -->
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי הלקוח</h2>
       <div class="customer-row">
         <div class="customer-field customer-field--name">
           <label class="form-label">שם</label>
-          <input type="text" formControlName="customerName" class="form-input" />
+          <div class="customer-suggest">
+            <input
+              type="text"
+              formControlName="customerName"
+              class="form-input"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'name'"
+              aria-controls="customer-suggest-listbox"
+              (focus)="onCustomerSuggestFocus('name')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'name')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+              <ul
+                id="customer-suggest-listbox"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
         </div>
         <div class="customer-field customer-field--phone">
           <label class="form-label">טלפון 1 <span class="text-rose-500">*</span></label>
-          <input
-            type="tel"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            maxlength="10"
-            appIntegerOnly
-            formControlName="phone"
-            class="form-input ltr-field"
-          />
+          <div class="customer-suggest">
+            <input
+              type="tel"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="10"
+              appIntegerOnly
+              formControlName="phone"
+              class="form-input ltr-field"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+              aria-controls="customer-suggest-listbox-phone"
+              (focus)="onCustomerSuggestFocus('phone')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+              <ul
+                id="customer-suggest-listbox-phone"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
           <div class="field-message-anchor field-message-anchor--phone1">
             <div class="field-message-anchor__content">
               @if (form.controls['phone'].touched) {
@@ -306,6 +172,238 @@
         </div>
       </div>
     </section>
+
+    <!-- Booking slot sections (one per independent order on create) -->
+    <div formArrayName="bookings" class="space-y-5">
+      @for (bookingCtrl of bookings.controls; track $index; let bi = $index) {
+        <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" [formGroupName]="bi">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+            <h2 class="text-lg font-bold text-[#002244]">
+              @if (bookings.length > 1) {
+                פרטי המשמרת {{ bi + 1 }}
+              } @else {
+                פרטי המשמרת
+              }
+            </h2>
+            @if (canRemoveBooking(bi)) {
+              <button
+                type="button"
+                class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                (click)="removeBooking(bi)"
+              >
+                הסר הזמנה
+              </button>
+            }
+          </div>
+
+          <div class="reservation-row">
+            <div class="reservation-field reservation-field--equipment">
+              <label class="form-label reservation-field__label">תאי ציוד <span class="text-rose-500">*</span></label>
+              <div class="multi-select reservation-field__control">
+                <button type="button" class="multi-select__trigger" (click)="toggleEquipmentDropdown(bi)">
+                  <span>{{ selectedEquipmentSummary(bi) }}</span>
+                  <span class="multi-select__chevron">▾</span>
+                </button>
+                @if (isEquipmentDropdownOpen(bi)) {
+                  <div class="multi-select__panel">
+                    @for (slot of bookingEquipmentSlotIds(); track slot) {
+                      <label class="multi-select__option">
+                        <input
+                          type="checkbox"
+                          [checked]="isEquipmentSelected(bi, slot)"
+                          (change)="toggleEquipmentSelection(bi, slot, $any($event.target).checked)"
+                        />
+                        <span class="multi-select__option-label">
+                          {{ slotDropdownLabel(slot) }}
+                          @if (isEquipmentOccupied(bi, slot)) {
+                            <span class="equipment-occupied-badge" aria-label="תפוס">(תפוס) ⚠️</span>
+                          }
+                        </span>
+                      </label>
+                    } @empty {
+                      <p class="text-sm text-slate-500">אין תאי רמקול זמינים</p>
+                    }
+                  </div>
+                }
+              </div>
+              @if (equipmentIdsControl(bi).touched && equipmentIdsControl(bi).errors?.['required']) {
+                <p class="form-error mt-2">יש לבחור לפחות תא ציוד אחד</p>
+              }
+            </div>
+
+            <div class="reservation-field reservation-field--date">
+              <label class="form-label reservation-field__label">תאריך התחלה</label>
+              <div class="hebrew-date-field-row">
+                <div class="hebrew-date-picker-group">
+                  <select formControlName="startHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום התחלה">
+                    @for (day of startDayOptionsAt(bi); track day) {
+                      <option [value]="day">{{ dayLabel(day) }}</option>
+                    }
+                  </select>
+                  <select formControlName="startHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש התחלה">
+                    @for (month of startMonthOptionsAt(bi); track month.value) {
+                      <option [value]="month.value">{{ month.label }}</option>
+                    }
+                  </select>
+                  <select formControlName="startHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת התחלה">
+                    @for (year of startYearOptionsAt(bi); track year) {
+                      <option [value]="year">{{ yearLabel(year) }}</option>
+                    }
+                  </select>
+                </div>
+                <app-hebrew-calendar-picker
+                  [year]="startHebrewYear(bi)"
+                  [month]="startHebrewMonth(bi)"
+                  [day]="startHebrewDay(bi)"
+                  (yearChange)="patchHebrewFromCalendar(bi, 'start', { year: $event })"
+                  (monthChange)="patchHebrewFromCalendar(bi, 'start', { month: $event })"
+                  (dayChange)="patchHebrewFromCalendar(bi, 'start', { day: $event })"
+                  ariaLabel="פתח לוח שנה לתאריך התחלה"
+                  dialogLabel="בחירת תאריך התחלה"
+                />
+              </div>
+            </div>
+            <div class="reservation-field reservation-field--shift">
+              <label class="form-label reservation-field__label">משמרת התחלה</label>
+              <select formControlName="startShift" class="form-input form-input--compact reservation-field__control">
+                @for (slot of timeSlots; track slot) {
+                  <option [ngValue]="slot" [disabled]="!isStartShiftSelectable(bi, slot)">{{ timeSlotLabels[slot] }}</option>
+                }
+              </select>
+            </div>
+            <div class="reservation-field reservation-field--date">
+              <label class="form-label reservation-field__label">תאריך סיום</label>
+              <div class="hebrew-date-field-row">
+                <div class="hebrew-date-picker-group">
+                  <select formControlName="endHebrewDay" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day" aria-label="יום סיום">
+                    @for (day of endDayOptionsAt(bi); track day) {
+                      <option [value]="day">{{ dayLabel(day) }}</option>
+                    }
+                  </select>
+                  <select formControlName="endHebrewMonth" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month" aria-label="חודש סיום">
+                    @for (month of endMonthOptionsAt(bi); track month.value) {
+                      <option [value]="month.value">{{ month.label }}</option>
+                    }
+                  </select>
+                  <select formControlName="endHebrewYear" class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year" aria-label="שנת סיום">
+                    @for (year of endYearOptionsAt(bi); track year) {
+                      <option [value]="year">{{ yearLabel(year) }}</option>
+                    }
+                  </select>
+                </div>
+                <app-hebrew-calendar-picker
+                  [year]="endHebrewYear(bi)"
+                  [month]="endHebrewMonth(bi)"
+                  [day]="endHebrewDay(bi)"
+                  (yearChange)="patchHebrewFromCalendar(bi, 'end', { year: $event })"
+                  (monthChange)="patchHebrewFromCalendar(bi, 'end', { month: $event })"
+                  (dayChange)="patchHebrewFromCalendar(bi, 'end', { day: $event })"
+                  ariaLabel="פתח לוח שנה  לתאריך סיום"
+                  dialogLabel="בחירת תאריך סיום"
+                />
+              </div>
+            </div>
+            <div class="reservation-field reservation-field--shift">
+              <label class="form-label reservation-field__label">משמרת סיום</label>
+              <select formControlName="endShift" class="form-input form-input--compact reservation-field__control">
+                @for (slot of timeSlots; track slot) {
+                  <option [ngValue]="slot" [disabled]="!isEndShiftSelectable(bi, slot)">{{ timeSlotLabels[slot] }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="reservation-errors">
+            @if (bookingGroup(bi).errors?.['orderDateInPast']) {
+              <p class="form-error">לא ניתן לבחור תאריך שעבר</p>
+            }
+            @if (bookingGroup(bi).errors?.['rangeInvalid']) {
+              <p class="form-error">מועד הסיום חייב להיות אחרי מועד ההתחלה</p>
+            }
+            @if (bookingGroup(bi).errors?.['shiftNotAllowedForDate']) {
+              <p class="form-error">אחת המשמרות אינה מתאימה ליום הנבחר (שישי — בוקר בלבד, שבת — ערב בלבד).</p>
+            }
+            @if (bookingGroup(bi).errors?.['shiftBlocked']) {
+              <p class="form-error">
+                @if (bookingGroup(bi).errors?.['blockedReason']) {
+                  התאריך חסום להזמנות חדשות: {{ bookingGroup(bi).errors?.['blockedReason'] }}
+                } @else {
+                  התאריך חסום להזמנות חדשות
+                }
+              </p>
+            }
+            @if (bookingGroup(bi).errors?.['shiftsRequired'] && shiftsArray(bi).touched) {
+              <p class="form-error">יש להוסיף לפחות מועד אחד להזמנה</p>
+            }
+          </div>
+
+          <div class="range-summary">
+            <span class="range-summary__title">סיכום טווח:</span>
+            <span>{{ rangeSummary(bi) }}</span>
+          </div>
+
+          <div class="return-time-group">
+            <span class="return-time-title">שעת החזרה</span>
+            <div class="return-time-options">
+              @for (type of returnTimeTypes; track type) {
+                <label class="return-time-option">
+                  <input type="radio" formControlName="returnTimeType" [value]="type" />
+                  <span>{{ returnTimeTypeLabels[type] }}</span>
+                </label>
+                @if (type === returnTimeTypeEnum.SpecificTime && bookingGroup(bi).controls['returnTimeType'].value === returnTimeTypeEnum.SpecificTime) {
+                  <input
+                    type="time"
+                    formControlName="customReturnTime"
+                    class="form-input return-time-input ltr-field"
+                    aria-label="שעת החזרה מדויקת"
+                  />
+                }
+              }
+            </div>
+            @if (bookingGroup(bi).errors?.['returnTimeRequired'] && bookingGroup(bi).controls['customReturnTime'].touched) {
+              <p class="form-error mt-2">יש להזין שעת החזרה</p>
+            }
+          </div>
+
+          <div class="duplicate-alert-anchor">
+            <div class="duplicate-alert-anchor__inner">
+              @if (slotTaken(bi)) {
+                <div class="duplicate-warning-bar" role="status" aria-live="polite">
+                  <svg
+                    class="duplicate-warning-icon"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                  </svg>
+                  <span>שים לב: לפחות אחד מתאי הציוד והמועדים שנבחרו כבר תפוס.</span>
+                </div>
+              }
+            </div>
+          </div>
+
+          @if (canAddBooking() && bi === bookings.length - 1) {
+            <div class="mt-4">
+              <button
+                type="button"
+                class="add-order-btn rounded-lg border border-dashed border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100"
+                (click)="addBooking()"
+              >
+                + הוסף הזמנה
+              </button>
+            </div>
+          }
+        </section>
+      }
+    </div>
 
     <!-- Payment / Deposit section -->
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

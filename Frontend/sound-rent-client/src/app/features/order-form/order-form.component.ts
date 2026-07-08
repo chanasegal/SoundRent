@@ -12,7 +12,24 @@ import {
   Validators
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subject, debounceTime, distinctUntilChanged, EMPTY, finalize, map, of, startWith, switchMap, tap } from 'rxjs';
+import {
+  Subject,
+  concatMap,
+  debounceTime,
+  distinctUntilChanged,
+  EMPTY,
+  finalize,
+  from,
+  groupBy,
+  map,
+  merge,
+  mergeMap,
+  of,
+  startWith,
+  switchMap,
+  tap,
+  toArray
+} from 'rxjs';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -59,6 +76,19 @@ interface ReturnModalRow {
   quantityReturned: number;
 }
 
+/** Per booking-block occupancy map and UI helpers. */
+interface BookingUiState {
+  occupiedById: Record<string, boolean>;
+  slotTaken: boolean;
+  equipmentDropdownOpen: boolean;
+  startHebrewYear: number;
+  startHebrewMonth: number;
+  startHebrewDay: number;
+  endHebrewYear: number;
+  endHebrewMonth: number;
+  endHebrewDay: number;
+}
+
 @Component({
   selector: 'app-order-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,7 +120,7 @@ export class OrderFormComponent implements OnInit {
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
 
   /** Shifts allowed for a Gregorian date (Friday → morning only, Saturday → evening only). */
-  protected availableTimeSlots(iso = this.form.controls['startDate']?.value as string): TimeSlot[] {
+  protected availableTimeSlots(iso: string | null | undefined): TimeSlot[] {
     const d = typeof iso === 'string' ? this.hebrew.parseIso(iso) : null;
     if (!d) {
       return this.timeSlots;
@@ -106,52 +136,57 @@ export class OrderFormComponent implements OnInit {
   }
 
   /** Used in the template: invalid shift options stay visible but disabled (no helper text). */
-  protected isStartShiftSelectable(slot: TimeSlot): boolean {
-    return this.availableTimeSlots(this.form.controls['startDate'].value as string).includes(slot);
+  protected isStartShiftSelectable(bookingIndex: number, slot: TimeSlot): boolean {
+    return this.availableTimeSlots(this.bookingGroup(bookingIndex).controls['startDate'].value as string).includes(slot);
   }
 
-  protected isEndShiftSelectable(slot: TimeSlot): boolean {
-    return this.availableTimeSlots(this.form.controls['endDate'].value as string).includes(slot);
+  protected isEndShiftSelectable(bookingIndex: number, slot: TimeSlot): boolean {
+    return this.availableTimeSlots(this.bookingGroup(bookingIndex).controls['endDate'].value as string).includes(slot);
   }
 
   protected slotDropdownLabel(slot: string): string {
     return this.equipmentSlots.displayLabel(slot);
   }
 
-  protected isEquipmentSelected(slot: string): boolean {
-    return this.selectedEquipmentIdsControl.value.includes(slot);
+  protected isEquipmentSelected(bookingIndex: number, slot: string): boolean {
+    return this.equipmentIdsControl(bookingIndex).value.includes(slot);
   }
 
-  protected isEquipmentOccupied(slot: string): boolean {
-    return this.equipmentOccupiedById()[slot] === true;
+  protected isEquipmentOccupied(bookingIndex: number, slot: string): boolean {
+    return this.bookingUi()[bookingIndex]?.occupiedById[slot] === true;
   }
 
-  protected readonly equipmentDropdownOpen = signal(false);
-
-  protected toggleEquipmentDropdown(): void {
-    this.equipmentDropdownOpen.update((open) => !open);
+  protected toggleEquipmentDropdown(bookingIndex: number): void {
+    this.patchBookingUi(bookingIndex, {
+      equipmentDropdownOpen: !this.bookingUi()[bookingIndex]?.equipmentDropdownOpen
+    });
   }
 
-  protected selectedEquipmentSummary(): string {
-    const selected = this.selectedEquipmentIdsControl.value ?? [];
+  protected isEquipmentDropdownOpen(bookingIndex: number): boolean {
+    return this.bookingUi()[bookingIndex]?.equipmentDropdownOpen === true;
+  }
+
+  protected selectedEquipmentSummary(bookingIndex: number): string {
+    const selected = this.equipmentIdsControl(bookingIndex).value ?? [];
     if (selected.length === 0) {
       return 'בחרו תאי ציוד';
     }
     return selected.map((id) => this.slotDropdownLabel(id)).join(', ');
   }
 
-  protected toggleEquipmentSelection(slot: string, checked: boolean): void {
-    const current = this.selectedEquipmentIdsControl.value ?? [];
+  protected toggleEquipmentSelection(bookingIndex: number, slot: string, checked: boolean): void {
+    const ctrl = this.equipmentIdsControl(bookingIndex);
+    const current = ctrl.value ?? [];
     const next = checked
       ? [...current, slot]
       : current.filter((id) => id !== slot);
-    this.selectedEquipmentIdsControl.setValue([...new Set(next)]);
-    this.selectedEquipmentIdsControl.markAsTouched();
-    this.refreshSlotTakenWarning();
+    ctrl.setValue([...new Set(next)]);
+    ctrl.markAsTouched();
+    this.refreshSlotTakenWarning(bookingIndex);
   }
 
-  protected selectedShiftRows(): OrderShiftDto[] {
-    return (this.selectedShiftSlots.getRawValue() as OrderShiftDto[])
+  protected selectedShiftRows(bookingIndex: number): OrderShiftDto[] {
+    return (this.shiftsArray(bookingIndex).getRawValue() as OrderShiftDto[])
       .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || Number(a.timeSlot) - Number(b.timeSlot));
   }
 
@@ -160,9 +195,93 @@ export class OrderFormComponent implements OnInit {
     return d ? this.hebrew.formatGregorianWithDayName(d) : iso;
   }
 
-  protected rangeSummary(): string {
-    const rows = this.selectedShiftRows();
+  protected rangeSummary(bookingIndex: number): string {
+    const rows = this.selectedShiftRows(bookingIndex);
     return rows.length === 0 ? 'לא נוצרו מועדים' : `${rows.length} משמרות רצופות`;
+  }
+
+  protected slotTaken(bookingIndex: number): boolean {
+    return this.bookingUi()[bookingIndex]?.slotTaken === true;
+  }
+
+  protected startHebrewYear(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.startHebrewYear ?? 0;
+  }
+
+  protected startHebrewMonth(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.startHebrewMonth ?? 0;
+  }
+
+  protected startHebrewDay(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.startHebrewDay ?? 0;
+  }
+
+  protected endHebrewYear(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.endHebrewYear ?? 0;
+  }
+
+  protected endHebrewMonth(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.endHebrewMonth ?? 0;
+  }
+
+  protected endHebrewDay(bookingIndex: number): number {
+    return this.bookingUi()[bookingIndex]?.endHebrewDay ?? 0;
+  }
+
+  protected startYearOptionsAt(bookingIndex: number): number[] {
+    return this.yearOptionsForEndpoint(bookingIndex, 'start');
+  }
+
+  protected endYearOptionsAt(bookingIndex: number): number[] {
+    return this.yearOptionsForEndpoint(bookingIndex, 'end');
+  }
+
+  protected startMonthOptionsAt(bookingIndex: number): HebrewMonthOption[] {
+    return this.monthOptionsForEndpoint(bookingIndex, 'start');
+  }
+
+  protected endMonthOptionsAt(bookingIndex: number): HebrewMonthOption[] {
+    return this.monthOptionsForEndpoint(bookingIndex, 'end');
+  }
+
+  protected startDayOptionsAt(bookingIndex: number): number[] {
+    return this.dayOptionsForEndpoint(bookingIndex, 'start');
+  }
+
+  protected endDayOptionsAt(bookingIndex: number): number[] {
+    return this.dayOptionsForEndpoint(bookingIndex, 'end');
+  }
+
+  protected canAddBooking(): boolean {
+    return !this.isEdit();
+  }
+
+  protected canRemoveBooking(bookingIndex: number): boolean {
+    return !this.isEdit() && this.bookings.length > 1 && bookingIndex > 0;
+  }
+
+  protected addBooking(): void {
+    if (!this.canAddBooking()) {
+      return;
+    }
+    const group = this.buildBookingGroup();
+    this.bookings.push(group);
+    const index = this.bookings.length - 1;
+    this.ensureBookingUi(index);
+    this.wireBookingGroup(index);
+    this.syncShiftsFromRange(index);
+  }
+
+  protected removeBooking(bookingIndex: number): void {
+    if (!this.canRemoveBooking(bookingIndex)) {
+      return;
+    }
+    this.bookings.removeAt(bookingIndex);
+    this.bookingUi.update((states) => {
+      const next = [...states];
+      next.splice(bookingIndex, 1);
+      return next;
+    });
   }
 
   protected readonly depositTypes: DepositType[] = [
@@ -219,11 +338,16 @@ export class OrderFormComponent implements OnInit {
 
     effect(() => {
       const ids = new Set(this.bookingEquipmentSlotIds());
-      const current = this.selectedEquipmentIdsControl.value ?? [];
-      const next = current.filter((id) => ids.has(id));
-      if (next.length !== current.length) {
-        untracked(() => this.selectedEquipmentIdsControl.setValue(next, { emitEvent: true }));
-      }
+      untracked(() => {
+        for (let i = 0; i < this.bookings.length; i++) {
+          const ctrl = this.equipmentIdsControl(i);
+          const current = ctrl.value ?? [];
+          const next = current.filter((id) => ids.has(id));
+          if (next.length !== current.length) {
+            ctrl.setValue(next, { emitEvent: true });
+          }
+        }
+      });
     });
   }
 
@@ -234,16 +358,22 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
 
 
-  protected readonly slotTakenSig = signal(false);
-
-  /** Occupancy flags from the bulk availability endpoint, keyed by equipment slot id. */
-  private readonly equipmentOccupiedById = signal<Record<string, boolean>>({});
+  /** UI state parallel to each booking FormGroup (occupancy, dropdown, Hebrew calendar signals). */
+  private readonly bookingUi = signal<BookingUiState[]>([]);
 
   /** Offer one-click fill when a saved customer matches the typed Phone1 (or Phone2). */
   protected readonly existingCustomerMatch = signal<CustomerDto | null>(null);
 
+  /** Typeahead suggestions under שם / טלפון 1. */
+  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestOpen = signal(false);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
+  protected readonly customerSuggestIndex = signal(-1);
+
   /** Digits-only snapshot of Phone1 for template visibility (updated on every keystroke). */
   private readonly phone1DigitsSig = signal('');
+
+  private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
   /** Customer fill CTA: new orders only, Phone1 non-empty, match found, fields not already filled. */
   protected readonly showCustomerFillButton = computed((): CustomerDto | null => {
@@ -260,8 +390,8 @@ export class OrderFormComponent implements OnInit {
     return hit;
   });
 
-  /** Pulse triggered when shifts change and equipment availability should be re-fetched. */
-  private readonly availabilityFetchTrigger$ = new Subject<void>();
+  /** Pulse triggered when a booking's shifts change and equipment availability should be re-fetched. */
+  private readonly availabilityFetchTrigger$ = new Subject<number>();
 
   /** Active date blocks loaded from the API (new orders only). */
   private readonly blockedDatesSig = signal<BlockedDateDto[]>([]);
@@ -269,22 +399,13 @@ export class OrderFormComponent implements OnInit {
   /** Suppresses range valueChanges handlers while batching start/end setup. */
   private suppressRangeSync = false;
 
-  protected readonly startHebrewYearSig = signal<number>(0);
-  protected readonly startHebrewMonthSig = signal<number>(0);
-  protected readonly startHebrewDaySig = signal<number>(0);
-  protected readonly endHebrewYearSig = signal<number>(0);
-  protected readonly endHebrewMonthSig = signal<number>(0);
-  protected readonly endHebrewDaySig = signal<number>(0);
   private readonly extraYearsSig = signal<number[]>([]);
 
-  protected readonly startYearOptions = computed(() => this.yearOptionsForEndpoint('start'));
-  protected readonly endYearOptions = computed(() => this.yearOptionsForEndpoint('end'));
-  protected readonly startMonthOptions = computed(() => this.monthOptionsForEndpoint('start'));
-  protected readonly endMonthOptions = computed(() => this.monthOptionsForEndpoint('end'));
-  protected readonly startDayOptions = computed(() => this.dayOptionsForEndpoint('start'));
-  protected readonly endDayOptions = computed(() => this.dayOptionsForEndpoint('end'));
-
   // Convenience accessors for the template.
+  protected get bookings(): FormArray {
+    return this.form.get('bookings') as FormArray;
+  }
+
   protected get equipmentList(): FormArray {
     return this.form.get('loanedEquipments') as FormArray;
   }
@@ -293,12 +414,16 @@ export class OrderFormComponent implements OnInit {
     return this.form.get('customLoanedItems') as FormArray;
   }
 
-  protected get selectedEquipmentIdsControl(): FormControl<string[]> {
-    return this.form.get('equipmentDefinitionIds') as FormControl<string[]>;
+  protected bookingGroup(index: number): FormGroup {
+    return this.bookings.at(index) as FormGroup;
   }
 
-  protected get selectedShiftSlots(): FormArray {
-    return this.form.get('shifts') as FormArray;
+  protected equipmentIdsControl(index: number): FormControl<string[]> {
+    return this.bookingGroup(index).get('equipmentDefinitionIds') as FormControl<string[]>;
+  }
+
+  protected shiftsArray(index: number): FormArray {
+    return this.bookingGroup(index).get('shifts') as FormArray;
   }
 
   protected getRowGroup(index: number): FormGroup {
@@ -332,6 +457,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected patchHebrewFromCalendar(
+    bookingIndex: number,
     endpoint: 'start' | 'end',
     part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
   ): void {
@@ -347,7 +473,7 @@ export class OrderFormComponent implements OnInit {
       patch[`${endpoint}HebrewDay`] = part.day;
     }
     if (Object.keys(patch).length > 0) {
-      this.form.patchValue(patch);
+      this.bookingGroup(bookingIndex).patchValue(patch);
     }
   }
 
@@ -377,16 +503,17 @@ export class OrderFormComponent implements OnInit {
 
     this.equipmentSlots.load({ force: true }).subscribe();
 
+    this.ensureBookingUi(0);
+    this.wireBookingGroup(0);
     this.wireEquipmentAvailability();
-    this.wireHebrewRangeSync();
-    this.wireRangeSync();
     this.wireCustomerPhoneLookup();
+    this.wireCustomerAutocomplete();
     this.wireLoanedEquipmentQuantitySync();
 
     this.data.getBlockedDates().subscribe((blocks) => {
       this.blockedDatesSig.set(blocks);
       if (!this.isEdit()) {
-        const start = this.form.controls['startDate'].value as string;
+        const start = this.bookingGroup(0).controls['startDate'].value as string;
         const block = start ? findBlockedDateForIso(start, blocks) : null;
         if (block) {
           this.toast.error(
@@ -396,7 +523,9 @@ export class OrderFormComponent implements OnInit {
           );
         }
       }
-      this.form.updateValueAndValidity({ emitEvent: false });
+      for (let i = 0; i < this.bookings.length; i++) {
+        this.bookingGroup(i).updateValueAndValidity({ emitEvent: false });
+      }
     });
 
     const idParam = this.route.snapshot.paramMap.get('id');
@@ -439,36 +568,38 @@ export class OrderFormComponent implements OnInit {
     const phone = qp.get('phone');
     const notes = qp.get('notes');
 
-    const patch: Record<string, unknown> = {};
-    if (eq) {
-      patch['equipmentDefinitionIds'] = [eq];
-    }
+    const rootPatch: Record<string, unknown> = {};
     if (customerName) {
-      patch['customerName'] = customerName;
+      rootPatch['customerName'] = customerName;
     }
     if (phone) {
-      patch['phone'] = phone;
+      rootPatch['phone'] = phone;
     }
     if (notes) {
-      patch['notes'] = notes;
+      rootPatch['notes'] = notes;
     }
-    if (Object.keys(patch).length > 0) {
-      this.form.patchValue(patch as never, { emitEvent: false });
+    if (Object.keys(rootPatch).length > 0) {
+      this.form.patchValue(rootPatch as never, { emitEvent: false });
+    }
+
+    const booking = this.bookingGroup(0);
+    if (eq) {
+      booking.patchValue({ equipmentDefinitionIds: [eq] }, { emitEvent: false });
     }
 
     const slot =
       slotRaw !== null && slotRaw !== '' ? this.parseTimeSlotQueryParam(slotRaw) : null;
 
     if (date) {
-      this.initializeBookingRange(date, slot ?? undefined);
+      this.initializeBookingRange(0, date, slot ?? undefined);
       return;
     }
 
     if (slot !== null) {
       this.runWithoutRangeSync(() => {
-        this.form.patchValue({ startShift: slot, endShift: slot }, { emitEvent: false });
+        booking.patchValue({ startShift: slot, endShift: slot }, { emitEvent: false });
       });
-      this.syncShiftsFromRange();
+      this.syncShiftsFromRange(0);
     }
   }
 
@@ -476,17 +607,18 @@ export class OrderFormComponent implements OnInit {
    * Sets start/end date and shift together so validators never see a partial range
    * (e.g. evening start with morning end on the same day).
    */
-  private initializeBookingRange(iso: string, slot?: TimeSlot): void {
+  private initializeBookingRange(bookingIndex: number, iso: string, slot?: TimeSlot): void {
     const parts = this.hebrew.isoToHebrewParts(iso);
     if (!parts) {
       return;
     }
 
-    const resolvedSlot = slot ?? (this.form.controls['startShift'].value as TimeSlot);
+    const booking = this.bookingGroup(bookingIndex);
+    const resolvedSlot = slot ?? (booking.controls['startShift'].value as TimeSlot);
     this.ensureYearInOptions(parts.year);
 
     this.runWithoutRangeSync(() => {
-      this.form.patchValue(
+      booking.patchValue(
         {
           startHebrewYear: parts.year,
           startHebrewMonth: parts.month,
@@ -503,15 +635,15 @@ export class OrderFormComponent implements OnInit {
         { emitEvent: false }
       );
 
-      this.syncEndpointHebrewSignals('start');
-      this.syncEndpointHebrewSignals('end');
+      this.syncEndpointHebrewSignals(bookingIndex, 'start');
+      this.syncEndpointHebrewSignals(bookingIndex, 'end');
 
-      this.constrainShiftForDate(iso, 'startShift', false);
-      this.constrainShiftForDate(iso, 'endShift', false);
-      this.coerceEndShiftToValidRange(false);
+      this.constrainShiftForDate(bookingIndex, iso, 'startShift', false);
+      this.constrainShiftForDate(bookingIndex, iso, 'endShift', false);
+      this.coerceEndShiftToValidRange(bookingIndex, false);
     });
 
-    this.syncShiftsFromRange();
+    this.syncShiftsFromRange(bookingIndex);
 
     if (this.isIsoBlocked(iso)) {
       this.toast.error('התאריך שנבחר חסום להזמנות חדשות');
@@ -560,19 +692,98 @@ export class OrderFormComponent implements OnInit {
     if (!c) {
       return;
     }
-    const directoryNotes = c.notes ?? '';
+    this.applyCustomerDetails(c, 'פרטי הלקוח עודכנו מהכרטיס לקוח');
+  }
+
+  protected customerSuggestLabel(c: CustomerDto): string {
+    const name = (c.fullName ?? '').trim() || 'ללא שם';
+    return `${name} - ${c.phone1}`;
+  }
+
+  protected onCustomerSuggestFocus(field: 'name' | 'phone'): void {
+    this.customerSuggestField.set(field);
+    if (this.customerSuggestions().length > 0) {
+      this.customerSuggestOpen.set(true);
+    }
+  }
+
+  protected onCustomerSuggestBlur(): void {
+    // Delay so mousedown on a suggestion can run before the menu closes.
+    setTimeout(() => this.closeCustomerSuggestions(), 150);
+  }
+
+  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone'): void {
+    if (!this.customerSuggestOpen() || this.customerSuggestField() !== field) {
+      if (event.key === 'ArrowDown' && this.customerSuggestions().length > 0) {
+        this.customerSuggestField.set(field);
+        this.customerSuggestOpen.set(true);
+        this.customerSuggestIndex.set(0);
+        event.preventDefault();
+      }
+      return;
+    }
+
+    const list = this.customerSuggestions();
+    if (list.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i + 1) % list.length);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      const idx = this.customerSuggestIndex();
+      const pick = idx >= 0 ? list[idx] : null;
+      if (pick) {
+        event.preventDefault();
+        this.selectCustomerSuggestion(pick);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeCustomerSuggestions();
+    }
+  }
+
+  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+    event?.preventDefault();
+    this.applyCustomerDetails(c, 'פרטי הלקוח מולאו מהרשימה');
+  }
+
+  private applyCustomerDetails(c: CustomerDto, toastMessage: string): void {
     this.form.patchValue(
       {
         customerName: c.fullName ?? '',
+        phone: c.phone1 ?? '',
+        phone2: c.phone2 ?? '',
         address: c.address ?? ''
       },
-      { emitEvent: true }
+      { emitEvent: false }
     );
+    this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(c.phone1 ?? ''));
     this.existingCustomerMatch.set(null);
+    this.closeCustomerSuggestions();
+
+    const directoryNotes = c.notes ?? '';
     if (directoryNotes.trim().length > 0) {
       this.showCustomerDirectoryNotesAlert(directoryNotes);
     }
-    this.toast.show('שם וכתובת עודכנו מהכרטיס לקוח', 'info');
+    this.toast.show(toastMessage, 'info');
+  }
+
+  private closeCustomerSuggestions(): void {
+    this.customerSuggestOpen.set(false);
+    this.customerSuggestIndex.set(-1);
+    this.customerSuggestions.set([]);
+    this.customerSuggestField.set(null);
   }
 
   /** Toast from customer card notes after "fill details"; stronger styling for payment-risk phrases. */
@@ -596,32 +807,36 @@ export class OrderFormComponent implements OnInit {
    * user immediately understands what blocked the save.
    */
   private firstInvalidMessage(): string {
-    if (this.form.errors?.['orderDateInPast']) {
-      return 'לא ניתן לשמור הזמנה לתאריך שעבר';
-    }
-    if (this.form.errors?.['shiftsRequired']) {
-      return 'יש להוסיף לפחות תאריך ומשמרת אחת להזמנה';
-    }
-    if (this.form.errors?.['rangeInvalid']) {
-      return 'מועד הסיום חייב להיות אחרי מועד ההתחלה';
-    }
-    if (this.form.errors?.['selectedShiftInPast']) {
-      return 'לא ניתן לשמור הזמנה עם משמרת מתאריך שעבר';
-    }
-    if (this.form.errors?.['shiftNotAllowedForDate']) {
-      return 'המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר, שבת — ערב)';
-    }
-    if (this.form.errors?.['shiftBlocked']) {
-      const reason = this.form.errors['blockedReason'];
-      return typeof reason === 'string' && reason.trim()
-        ? `התאריך חסום להזמנות חדשות: ${reason.trim()}`
-        : 'התאריך חסום להזמנות חדשות';
-    }
-    if (this.selectedEquipmentIdsControl.errors?.['required']) {
-      return 'יש לבחור לפחות תא ציוד אחד';
-    }
-    if (this.form.errors?.['returnTimeRequired']) {
-      return 'יש להזין שעת החזרה';
+    for (let i = 0; i < this.bookings.length; i++) {
+      const booking = this.bookingGroup(i);
+      const prefix = this.bookings.length > 1 ? `הזמנה ${i + 1}: ` : '';
+      if (booking.errors?.['orderDateInPast']) {
+        return `${prefix}לא ניתן לשמור הזמנה לתאריך שעבר`;
+      }
+      if (booking.errors?.['shiftsRequired']) {
+        return `${prefix}יש להוסיף לפחות תאריך ומשמרת אחת להזמנה`;
+      }
+      if (booking.errors?.['rangeInvalid']) {
+        return `${prefix}מועד הסיום חייב להיות אחרי מועד ההתחלה`;
+      }
+      if (booking.errors?.['selectedShiftInPast']) {
+        return `${prefix}לא ניתן לשמור הזמנה עם משמרת מתאריך שעבר`;
+      }
+      if (booking.errors?.['shiftNotAllowedForDate']) {
+        return `${prefix}המשמרת אינה מתאימה ליום הנבחר (שישי — בוקר, שבת — ערב)`;
+      }
+      if (booking.errors?.['shiftBlocked']) {
+        const reason = booking.errors['blockedReason'];
+        return typeof reason === 'string' && reason.trim()
+          ? `${prefix}התאריך חסום להזמנות חדשות: ${reason.trim()}`
+          : `${prefix}התאריך חסום להזמנות חדשות`;
+      }
+      if (this.equipmentIdsControl(i).errors?.['required']) {
+        return `${prefix}יש לבחור לפחות תא ציוד אחד`;
+      }
+      if (booking.errors?.['returnTimeRequired']) {
+        return `${prefix}יש להזין שעת החזרה`;
+      }
     }
     const phoneCtrl = this.form.controls['phone'];
     const phone2Ctrl = this.form.controls['phone2'];
@@ -677,46 +892,71 @@ export class OrderFormComponent implements OnInit {
   }
 
   private sendSaveWithConflictOverride(): void {
-    const basePayload = this.toPayload();
+    const payloads = this.toPayloads();
+    if (payloads.length === 0) {
+      this.toast.error('אין הזמנות לשמירה');
+      return;
+    }
+
     this.submitting.set(true);
 
-    this.hasAnyBookingConflict(basePayload)
+    from(payloads)
       .pipe(
-        switchMap((hasConflict) => {
-          if (!hasConflict) {
-            return this.sendSaveRequest(basePayload);
-          }
+        concatMap((basePayload) =>
+          this.hasAnyBookingConflict(basePayload).pipe(
+            switchMap((hasConflict) => {
+              if (!hasConflict) {
+                return this.sendSaveRequest(basePayload);
+              }
 
-          const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
-          if (!confirmed) {
-            return of(null);
-          }
+              const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
+              if (!confirmed) {
+                return of(null);
+              }
 
-          return this.sendSaveRequest({
-            ...basePayload,
-            allowDoubleBooking: true
-          });
-        }),
+              return this.sendSaveRequest({
+                ...basePayload,
+                allowDoubleBooking: true
+              });
+            })
+          )
+        ),
+        toArray(),
         finalize(() => this.submitting.set(false))
       )
       .subscribe({
-        next: (saved) => {
-          if (saved === null) {
+        next: (results) => {
+          const saved = results.filter((r): r is OrderDto => r !== null);
+          if (saved.length === 0) {
             return;
           }
+
+          const firstPayload = payloads[0]!;
           this.existingCustomerMatch.set(null);
           this.customers.upsertFromPayload({
-            phone1: OrderFormComponent.digitsOnly(String(basePayload.phone ?? '')),
+            phone1: OrderFormComponent.digitsOnly(String(firstPayload.phone ?? '')),
             phone2:
-              OrderFormComponent.digitsOnly(String(basePayload.phone2 ?? '')).length > 0
-                ? OrderFormComponent.digitsOnly(String(basePayload.phone2 ?? ''))
+              OrderFormComponent.digitsOnly(String(firstPayload.phone2 ?? '')).length > 0
+                ? OrderFormComponent.digitsOnly(String(firstPayload.phone2 ?? ''))
                 : null,
-            fullName: basePayload.customerName ?? null,
-            address: basePayload.address ?? null
+            fullName: firstPayload.customerName ?? null,
+            address: firstPayload.address ?? null
           });
+
           const id = this.editingId();
-          this.toast.success(id !== null ? 'ההזמנה עודכנה בהצלחה' : 'ההזמנה נשמרה בהצלחה');
-          this.navigateAfterOrderFlow(saved.shifts?.[0]?.orderDate);
+          if (id !== null) {
+            this.toast.success('ההזמנה עודכנה בהצלחה');
+          } else if (saved.length === 1) {
+            this.toast.success('ההזמנה נשמרה בהצלחה');
+          } else if (saved.length === payloads.length) {
+            this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה`);
+          } else {
+            this.toast.warning(`נשמרו ${saved.length} מתוך ${payloads.length} הזמנות`);
+          }
+
+          const navigateDate =
+            saved[0]?.shifts?.[0]?.orderDate ?? firstPayload.shifts?.[0]?.orderDate ?? null;
+          this.navigateAfterOrderFlow(navigateDate);
         }
       });
   }
@@ -747,8 +987,16 @@ export class OrderFormComponent implements OnInit {
   protected clearForm(): void {
     const todayIso = this.toIso(new Date());
     const todayParts = this.hebrew.toHebrewParts(new Date());
-    this.form.reset({
-      equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
+
+    while (this.bookings.length > 1) {
+      this.bookings.removeAt(this.bookings.length - 1);
+    }
+    this.bookingUi.set([]);
+    this.ensureBookingUi(0);
+
+    const booking = this.bookingGroup(0);
+    booking.reset({
+      equipmentDefinitionIds: [],
       startDate: todayIso,
       startShift: TimeSlot.Morning,
       endDate: todayIso,
@@ -760,6 +1008,17 @@ export class OrderFormComponent implements OnInit {
       endHebrewYear: todayParts.year,
       endHebrewMonth: todayParts.month,
       endHebrewDay: todayParts.day,
+      returnTimeType: ReturnTimeType.LateNight,
+      customReturnTime: ''
+    });
+    this.syncEndpointHebrewSignals(0, 'start');
+    this.syncEndpointHebrewSignals(0, 'end');
+    this.syncHebrewEndpointToIso(0, 'start', false);
+    this.syncHebrewEndpointToIso(0, 'end', false);
+    this.shiftsArray(0).clear();
+    this.syncShiftsFromRange(0);
+
+    this.form.patchValue({
       customerName: '',
       phone: '',
       phone2: '',
@@ -768,18 +1027,10 @@ export class OrderFormComponent implements OnInit {
       depositOnName: '',
       paymentAmount: null,
       isUnpaid: false,
-      returnTimeType: ReturnTimeType.LateNight,
-      customReturnTime: '',
       notes: ''
     });
-    this.syncEndpointHebrewSignals('start');
-    this.syncEndpointHebrewSignals('end');
-    this.syncHebrewEndpointToIso('start', false);
-    this.syncHebrewEndpointToIso('end', false);
-    this.selectedShiftSlots.clear();
-    this.syncShiftsFromRange();
-    this.equipmentList.controls.forEach((row, idx) => {
-      const type = LOANED_EQUIPMENT_ORDER[idx]!;
+
+    this.equipmentList.controls.forEach((row) => {
       const g = row as FormGroup;
       g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
       this.setNotesArrayLength(g, 0);
@@ -788,8 +1039,9 @@ export class OrderFormComponent implements OnInit {
         notes.at(i).setValue('');
       }
     });
+    this.customLoanedList.clear();
     this.existingCustomerMatch.set(null);
-    this.syncShiftsFromRange();
+    this.closeCustomerSuggestions();
     this.toast.show('הטופס נוקה', 'info');
   }
 
@@ -808,7 +1060,7 @@ export class OrderFormComponent implements OnInit {
             return;
           }
           this.toast.success('ההזמנה נמחקה בהצלחה');
-          const iso = this.form.controls['startDate'].value;
+          const iso = this.bookingGroup(0).controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }
       });
@@ -833,7 +1085,7 @@ export class OrderFormComponent implements OnInit {
             return;
           }
           this.toast.success('ההזמנה בוטלה בהצלחה');
-          const iso = this.form.controls['startDate'].value;
+          const iso = this.bookingGroup(0).controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }
       });
@@ -955,6 +1207,27 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
 
   private buildForm(): FormGroup {
+    return this.fb.group({
+      bookings: this.fb.array([this.buildBookingGroup()]),
+
+      customerName: ['', Validators.maxLength(100)],
+      phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+      phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
+      address: ['', Validators.maxLength(200)],
+      depositType: [null as DepositType | null],
+      depositOnName: ['', Validators.maxLength(100)],
+      paymentAmount: [null as number | null, [Validators.min(0)]],
+      isUnpaid: [false],
+      notes: ['', Validators.maxLength(1000)],
+
+      loanedEquipments: this.fb.array(
+        LOANED_EQUIPMENT_ORDER.map((type) => this.buildEquipmentRow(type))
+      ),
+      customLoanedItems: this.fb.array<FormGroup>([])
+    });
+  }
+
+  private buildBookingGroup(): FormGroup {
     const today = new Date();
     const todayIso = this.toIso(today);
     const parts = this.hebrew.toHebrewParts(today);
@@ -976,28 +1249,14 @@ export class OrderFormComponent implements OnInit {
         endHebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
         endHebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
 
-        customerName: ['', Validators.maxLength(100)],
-        phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
-        phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
-        address: ['', Validators.maxLength(200)],
-        depositType: [null as DepositType | null],
-        depositOnName: ['', Validators.maxLength(100)],
-        paymentAmount: [null as number | null, [Validators.min(0)]],
-        isUnpaid: [false],
         returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(ReturnTimeType.LateNight, Validators.required),
-        customReturnTime: ['', Validators.maxLength(20)],
-        notes: ['', Validators.maxLength(1000)],
-
-        loanedEquipments: this.fb.array(
-          LOANED_EQUIPMENT_ORDER.map((type) => this.buildEquipmentRow(type))
-        ),
-        customLoanedItems: this.fb.array<FormGroup>([])
+        customReturnTime: ['', Validators.maxLength(20)]
       },
       {
         // Wrap in an arrow at the call site so `this` is bound when Angular
         // invokes the validator. The validator itself must be a *method*
-        // (not an instance-field arrow) because `buildForm()` runs during
-        // field initialization — before any later instance-field arrow
+        // (not an instance-field arrow) because `buildForm()` / `buildBookingGroup()`
+        // run during field initialization — before any later instance-field arrow
         // properties have been assigned — so referencing one of those would
         // pass `undefined` to Angular and crash with
         // "Cannot read properties of undefined (reading 'validate')".
@@ -1012,6 +1271,57 @@ export class OrderFormComponent implements OnInit {
         ]
       }
     );
+  }
+
+  private emptyBookingUi(parts?: HebrewDateParts): BookingUiState {
+    const p = parts ?? this.hebrew.toHebrewParts(new Date());
+    return {
+      occupiedById: {},
+      slotTaken: false,
+      equipmentDropdownOpen: false,
+      startHebrewYear: p.year,
+      startHebrewMonth: p.month,
+      startHebrewDay: p.day,
+      endHebrewYear: p.year,
+      endHebrewMonth: p.month,
+      endHebrewDay: p.day
+    };
+  }
+
+  private ensureBookingUi(index: number): void {
+    this.bookingUi.update((states) => {
+      const next = [...states];
+      while (next.length <= index) {
+        next.push(this.emptyBookingUi());
+      }
+      return next;
+    });
+  }
+
+  private patchBookingUi(index: number, patch: Partial<BookingUiState>): void {
+    this.ensureBookingUi(index);
+    this.bookingUi.update((states) => {
+      const next = [...states];
+      next[index] = { ...next[index]!, ...patch };
+      return next;
+    });
+  }
+
+  private wireBookingGroup(index: number): void {
+    const booking = this.bookingGroup(index);
+    this.wireHebrewEndpointSync(booking, 'start');
+    this.wireHebrewEndpointSync(booking, 'end');
+    this.wireRangeSync(booking);
+
+    this.equipmentIdsControl(index)
+      .valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        const bi = this.bookings.controls.indexOf(booking);
+        if (bi < 0) {
+          return;
+        }
+        this.refreshSlotTakenWarning(bi);
+      });
   }
 
   // -----------------------------------------------------------------
@@ -1158,36 +1468,36 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
 
   /**
-   * Wires the three Hebrew-date form controls so that:
-   *  - selecting a different month/year clamps the day and (in non-leap years) the month;
-   *  - any change recomputes the Gregorian `orderDate` and the read-only display;
-   *  - the signals that drive `monthOptions` / `dayOptions` track the current values.
-   *
-   * Also runs once synchronously to initialize the Gregorian display from today's date.
-   */
-  /**
-   * Fetches equipment occupancy for the current shift range in one request and
+   * Fetches equipment occupancy for booking shift ranges and
    * updates the dropdown badges plus the duplicate-booking warning bar.
    */
   private wireEquipmentAvailability(): void {
-    this.selectedEquipmentIdsControl.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.refreshSlotTakenWarning());
-
     this.availabilityFetchTrigger$
       .pipe(
-        debounceTime(200),
-        switchMap(() => this.loadEquipmentAvailability()),
+        groupBy((bookingIndex) => bookingIndex),
+        mergeMap((group$) =>
+          group$.pipe(
+            debounceTime(200),
+            switchMap((bookingIndex) =>
+              this.loadEquipmentAvailability(bookingIndex).pipe(
+                map((occupied) => ({ bookingIndex, occupied }))
+              )
+            )
+          )
+        ),
         takeUntilDestroyed(this.destroyRef)
       )
-      .subscribe((occupied) => {
-        this.equipmentOccupiedById.set(occupied);
-        this.refreshSlotTakenWarning();
+      .subscribe(({ bookingIndex, occupied }) => {
+        if (bookingIndex < 0 || bookingIndex >= this.bookings.length) {
+          return;
+        }
+        this.patchBookingUi(bookingIndex, { occupiedById: occupied });
+        this.refreshSlotTakenWarning(bookingIndex);
       });
   }
 
-  private loadEquipmentAvailability() {
-    const shifts = this.selectedShiftRows();
+  private loadEquipmentAvailability(bookingIndex: number) {
+    const shifts = this.selectedShiftRows(bookingIndex);
     if (shifts.length === 0) {
       return of({});
     }
@@ -1206,18 +1516,20 @@ export class OrderFormComponent implements OnInit {
     return map;
   }
 
-  private refreshSlotTakenWarning(): void {
-    const occupied = this.equipmentOccupiedById();
-    const selected = this.selectedEquipmentIdsControl.value ?? [];
-    this.slotTakenSig.set(selected.some((id) => occupied[id] === true));
+  private refreshSlotTakenWarning(bookingIndex: number): void {
+    const occupied = this.bookingUi()[bookingIndex]?.occupiedById ?? {};
+    const selected = this.equipmentIdsControl(bookingIndex).value ?? [];
+    this.patchBookingUi(bookingIndex, {
+      slotTaken: selected.some((id) => occupied[id] === true)
+    });
   }
 
-  private wireRangeSync(): void {
+  private wireRangeSync(booking: FormGroup): void {
     const controls = [
-      this.form.controls['startDate'],
-      this.form.controls['startShift'],
-      this.form.controls['endDate'],
-      this.form.controls['endShift']
+      booking.controls['startDate'],
+      booking.controls['startShift'],
+      booking.controls['endDate'],
+      booking.controls['endShift']
     ];
     for (const control of controls) {
       control.valueChanges
@@ -1226,43 +1538,52 @@ export class OrderFormComponent implements OnInit {
           if (this.suppressRangeSync) {
             return;
           }
-          this.syncShiftsFromRange();
+          const bi = this.bookings.controls.indexOf(booking);
+          if (bi < 0) {
+            return;
+          }
+          this.syncShiftsFromRange(bi);
         });
     }
-    this.syncShiftsFromRange();
+    const bi = this.bookings.controls.indexOf(booking);
+    if (bi >= 0) {
+      this.syncShiftsFromRange(bi);
+    }
   }
 
-  private syncShiftsFromRange(): void {
-    const startDate = this.form.controls['startDate'].value as string;
-    const endDate = this.form.controls['endDate'].value as string;
-    let startShift = this.form.controls['startShift'].value as TimeSlot;
-    let endShift = this.form.controls['endShift'].value as TimeSlot;
+  private syncShiftsFromRange(bookingIndex: number): void {
+    const booking = this.bookingGroup(bookingIndex);
+    const startDate = booking.controls['startDate'].value as string;
+    const endDate = booking.controls['endDate'].value as string;
+    let startShift = booking.controls['startShift'].value as TimeSlot;
+    let endShift = booking.controls['endShift'].value as TimeSlot;
     const startAllowed = this.availableTimeSlots(startDate);
     const endAllowed = this.availableTimeSlots(endDate);
     if (!startAllowed.includes(startShift)) {
       startShift = startAllowed[0] ?? TimeSlot.Morning;
-      this.form.controls['startShift'].setValue(startShift, { emitEvent: false });
+      booking.controls['startShift'].setValue(startShift, { emitEvent: false });
     }
     if (!endAllowed.includes(endShift)) {
       endShift = endAllowed[endAllowed.length - 1] ?? TimeSlot.Evening;
-      this.form.controls['endShift'].setValue(endShift, { emitEvent: false });
+      booking.controls['endShift'].setValue(endShift, { emitEvent: false });
     }
     endShift = this.coerceEndShiftForRange(startDate, startShift, endDate, endShift);
-    if (endShift !== this.form.controls['endShift'].value) {
-      this.form.controls['endShift'].setValue(endShift, { emitEvent: false });
+    if (endShift !== booking.controls['endShift'].value) {
+      booking.controls['endShift'].setValue(endShift, { emitEvent: false });
     }
     const shifts = this.generateContinuousShifts(startDate, startShift, endDate, endShift);
 
-    this.selectedShiftSlots.clear({ emitEvent: false });
+    const shiftsFa = this.shiftsArray(bookingIndex);
+    shiftsFa.clear({ emitEvent: false });
     for (const shift of shifts) {
-      this.selectedShiftSlots.push(this.fb.group({
+      shiftsFa.push(this.fb.group({
         orderDate: this.fb.nonNullable.control(shift.orderDate),
         timeSlot: this.fb.nonNullable.control(shift.timeSlot)
       }), { emitEvent: false });
     }
-    this.form.controls['orderDate'].setValue(startDate, { emitEvent: false });
-    this.form.updateValueAndValidity({ emitEvent: false });
-    this.availabilityFetchTrigger$.next();
+    booking.controls['orderDate'].setValue(startDate, { emitEvent: false });
+    booking.updateValueAndValidity({ emitEvent: false });
+    this.availabilityFetchTrigger$.next(bookingIndex);
   }
 
   private generateContinuousShifts(
@@ -1345,14 +1666,15 @@ export class OrderFormComponent implements OnInit {
     return endAllowed[endAllowed.length - 1] ?? startShift;
   }
 
-  private coerceEndShiftToValidRange(emitEvent: boolean): void {
-    const startDate = this.form.controls['startDate'].value as string;
-    const endDate = this.form.controls['endDate'].value as string;
-    const startShift = this.form.controls['startShift'].value as TimeSlot;
-    const endShift = this.form.controls['endShift'].value as TimeSlot;
+  private coerceEndShiftToValidRange(bookingIndex: number, emitEvent: boolean): void {
+    const booking = this.bookingGroup(bookingIndex);
+    const startDate = booking.controls['startDate'].value as string;
+    const endDate = booking.controls['endDate'].value as string;
+    const startShift = booking.controls['startShift'].value as TimeSlot;
+    const endShift = booking.controls['endShift'].value as TimeSlot;
     const coerced = this.coerceEndShiftForRange(startDate, startShift, endDate, endShift);
     if (coerced !== endShift) {
-      this.form.controls['endShift'].setValue(coerced, { emitEvent });
+      booking.controls['endShift'].setValue(coerced, { emitEvent });
     }
   }
 
@@ -1390,6 +1712,55 @@ export class OrderFormComponent implements OnInit {
         this.existingCustomerMatch.set(
           hit && !this.customerFieldsAlreadyMatch(hit) ? hit : null
         );
+      });
+  }
+
+  /**
+   * Debounced typeahead on Name / Phone1 using the same in-memory customer directory
+   * as ניהול לקוחות. Empty / unmatched queries close the menu so new clients can type freely.
+   */
+  private wireCustomerAutocomplete(): void {
+    const name$ = this.form.controls['customerName'].valueChanges.pipe(
+      map((v) => ({ field: 'name' as const, q: String(v ?? '').trim() }))
+    );
+    const phone$ = this.form.controls['phone'].valueChanges.pipe(
+      map((v) => ({ field: 'phone' as const, q: String(v ?? '').trim() }))
+    );
+
+    merge(name$, phone$)
+      .pipe(
+        debounceTime(300),
+        switchMap(({ field, q }) => {
+          if (q.length < 1) {
+            this.closeCustomerSuggestions();
+            return EMPTY;
+          }
+          return this.customers.search(q).pipe(
+            map((list) => ({
+              field,
+              q,
+              list: list.slice(0, OrderFormComponent.CUSTOMER_SUGGEST_LIMIT)
+            }))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(({ field, q, list }) => {
+        const current =
+          field === 'name'
+            ? String(this.form.controls['customerName'].value ?? '').trim()
+            : String(this.form.controls['phone'].value ?? '').trim();
+        if (current !== q) {
+          return;
+        }
+        if (list.length === 0) {
+          this.closeCustomerSuggestions();
+          return;
+        }
+        this.customerSuggestField.set(field);
+        this.customerSuggestions.set(list);
+        this.customerSuggestIndex.set(0);
+        this.customerSuggestOpen.set(true);
       });
   }
 
@@ -1446,59 +1817,77 @@ export class OrderFormComponent implements OnInit {
     return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   }
 
-  private wireHebrewRangeSync(): void {
-    this.wireHebrewEndpointSync('start');
-    this.wireHebrewEndpointSync('end');
-  }
+  private wireHebrewEndpointSync(booking: FormGroup, endpoint: 'start' | 'end'): void {
+    const yearCtrl = booking.controls[`${endpoint}HebrewYear`];
+    const monthCtrl = booking.controls[`${endpoint}HebrewMonth`];
+    const dayCtrl = booking.controls[`${endpoint}HebrewDay`];
 
-  private wireHebrewEndpointSync(endpoint: 'start' | 'end'): void {
-    const yearCtrl = this.form.controls[`${endpoint}HebrewYear`];
-    const monthCtrl = this.form.controls[`${endpoint}HebrewMonth`];
-    const dayCtrl = this.form.controls[`${endpoint}HebrewDay`];
+    const resolveIndex = (): number => this.bookings.controls.indexOf(booking);
 
-    this.syncEndpointHebrewSignals(endpoint);
-    this.ensureYearInOptions(Number(yearCtrl.value));
-    this.syncHebrewEndpointToIso(endpoint, false);
+    const bi0 = resolveIndex();
+    if (bi0 >= 0) {
+      this.syncEndpointHebrewSignals(bi0, endpoint);
+      this.ensureYearInOptions(Number(yearCtrl.value));
+      this.syncHebrewEndpointToIso(bi0, endpoint, false);
+    }
 
     yearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((y) => {
-      this.syncEndpointHebrewSignals(endpoint);
+      const bi = resolveIndex();
+      if (bi < 0) {
+        return;
+      }
+      this.syncEndpointHebrewSignals(bi, endpoint);
       this.ensureYearInOptions(Number(y));
-      this.normalizeHebrewSelection(endpoint);
-      this.syncHebrewEndpointToIso(endpoint, true);
+      this.normalizeHebrewSelection(bi, endpoint);
+      this.syncHebrewEndpointToIso(bi, endpoint, true);
     });
 
     monthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.syncEndpointHebrewSignals(endpoint);
-      this.normalizeHebrewSelection(endpoint);
-      this.syncHebrewEndpointToIso(endpoint, true);
+      const bi = resolveIndex();
+      if (bi < 0) {
+        return;
+      }
+      this.syncEndpointHebrewSignals(bi, endpoint);
+      this.normalizeHebrewSelection(bi, endpoint);
+      this.syncHebrewEndpointToIso(bi, endpoint, true);
     });
 
     dayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.syncEndpointHebrewSignals(endpoint);
-      this.normalizeHebrewSelection(endpoint);
-      this.syncHebrewEndpointToIso(endpoint, true);
+      const bi = resolveIndex();
+      if (bi < 0) {
+        return;
+      }
+      this.syncEndpointHebrewSignals(bi, endpoint);
+      this.normalizeHebrewSelection(bi, endpoint);
+      this.syncHebrewEndpointToIso(bi, endpoint, true);
     });
   }
 
-  private syncEndpointHebrewSignals(endpoint: 'start' | 'end'): void {
-    const year = Number(this.form.controls[`${endpoint}HebrewYear`].value);
-    const month = Number(this.form.controls[`${endpoint}HebrewMonth`].value);
-    const day = Number(this.form.controls[`${endpoint}HebrewDay`].value);
+  private syncEndpointHebrewSignals(bookingIndex: number, endpoint: 'start' | 'end'): void {
+    const booking = this.bookingGroup(bookingIndex);
+    const year = Number(booking.controls[`${endpoint}HebrewYear`].value);
+    const month = Number(booking.controls[`${endpoint}HebrewMonth`].value);
+    const day = Number(booking.controls[`${endpoint}HebrewDay`].value);
     if (endpoint === 'start') {
-      this.startHebrewYearSig.set(year);
-      this.startHebrewMonthSig.set(month);
-      this.startHebrewDaySig.set(day);
+      this.patchBookingUi(bookingIndex, {
+        startHebrewYear: year,
+        startHebrewMonth: month,
+        startHebrewDay: day
+      });
     } else {
-      this.endHebrewYearSig.set(year);
-      this.endHebrewMonthSig.set(month);
-      this.endHebrewDaySig.set(day);
+      this.patchBookingUi(bookingIndex, {
+        endHebrewYear: year,
+        endHebrewMonth: month,
+        endHebrewDay: day
+      });
     }
   }
 
-  private normalizeHebrewSelection(endpoint: 'start' | 'end'): void {
-    const yearCtrl = this.form.controls[`${endpoint}HebrewYear`];
-    const monthCtrl = this.form.controls[`${endpoint}HebrewMonth`];
-    const dayCtrl = this.form.controls[`${endpoint}HebrewDay`];
+  private normalizeHebrewSelection(bookingIndex: number, endpoint: 'start' | 'end'): void {
+    const booking = this.bookingGroup(bookingIndex);
+    const yearCtrl = booking.controls[`${endpoint}HebrewYear`];
+    const monthCtrl = booking.controls[`${endpoint}HebrewMonth`];
+    const dayCtrl = booking.controls[`${endpoint}HebrewDay`];
 
     let year = Number(yearCtrl.value);
     let month = Number(monthCtrl.value);
@@ -1511,29 +1900,29 @@ export class OrderFormComponent implements OnInit {
     if (!this.hebrew.isLeapYear(year) && month === 13) {
       month = 12;
       monthCtrl.setValue(month, { emitEvent: false });
-      this.syncEndpointHebrewSignals(endpoint);
+      this.syncEndpointHebrewSignals(bookingIndex, endpoint);
     }
 
     const allowPast = this.editingId() !== null;
     if (!allowPast) {
-      const ys = this.yearOptionsForEndpoint(endpoint);
+      const ys = this.yearOptionsForEndpoint(bookingIndex, endpoint);
       if (ys.length > 0 && !ys.includes(year)) {
         const y2 = ys.find((yy) => yy >= year) ?? ys[ys.length - 1]!;
         yearCtrl.setValue(y2, { emitEvent: false });
         year = y2;
-        this.syncEndpointHebrewSignals(endpoint);
+        this.syncEndpointHebrewSignals(bookingIndex, endpoint);
       }
 
-      const monthOpts = this.monthOptionsForEndpoint(endpoint);
+      const monthOpts = this.monthOptionsForEndpoint(bookingIndex, endpoint);
       if (monthOpts.length > 0 && !monthOpts.some((m) => m.value === month)) {
         const m2 = monthOpts[0]!.value;
         monthCtrl.setValue(m2, { emitEvent: false });
         month = m2;
-        this.syncEndpointHebrewSignals(endpoint);
+        this.syncEndpointHebrewSignals(bookingIndex, endpoint);
       }
 
       if (this.allowedHebrewDaysInMonth(year, month, false).length === 0) {
-        this.patchHebrewToToday(endpoint);
+        this.patchHebrewToToday(bookingIndex, endpoint);
         return;
       }
     }
@@ -1558,7 +1947,7 @@ export class OrderFormComponent implements OnInit {
       }
     }
 
-    this.syncEndpointHebrewSignals(endpoint);
+    this.syncEndpointHebrewSignals(bookingIndex, endpoint);
   }
 
   /**
@@ -1603,10 +1992,10 @@ export class OrderFormComponent implements OnInit {
     return false;
   }
 
-  private patchHebrewToToday(endpoint: 'start' | 'end'): void {
+  private patchHebrewToToday(bookingIndex: number, endpoint: 'start' | 'end'): void {
     const parts = this.hebrew.toHebrewParts(new Date());
     this.ensureYearInOptions(parts.year);
-    this.form.patchValue(
+    this.bookingGroup(bookingIndex).patchValue(
       {
         [`${endpoint}HebrewYear`]: parts.year,
         [`${endpoint}HebrewMonth`]: parts.month,
@@ -1614,18 +2003,19 @@ export class OrderFormComponent implements OnInit {
       },
       { emitEvent: false }
     );
-    if (endpoint === 'start') {
-      this.syncEndpointHebrewSignals('start');
-    } else {
-      this.syncEndpointHebrewSignals('end');
-    }
-    this.syncHebrewEndpointToIso(endpoint, false);
+    this.syncEndpointHebrewSignals(bookingIndex, endpoint);
+    this.syncHebrewEndpointToIso(bookingIndex, endpoint, false);
   }
 
-  private syncHebrewEndpointToIso(endpoint: 'start' | 'end', emitDateChange: boolean): void {
-    const year = Number(this.form.controls[`${endpoint}HebrewYear`].value);
-    const month = Number(this.form.controls[`${endpoint}HebrewMonth`].value);
-    const day = Number(this.form.controls[`${endpoint}HebrewDay`].value);
+  private syncHebrewEndpointToIso(
+    bookingIndex: number,
+    endpoint: 'start' | 'end',
+    emitDateChange: boolean
+  ): void {
+    const booking = this.bookingGroup(bookingIndex);
+    const year = Number(booking.controls[`${endpoint}HebrewYear`].value);
+    const month = Number(booking.controls[`${endpoint}HebrewMonth`].value);
+    const day = Number(booking.controls[`${endpoint}HebrewDay`].value);
 
     const isoControlName = endpoint === 'start' ? 'startDate' : 'endDate';
     const shiftControlName = endpoint === 'start' ? 'startShift' : 'endShift';
@@ -1636,15 +2026,16 @@ export class OrderFormComponent implements OnInit {
 
     const greg = this.hebrew.toGregorian(year, month, day);
     const iso = this.toIso(greg);
-    this.form.controls[isoControlName].setValue(iso, { emitEvent: emitDateChange });
-    this.constrainShiftForDate(iso, shiftControlName, false);
+    booking.controls[isoControlName].setValue(iso, { emitEvent: emitDateChange });
+    this.constrainShiftForDate(bookingIndex, iso, shiftControlName, false);
     if (endpoint === 'start') {
-      this.form.controls['orderDate'].setValue(iso, { emitEvent: false });
+      booking.controls['orderDate'].setValue(iso, { emitEvent: false });
     }
-    this.form.updateValueAndValidity({ emitEvent: false });
+    booking.updateValueAndValidity({ emitEvent: false });
   }
 
   private constrainShiftForDate(
+    bookingIndex: number,
     iso: string,
     shiftControlName: 'startShift' | 'endShift',
     emitEvent = false
@@ -1653,7 +2044,7 @@ export class OrderFormComponent implements OnInit {
     if (!d) {
       return;
     }
-    const slotCtrl = this.form.controls[shiftControlName];
+    const slotCtrl = this.bookingGroup(bookingIndex).controls[shiftControlName];
     const current = slotCtrl.value as TimeSlot;
     const dow = d.getDay();
     if (dow === 5 && current !== TimeSlot.Morning) {
@@ -1663,14 +2054,19 @@ export class OrderFormComponent implements OnInit {
     }
   }
 
-  private setHebrewFromIso(iso: string, endpoint: 'start' | 'end', emitDateChange = false): void {
+  private setHebrewFromIso(
+    bookingIndex: number,
+    iso: string,
+    endpoint: 'start' | 'end',
+    emitDateChange = false
+  ): void {
     const parts = this.hebrew.isoToHebrewParts(iso);
     if (!parts) {
       return;
     }
 
     this.ensureYearInOptions(parts.year);
-    this.form.patchValue(
+    this.bookingGroup(bookingIndex).patchValue(
       {
         [`${endpoint}HebrewYear`]: parts.year,
         [`${endpoint}HebrewMonth`]: parts.month,
@@ -1679,14 +2075,14 @@ export class OrderFormComponent implements OnInit {
       { emitEvent: false }
     );
 
-    this.syncEndpointHebrewSignals(endpoint);
-    this.syncHebrewEndpointToIso(endpoint, emitDateChange);
+    this.syncEndpointHebrewSignals(bookingIndex, endpoint);
+    this.syncHebrewEndpointToIso(bookingIndex, endpoint, emitDateChange);
     if (endpoint === 'end') {
-      this.coerceEndShiftToValidRange(emitDateChange);
+      this.coerceEndShiftToValidRange(bookingIndex, emitDateChange);
     }
   }
 
-  private yearOptionsForEndpoint(endpoint: 'start' | 'end'): number[] {
+  private yearOptionsForEndpoint(bookingIndex: number, endpoint: 'start' | 'end'): number[] {
     const currentYear = this.hebrew.toHebrewParts(new Date()).year;
     const base = new Set<number>();
     for (let y = currentYear - 2; y <= currentYear + 5; y++) {
@@ -1705,8 +2101,9 @@ export class OrderFormComponent implements OnInit {
     return years;
   }
 
-  private monthOptionsForEndpoint(endpoint: 'start' | 'end'): HebrewMonthOption[] {
-    const year = endpoint === 'start' ? this.startHebrewYearSig() : this.endHebrewYearSig();
+  private monthOptionsForEndpoint(bookingIndex: number, endpoint: 'start' | 'end'): HebrewMonthOption[] {
+    const ui = this.bookingUi()[bookingIndex];
+    const year = endpoint === 'start' ? (ui?.startHebrewYear ?? 0) : (ui?.endHebrewYear ?? 0);
     if (!year) {
       return [];
     }
@@ -1717,9 +2114,10 @@ export class OrderFormComponent implements OnInit {
     return all.filter((m) => this.allowedHebrewDaysInMonth(year, m.value, false).length > 0);
   }
 
-  private dayOptionsForEndpoint(endpoint: 'start' | 'end'): number[] {
-    const year = endpoint === 'start' ? this.startHebrewYearSig() : this.endHebrewYearSig();
-    const month = endpoint === 'start' ? this.startHebrewMonthSig() : this.endHebrewMonthSig();
+  private dayOptionsForEndpoint(bookingIndex: number, endpoint: 'start' | 'end'): number[] {
+    const ui = this.bookingUi()[bookingIndex];
+    const year = endpoint === 'start' ? (ui?.startHebrewYear ?? 0) : (ui?.endHebrewYear ?? 0);
+    const month = endpoint === 'start' ? (ui?.startHebrewMonth ?? 0) : (ui?.endHebrewMonth ?? 0);
     if (!year || !month) {
       return [];
     }
@@ -1732,11 +2130,7 @@ export class OrderFormComponent implements OnInit {
     if (!year) {
       return;
     }
-    const inStart = this.startYearOptions().includes(year);
-    const inEnd = this.endYearOptions().includes(year);
-    if (!inStart && !inEnd) {
-      this.extraYearsSig.update((arr) => (arr.includes(year) ? arr : [...arr, year]));
-    }
+    this.extraYearsSig.update((arr) => (arr.includes(year) ? arr : [...arr, year]));
   }
 
   private buildEquipmentRow(type: LoanedEquipmentType): FormGroup {
@@ -1800,6 +2194,15 @@ export class OrderFormComponent implements OnInit {
       this.existingCustomerMatch.set(null);
     }
 
+    while (this.bookings.length > 1) {
+      this.bookings.removeAt(this.bookings.length - 1);
+    }
+    this.bookingUi.set([]);
+    this.ensureBookingUi(0);
+
+    const bookingIndex = 0;
+    const booking = this.bookingGroup(bookingIndex);
+
     const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
       .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));
     const shifts = [...(order.shifts ?? [])]
@@ -1829,20 +2232,28 @@ export class OrderFormComponent implements OnInit {
         endShift = startShift;
       }
     } else {
-      startIso = firstShift?.orderDate ?? (this.form.controls['startDate'].value as string);
-      endIso = lastShift?.orderDate ?? firstShift?.orderDate ?? (this.form.controls['endDate'].value as string);
+      startIso = firstShift?.orderDate ?? (booking.controls['startDate'].value as string);
+      endIso = lastShift?.orderDate ?? firstShift?.orderDate ?? (booking.controls['endDate'].value as string);
       startShift = firstShift?.timeSlot ?? TimeSlot.Morning;
       endShift = lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning;
     }
 
     this.runWithoutRangeSync(() => {
-      this.form.patchValue(
+      booking.patchValue(
         {
           equipmentDefinitionIds,
           startDate: startIso,
           startShift,
           endDate: endIso,
           endShift,
+          returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
+          customReturnTime: order.customReturnTime ?? ''
+        },
+        { emitEvent: false }
+      );
+
+      this.form.patchValue(
+        {
           customerName: order.customerName ?? '',
           phone: order.phone,
           phone2: order.phone2 ?? '',
@@ -1851,8 +2262,6 @@ export class OrderFormComponent implements OnInit {
           depositOnName: order.depositOnName ?? '',
           paymentAmount: order.paymentAmount ?? null,
           isUnpaid: mode === 'renew' ? true : order.isUnpaid,
-          returnTimeType: order.returnTimeType ?? ReturnTimeType.LateNight,
-          customReturnTime: order.customReturnTime ?? '',
           notes: order.notes ?? ''
         },
         { emitEvent: false }
@@ -1863,11 +2272,11 @@ export class OrderFormComponent implements OnInit {
         this.existingCustomerMatch.set(null);
       }
 
-      this.setHebrewFromIso(startIso, 'start', false);
-      this.setHebrewFromIso(endIso, 'end', false);
+      this.setHebrewFromIso(bookingIndex, startIso, 'start', false);
+      this.setHebrewFromIso(bookingIndex, endIso, 'end', false);
     });
 
-    this.syncShiftsFromRange();
+    this.syncShiftsFromRange(bookingIndex);
 
     const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
     for (const row of order.loanedEquipments ?? []) {
@@ -1912,7 +2321,52 @@ export class OrderFormComponent implements OnInit {
   // Submit payload
   // -----------------------------------------------------------------
 
-  private toPayload(): OrderCreateUpdateDto {
+  /** One independent order payload per booking section (separate DB rows on create). */
+  private toPayloads(): OrderCreateUpdateDto[] {
+    const shared = this.sharedCustomerPaymentFields();
+    const loaned = this.toLoanedEquipmentsPayload();
+    const count = this.isEdit() ? 1 : this.bookings.length;
+    const payloads: OrderCreateUpdateDto[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const booking = this.bookingGroup(i).getRawValue() as Record<string, unknown>;
+      payloads.push({
+        equipmentDefinitionIds: this.equipmentIdsControl(i).value,
+        shifts: this.shiftsArray(i).getRawValue() as OrderShiftDto[],
+        ...shared,
+        returnTimeType: (booking['returnTimeType'] as ReturnTimeType | null) ?? ReturnTimeType.LateNight,
+        customReturnTime: (booking['returnTimeType'] as ReturnTimeType | null) === ReturnTimeType.SpecificTime
+          ? this.optionalText(booking['customReturnTime'])
+          : null,
+        loanedEquipments: loaned,
+        allowDoubleBooking: false
+      });
+    }
+
+    return payloads;
+  }
+
+  private sharedCustomerPaymentFields(): Pick<
+    OrderCreateUpdateDto,
+    'customerName' | 'phone' | 'phone2' | 'address' | 'depositType' | 'depositOnName' | 'paymentAmount' | 'isUnpaid' | 'notes'
+  > {
+    const v = this.form.getRawValue() as Record<string, unknown>;
+    return {
+      customerName: this.optionalText(v['customerName']),
+      phone: (v['phone'] as string).trim(),
+      phone2: this.optionalText(v['phone2']),
+      address: this.optionalText(v['address']),
+      depositType: (v['depositType'] as DepositType | null) ?? null,
+      depositOnName: this.optionalText(v['depositOnName']),
+      paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
+        ? null
+        : Math.max(0, Math.trunc(Number(v['paymentAmount']))),
+      isUnpaid: !!v['isUnpaid'],
+      notes: this.optionalText(v['notes'])
+    };
+  }
+
+  private toLoanedEquipmentsPayload(): OrderLoanedEquipmentDto[] {
     const v = this.form.getRawValue() as Record<string, unknown>;
 
     const loaned: OrderLoanedEquipmentDto[] = (v['loanedEquipments'] as Record<string, unknown>[])
@@ -1955,27 +2409,7 @@ export class OrderFormComponent implements OnInit {
       })
       .filter((row) => row.customItemName && row.customItemName.length > 0 && row.quantity > 0);
 
-    return {
-      equipmentDefinitionIds: this.selectedEquipmentIdsControl.value,
-      shifts: this.selectedShiftSlots.getRawValue() as OrderShiftDto[],
-      customerName: this.optionalText(v['customerName']),
-      phone: (v['phone'] as string).trim(),
-      phone2: this.optionalText(v['phone2']),
-      address: this.optionalText(v['address']),
-      depositType: (v['depositType'] as DepositType | null) ?? null,
-      depositOnName: this.optionalText(v['depositOnName']),
-      paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
-        ? null
-        : Math.max(0, Math.trunc(Number(v['paymentAmount']))),
-      isUnpaid: !!v['isUnpaid'],
-      returnTimeType: (v['returnTimeType'] as ReturnTimeType | null) ?? ReturnTimeType.LateNight,
-      customReturnTime: (v['returnTimeType'] as ReturnTimeType | null) === ReturnTimeType.SpecificTime
-        ? this.optionalText(v['customReturnTime'])
-        : null,
-      notes: this.optionalText(v['notes']),
-      loanedEquipments: [...loaned, ...customLoaned],
-      allowDoubleBooking: false
-    };
+    return [...loaned, ...customLoaned];
   }
 
   /** Trims a form value and returns `null` for blanks so the server stores NULL. */
