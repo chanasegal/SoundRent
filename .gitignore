@@ -1,0 +1,204 @@
+# =============================================================================
+# SoundRent monorepo
+# Backend: .NET 9 Web API  |  Frontend: Angular 21
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# .NET / Visual Studio (net9.0)
+# -----------------------------------------------------------------------------
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Mono / crash dumps
+mono_crash.*
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache and settings
+.vs/
+Generated\ Files/
+
+# MSTest / NUnit
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# .NET Core / SDK artifacts
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nuget.props
+*.nuget.targets
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Publish / deploy
+publish/
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+PublishScripts/
+
+# Build intermediates
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# ReSharper / Rider / NCrunch
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# Code coverage
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# Local / secret configuration overrides
+**/appsettings.*.local.json
+**/appsettings.Local.json
+**/secrets.json
+**/Properties/launchSettings.json.user
+
+# Entity Framework
+*.dbmdl
+*.jfm
+
+# Benchmarks
+BenchmarkDotNet.Artifacts/
+
+# -----------------------------------------------------------------------------
+# Angular 21 / Node.js
+# -----------------------------------------------------------------------------
+
+# Dependencies
+node_modules/
+
+# Angular CLI cache and build output
+.angular/
+dist/
+tmp/
+out-tsc/
+bazel-out/
+
+# Test / coverage
+coverage/
+libpeerconnection.log
+testem.log
+__screenshots__/
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment overrides (keep committed environment.ts / environment.production.ts)
+**/src/environments/environment.local.ts
+**/src/environments/environment.*.local.ts
+**/.env
+**/.env.*
+!.env.example
+
+# TypeScript
+typings/
+
+# -----------------------------------------------------------------------------
+# IDEs and editors
+# -----------------------------------------------------------------------------
+
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+
+# -----------------------------------------------------------------------------
+# OS / system files
+# -----------------------------------------------------------------------------
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+
+.sass-cache/
+/connect.lock
+*.log
+*.cache
