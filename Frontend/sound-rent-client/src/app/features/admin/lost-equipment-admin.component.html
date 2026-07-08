@@ -12,33 +12,137 @@
 
   <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <h2 class="mb-4 text-lg font-bold text-[#002244]">הוספת פריט</h2>
-    <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="grid gap-4 md:grid-cols-2">
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח <span class="text-rose-500">*</span></label>
-        <input formControlName="customerName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
-        @if (addForm.controls.customerName.touched && addForm.controls.customerName.errors?.['required']) {
-          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-        }
+    <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="lost-add-form">
+      <div class="lost-add-form__meta-row">
+        <div class="lost-add-form__field lost-add-form__field--name">
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח <span class="text-rose-500">*</span></label>
+          <div class="customer-suggest">
+            <input
+              formControlName="customerName"
+              class="lost-add-form__input"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'name'"
+              aria-controls="lost-customer-suggest-listbox"
+              (focus)="onCustomerSuggestFocus('name')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'name')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+              <ul
+                id="lost-customer-suggest-listbox"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+          @if (addForm.controls.customerName.touched && addForm.controls.customerName.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div class="lost-add-form__field lost-add-form__field--phone">
+          <label class="mb-1 block text-sm font-medium text-slate-700">מספר טלפון</label>
+          <div class="customer-suggest">
+            <input
+              type="tel"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="10"
+              appIntegerOnly
+              formControlName="phone"
+              class="lost-add-form__input ltr-field"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+              aria-controls="lost-customer-suggest-listbox-phone"
+              (focus)="onCustomerSuggestFocus('phone')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+              <ul
+                id="lost-customer-suggest-listbox-phone"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+          @if (addForm.controls.phone.touched && addForm.controls.phone.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+          }
+        </div>
+
+        <div class="lost-add-form__field lost-add-form__field--date">
+          <label class="mb-1 block text-sm font-medium text-slate-700">תאריך <span class="text-rose-500">*</span></label>
+          <div class="hebrew-date-field-row">
+            <input
+              formControlName="hebrewDate"
+              class="hebrew-date-input"
+              placeholder="למשל: כ״ג תמוז תשפ״ה"
+              autocomplete="off"
+            />
+            <app-hebrew-calendar-picker
+              [year]="hebrewYearSig()"
+              [month]="hebrewMonthSig()"
+              [day]="hebrewDaySig()"
+              (yearChange)="patchHebrewFromCalendar({ year: $event })"
+              (monthChange)="patchHebrewFromCalendar({ month: $event })"
+              (dayChange)="patchHebrewFromCalendar({ day: $event })"
+              ariaLabel="פתח לוח שנה לבחירת תאריך"
+              dialogLabel="בחירת תאריך"
+            />
+          </div>
+          @if (addForm.controls.hebrewDate.touched && addForm.controls.hebrewDate.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
       </div>
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">תאריך <span class="text-rose-500">*</span></label>
-        <input formControlName="hebrewDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="למשל: כ״ג תמוז תשפ״ה" autocomplete="off" />
-        @if (addForm.controls.hebrewDate.touched && addForm.controls.hebrewDate.errors?.['required']) {
-          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-        }
-      </div>
-      <div class="md:col-span-2">
+
+      <div class="lost-add-form__field">
         <label class="mb-1 block text-sm font-medium text-slate-700">תיאור פריט <span class="text-rose-500">*</span></label>
-        <input formControlName="itemDescription" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
+        <input formControlName="itemDescription" class="lost-add-form__input" autocomplete="off" />
         @if (addForm.controls.itemDescription.touched && addForm.controls.itemDescription.errors?.['required']) {
           <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
         }
       </div>
-      <div class="md:col-span-2">
+
+      <div class="lost-add-form__field">
         <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
-        <textarea formControlName="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+        <textarea formControlName="notes" rows="3" class="lost-add-form__input"></textarea>
       </div>
-      <div class="md:col-span-2">
+
+      <div>
         <button
           type="submit"
           class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
@@ -77,6 +181,7 @@
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
               <th class="px-3 py-2 font-semibold">שם לקוח</th>
+              <th class="px-3 py-2 font-semibold">טלפון</th>
               <th class="px-3 py-2 font-semibold">תיאור פריט</th>
               <th class="px-3 py-2 font-semibold">תאריך</th>
               <th class="px-3 py-2 font-semibold">הערות</th>
@@ -88,6 +193,7 @@
             @for (row of rows(); track row.id) {
               <tr class="border-b border-slate-100 transition hover:bg-slate-50/80" [ngClass]="statusRowClass(row.status)">
                 <td class="px-3 py-2">{{ row.customerName }}</td>
+                <td class="px-3 py-2 whitespace-nowrap ltr-field">{{ row.phone || '—' }}</td>
                 <td class="px-3 py-2">{{ row.itemDescription }}</td>
                 <td class="px-3 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
                 <td class="px-3 py-2 max-w-xs truncate" [title]="row.notes ?? ''">{{ row.notes || '—' }}</td>
@@ -139,7 +245,7 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="6" class="px-3 py-8 text-center text-slate-500">אין רשומות</td>
+                <td colspan="7" class="px-3 py-8 text-center text-slate-500">אין רשומות</td>
               </tr>
             }
           </tbody>

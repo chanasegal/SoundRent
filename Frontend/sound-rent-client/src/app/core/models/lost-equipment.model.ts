@@ -10,9 +10,16 @@ export const LOST_EQUIPMENT_STATUS_LABELS: Record<LostEquipmentStatus, string> =
   [LostEquipmentStatus.Returned]: 'הוחזר'
 };
 
+/** Statuses that still need staff attention (not yet returned to the customer). */
+export const LOST_EQUIPMENT_ACTIVE_STATUSES: ReadonlySet<LostEquipmentStatus> = new Set([
+  LostEquipmentStatus.Pending,
+  LostEquipmentStatus.Notified
+]);
+
 export interface LostEquipmentDto {
   id: number;
   customerName: string;
+  phone: string | null;
   itemDescription: string;
   hebrewDate: string;
   notes: string | null;
@@ -23,6 +30,7 @@ export interface LostEquipmentDto {
 
 export interface LostEquipmentCreateDto {
   customerName: string;
+  phone?: string | null;
   itemDescription: string;
   hebrewDate: string;
   notes?: string | null;

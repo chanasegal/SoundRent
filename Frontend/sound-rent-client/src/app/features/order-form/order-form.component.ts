@@ -44,9 +44,14 @@ import {
 } from '../../core/models/enums';
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
+import {
+  LOST_EQUIPMENT_ACTIVE_STATUSES,
+  LostEquipmentDto
+} from '../../core/models/lost-equipment.model';
 import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
 import { OrderReturnRequestDto } from '../../core/models/equipment-return.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
+import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
 import { BlockedDateDto, findBlockedDateForIso } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
@@ -282,6 +287,7 @@ export class OrderFormComponent implements OnInit {
       next.splice(bookingIndex, 1);
       return next;
     });
+    this.refreshAccessorySerialAvailability();
   }
 
   protected readonly depositTypes: DepositType[] = [
@@ -305,7 +311,31 @@ export class OrderFormComponent implements OnInit {
   protected readonly returnModalOpen = signal(false);
   protected readonly returnSaving = signal(false);
   protected readonly returnRows = signal<ReturnModalRow[]>([]);
+
+  /** Active (unresolved) forgotten-equipment rows matching this order's customer. */
+  protected readonly activeLostEquipment = signal<LostEquipmentDto[]>([]);
+  protected readonly reportLostOpen = signal(false);
+  protected readonly reportLostSaving = signal(false);
+  protected readonly reportLostForm = this.fb.group({
+    itemDescription: ['', [Validators.required, Validators.maxLength(500)]],
+    notes: ['', Validators.maxLength(2000)]
+  });
+
   protected readonly isEdit = computed(() => this.editingId() !== null);
+  protected readonly showLostEquipmentAlert = computed(() => this.activeLostEquipment().length > 0);
+  protected readonly lostEquipmentAlertSummary = computed(() => {
+    const items = this.activeLostEquipment();
+    if (items.length === 0) {
+      return '';
+    }
+    const descriptions = items
+      .map((r) => r.itemDescription.trim())
+      .filter((d) => d.length > 0)
+      .slice(0, 3);
+    const extra = items.length > descriptions.length ? ` (+${items.length - descriptions.length})` : '';
+    const detail = descriptions.length > 0 ? ` — ${descriptions.join(', ')}${extra}` : '';
+    return `שים לב: ללקוח זה יש ציוד שנשכח במחסן!${detail}`;
+  });
   protected readonly canRecordReturn = computed(() => {
     if (!this.isEdit() || this.orderCancelled()) {
       return false;
@@ -392,6 +422,10 @@ export class OrderFormComponent implements OnInit {
 
   /** Pulse triggered when a booking's shifts change and equipment availability should be re-fetched. */
   private readonly availabilityFetchTrigger$ = new Subject<number>();
+  private readonly accessoryAvailabilityByType = signal<Map<LoanedEquipmentType, AccessorySerialOptionDto[]>>(
+    new Map()
+  );
+  protected readonly accessorySerialDropdownRow = signal<number | null>(null);
 
   /** Active date blocks loaded from the API (new orders only). */
   private readonly blockedDatesSig = signal<BlockedDateDto[]>([]);
@@ -430,20 +464,54 @@ export class OrderFormComponent implements OnInit {
     return this.equipmentList.at(index) as FormGroup;
   }
 
-  protected noteIndicesForRow(rowIndex: number): number[] {
-    const row = this.equipmentList?.at(rowIndex) as FormGroup | undefined;
-    const notes = row?.get('notes') as FormArray | undefined;
-    const len = notes?.length ?? 0;
-    return Array.from({ length: len }, (_, i) => i);
+  protected serialOptionsForRow(rowIndex: number): AccessorySerialOptionDto[] {
+    const type = this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value as LoanedEquipmentType;
+    return this.accessoryAvailabilityByType().get(type) ?? [];
   }
 
-  protected getNoteControl(rowIndex: number, noteIndex: number): FormControl<string> {
-    const notes = this.getRowGroup(rowIndex).get('notes') as FormArray<FormControl<string>>;
-    return notes.at(noteIndex) as FormControl<string>;
+  protected toggleAccessorySerialDropdown(rowIndex: number): void {
+    this.accessorySerialDropdownRow.update((cur) => (cur === rowIndex ? null : rowIndex));
   }
 
-  protected isMicrophoneRow(rowIndex: number): boolean {
-    return this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value === LoanedEquipmentType.Microphone;
+  protected isAccessorySerialDropdownOpen(rowIndex: number): boolean {
+    return this.accessorySerialDropdownRow() === rowIndex;
+  }
+
+  protected selectedCodesControl(rowIndex: number): FormControl<string[]> {
+    return this.getRowGroup(rowIndex).get('selectedCodes') as FormControl<string[]>;
+  }
+
+  protected isAccessorySerialSelected(rowIndex: number, code: string): boolean {
+    const selected = this.selectedCodesControl(rowIndex).value ?? [];
+    return selected.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0);
+  }
+
+  protected toggleAccessorySerialSelection(rowIndex: number, code: string, checked: boolean): void {
+    const ctrl = this.selectedCodesControl(rowIndex);
+    const current = ctrl.value ?? [];
+    const next = checked
+      ? [...current, code]
+      : current.filter((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0);
+    const unique: string[] = [];
+    for (const item of next) {
+      if (!unique.some((u) => u.localeCompare(item, undefined, { sensitivity: 'accent' }) === 0)) {
+        unique.push(item);
+      }
+    }
+    ctrl.setValue(unique);
+    ctrl.markAsDirty();
+  }
+
+  protected selectedAccessorySerialSummary(rowIndex: number): string {
+    const codes = this.selectedCodesControl(rowIndex).value ?? [];
+    if (codes.length === 0) {
+      return 'בחרו קודים';
+    }
+    return codes.join(', ');
+  }
+
+  protected selectedAccessoryQuantity(rowIndex: number): number {
+    return (this.selectedCodesControl(rowIndex).value ?? []).length;
   }
 
   /** Gematriya label for a Hebrew day (e.g. 23 → "כ״ג"). */
@@ -506,9 +574,10 @@ export class OrderFormComponent implements OnInit {
     this.ensureBookingUi(0);
     this.wireBookingGroup(0);
     this.wireEquipmentAvailability();
+    this.wireAccessorySerialAvailability();
     this.wireCustomerPhoneLookup();
     this.wireCustomerAutocomplete();
-    this.wireLoanedEquipmentQuantitySync();
+    this.wireLostEquipmentAlertLookup();
 
     this.data.getBlockedDates().subscribe((blocks) => {
       this.blockedDatesSig.set(blocks);
@@ -580,6 +649,10 @@ export class OrderFormComponent implements OnInit {
     }
     if (Object.keys(rootPatch).length > 0) {
       this.form.patchValue(rootPatch as never, { emitEvent: false });
+      if (phone) {
+        this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(phone));
+      }
+      this.refreshLostEquipmentAlert();
     }
 
     const booking = this.bookingGroup(0);
@@ -777,6 +850,7 @@ export class OrderFormComponent implements OnInit {
       this.showCustomerDirectoryNotesAlert(directoryNotes);
     }
     this.toast.show(toastMessage, 'info');
+    this.refreshLostEquipmentAlert();
   }
 
   private closeCustomerSuggestions(): void {
@@ -1032,12 +1106,7 @@ export class OrderFormComponent implements OnInit {
 
     this.equipmentList.controls.forEach((row) => {
       const g = row as FormGroup;
-      g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
-      this.setNotesArrayLength(g, 0);
-      const notes = g.get('notes') as FormArray;
-      for (let i = 0; i < notes.length; i++) {
-        notes.at(i).setValue('');
-      }
+      g.patchValue({ selectedCodes: [] }, { emitEvent: false });
     });
     this.customLoanedList.clear();
     this.existingCustomerMatch.set(null);
@@ -1584,6 +1653,48 @@ export class OrderFormComponent implements OnInit {
     booking.controls['orderDate'].setValue(startDate, { emitEvent: false });
     booking.updateValueAndValidity({ emitEvent: false });
     this.availabilityFetchTrigger$.next(bookingIndex);
+    this.refreshAccessorySerialAvailability();
+  }
+
+  private orderReservationDates(): string[] {
+    const dates = new Set<string>();
+    const bookingCount = this.isEdit() ? 1 : this.bookings.length;
+    for (let i = 0; i < bookingCount; i++) {
+      for (const shift of this.selectedShiftRows(i)) {
+        if (shift.orderDate) {
+          dates.add(shift.orderDate);
+        }
+      }
+    }
+    return [...dates].sort();
+  }
+
+  private wireAccessorySerialAvailability(): void {
+    this.availabilityFetchTrigger$
+      .pipe(debounceTime(200), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshAccessorySerialAvailability());
+  }
+
+  private refreshAccessorySerialAvailability(): void {
+    const dates = this.orderReservationDates();
+    if (dates.length === 0) {
+      this.accessoryAvailabilityByType.set(new Map());
+      return;
+    }
+
+    const excludeOrderId = this.editingId();
+    this.data
+      .getAccessorySerialAvailability({
+        dates,
+        excludeOrderId: excludeOrderId ?? null
+      })
+      .subscribe((groups) => {
+        const map = new Map<LoanedEquipmentType, AccessorySerialOptionDto[]>();
+        for (const group of groups) {
+          map.set(group.equipmentType, group.options);
+        }
+        this.accessoryAvailabilityByType.set(map);
+      });
   }
 
   private generateContinuousShifts(
@@ -1764,6 +1875,136 @@ export class OrderFormComponent implements OnInit {
       });
   }
 
+  /**
+   * Watches Name / Phone1 and loads unresolved forgotten-equipment rows for this customer.
+   * Matches primarily by phone digits; falls back to exact customer-name match when phone is empty.
+   */
+  private wireLostEquipmentAlertLookup(): void {
+    const name$ = this.form.controls['customerName'].valueChanges.pipe(
+      startWith(this.form.controls['customerName'].value),
+      map((v) => String(v ?? '').trim())
+    );
+    const phone$ = this.form.controls['phone'].valueChanges.pipe(
+      startWith(this.form.controls['phone'].value),
+      map((v) => OrderFormComponent.digitsOnly(String(v ?? '')))
+    );
+
+    merge(
+      name$.pipe(map((customerName) => ({ customerName, phone: OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? '')) }))),
+      phone$.pipe(map((phone) => ({ phone, customerName: String(this.form.controls['customerName'].value ?? '').trim() })))
+    )
+      .pipe(
+        debounceTime(350),
+        distinctUntilChanged(
+          (a, b) => a.phone === b.phone && a.customerName === b.customerName
+        ),
+        switchMap(({ phone, customerName }) => this.loadActiveLostEquipment$(phone, customerName)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((matches) => this.activeLostEquipment.set(matches));
+  }
+
+  private loadActiveLostEquipment$(phoneDigits: string, customerName: string) {
+    if (phoneDigits.length < 7 && customerName.length < 2) {
+      this.activeLostEquipment.set([]);
+      return EMPTY;
+    }
+    return this.data.getLostEquipment().pipe(
+      map((list) => this.filterActiveLostForCustomer(list, phoneDigits, customerName))
+    );
+  }
+
+  /** Re-check after silent form patches (order load / customer fill use emitEvent: false). */
+  private refreshLostEquipmentAlert(): void {
+    const phone = OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''));
+    const customerName = String(this.form.controls['customerName'].value ?? '').trim();
+    this.loadActiveLostEquipment$(phone, customerName).subscribe({
+      next: (matches) => this.activeLostEquipment.set(matches),
+      error: () => this.activeLostEquipment.set([])
+    });
+  }
+
+  private filterActiveLostForCustomer(
+    list: LostEquipmentDto[],
+    phoneDigits: string,
+    customerName: string
+  ): LostEquipmentDto[] {
+    return list.filter((row) => {
+      if (!LOST_EQUIPMENT_ACTIVE_STATUSES.has(row.status)) {
+        return false;
+      }
+      const rowPhone = OrderFormComponent.digitsOnly(row.phone ?? '');
+      if (phoneDigits.length >= 7 && rowPhone.length > 0 && rowPhone === phoneDigits) {
+        return true;
+      }
+      // Legacy rows (no phone) or forms without a valid phone: match by exact name.
+      if (customerName.length >= 2 && row.customerName.trim() === customerName) {
+        if (rowPhone.length === 0 || phoneDigits.length < 7) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  protected toggleReportLostEquipment(): void {
+    if (this.reportLostOpen()) {
+      this.closeReportLostEquipment();
+      return;
+    }
+    this.reportLostForm.reset({ itemDescription: '', notes: '' });
+    this.reportLostOpen.set(true);
+  }
+
+  protected closeReportLostEquipment(): void {
+    this.reportLostOpen.set(false);
+    this.reportLostForm.reset({ itemDescription: '', notes: '' });
+  }
+
+  protected submitReportLostEquipment(): void {
+    if (this.reportLostForm.invalid) {
+      this.reportLostForm.markAllAsTouched();
+      this.toast.error('יש למלא תיאור פריט');
+      return;
+    }
+
+    const customerName = String(this.form.controls['customerName'].value ?? '').trim();
+    const phone = String(this.form.controls['phone'].value ?? '').trim();
+    if (!customerName && !phone) {
+      this.toast.error('יש למלא שם או טלפון של הלקוח לפני הדיווח');
+      return;
+    }
+
+    const v = this.reportLostForm.getRawValue();
+    this.reportLostSaving.set(true);
+    this.data
+      .createLostEquipment({
+        customerName: customerName || phone,
+        phone: phone || null,
+        itemDescription: (v.itemDescription ?? '').trim(),
+        hebrewDate: this.hebrew.toHebrew(new Date()),
+        notes: ((v.notes as string) ?? '').trim() || null
+      })
+      .pipe(finalize(() => this.reportLostSaving.set(false)))
+      .subscribe({
+        next: (created) => {
+          if (created === null) {
+            return;
+          }
+          this.toast.success('הציוד שנשכח נרשם בהצלחה');
+          this.closeReportLostEquipment();
+          if (LOST_EQUIPMENT_ACTIVE_STATUSES.has(created.status)) {
+            this.activeLostEquipment.update((list) => {
+              if (list.some((r) => r.id === created.id)) {
+                return list;
+              }
+              return [created, ...list];
+            });
+          }
+        }
+      });
+  }
+
   /** True when name/address on the form already cover the matched directory row. */
   private customerFieldsAlreadyMatch(c: CustomerDto): boolean {
     const formName = String(this.form.controls['customerName'].value ?? '').trim();
@@ -1776,40 +2017,6 @@ export class OrderFormComponent implements OnInit {
     const nameMatches = !dirName || formName === dirName;
     const addressMatches = !formAddress || !dirAddress || formAddress === dirAddress;
     return nameMatches && addressMatches;
-  }
-
-  private setNotesArrayLength(group: FormGroup, target: number): void {
-    const length = this.toNonNegativeInteger(target);
-    group.get('expectedNoteCount')?.setValue(length, { emitEvent: false });
-    const notes = group.get('notes') as FormArray<FormControl<string>> | null;
-    if (!notes) {
-      return;
-    }
-    while (notes.length < length) {
-      notes.push(this.fb.nonNullable.control(''));
-    }
-    while (notes.length > length) {
-      notes.removeAt(notes.length - 1);
-    }
-  }
-
-  private wireLoanedEquipmentQuantitySync(): void {
-    this.equipmentList.controls.forEach((control) => {
-      const group = control as FormGroup;
-      const quantityCtrl = group.get('quantity');
-      if (!quantityCtrl) {
-        return;
-      }
-
-      quantityCtrl.valueChanges
-        .pipe(
-          startWith(quantityCtrl.value),
-          map((value) => this.toNonNegativeInteger(value)),
-          distinctUntilChanged(),
-          takeUntilDestroyed(this.destroyRef)
-        )
-        .subscribe((quantity) => this.setNotesArrayLength(group, quantity));
-    });
   }
 
   private toNonNegativeInteger(value: unknown): number {
@@ -2134,14 +2341,10 @@ export class OrderFormComponent implements OnInit {
   }
 
   private buildEquipmentRow(type: LoanedEquipmentType): FormGroup {
-    const notes = this.fb.array<FormControl<string>>([]);
-    const g = this.fb.group({
+    return this.fb.group({
       loanedEquipmentType: this.fb.nonNullable.control(type),
-      quantity: this.fb.control(0, [Validators.min(0)]),
-      expectedNoteCount: this.fb.control(0, [Validators.min(0)]),
-      notes
+      selectedCodes: this.fb.nonNullable.control<string[]>([])
     });
-    return g;
   }
 
   private buildCustomLoanedRow(item?: OrderLoanedEquipmentDto): FormGroup {
@@ -2301,20 +2504,20 @@ export class OrderFormComponent implements OnInit {
       const row = byType.get(type);
       const g = control as FormGroup;
       if (!row) {
-        g.patchValue({ quantity: 0, expectedNoteCount: 0 }, { emitEvent: false });
-        this.setNotesArrayLength(g, 0);
+        g.patchValue({ selectedCodes: [] }, { emitEvent: false });
         return;
       }
 
-      const quantity = this.toNonNegativeInteger(row.quantity);
-      g.patchValue({ quantity, expectedNoteCount: quantity }, { emitEvent: false });
-      this.setNotesArrayLength(g, quantity);
-      const notesFa = g.get('notes') as FormArray<FormControl<string>>;
-      for (let o = 0; o < quantity; o++) {
-        const fromServer = row.notes?.find((n) => n.ordinal === o)?.content ?? '';
-        notesFa.at(o).setValue(fromServer ?? '');
-      }
+      const codes = (row.notes ?? [])
+        .slice()
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .map((n) => (n.content ?? '').trim())
+        .filter((c) => c.length > 0);
+      g.patchValue({ selectedCodes: codes }, { emitEvent: false });
     });
+
+    this.refreshAccessorySerialAvailability();
+    this.refreshLostEquipmentAlert();
   }
 
   // -----------------------------------------------------------------
@@ -2370,28 +2573,24 @@ export class OrderFormComponent implements OnInit {
     const v = this.form.getRawValue() as Record<string, unknown>;
 
     const loaned: OrderLoanedEquipmentDto[] = (v['loanedEquipments'] as Record<string, unknown>[])
-      .filter((row) => Number(row['quantity']) > 0)
       .map((row) => {
-        const quantity = this.toNonNegativeInteger(row['quantity']);
-        const expected = quantity;
-        const notesFa = row['notes'] as unknown;
-        const notes: LoanedEquipmentNoteDto[] = [];
-        for (let o = 0; o < expected; o++) {
-          let text = '';
-          if (Array.isArray(notesFa)) {
-            const cell = notesFa[o];
-            text = typeof cell === 'string' ? cell.trim() : '';
-          }
-          notes.push({ ordinal: o, content: text.length > 0 ? text : null });
-        }
+        const selectedCodes = Array.isArray(row['selectedCodes'])
+          ? (row['selectedCodes'] as string[]).map((c) => String(c).trim()).filter((c) => c.length > 0)
+          : [];
+        const quantity = selectedCodes.length;
+        const notes: LoanedEquipmentNoteDto[] = selectedCodes.map((code, ordinal) => ({
+          ordinal,
+          content: code
+        }));
         return {
           isCustomItem: false,
           loanedEquipmentType: row['loanedEquipmentType'] as LoanedEquipmentType,
           quantity,
-          expectedNoteCount: expected,
+          expectedNoteCount: quantity,
           notes
         };
-      });
+      })
+      .filter((row) => row.quantity > 0);
 
     const customLoaned: OrderLoanedEquipmentDto[] = (v['customLoanedItems'] as Record<string, unknown>[])
       .map((row) => {

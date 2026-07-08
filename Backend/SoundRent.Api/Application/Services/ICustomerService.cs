@@ -22,4 +22,10 @@ public interface ICustomerService
     Task DeleteAsync(string phoneFromRoute, CancellationToken cancellationToken = default);
 
     Task SyncFromOrderAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken = default);
+
+    Task SyncFromWaitlistAsync(
+        string phone,
+        string? customerName,
+        string? address,
+        CancellationToken cancellationToken = default);
 }

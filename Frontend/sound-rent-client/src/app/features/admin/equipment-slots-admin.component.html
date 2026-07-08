@@ -1,6 +1,6 @@
 <div class="mx-auto max-w-5xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-    <h1 class="text-2xl font-bold text-[#002244]">ניהול ציוד ותאי הזמנה</h1>
+    <h1 class="text-2xl font-bold text-[#002244]">ניהול ציוד</h1>
     <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
       רענון
     </button>
@@ -37,7 +37,7 @@
     </form>
   </section>
 
-  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <h2 class="mb-4 text-lg font-bold text-[#002244]">תאי הזמנה (לוח)</h2>
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-right text-sm">
@@ -105,6 +105,94 @@
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="accessory-inventory-section rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-bold text-[#002244]">מלאי קודים סידוריים — ציוד מושאל</h2>
+        <p class="mt-1 text-sm text-slate-600">
+          הגדירו כמות לכל פריט והזינו קוד ייחודי בכל שדה. לכל סוג מלבד מיקרופון — ספרות בלבד.
+        </p>
+      </div>
+    </div>
+
+    @if (accessoryLoading()) {
+      <p class="text-sm text-slate-500">טוען מלאי אביזרים…</p>
+    } @else {
+      <div class="overflow-x-auto" [formGroup]="accessoryForm">
+        <table class="accessory-inventory-table w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="w-44 px-3 py-2 font-semibold">פריט</th>
+              <th class="w-24 px-3 py-2 text-center font-semibold">כמות</th>
+              <th class="px-3 py-2 font-semibold">קודים</th>
+            </tr>
+          </thead>
+          <tbody formArrayName="rows">
+            @for (def of accessoryRowDefinitions; track def.type; let i = $index) {
+              <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="i">
+                <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.label }}</td>
+                <td class="px-3 py-2 align-middle text-center">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    appIntegerOnly
+                    zeroDefault
+                    formControlName="quantity"
+                    class="qty-input"
+                  />
+                </td>
+                <td class="px-3 py-2 align-middle">
+                  @if (codeIndicesForAccessoryRow(i).length === 0) {
+                    <span class="text-xs text-slate-400">—</span>
+                  } @else {
+                    <div class="note-row" formArrayName="codes">
+                      @for (idx of codeIndicesForAccessoryRow(i); track idx) {
+                        @if (isMicrophoneAccessoryRow(i)) {
+                          <input
+                            type="text"
+                            maxlength="100"
+                            [formControlName]="idx"
+                            class="note-input"
+                            [attr.placeholder]="'#' + (idx + 1)"
+                          />
+                        } @else {
+                          <input
+                            type="text"
+                            maxlength="100"
+                            inputmode="numeric"
+                            pattern="[0-9]*"
+                            appIntegerOnly
+                            [formControlName]="idx"
+                            class="note-input"
+                            [attr.placeholder]="'#' + (idx + 1)"
+                          />
+                        }
+                      }
+                    </div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 flex justify-end">
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="accessorySaving()"
+          (click)="saveAccessoryInventory()"
+        >
+          {{ accessorySaving() ? 'שומר…' : 'שמירת מלאי אביזרים' }}
+        </button>
+      </div>
+    }
   </section>
 </div>
 

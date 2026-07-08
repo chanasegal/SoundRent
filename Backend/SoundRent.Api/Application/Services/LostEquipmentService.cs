@@ -27,6 +27,7 @@ public class LostEquipmentService : ILostEquipmentService
         var entity = new LostEquipment
         {
             CustomerName = dto.CustomerName.Trim(),
+            Phone = NullIfBlank(dto.Phone),
             ItemDescription = dto.ItemDescription.Trim(),
             HebrewDate = dto.HebrewDate.Trim(),
             Notes = NullIfBlank(dto.Notes),
@@ -52,6 +53,7 @@ public class LostEquipmentService : ILostEquipmentService
         }
 
         entity.CustomerName = dto.CustomerName.Trim();
+        entity.Phone = NullIfBlank(dto.Phone);
         entity.ItemDescription = dto.ItemDescription.Trim();
         entity.HebrewDate = dto.HebrewDate.Trim();
         entity.Notes = NullIfBlank(dto.Notes);
@@ -76,6 +78,7 @@ public class LostEquipmentService : ILostEquipmentService
     {
         Id = e.Id,
         CustomerName = e.CustomerName,
+        Phone = e.Phone,
         ItemDescription = e.ItemDescription,
         HebrewDate = e.HebrewDate,
         Notes = e.Notes,

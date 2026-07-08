@@ -16,4 +16,6 @@ export interface WaitlistEntryCreateDto {
   equipmentType: EquipmentType;
   date: string;
   notes?: string | null;
+  /** Saved to the customer directory only (not stored on the waitlist row). */
+  address?: string | null;
 }

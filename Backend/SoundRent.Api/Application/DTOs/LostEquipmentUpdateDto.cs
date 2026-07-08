@@ -9,6 +9,9 @@ public class LostEquipmentUpdateDto
     [MaxLength(200, ErrorMessage = "שם הלקוח לא יכול לחרוג מ-200 תווים")]
     public string CustomerName { get; set; } = string.Empty;
 
+    [MaxLength(20, ErrorMessage = "מספר הטלפון לא יכול לחרוג מ-20 תווים")]
+    public string? Phone { get; set; }
+
     [Required(ErrorMessage = "יש להזין תיאור פריט")]
     [MaxLength(500, ErrorMessage = "תיאור הפריט לא יכול לחרוג מ-500 תווים")]
     public string ItemDescription { get; set; } = string.Empty;

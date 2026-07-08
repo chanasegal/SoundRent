@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
     public DbSet<LostEquipment> LostEquipments => Set<LostEquipment>();
     public DbSet<BlockedDate> BlockedDates => Set<BlockedDate>();
+    public DbSet<AccessorySerialInventory> AccessorySerialInventory => Set<AccessorySerialInventory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

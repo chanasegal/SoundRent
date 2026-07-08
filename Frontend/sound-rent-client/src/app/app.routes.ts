@@ -25,6 +25,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'admin/equipment-report',
+        loadComponent: () =>
+          import('./features/admin/daily-equipment-report.component').then(
+            (m) => m.DailyEquipmentReportComponent
+          )
+      },
+      {
         path: 'orders/new',
         loadComponent: () =>
           import('./features/order-form/order-form.component').then(

@@ -1,22 +1,33 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  FormArray,
+  FormBuilder,
+  FormControl,
+  FormGroup,
+  ReactiveFormsModule,
+  Validators
+} from '@angular/forms';
 import { finalize } from 'rxjs';
+import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
 
 import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
+import { LOANED_EQUIPMENT_LABELS, LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ToastService } from '../../core/services/toast.service';
+import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
 @Component({
   selector: 'app-equipment-slots-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective],
   templateUrl: './equipment-slots-admin.component.html',
   styleUrl: './equipment-slots-admin.component.scss'
 })
@@ -26,6 +37,18 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+
+  protected readonly accessoryRowDefinitions = LOANED_EQUIPMENT_ORDER.map((type) => ({
+    type,
+    label: LOANED_EQUIPMENT_LABELS[type]
+  }));
+  protected readonly accessoryLoading = signal(true);
+  protected readonly accessorySaving = signal(false);
+
+  protected readonly accessoryForm = this.fb.group({
+    rows: this.fb.array(LOANED_EQUIPMENT_ORDER.map((type) => this.buildAccessoryRow(type)))
+  });
 
   constructor() {
     effect(() => {
@@ -57,12 +80,161 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.wireAccessoryQuantitySync();
     this.refresh();
+  }
+
+  protected accessoryRows(): FormArray {
+    return this.accessoryForm.get('rows') as FormArray;
+  }
+
+  protected accessoryRowGroup(index: number): FormGroup {
+    return this.accessoryRows().at(index) as FormGroup;
+  }
+
+  protected accessoryCodesArray(rowIndex: number): FormArray<FormControl<string>> {
+    return this.accessoryRowGroup(rowIndex).get('codes') as FormArray<FormControl<string>>;
+  }
+
+  protected codeIndicesForAccessoryRow(rowIndex: number): number[] {
+    const len = this.accessoryCodesArray(rowIndex).length;
+    return Array.from({ length: len }, (_, i) => i);
+  }
+
+  protected isMicrophoneAccessoryRow(rowIndex: number): boolean {
+    return this.accessoryRowGroup(rowIndex).get('equipmentType')?.value === LoanedEquipmentType.Microphone;
   }
 
   protected refresh(): void {
     this.store.invalidate();
     this.store.load().subscribe();
+    this.loadAccessoryInventory();
+  }
+
+  protected loadAccessoryInventory(): void {
+    this.accessoryLoading.set(true);
+    this.data
+      .getAccessoryInventory()
+      .pipe(finalize(() => this.accessoryLoading.set(false)))
+      .subscribe((groups) => {
+        const byType = new Map(groups.map((g) => [g.equipmentType, g.serialCodes ?? []]));
+        this.accessoryRows().controls.forEach((control, idx) => {
+          const type = LOANED_EQUIPMENT_ORDER[idx]!;
+          const codes = (byType.get(type) ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
+          const group = control as FormGroup;
+          group.patchValue({ quantity: codes.length }, { emitEvent: false });
+          this.setAccessoryCodesLength(group, codes.length);
+          const codesFa = this.accessoryCodesArray(idx);
+          codes.forEach((code, i) => codesFa.at(i).setValue(code, { emitEvent: false }));
+        });
+      });
+  }
+
+  protected saveAccessoryInventory(): void {
+    const payloads: { type: LoanedEquipmentType; codes: string[]; label: string }[] = [];
+
+    for (let i = 0; i < this.accessoryRows().length; i++) {
+      const group = this.accessoryRowGroup(i);
+      const type = group.get('equipmentType')?.value as LoanedEquipmentType;
+      const label = LOANED_EQUIPMENT_LABELS[type] ?? String(type);
+      const codesFa = this.accessoryCodesArray(i);
+      const serialCodes: string[] = [];
+
+      for (let c = 0; c < codesFa.length; c++) {
+        const raw = String(codesFa.at(c).value ?? '').trim();
+        if (raw.length === 0) {
+          this.toast.error(`יש להזין קוד עבור ${label} (#${c + 1})`);
+          return;
+        }
+        if (!this.isValidAccessorySerialCode(type, raw)) {
+          this.toast.error(
+            type === LoanedEquipmentType.Microphone
+              ? `קוד מיקרופון לא תקין (#${c + 1}): אותיות, ספרות ומקף בלבד`
+              : `קוד לא תקין עבור ${label} (#${c + 1}): ספרות בלבד`
+          );
+          return;
+        }
+        if (serialCodes.some((existing) => existing.localeCompare(raw, undefined, { sensitivity: 'accent' }) === 0)) {
+          this.toast.error(`קוד כפול עבור ${label}: ${raw}`);
+          return;
+        }
+        serialCodes.push(raw);
+      }
+
+      payloads.push({ type, codes: serialCodes, label });
+    }
+
+    this.accessorySaving.set(true);
+    this.data
+      .updateAccessoryInventoryBatch({
+        items: payloads.map((p) => ({
+          equipmentType: p.type,
+          serialCodes: p.codes
+        }))
+      })
+      .pipe(finalize(() => this.accessorySaving.set(false)))
+      .subscribe({
+        next: (results) => {
+          if (results === null) {
+            return;
+          }
+          this.toast.success('מלאי הקודים הסידוריים נשמר');
+          this.loadAccessoryInventory();
+        }
+      });
+  }
+
+  private buildAccessoryRow(type: LoanedEquipmentType): FormGroup {
+    return this.fb.group({
+      equipmentType: this.fb.nonNullable.control(type),
+      quantity: this.fb.control(0, [Validators.min(0)]),
+      codes: this.fb.array<FormControl<string>>([])
+    });
+  }
+
+  private wireAccessoryQuantitySync(): void {
+    this.accessoryRows().controls.forEach((control) => {
+      const group = control as FormGroup;
+      const quantityCtrl = group.get('quantity');
+      if (!quantityCtrl) {
+        return;
+      }
+
+      quantityCtrl.valueChanges
+        .pipe(
+          startWith(quantityCtrl.value),
+          map((value) => this.toNonNegativeInteger(value)),
+          distinctUntilChanged(),
+          takeUntilDestroyed(this.destroyRef)
+        )
+        .subscribe((quantity) => this.setAccessoryCodesLength(group, quantity));
+    });
+  }
+
+  private setAccessoryCodesLength(group: FormGroup, target: number): void {
+    const length = this.toNonNegativeInteger(target);
+    const codes = group.get('codes') as FormArray<FormControl<string>> | null;
+    if (!codes) {
+      return;
+    }
+    while (codes.length < length) {
+      codes.push(this.fb.nonNullable.control(''));
+    }
+    while (codes.length > length) {
+      codes.removeAt(codes.length - 1);
+    }
+  }
+
+  private isValidAccessorySerialCode(type: LoanedEquipmentType, code: string): boolean {
+    if (type === LoanedEquipmentType.Microphone) {
+      return /^[A-Za-z0-9\-]+$/.test(code);
+    }
+    return /^\d+$/.test(code);
+  }
+
+  private toNonNegativeInteger(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   }
 
   protected onMaintenanceToggle(row: EquipmentDefinitionDto, event: Event): void {

@@ -17,9 +17,15 @@ public class LostEquipmentConfiguration : IEntityTypeConfiguration<LostEquipment
             .HasMaxLength(200)
             .IsRequired();
 
+        builder.Property(e => e.Phone)
+            .HasMaxLength(20);
+
         builder.Property(e => e.ItemDescription)
             .HasMaxLength(500)
             .IsRequired();
+
+        builder.HasIndex(e => e.Phone)
+            .HasDatabaseName("IX_LostEquipments_Phone");
 
         builder.Property(e => e.HebrewDate)
             .HasMaxLength(100)

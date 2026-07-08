@@ -235,6 +235,33 @@ public class CustomerService : ICustomerService
         await _customers.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task SyncFromWaitlistAsync(
+        string phone,
+        string? customerName,
+        string? address,
+        CancellationToken cancellationToken = default)
+    {
+        var p1 = PhoneNumberNormalizer.DigitsOnly(phone);
+        if (!PhoneNumberNormalizer.IsValidStoredPhone(p1))
+        {
+            return;
+        }
+
+        var existing = await _customers.GetByPhone1Async(p1, cancellationToken);
+        var entity = new Customer
+        {
+            Phone1 = p1,
+            Phone2 = existing?.Phone2,
+            FullName = NullIfWhiteSpace(customerName) ?? existing?.FullName,
+            Address = NullIfWhiteSpace(address) ?? existing?.Address,
+            Notes = existing?.Notes,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _customers.UpsertAsync(entity, cancellationToken);
+        await _customers.SaveChangesAsync(cancellationToken);
+    }
+
     private static CustomerDto ToDto(Customer c) => new()
     {
         Phone1 = c.Phone1,

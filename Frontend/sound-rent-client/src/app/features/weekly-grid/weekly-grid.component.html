@@ -83,10 +83,15 @@
             type="button"
             (click)="exportAllOrdersBackupToExcel()"
             [disabled]="exportBackupInProgress()"
-            class="toolbar-btn toolbar-btn-export"
+            class="toolbar-btn-export"
             title="ייצוא כל ההזמנות ורשימת ההמתנה (כל התאריכים) לקובץ Excel"
           >
-            {{ exportBackupInProgress() ? 'מייצא…' : 'גיבוי נתונים למחשב (Excel)' }}
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 17v2h14v-2"></path>
+            </svg>
+            {{ exportBackupInProgress() ? 'מייצא…' : 'גיבוי נתונים ל-Excel' }}
           </button>
           <button
             type="button"
@@ -391,7 +396,12 @@
                   <div class="waitlist-badge-strip">
                     @for (w of row.waitlist; track w.id) {
                       <div class="waitlist-phone-badge" [attr.title]="waitlistBadgeTitle(w)">
-                        <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
+                        <span class="waitlist-badge-text">
+                          @if (w.customerName?.trim()) {
+                            <span class="waitlist-name-text">{{ w.customerName!.trim() }}</span>
+                          }
+                          <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
+                        </span>
                         @if (w.notes?.trim()) {
                           <span class="waitlist-note-icon" aria-hidden="true">📝</span>
                         }
@@ -433,15 +443,23 @@
         <form [formGroup]="waitlistModalForm" (ngSubmit)="submitWaitlistModal()" class="waitlist-modal-form">
           <div>
             <label class="waitlist-field-label">סוג ציוד <span class="text-rose-500">*</span></label>
-            <select formControlName="equipmentType" class="waitlist-field-input">
-              @for (eq of equipmentTypes; track eq) {
-                <option [value]="eq">{{ equipmentLabels[eq] }}</option>
+            <select formControlName="bookingSlot" class="waitlist-field-input">
+              @for (eq of waitlistSpeakerOptions(); track eq.id) {
+                <option [value]="eq.id">{{ eq.displayName }}</option>
               }
             </select>
           </div>
           <div>
-            <label class="waitlist-field-label">טלפון <span class="text-rose-500">*</span></label>
+            <label class="waitlist-field-label">שם</label>
+            <input type="text" formControlName="customerName" class="waitlist-field-input" maxlength="100" />
+          </div>
+          <div>
+            <label class="waitlist-field-label">טלפון 1 <span class="text-rose-500">*</span></label>
             <input type="tel" formControlName="phone" class="waitlist-field-input ltr-field" maxlength="20" />
+          </div>
+          <div>
+            <label class="waitlist-field-label">כתובת</label>
+            <input type="text" formControlName="address" class="waitlist-field-input" maxlength="500" />
           </div>
           <div>
             <label class="waitlist-field-label">הערות</label>

@@ -15,17 +15,20 @@ public class OrderService : IOrderService
     private readonly IEquipmentDefinitionRepository _equipmentDefinitions;
     private readonly ICustomerService _customerService;
     private readonly IBlockedDateRepository _blockedDates;
+    private readonly IAccessorySerialInventoryService _accessorySerialInventory;
 
     public OrderService(
         IOrderRepository orderRepository,
         IEquipmentDefinitionRepository equipmentDefinitions,
         ICustomerService customerService,
-        IBlockedDateRepository blockedDates)
+        IBlockedDateRepository blockedDates,
+        IAccessorySerialInventoryService accessorySerialInventory)
     {
         _orderRepository = orderRepository;
         _equipmentDefinitions = equipmentDefinitions;
         _customerService = customerService;
         _blockedDates = blockedDates;
+        _accessorySerialInventory = accessorySerialInventory;
     }
 
     public async Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -61,6 +64,11 @@ public class OrderService : IOrderService
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
+            dto.LoanedEquipments,
+            shifts,
+            excludeOrderId: null,
+            cancellationToken);
         await ValidateReservationRequestAsync(
             equipmentIds,
             shifts,
@@ -88,6 +96,11 @@ public class OrderService : IOrderService
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
+            dto.LoanedEquipments,
+            shifts,
+            excludeOrderId: id,
+            cancellationToken);
         var priorEquipmentIds = OrderMapper
             .NormalizeEquipmentDefinitionIds(existing.Equipments.Select(e => e.EquipmentDefinitionId))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);

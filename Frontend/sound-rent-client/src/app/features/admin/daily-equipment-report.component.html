@@ -1,0 +1,323 @@
+<div class="mx-auto max-w-5xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">דוח ציוד</h1>
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        class="equipment-export-btn"
+        [disabled]="exportInProgress() || loading()"
+        (click)="exportToExcel()"
+        title="ייצוא דוח ציוד לקובץ Excel"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 19h14" />
+        </svg>
+        {{ exportInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
+      </button>
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        (click)="refresh()"
+      >
+        רענון
+      </button>
+    </div>
+  </div>
+
+  <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <h2 class="mb-1 text-lg font-bold text-[#002244]">בחירת תאריך</h2>
+    <p class="mb-4 text-sm text-slate-600">
+      הדוח מציג את סך אביזרי הציוד הנדרשים ליום הנבחר מכל ההזמנות הפעילות.
+    </p>
+
+    <form [formGroup]="dateForm" class="date-picker-form">
+      <div class="date-picker-field">
+        <div class="hebrew-date-field-row">
+          <div class="hebrew-date-picker-group">
+            <select
+              formControlName="hebrewDay"
+              class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day"
+              aria-label="יום"
+            >
+              @for (day of dayOptions(); track day) {
+                <option [value]="day">{{ dayLabel(day) }}</option>
+              }
+            </select>
+            <select
+              formControlName="hebrewMonth"
+              class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month"
+              aria-label="חודש"
+            >
+              @for (month of monthOptions(); track month.value) {
+                <option [value]="month.value">{{ month.label }}</option>
+              }
+            </select>
+            <select
+              formControlName="hebrewYear"
+              class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year"
+              aria-label="שנה"
+            >
+              @for (year of yearOptions(); track year) {
+                <option [value]="year">{{ yearLabel(year) }}</option>
+              }
+            </select>
+          </div>
+          <app-hebrew-calendar-picker
+            [year]="hebrewYearSig()"
+            [month]="hebrewMonthSig()"
+            [day]="hebrewDaySig()"
+            (yearChange)="patchHebrewFromCalendar({ year: $event })"
+            (monthChange)="patchHebrewFromCalendar({ month: $event })"
+            (dayChange)="patchHebrewFromCalendar({ day: $event })"
+            ariaLabel="פתח לוח שנה לבחירת תאריך הדוח"
+            dialogLabel="בחירת תאריך לדוח ציוד"
+          />
+        </div>
+      </div>
+
+      @if (selectedDateLabel()) {
+        <p class="selected-date-label">
+          <span>{{ selectedDateLabel() }}</span>
+          <span class="selected-date-label__hebrew">{{ selectedHebrewLabel() }}</span>
+        </p>
+      }
+    </form>
+  </section>
+
+  @if (loading()) {
+    <p class="py-8 text-center text-sm text-slate-500">טוען…</p>
+  } @else {
+    @if (report(); as data) {
+      <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h2 class="mb-4 text-lg font-bold text-[#002244]">סיכום אביזרים ליום</h2>
+
+        @if (data.summary.length === 0) {
+          <p class="py-6 text-center text-sm text-slate-500">אין אביזרי ציוד מושאלים להזמנות בתאריך זה</p>
+        } @else {
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+            @for (line of data.summary; track line.label) {
+              <div class="summary-badge">
+                <span class="summary-badge__qty">{{ line.quantity }}</span>
+                <span class="summary-badge__label">{{ line.label }}</span>
+              </div>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h2 class="mb-4 text-lg font-bold text-[#002244]">פירוט לפי לקוח</h2>
+
+        @if (data.customers.length === 0) {
+          <p class="py-6 text-center text-sm text-slate-500">אין הזמנות פעילות לתאריך זה</p>
+        } @else {
+          <div class="customer-breakdown-list">
+            @for (customer of data.customers; track customer.phone + customer.customerName) {
+              <article class="customer-breakdown-card">
+                <header class="customer-breakdown-card__header">
+                  <div class="customer-breakdown-card__primary">
+                    <div class="customer-breakdown-card__identity">
+                      <span class="customer-breakdown-card__name">
+                        {{ customer.customerName || 'ללא שם' }}
+                      </span>
+                      @if (customer.hasLastNameDuplicate) {
+                        <span
+                          class="name-duplicate-warn"
+                          [title]="sameDayNameDuplicateTooltip"
+                          aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
+                        >⚠️</span>
+                      }
+                    </div>
+                    <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(customer.phone) }}</span>
+                    @if (customer.systemSlotIds.length > 0) {
+                      <div class="customer-breakdown-card__systems">
+                        @for (slotId of customer.systemSlotIds; track slotId) {
+                          <span class="system-slot-badge">{{ systemSlotLabel(slotId) }}</span>
+                        }
+                      </div>
+                    }
+                  </div>
+                  @if (customer.orderIds.length === 1) {
+                    <a
+                      [routerLink]="['/orders', customer.orderIds[0]]"
+                      class="customer-breakdown-card__order-link"
+                    >
+                      הזמנה #{{ customer.orderIds[0] }}
+                    </a>
+                  } @else if (customer.orderIds.length > 1) {
+                    <span class="customer-breakdown-card__order-link">
+                      הזמנות: @for (id of customer.orderIds; track id; let last = $last) {
+                        <a [routerLink]="['/orders', id]" class="customer-breakdown-card__order-id">{{ id }}</a>@if (!last) {<span>, </span>}
+                      }
+                    </span>
+                  }
+                </header>
+
+                @if (displayAccessoryRows(customer).length === 0) {
+                  <p class="customer-breakdown-card__empty">(ללא ציוד מושאל)</p>
+                } @else {
+                  <ul class="customer-breakdown-card__items">
+                    @for (item of displayAccessoryRows(customer); track item.rowKey) {
+                      <li class="accessory-row" [class.accessory-row--pending]="isPendingAccessoryRow(item)">
+                        <span class="customer-breakdown-card__qty">{{ displayAccessoryQuantity(item) }}</span>
+                        <span class="accessory-row__label">{{ item.label }}</span>
+
+                        @if (!item.isCustomItem) {
+                          <span class="accessory-row__serial">
+                            <span class="accessory-row__serial-sep">:</span>
+                            @if (item.serialCodes.length > 0) {
+                              <button
+                                type="button"
+                                class="accessory-row__serial-codes"
+                                [disabled]="isSavingSerialRow(item)"
+                                (click)="toggleSerialDropdown(item)"
+                              >
+                                {{ serialSummary(item) }}
+                              </button>
+                            } @else {
+                              <button
+                                type="button"
+                                class="accessory-row__serial-placeholder"
+                                [disabled]="isSavingSerialRow(item)"
+                                (click)="toggleSerialDropdown(item)"
+                              >
+                                לחץ לבחירת קודים
+                              </button>
+                            }
+                            <button
+                              type="button"
+                              class="accessory-row__serial-edit"
+                              [disabled]="isSavingSerialRow(item)"
+                              (click)="toggleSerialDropdown(item)"
+                              aria-label="עריכת קודי סידור"
+                              title="עריכת קודי סידור"
+                            >
+                              ✎
+                            </button>
+                            @if (isSavingSerialRow(item)) {
+                              <span class="accessory-row__saving" aria-live="polite">שומר…</span>
+                            }
+                          </span>
+
+                          @if (isSerialDropdownOpen(item)) {
+                            <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                              @if (serialPanelState(item) === 'loading') {
+                                <p class="accessory-serial-panel__empty">טוען קודים…</p>
+                              } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
+                                <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
+                                  {{ serialPanelEmptyMessage(item) }}
+                                </p>
+                              } @else {
+                                @for (opt of serialOptionsForRow(item); track opt.serialCode) {
+                                  <label
+                                    class="multi-select__option"
+                                    [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      [checked]="isSerialSelected(item, opt.serialCode)"
+                                      [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                                      (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
+                                    />
+                                    <span class="multi-select__option-label">
+                                      <span class="ltr-field">{{ opt.serialCode }}</span>
+                                      @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
+                                        <span class="equipment-occupied-badge">תפוס</span>
+                                      }
+                                    </span>
+                                  </label>
+                                }
+                              }
+
+                              <div class="accessory-serial-panel__actions">
+                                <button
+                                  type="button"
+                                  class="accessory-serial-panel__btn accessory-serial-panel__btn--ghost"
+                                  [disabled]="isSavingSerialRow(item)"
+                                  (click)="cancelSerialDropdown(item, $event)"
+                                >
+                                  ביטול
+                                </button>
+                                <button
+                                  type="button"
+                                  class="accessory-serial-panel__btn accessory-serial-panel__btn--primary"
+                                  [disabled]="isSavingSerialRow(item) || isSerialAvailabilityLoading(item) || (!hasSerialDraftChanges(item) && serialPanelState(item) !== 'no-inventory' && serialPanelState(item) !== 'all-booked')"
+                                  (click)="confirmSerialDropdown(item, $event)"
+                                >
+                                  {{ isSavingSerialRow(item) ? 'שומר…' : 'אישור' }}
+                                </button>
+                              </div>
+                            </div>
+                          }
+                        }
+
+                        @if (customer.orderIds.length > 1) {
+                          <a
+                            [routerLink]="['/orders', item.orderId]"
+                            class="accessory-row__order-tag"
+                          >
+                            #{{ item.orderId }}
+                          </a>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+
+                <div class="add-accessory">
+                  @if (isAddAccessoryOpen(customer)) {
+                    <div class="add-accessory__picker">
+                      @if (customer.orderIds.length > 1) {
+                        <label class="add-accessory__field">
+                          <span class="add-accessory__label">הזמנה</span>
+                          <select
+                            class="add-accessory__select"
+                            [value]="addAccessoryOrderId(customer)"
+                            (change)="onAddAccessoryOrderChange(customer, +$any($event.target).value)"
+                          >
+                            @for (orderId of customer.orderIds; track orderId) {
+                              <option [value]="orderId">#{{ orderId }}</option>
+                            }
+                          </select>
+                        </label>
+                      }
+
+                      <label class="add-accessory__field">
+                        <span class="add-accessory__label">סוג אביזר</span>
+                        <select
+                          class="add-accessory__select"
+                          (change)="onAccessoryTypeChosen(customer, $any($event.target).value); $any($event.target).value = ''"
+                        >
+                          <option value="" selected disabled>בחרו סוג אביזר…</option>
+                          @for (type of availableAccessoryTypesForOrder(addAccessoryOrderId(customer)); track type) {
+                            <option [value]="type">{{ accessoryTypeLabel(type) }}</option>
+                          }
+                        </select>
+                      </label>
+
+                      @if (availableAccessoryTypesForOrder(addAccessoryOrderId(customer)).length === 0) {
+                        <p class="add-accessory__hint">כל סוגי האביזרים כבר משויכים להזמנה זו</p>
+                      }
+                    </div>
+                  }
+
+                  <button
+                    type="button"
+                    class="add-accessory__trigger"
+                    [class.add-accessory__trigger--active]="isAddAccessoryOpen(customer)"
+                    (click)="toggleAddAccessory(customer)"
+                  >
+                    <span aria-hidden="true">+</span>
+                    {{ isAddAccessoryOpen(customer) ? 'ביטול' : 'הוספת אביזר' }}
+                  </button>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      </section>
+    }
+  }
+</div>

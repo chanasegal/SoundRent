@@ -9,7 +9,6 @@ import { forkJoin, finalize, Subscription, timer } from 'rxjs';
 import {
   DEPOSIT_TYPE_LABELS,
   EQUIPMENT_TYPE_LABELS,
-  EQUIPMENT_TYPE_ORDER,
   EquipmentType,
   LOANED_EQUIPMENT_LABELS,
   ReturnTimeType,
@@ -29,6 +28,7 @@ import {
   findBlockedDateForIso
 } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
+import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ExportService } from '../../core/services/export.service';
@@ -170,6 +170,7 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 export class WeeklyGridComponent {
   private readonly initialDateState = createInitialDashboardDateState();
   private readonly data = inject(DataService);
+  private readonly customers = inject(CustomersStore);
   private readonly exportSvc = inject(ExportService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
@@ -185,9 +186,13 @@ export class WeeklyGridComponent {
   private weekLoadSub: Subscription | null = null;
   private weekLoadInFlightKey = '';
 
-  protected readonly equipmentTypes = EQUIPMENT_TYPE_ORDER;
   protected readonly equipmentLabels = EQUIPMENT_TYPE_LABELS;
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
+
+  /** Live speaker slots from the equipment catalog (same source as order forms). */
+  protected readonly waitlistSpeakerOptions = computed(() =>
+    this.equipmentSlots.definitions().filter((d) => d.category === 'Speakers')
+  );
 
   protected readonly gridColumns = computed<WeeklyGridColumnDef[]>(() => {
     const defs = this.equipmentSlots.definitions().filter((d) => d.category === 'Speakers');
@@ -213,8 +218,10 @@ export class WeeklyGridComponent {
   protected readonly hoveredOrderId = signal<number | null>(null);
 
   protected readonly waitlistModalForm = this.fb.group({
-    equipmentType: this.fb.nonNullable.control<EquipmentType>(EQUIPMENT_TYPE_ORDER[0], Validators.required),
+    bookingSlot: this.fb.nonNullable.control('', Validators.required),
+    customerName: ['', Validators.maxLength(100)],
     phone: ['', [Validators.required, Validators.maxLength(20)]],
+    address: ['', Validators.maxLength(500)],
     notes: ['', Validators.maxLength(1000)]
   });
   protected readonly gregorianMonths = GREGORIAN_MONTH_OPTIONS;
@@ -590,20 +597,37 @@ export class WeeklyGridComponent {
   }
 
   protected waitlistBadgeTitle(entry: WaitlistEntryDto): string {
-    const parts = [this.equipmentLabels[entry.equipmentType]];
+    const parts = [this.waitlistEquipmentLabel(entry)];
     if (entry.notes?.trim()) {
       parts.push(entry.notes.trim());
     }
     return parts.join(' — ');
   }
 
+  protected waitlistEquipmentLabel(entry: WaitlistEntryDto): string {
+    return this.equipmentLabels[entry.equipmentType] ?? String(entry.equipmentType);
+  }
+
   protected openAddWaitlistModal(date: Date): void {
     this.waitlistModalContext.set({ date });
-    this.waitlistModalForm.reset({
-      equipmentType: EQUIPMENT_TYPE_ORDER[0],
-      phone: '',
-      notes: ''
-    });
+    const applyDefaults = (): void => {
+      const defaultSlot = this.equipmentSlots.firstAvailableSpeakerSlotId();
+      this.waitlistModalForm.reset({
+        bookingSlot: defaultSlot,
+        customerName: '',
+        phone: '',
+        address: '',
+        notes: ''
+      });
+    };
+    if (this.waitlistSpeakerOptions().length === 0) {
+      this.equipmentSlots.load({ force: true }).subscribe({
+        next: () => applyDefaults(),
+        error: () => applyDefaults()
+      });
+      return;
+    }
+    applyDefaults();
   }
 
   protected closeWaitlistModal(): void {
@@ -617,18 +641,30 @@ export class WeeklyGridComponent {
     }
     if (this.waitlistModalForm.invalid) {
       this.waitlistModalForm.markAllAsTouched();
-      this.toast.error('אנא הזינו מספר טלפון');
+      this.toast.error('אנא מלאו את השדות הנדרשים');
       return;
     }
 
     const v = this.waitlistModalForm.getRawValue();
+    const equipmentType = bookingSlotToBaseEquipment(v.bookingSlot);
+    if (equipmentType === null) {
+      this.toast.error('סוג הציוד שנבחר אינו תקין');
+      return;
+    }
+
+    const phone = WeeklyGridComponent.digitsOnly((v.phone ?? '').trim());
+    const customerName = ((v.customerName as string) || '').trim() || null;
+    const address = ((v.address as string) || '').trim() || null;
+
     this.waitlistSaving.set(true);
     this.data
       .createWaitlistEntry({
-        phone: (v.phone ?? '').trim(),
-        equipmentType: v.equipmentType as EquipmentType,
+        customerName,
+        phone,
+        equipmentType,
         date: this.toIsoDate(ctx.date),
-        notes: ((v.notes as string) || '').trim() || null
+        notes: ((v.notes as string) || '').trim() || null,
+        address
       })
       .pipe(finalize(() => this.waitlistSaving.set(false)))
       .subscribe({
@@ -636,6 +672,11 @@ export class WeeklyGridComponent {
           if (created === null) {
             return;
           }
+          this.customers.upsertFromPayload({
+            phone1: phone,
+            fullName: customerName,
+            address
+          });
           this.toast.success('נוסף לרשימת ההמתנה');
           this.closeWaitlistModal();
           this.reloadCurrentWeek();
@@ -666,6 +707,7 @@ export class WeeklyGridComponent {
         date: entry.date,
         slot: TimeSlot.Morning,
         phone: entry.phone,
+        customerName: entry.customerName?.trim() ? entry.customerName : undefined,
         notes: entry.notes?.trim() ? entry.notes : undefined
       }
     });
@@ -1079,5 +1121,9 @@ export class WeeklyGridComponent {
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const y = date.getFullYear();
     return `${d}.${m}.${y}`;
+  }
+
+  private static digitsOnly(raw: string): string {
+    return raw.replace(/\D/g, '');
   }
 }

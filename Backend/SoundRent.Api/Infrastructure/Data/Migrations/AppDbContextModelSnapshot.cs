@@ -22,6 +22,31 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.AccessorySerialInventory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EquipmentType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SerialCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EquipmentType", "SerialCode")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AccessorySerialInventory_Type_Code");
+
+                    b.ToTable("AccessorySerialInventory", (string)null);
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.BlockedDate", b =>
                 {
                     b.Property<int>("Id")
@@ -249,6 +274,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<int>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -263,6 +292,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("IX_LostEquipments_CreatedAt");
+
+                    b.HasIndex("Phone")
+                        .HasDatabaseName("IX_LostEquipments_Phone");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_LostEquipments_Status");

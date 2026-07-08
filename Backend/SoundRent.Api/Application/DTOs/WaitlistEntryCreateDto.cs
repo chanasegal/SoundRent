@@ -20,4 +20,8 @@ public class WaitlistEntryCreateDto
 
     [MaxLength(1000, ErrorMessage = "ההערות לא יכולות לחרוג מ-1000 תווים")]
     public string? Notes { get; set; }
+
+    /// <summary>Optional address — persisted to the customer directory, not on the waitlist row.</summary>
+    [MaxLength(500, ErrorMessage = "הכתובת לא יכולה לחרוג מ-500 תווים")]
+    public string? Address { get; set; }
 }

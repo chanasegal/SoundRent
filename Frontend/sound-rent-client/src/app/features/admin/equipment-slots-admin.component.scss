@@ -50,3 +50,63 @@ tr.row-in-maintenance:hover {
     color: #7f1d1d;
   }
 }
+
+.accessory-inventory-section {
+  margin-top: 2rem;
+}
+
+.accessory-inventory-table {
+  th,
+  td {
+    vertical-align: middle;
+  }
+}
+
+.qty-input {
+  width: 4.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  padding: 0.4rem 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.note-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.note-input {
+  flex: 0 0 auto;
+  width: 5.25rem;
+  border-radius: 0.4rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.75rem;
+  color: #0f172a;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &::placeholder {
+    color: #cbd5e1;
+    font-weight: 600;
+  }
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+  }
+}

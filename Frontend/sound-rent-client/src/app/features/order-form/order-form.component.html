@@ -42,6 +42,33 @@
 
   <form [formGroup]="form" (ngSubmit)="submit()" class="space-y-5">
 
+    @if (showLostEquipmentAlert()) {
+      <div class="lost-equipment-alert" role="alert">
+        <svg class="lost-equipment-alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+          />
+        </svg>
+        <div class="lost-equipment-alert__body">
+          <p class="lost-equipment-alert__title">{{ lostEquipmentAlertSummary() }}</p>
+          <ul class="lost-equipment-alert__list">
+            @for (item of activeLostEquipment(); track item.id) {
+              <li>
+                <strong>{{ item.itemDescription }}</strong>
+                @if (item.hebrewDate) {
+                  <span> · {{ item.hebrewDate }}</span>
+                }
+                @if (item.notes) {
+                  <span class="lost-equipment-alert__notes"> · {{ item.notes }}</span>
+                }
+              </li>
+            }
+          </ul>
+        </div>
+      </div>
+    }
+
     <!-- Customer section (always first) -->
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי הלקוח</h2>
@@ -454,55 +481,48 @@
             <tr class="bg-[#002244] text-white">
               <th class="w-44 px-3 py-2 text-right">פריט</th>
               <th class="w-24 px-3 py-2 text-center">כמות</th>
-              <th class="px-3 py-2 text-right">פירוט</th>
+              <th class="px-3 py-2 text-right">קודים סידוריים</th>
             </tr>
           </thead>
           <tbody formArrayName="loanedEquipments">
             @for (def of rowDefinitions; track def.type; let i = $index) {
               <tr [formGroupName]="i" class="border-t border-slate-200 odd:bg-slate-50/60 hover:bg-sky-50/40">
                 <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.label }}</td>
-                <td class="px-3 py-2 align-middle">
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    inputmode="numeric"
-                    pattern="[0-9]*"
-                    appIntegerOnly
-                    zeroDefault
-                    formControlName="quantity"
-                    class="qty-input"
-                  />
+                <td class="px-3 py-2 align-middle text-center font-semibold text-[#002244]">
+                  {{ selectedAccessoryQuantity(i) }}
                 </td>
                 <td class="px-3 py-2 align-middle">
-                  @if (noteIndicesForRow(i).length === 0) {
-                    <span class="text-xs text-slate-400">—</span>
-                  } @else {
-                    <div class="flex flex-wrap gap-1">
-                      @for (idx of noteIndicesForRow(i); track idx) {
-                        @if (isMicrophoneRow(i)) {
-                          <input
-                            type="text"
-                            maxlength="100"
-                            [formControl]="getNoteControl(i, idx)"
-                            class="note-input"
-                            [attr.placeholder]="'#' + (idx + 1)"
-                          />
-                        } @else {
-                          <input
-                            type="text"
-                            maxlength="100"
-                            inputmode="numeric"
-                            pattern="[0-9]*"
-                            appIntegerOnly
-                            [formControl]="getNoteControl(i, idx)"
-                            class="note-input"
-                            [attr.placeholder]="'#' + (idx + 1)"
-                          />
+                  <div class="multi-select loaned-serial-select">
+                    <button type="button" class="multi-select__trigger" (click)="toggleAccessorySerialDropdown(i)">
+                      <span>{{ selectedAccessorySerialSummary(i) }}</span>
+                      <span class="multi-select__chevron">▾</span>
+                    </button>
+                    @if (isAccessorySerialDropdownOpen(i)) {
+                      <div class="multi-select__panel">
+                        @for (opt of serialOptionsForRow(i); track opt.serialCode) {
+                          <label
+                            class="multi-select__option"
+                            [class.multi-select__option--disabled]="!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)"
+                          >
+                            <input
+                              type="checkbox"
+                              [checked]="isAccessorySerialSelected(i, opt.serialCode)"
+                              [disabled]="!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)"
+                              (change)="toggleAccessorySerialSelection(i, opt.serialCode, $any($event.target).checked)"
+                            />
+                            <span class="multi-select__option-label">
+                              <span class="ltr-field">{{ opt.serialCode }}</span>
+                              @if (!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) {
+                                <span class="equipment-occupied-badge" aria-label="תפוס">(תפוס)</span>
+                              }
+                            </span>
+                          </label>
+                        } @empty {
+                          <p class="px-2 py-1 text-sm text-slate-500">אין קודים במלאי לפריט זה</p>
                         }
-                      }
-                    </div>
-                  }
+                      </div>
+                    }
+                  </div>
                 </td>
               </tr>
             }
@@ -582,6 +602,59 @@
         placeholder="הערות חופשיות לגבי ההזמנה..."
       ></textarea>
     </section>
+
+    <div class="lost-equipment-report">
+      <button
+        type="button"
+        class="lost-equipment-report__toggle"
+        (click)="toggleReportLostEquipment()"
+        [attr.aria-expanded]="reportLostOpen()"
+      >
+        ⚠️ דווח על ציוד שנשכח
+      </button>
+
+      @if (reportLostOpen()) {
+        <div class="lost-equipment-report__panel" [formGroup]="reportLostForm">
+          <div class="lost-equipment-report__fields">
+            <div>
+              <label class="form-label">תיאור פריט <span class="text-rose-500">*</span></label>
+              <input
+                type="text"
+                formControlName="itemDescription"
+                class="form-input"
+                autocomplete="off"
+                maxlength="500"
+              />
+              @if (reportLostForm.controls.itemDescription.touched && reportLostForm.controls.itemDescription.errors?.['required']) {
+                <p class="form-error">שדה חובה</p>
+              }
+            </div>
+            <div>
+              <label class="form-label">הערות</label>
+              <textarea formControlName="notes" rows="2" class="form-input" maxlength="2000"></textarea>
+            </div>
+          </div>
+          <div class="lost-equipment-report__actions">
+            <button
+              type="button"
+              class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              [disabled]="reportLostSaving()"
+              (click)="closeReportLostEquipment()"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+              [disabled]="reportLostSaving() || reportLostForm.invalid"
+              (click)="submitReportLostEquipment()"
+            >
+              {{ reportLostSaving() ? 'שומר…' : 'שמור דיווח' }}
+            </button>
+          </div>
+        </div>
+      }
+    </div>
 
     <!-- Action buttons -->
     <div class="sticky bottom-0 z-10 flex flex-col-reverse gap-3 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-slate-200 sm:flex-row sm:justify-end">

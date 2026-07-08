@@ -12,6 +12,9 @@ public class LostEquipment
     [MaxLength(200)]
     public string CustomerName { get; set; } = string.Empty;
 
+    [MaxLength(20)]
+    public string? Phone { get; set; }
+
     [Required]
     [MaxLength(500)]
     public string ItemDescription { get; set; } = string.Empty;

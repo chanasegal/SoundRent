@@ -154,6 +154,101 @@
     color: #d97706; // matches the leading border for visual cohesion
   }
 
+  .lost-equipment-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-inline-start: 5px solid #dc2626;
+    border-radius: 0.75rem;
+    color: #7f1d1d;
+    box-shadow: 0 8px 20px -16px rgba(127, 29, 29, 0.55);
+  }
+
+  .lost-equipment-alert__icon {
+    flex: 0 0 auto;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-top: 0.1rem;
+    color: #dc2626;
+  }
+
+  .lost-equipment-alert__body {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .lost-equipment-alert__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+
+  .lost-equipment-alert__list {
+    margin: 0.45rem 0 0;
+    padding-inline-start: 1.1rem;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #991b1b;
+  }
+
+  .lost-equipment-alert__notes {
+    opacity: 0.85;
+  }
+
+  .lost-equipment-report {
+    margin-top: 0;
+    padding: 1rem 1.25rem;
+    border-radius: 1rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
+  .lost-equipment-report__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid #f59e0b;
+    border-radius: 0.65rem;
+    background: #fffbeb;
+    color: #92400e;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+
+    &:hover {
+      background: #fef3c7;
+      border-color: #d97706;
+    }
+  }
+
+  .lost-equipment-report__panel {
+    margin-top: 0.85rem;
+    padding: 0.9rem;
+    border-radius: 0.85rem;
+    border: 1px solid #fde68a;
+    background: #fffbeb;
+  }
+
+  .lost-equipment-report__fields {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .lost-equipment-report__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+  }
+
   /* ----- Slot row: uniform control height + alignment ----- */
 
   $slot-control-height: 40px;
@@ -289,6 +384,21 @@
     &:hover {
       background: #f1f5f9;
     }
+  }
+
+  .multi-select__option--disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+
+    &:hover {
+      background: transparent;
+    }
+  }
+
+  .loaned-serial-select .multi-select__trigger {
+    min-height: 2rem;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.55rem;
   }
 
   .multi-select__option-label {

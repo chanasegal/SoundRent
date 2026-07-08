@@ -25,6 +25,14 @@ import {
   BlockedDateDto,
   BlockedDateUpdateDto
 } from '../models/blocked-date.model';
+import {
+  AccessoryInventoryBatchUpdateDto,
+  AccessoryInventoryGroupDto,
+  AccessoryInventoryUpdateDto,
+  AccessorySerialAvailabilityGroupDto,
+  AccessorySerialAvailabilityRequestDto
+} from '../models/accessory-inventory.model';
+import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
 
 /** Response of `GET /api/orders/slot-taken` — purely informational. */
@@ -44,6 +52,7 @@ export class DataService {
   private readonly memoBase = `${environment.apiBaseUrl}/memo`;
   private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
   private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
+  private readonly accessoryInventoryBase = `${environment.apiBaseUrl}/accessoryinventory`;
 
   private notifyHttpError(error: unknown): void {
     this.toast.error(getApiErrorMessage(error));
@@ -458,5 +467,45 @@ export class DataService {
         return of(false);
       })
     );
+  }
+
+  getAccessoryInventory(): Observable<AccessoryInventoryGroupDto[]> {
+    return this.http.get<AccessoryInventoryGroupDto[]>(this.accessoryInventoryBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  updateAccessoryInventory(
+    equipmentType: LoanedEquipmentType,
+    payload: AccessoryInventoryUpdateDto
+  ): Observable<AccessoryInventoryGroupDto | null> {
+    return this.http.put<AccessoryInventoryGroupDto>(`${this.accessoryInventoryBase}/${equipmentType}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateAccessoryInventoryBatch(
+    payload: AccessoryInventoryBatchUpdateDto
+  ): Observable<AccessoryInventoryGroupDto[] | null> {
+    return this.http.put<AccessoryInventoryGroupDto[]>(`${this.accessoryInventoryBase}/batch`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  getAccessorySerialAvailability(
+    request: AccessorySerialAvailabilityRequestDto
+  ): Observable<AccessorySerialAvailabilityGroupDto[]> {
+    return this.http
+      .post<AccessorySerialAvailabilityGroupDto[]>(`${this.accessoryInventoryBase}/availability`, request)
+      .pipe(catchError(() => of([])));
   }
 }

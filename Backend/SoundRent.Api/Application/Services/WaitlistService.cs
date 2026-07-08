@@ -8,10 +8,12 @@ namespace SoundRent.Api.Application.Services;
 public class WaitlistService : IWaitlistService
 {
     private readonly IWaitlistRepository _repository;
+    private readonly ICustomerService _customerService;
 
-    public WaitlistService(IWaitlistRepository repository)
+    public WaitlistService(IWaitlistRepository repository, ICustomerService customerService)
     {
         _repository = repository;
+        _customerService = customerService;
     }
 
     public async Task<List<WaitlistEntryDto>> GetWeeklyAsync(
@@ -47,6 +49,7 @@ public class WaitlistService : IWaitlistService
 
         await _repository.AddAsync(entity, cancellationToken);
         await _repository.SaveChangesAsync(cancellationToken);
+        await _customerService.SyncFromWaitlistAsync(dto.Phone, dto.CustomerName, dto.Address, cancellationToken);
 
         return ToDto(entity);
     }
