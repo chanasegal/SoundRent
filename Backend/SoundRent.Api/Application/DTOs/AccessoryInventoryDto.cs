@@ -38,6 +38,9 @@ public class AccessorySerialAvailabilityRequestDto
     public List<OrderShiftDto>? Shifts { get; set; }
 
     public int? ExcludeOrderId { get; set; }
+
+    /// <summary>When set, only these accessory types are loaded (faster for single-row edits).</summary>
+    public List<LoanedEquipmentType>? EquipmentTypes { get; set; }
 }
 
 public class AccessorySerialOptionDto
@@ -52,4 +55,23 @@ public class AccessorySerialAvailabilityGroupDto
     public LoanedEquipmentType EquipmentType { get; set; }
 
     public List<AccessorySerialOptionDto> Options { get; set; } = [];
+}
+
+public class AccessorySerialLocationDto
+{
+    public LoanedEquipmentType EquipmentType { get; set; }
+
+    public string Label { get; set; } = string.Empty;
+
+    public string SerialCode { get; set; } = string.Empty;
+
+    public bool IsRegistered { get; set; }
+
+    public bool IsInWarehouse { get; set; }
+
+    public int? OrderId { get; set; }
+
+    public string? CustomerName { get; set; }
+
+    public string? Phone { get; set; }
 }

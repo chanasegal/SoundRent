@@ -22,6 +22,7 @@ import {
   LoanedEquipmentType
 } from '../../core/models/enums';
 import {
+  LoanedEquipmentNoteDto,
   OrderCreateUpdateDto,
   OrderDto,
   OrderLoanedEquipmentDto,
@@ -31,6 +32,7 @@ import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
@@ -49,6 +51,8 @@ interface CustomerAccessoryLine {
   loanedEquipmentType: LoanedEquipmentType | null;
   isCustomItem: boolean;
   serialCodes: string[];
+  returnedSerialCodes: string[];
+  hasRecordedReturns: boolean;
   shiftsOnDay: OrderShiftDto[];
 }
 
@@ -78,6 +82,7 @@ const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה ע�
 })
 export class DailyEquipmentReportComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly exportSvc = inject(ExportService);
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
@@ -160,6 +165,9 @@ export class DailyEquipmentReportComponent implements OnInit {
     this.equipmentSlots.load().subscribe();
     this.wireDateForm();
     this.loadOrders();
+    this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((order) => this.mergeOrderUpdate(order));
   }
 
   protected systemSlotLabel(slotId: string): string {
@@ -210,6 +218,34 @@ export class DailyEquipmentReportComponent implements OnInit {
       return '';
     }
     return row.serialCodes.join(', ');
+  }
+
+  protected isSerialReturned(row: CustomerAccessoryLine, code: string): boolean {
+    return row.returnedSerialCodes.some(
+      (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+  }
+
+  protected isSerialEditLocked(row: CustomerAccessoryLine, code: string): boolean {
+    return this.isSerialReturned(row, code);
+  }
+
+  protected rowHasRecordedReturns(row: CustomerAccessoryLine): boolean {
+    return row.hasRecordedReturns;
+  }
+
+  protected allSerialsReturned(row: CustomerAccessoryLine): boolean {
+    return row.serialCodes.length > 0 && row.returnedSerialCodes.length >= row.serialCodes.length;
+  }
+
+  protected canEditAccessorySerials(row: CustomerAccessoryLine): boolean {
+    if (row.isCustomItem) {
+      return false;
+    }
+    if (!row.hasRecordedReturns) {
+      return true;
+    }
+    return !this.allSerialsReturned(row);
   }
 
   protected customerKey(customer: CustomerBreakdown): string {
@@ -309,6 +345,11 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
 
+    if (!this.canEditAccessorySerials(row)) {
+      this.toast.warning('כל הפריטים הוחזרו למלאי — לא ניתן לערוך');
+      return;
+    }
+
     const key = row.rowKey;
     if (this.openSerialDropdownKey() === key) {
       this.closeSerialDropdown(row, { saveIfChanged: true });
@@ -379,10 +420,10 @@ export class DailyEquipmentReportComponent implements OnInit {
   protected serialPanelEmptyMessage(row: CustomerAccessoryLine): string {
     const state = this.serialPanelState(row);
     if (state === 'no-inventory') {
-      return 'אין קודים מוגדרים במערכת לפריט זה';
+      return 'אין מלאי במערכת מפריט זה';
     }
     if (state === 'all-booked') {
-      return 'כל הקודים תפוסים למשמרת זו';
+      return 'כל הפריטים כרגע בחוץ (מושאלים)';
     }
     return '';
   }
@@ -403,6 +444,11 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   protected toggleSerialSelection(row: CustomerAccessoryLine, code: string, checked: boolean): void {
     if (row.isCustomItem || this.isSavingSerialRow(row)) {
+      return;
+    }
+
+    if (!checked && this.isSerialEditLocked(row, code)) {
+      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
       return;
     }
 
@@ -444,7 +490,7 @@ export class DailyEquipmentReportComponent implements OnInit {
           'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
           פריט: item.label,
           כמות: item.quantity,
-          'קודי סידור': item.serialCodes.join(', '),
+          'קודי פריט': item.serialCodes.join(', '),
           'אזהרת שם משפחה': customer.hasLastNameDuplicate
             ? 'יש עוד הזמנה על שם משפחה זהה'
             : ''
@@ -458,7 +504,7 @@ export class DailyEquipmentReportComponent implements OnInit {
           'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
           פריט: '(ללא ציוד מושאל)',
           כמות: 0,
-          'קודי סידור': '',
+          'קודי פריט': '',
           'אזהרת שם משפחה': customer.hasLastNameDuplicate
             ? 'יש עוד הזמנה על שם משפחה זהה'
             : ''
@@ -489,6 +535,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       .getAccessorySerialAvailability({
         dates: [iso],
         shifts: row.shiftsOnDay,
+        equipmentTypes: row.loanedEquipmentType != null ? [row.loanedEquipmentType] : undefined,
         excludeOrderId: row.orderId
       })
       .pipe(finalize(() => this.setSerialAvailabilityLoading(row.rowKey, false)))
@@ -656,11 +703,12 @@ export class DailyEquipmentReportComponent implements OnInit {
           return;
         }
         this.orders.update((list) => list.map((o) => (o.id === updated.id ? updated : o)));
+        this.ordersSync.notifyOrderUpdated(updated);
         if (wasPending) {
           this.removePendingRow(row);
         }
         this.clearSerialDraft(row.rowKey);
-        this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'קודי סידור עודכנו');
+        this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'קודי פריט עודכנו');
       });
   }
 
@@ -679,6 +727,8 @@ export class DailyEquipmentReportComponent implements OnInit {
       loanedEquipmentType: type,
       isCustomItem: false,
       serialCodes: [],
+      returnedSerialCodes: [],
+      hasRecordedReturns: order?.isReturnProcessed === true,
       shiftsOnDay
     };
   }
@@ -690,7 +740,8 @@ export class DailyEquipmentReportComponent implements OnInit {
   ): OrderLoanedEquipmentDto[] {
     const existing = order.loanedEquipments ?? [];
     const matchIndex = existing.findIndex((le) => !le.isCustomItem && le.loanedEquipmentType === type);
-    const notes = codes.map((content, ordinal) => ({ ordinal, content }));
+    const existingLine = matchIndex >= 0 ? existing[matchIndex] : undefined;
+    const notes = this.buildAccessoryNotes(codes, existingLine?.notes);
     const nextLine: OrderLoanedEquipmentDto = {
       ...(matchIndex >= 0 && existing[matchIndex]?.id ? { id: existing[matchIndex].id } : {}),
       isCustomItem: false,
@@ -733,7 +784,7 @@ export class DailyEquipmentReportComponent implements OnInit {
         return le;
       }
 
-      const notes = codes.map((content, ordinal) => ({ ordinal, content }));
+      const notes = this.buildAccessoryNotes(codes, le.notes);
       return {
         ...le,
         quantity: codes.length,
@@ -741,6 +792,25 @@ export class DailyEquipmentReportComponent implements OnInit {
         notes
       };
     });
+  }
+
+  private buildAccessoryNotes(
+    codes: string[],
+    existingNotes?: LoanedEquipmentNoteDto[]
+  ): LoanedEquipmentNoteDto[] {
+    const returnedByCode = new Map<string, boolean>();
+    for (const note of existingNotes ?? []) {
+      const content = (note.content ?? '').trim();
+      if (content.length > 0 && note.isReturned) {
+        returnedByCode.set(content.toLowerCase(), true);
+      }
+    }
+
+    return codes.map((content, ordinal) => ({
+      ordinal,
+      content,
+      ...(returnedByCode.get(content.toLowerCase()) ? { isReturned: true } : {})
+    }));
   }
 
   private orderToUpdatePayload(
@@ -825,6 +895,45 @@ export class DailyEquipmentReportComponent implements OnInit {
       this.dateForm.controls.hebrewDay.setValue(day, { emitEvent: false });
       this.hebrewDaySig.set(day);
     }
+  }
+
+  private mergeOrderUpdate(updated: OrderDto): void {
+    const iso = this.selectedIso();
+    if (!iso) {
+      return;
+    }
+
+    const hasShiftOnDay = (updated.shifts ?? []).some((shift) => shift.orderDate === iso);
+    const alreadyListed = this.orders().some((order) => order.id === updated.id);
+
+    if (!hasShiftOnDay && !alreadyListed) {
+      return;
+    }
+
+    this.orders.update((list) => {
+      const index = list.findIndex((order) => order.id === updated.id);
+      if (index >= 0) {
+        if (!hasShiftOnDay) {
+          return list.filter((order) => order.id !== updated.id);
+        }
+        const next = [...list];
+        next[index] = updated;
+        return next;
+      }
+      return hasShiftOnDay ? [...list, updated] : list;
+    });
+
+    this.accessoryAvailabilityByRow.update((map) => {
+      const next = new Map(map);
+      for (const key of next.keys()) {
+        if (key.startsWith(`${updated.id}|`)) {
+          next.delete(key);
+        }
+      }
+      return next;
+    });
+    this.serialDraftByRowKey.set(new Map());
+    this.openSerialDropdownKey.set(null);
   }
 
   private loadOrders(): void {
@@ -933,6 +1042,9 @@ export class DailyEquipmentReportComponent implements OnInit {
         .sort((a, b) => a.ordinal - b.ordinal)
         .map((n) => (n.content ?? '').trim())
         .filter((c) => c.length > 0);
+      const returnedSerialCodes = (le.notes ?? [])
+        .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+        .map((n) => (n.content ?? '').trim());
       const loanedEquipmentType = le.isCustomItem
         ? null
         : (le.loanedEquipmentType as LoanedEquipmentType);
@@ -949,6 +1061,8 @@ export class DailyEquipmentReportComponent implements OnInit {
         loanedEquipmentType,
         isCustomItem: !!le.isCustomItem,
         serialCodes,
+        returnedSerialCodes,
+        hasRecordedReturns: order.isReturnProcessed === true,
         shiftsOnDay
       });
     }

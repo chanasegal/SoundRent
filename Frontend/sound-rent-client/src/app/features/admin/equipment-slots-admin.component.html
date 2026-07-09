@@ -110,11 +110,104 @@
   <section class="accessory-inventory-section rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 class="text-lg font-bold text-[#002244]">מלאי קודים סידוריים — ציוד מושאל</h2>
+        <h2 class="text-lg font-bold text-[#002244]">ניהול מלאי</h2>
         <p class="mt-1 text-sm text-slate-600">
           הגדירו כמות לכל פריט והזינו קוד ייחודי בכל שדה. לכל סוג מלבד מיקרופון — ספרות בלבד.
         </p>
       </div>
+    </div>
+
+    <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+      <h3 class="mb-3 text-sm font-bold text-[#002244]">איתור קוד פריט</h3>
+      <form [formGroup]="serialSearchForm" class="serial-locator__filters" (ngSubmit)="searchSerialLocation()">
+        <div class="serial-locator__field">
+          <label class="serial-locator__label" for="serial-search-type">סוג אביזר</label>
+          <select id="serial-search-type" formControlName="equipmentType" class="serial-locator__select">
+            @for (def of accessoryRowDefinitions; track def.type) {
+              <option [value]="def.type">{{ def.label }}</option>
+            }
+          </select>
+        </div>
+        <div class="serial-locator__field serial-locator__field--code">
+          <label class="serial-locator__label" for="serial-search-code">קוד פריט</label>
+          <input
+            id="serial-search-code"
+            type="text"
+            formControlName="serialCode"
+            class="serial-locator__input"
+            list="serial-code-options"
+            dir="ltr"
+            autocomplete="off"
+            placeholder="בחרו או הקלידו קוד פריט"
+          />
+          <datalist id="serial-code-options">
+            @for (code of serialCodesForSearchType(); track code) {
+              <option [value]="code"></option>
+            }
+          </datalist>
+        </div>
+        <div class="serial-locator__actions">
+          <button
+            type="submit"
+            class="serial-locator__search-btn"
+            [disabled]="serialSearchLoading() || accessoryLoading()"
+          >
+            {{ serialSearchLoading() ? 'מחפש…' : 'חפש' }}
+          </button>
+          @if (serialSearchAttempted()) {
+            <button type="button" class="serial-locator__clear-btn" (click)="clearSerialSearch()">
+              נקה
+            </button>
+          }
+        </div>
+      </form>
+
+      @if (serialSearchAttempted() && serialLocationResult(); as result) {
+        <div
+          class="serial-locator__result"
+          [class.serial-locator__result--warehouse]="result.isRegistered && result.isInWarehouse"
+          [class.serial-locator__result--loaned]="result.isRegistered && !result.isInWarehouse"
+          [class.serial-locator__result--missing]="!result.isRegistered"
+        >
+          @if (!result.isRegistered) {
+            <p class="serial-locator__status">קוד פריט <span class="ltr-field">{{ result.serialCode }}</span> אינו רשום במלאי עבור {{ result.label }}</p>
+          } @else if (result.isInWarehouse) {
+            <p class="serial-locator__status">במלאי 🟢</p>
+            <p class="serial-locator__meta">
+              <span>{{ result.label }}</span>
+              <span class="serial-locator__sep">·</span>
+              <span class="ltr-field">{{ result.serialCode }}</span>
+            </p>
+          } @else {
+            <p class="serial-locator__status">מושאל 🔴</p>
+            <p class="serial-locator__meta">
+              <span>{{ result.label }}</span>
+              <span class="serial-locator__sep">·</span>
+              <span class="ltr-field">{{ result.serialCode }}</span>
+            </p>
+            <dl class="serial-locator__loan-details">
+              <div>
+                <dt>הזמנה</dt>
+                <dd>
+                  @if (result.orderId) {
+                    <a [routerLink]="['/orders', result.orderId]" class="serial-locator__order-link">#{{ result.orderId }}</a>
+                  } @else {
+                    —
+                  }
+                </dd>
+              </div>
+              <div>
+                <dt>לקוח</dt>
+                <dd>{{ result.customerName || '—' }}</dd>
+              </div>
+              <div>
+                <dt>טלפון</dt>
+                <dd class="ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</dd>
+              </div>
+            </dl>
+          }
+        </div>
+      }
     </div>
 
     @if (accessoryLoading()) {
@@ -126,7 +219,7 @@
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
               <th class="w-44 px-3 py-2 font-semibold">פריט</th>
               <th class="w-24 px-3 py-2 text-center font-semibold">כמות</th>
-              <th class="px-3 py-2 font-semibold">קודים</th>
+              <th class="px-3 py-2 font-semibold">קוד פריט</th>
             </tr>
           </thead>
           <tbody formArrayName="rows">

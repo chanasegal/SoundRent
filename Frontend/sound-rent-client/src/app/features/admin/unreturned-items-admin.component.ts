@@ -1,11 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { finalize, map } from 'rxjs';
+import { finalize } from 'rxjs';
 
 import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
@@ -17,6 +18,7 @@ import { ToastService } from '../../core/services/toast.service';
 })
 export class UnreturnedItemsAdminComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
 
@@ -64,11 +66,23 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     return phone;
   }
 
+  protected hasMissingSerialCodes(row: UnreturnedItemDto): boolean {
+    return (row.missingSerialCodes ?? []).length > 0;
+  }
+
+  protected missingSerialCodesLabel(row: UnreturnedItemDto): string {
+    return (row.missingSerialCodes ?? []).join(', ');
+  }
+
   protected quickReturn(row: UnreturnedItemDto): void {
     const key = this.rowKey(row);
     if (this.isReturning(row)) {
       return;
     }
+
+    const assignedCodes = row.assignedSerialCodes ?? [];
+    const hasSerializedLine = !row.isCustomItem && assignedCodes.length > 0;
+    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantityLoaned;
 
     this.returningKeys.update((set) => new Set(set).add(key));
     this.data
@@ -76,12 +90,12 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         items: [
           {
             loanedEquipmentId: row.loanedEquipmentId,
-            quantityReturned: row.quantityLoaned
+            quantityReturned,
+            ...(hasSerializedLine ? { returnedSerialCodes: [...assignedCodes] } : {})
           }
         ]
       })
       .pipe(
-        map((updated) => updated !== null),
         finalize(() =>
           this.returningKeys.update((set) => {
             const next = new Set(set);
@@ -91,10 +105,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         )
       )
       .subscribe({
-        next: (ok) => {
-          if (!ok) {
+        next: (updated) => {
+          if (!updated) {
             return;
           }
+          this.ordersSync.notifyOrderUpdated(updated);
           this.removingKeys.update((set) => new Set(set).add(key));
           window.setTimeout(() => {
             this.rows.update((list) => list.filter((r) => this.rowKey(r) !== key));

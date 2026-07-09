@@ -491,6 +491,67 @@ $date-control-height: 2.5rem;
   padding: 0.35rem 0.45rem;
 }
 
+.accessory-row__serial-chip-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.accessory-row__serial-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: 0.35rem;
+  padding: 0.05rem 0.3rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+
+  &--returned {
+    background: #ecfdf5;
+    border-color: #86efac;
+  }
+}
+
+.accessory-row__serial-codes--all-returned {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.returned-serial-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 0.02rem 0.35rem;
+  line-height: 1.2;
+}
+
+.return-processed-indicator {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #166534;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}
+
+.accessory-serial-panel__return-guard {
+  margin: 0 0 0.45rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 0.45rem;
+}
+
 .add-accessory {
   display: flex;
   flex-wrap: wrap;

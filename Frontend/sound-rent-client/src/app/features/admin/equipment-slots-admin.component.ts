@@ -10,9 +10,11 @@ import {
   ReactiveFormsModule,
   Validators
 } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
 
+import { AccessorySerialLocationDto } from '../../core/models/accessory-inventory.model';
 import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
@@ -27,7 +29,7 @@ import { IntegerOnlyDirective } from '../../shared/directives/integer-only.direc
 @Component({
   selector: 'app-equipment-slots-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective],
+  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, RouterLink],
   templateUrl: './equipment-slots-admin.component.html',
   styleUrl: './equipment-slots-admin.component.scss'
 })
@@ -45,6 +47,15 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }));
   protected readonly accessoryLoading = signal(true);
   protected readonly accessorySaving = signal(false);
+  protected readonly serialSearchLoading = signal(false);
+  protected readonly serialLocationResult = signal<AccessorySerialLocationDto | null>(null);
+  protected readonly serialSearchAttempted = signal(false);
+  private readonly accessoryCodesByType = signal<Map<LoanedEquipmentType, string[]>>(new Map());
+
+  protected readonly serialSearchForm = this.fb.group({
+    equipmentType: this.fb.nonNullable.control<LoanedEquipmentType>(LOANED_EQUIPMENT_ORDER[0]!),
+    serialCode: ['', Validators.required]
+  });
 
   protected readonly accessoryForm = this.fb.group({
     rows: this.fb.array(LOANED_EQUIPMENT_ORDER.map((type) => this.buildAccessoryRow(type)))
@@ -81,7 +92,48 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   ngOnInit(): void {
     this.wireAccessoryQuantitySync();
+    this.wireSerialSearchTypeFilter();
     this.refresh();
+  }
+
+  protected serialCodesForSearchType(): string[] {
+    const type = this.serialSearchForm.controls.equipmentType.value;
+    return this.accessoryCodesByType().get(type) ?? [];
+  }
+
+  protected searchSerialLocation(): void {
+    const type = this.serialSearchForm.controls.equipmentType.value;
+    const serialCode = (this.serialSearchForm.controls.serialCode.value ?? '').trim();
+    if (!serialCode) {
+      this.serialSearchForm.controls.serialCode.markAsTouched();
+      this.toast.error('יש לבחור קוד פריט לחיפוש');
+      return;
+    }
+
+    this.serialSearchLoading.set(true);
+    this.serialSearchAttempted.set(true);
+    this.data
+      .getAccessorySerialLocation(type, serialCode)
+      .pipe(finalize(() => this.serialSearchLoading.set(false)))
+      .subscribe((result) => {
+        if (result) {
+          this.serialLocationResult.set(result);
+        }
+      });
+  }
+
+  protected clearSerialSearch(): void {
+    this.serialSearchAttempted.set(false);
+    this.serialLocationResult.set(null);
+    this.serialSearchForm.patchValue({ serialCode: '' });
+  }
+
+  protected formatLocatorPhone(phone: string | null | undefined): string {
+    const digits = (phone ?? '').replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return phone ?? '';
   }
 
   protected accessoryRows(): FormArray {
@@ -117,16 +169,31 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .getAccessoryInventory()
       .pipe(finalize(() => this.accessoryLoading.set(false)))
       .subscribe((groups) => {
-        const byType = new Map(groups.map((g) => [g.equipmentType, g.serialCodes ?? []]));
+        const byType = new Map<LoanedEquipmentType, string[]>();
+        for (const group of groups) {
+          const codes = (group.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
+          byType.set(group.equipmentType, codes);
+        }
+        this.accessoryCodesByType.set(byType);
         this.accessoryRows().controls.forEach((control, idx) => {
           const type = LOANED_EQUIPMENT_ORDER[idx]!;
-          const codes = (byType.get(type) ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
+          const codes = byType.get(type) ?? [];
           const group = control as FormGroup;
           group.patchValue({ quantity: codes.length }, { emitEvent: false });
           this.setAccessoryCodesLength(group, codes.length);
           const codesFa = this.accessoryCodesArray(idx);
           codes.forEach((code, i) => codesFa.at(i).setValue(code, { emitEvent: false }));
         });
+      });
+  }
+
+  private wireSerialSearchTypeFilter(): void {
+    this.serialSearchForm.controls.equipmentType.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.serialSearchForm.patchValue({ serialCode: '' }, { emitEvent: false });
+        this.serialLocationResult.set(null);
+        this.serialSearchAttempted.set(false);
       });
   }
 
@@ -143,7 +210,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       for (let c = 0; c < codesFa.length; c++) {
         const raw = String(codesFa.at(c).value ?? '').trim();
         if (raw.length === 0) {
-          this.toast.error(`יש להזין קוד עבור ${label} (#${c + 1})`);
+          this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
           return;
         }
         if (!this.isValidAccessorySerialCode(type, raw)) {
@@ -178,7 +245,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           if (results === null) {
             return;
           }
-          this.toast.success('מלאי הקודים הסידוריים נשמר');
+          this.toast.success('מלאי הפריטים נשמר');
           this.loadAccessoryInventory();
         }
       });

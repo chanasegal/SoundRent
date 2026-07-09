@@ -19,9 +19,33 @@ public interface IAccessorySerialInventoryService
         AccessorySerialAvailabilityRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<AccessorySerialLocationDto> GetSerialCodeLocationAsync(
+        Domain.Enums.LoanedEquipmentType equipmentType,
+        string serialCode,
+        CancellationToken cancellationToken = default);
+
     Task ValidateOrderLoanedSerialsAsync(
         IReadOnlyCollection<OrderLoanedEquipmentDto> items,
         IReadOnlyCollection<OrderShiftDto> shifts,
         int? excludeOrderId,
+        CancellationToken cancellationToken = default);
+
+    Task SyncPhysicalStatusForOrderAsync(
+        int orderId,
+        IReadOnlyDictionary<Domain.Enums.LoanedEquipmentType, HashSet<string>> priorAssignedByType,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        CancellationToken cancellationToken = default);
+
+    Task ReleaseReturnedSerialsAsync(
+        IReadOnlyCollection<(Domain.Enums.LoanedEquipmentType EquipmentType, string SerialCode)> returnedCodes,
+        CancellationToken cancellationToken = default);
+
+    Task ReleaseAllOrderSerialsAsync(int orderId, CancellationToken cancellationToken = default);
+
+    Task ValidateReturnedSerialGuardrailsAsync(
+        int orderId,
+        bool isReturnProcessed,
+        IReadOnlyDictionary<Domain.Enums.LoanedEquipmentType, HashSet<string>> existingReturnedByType,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> incomingItems,
         CancellationToken cancellationToken = default);
 }

@@ -1,7 +1,6 @@
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\appsettings.Development.json
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\appsettings.json
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.staticwebassets.endpoints.json
-C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.exe
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.deps.json
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.runtimeconfig.json
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.dll
@@ -136,4 +135,5 @@ C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\ExcelNumberFormat.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\RBush.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SixLabors.Fonts.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\System.IO.Packaging.dll
+C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.exe
 C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

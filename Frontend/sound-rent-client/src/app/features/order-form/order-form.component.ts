@@ -58,6 +58,7 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService, HebrewDateParts, HebrewMonthOption } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
@@ -79,6 +80,9 @@ interface ReturnModalRow {
   label: string;
   quantityLoaned: number;
   quantityReturned: number;
+  isCustomItem: boolean;
+  assignedSerialCodes: string[];
+  returnedSerialCodes: string[];
 }
 
 /** Per booking-block occupancy map and UI helpers. */
@@ -113,6 +117,7 @@ export class OrderFormComponent implements OnInit {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly customers = inject(CustomersStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
+  private readonly ordersSync = inject(OrdersSyncService);
 
   protected readonly bookingEquipmentSlotIds = computed(() =>
     this.equipmentSlots
@@ -308,9 +313,12 @@ export class OrderFormComponent implements OnInit {
   protected readonly editingId = signal<number | null>(null);
   protected readonly orderCancelled = signal(false);
   protected readonly loadedOrder = signal<OrderDto | null>(null);
+  private readonly returnedSerialCodesByType = signal<Map<LoanedEquipmentType, Set<string>>>(new Map());
+  private readonly loanedLineIdsByType = signal<Map<LoanedEquipmentType, number>>(new Map());
   protected readonly returnModalOpen = signal(false);
   protected readonly returnSaving = signal(false);
   protected readonly returnRows = signal<ReturnModalRow[]>([]);
+  protected readonly returnSerialDropdownRowId = signal<string | null>(null);
 
   /** Active (unresolved) forgotten-equipment rows matching this order's customer. */
   protected readonly activeLostEquipment = signal<LostEquipmentDto[]>([]);
@@ -334,7 +342,7 @@ export class OrderFormComponent implements OnInit {
       .slice(0, 3);
     const extra = items.length > descriptions.length ? ` (+${items.length - descriptions.length})` : '';
     const detail = descriptions.length > 0 ? ` — ${descriptions.join(', ')}${extra}` : '';
-    return `שים לב: ללקוח זה יש ציוד שנשכח במחסן!${detail}`;
+    return `ים לב: ללקוח זה יש ציוד שנשכח!${detail}`;
   });
   protected readonly canRecordReturn = computed(() => {
     if (!this.isEdit() || this.orderCancelled()) {
@@ -342,6 +350,7 @@ export class OrderFormComponent implements OnInit {
     }
     return true;
   });
+  protected readonly hasRecordedReturns = computed(() => this.loadedOrder()?.isReturnProcessed === true);
   protected readonly title = computed(() => (this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה'));
   protected readonly submitting = signal(false);
 
@@ -470,6 +479,9 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected toggleAccessorySerialDropdown(rowIndex: number): void {
+    if (this.isAccessoryRowReadOnly(rowIndex)) {
+      return;
+    }
     this.accessorySerialDropdownRow.update((cur) => (cur === rowIndex ? null : rowIndex));
   }
 
@@ -486,7 +498,52 @@ export class OrderFormComponent implements OnInit {
     return selected.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0);
   }
 
+  protected isAccessorySerialLocked(rowIndex: number, code: string): boolean {
+    const type = LOANED_EQUIPMENT_ORDER[rowIndex];
+    if (!type) {
+      return false;
+    }
+    return this.isReturnedSerialCode(type, code);
+  }
+
+  protected isReturnedSerialCode(type: LoanedEquipmentType, code: string): boolean {
+    const returned = this.returnedSerialCodesByType().get(type);
+    if (returned) {
+      const inSignal = [...returned].some(
+        (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (inSignal) {
+        return true;
+      }
+    }
+
+    const line = this.loadedOrder()?.loanedEquipments?.find(
+      (le) => !le.isCustomItem && le.loanedEquipmentType === type
+    );
+    return (line?.notes ?? []).some(
+      (n) =>
+        n.isReturned &&
+        (n.content ?? '').trim().localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+  }
+
+  protected isAccessoryRowReadOnly(rowIndex: number): boolean {
+    if (!this.hasRecordedReturns()) {
+      return false;
+    }
+    const selected = this.selectedCodesControl(rowIndex).value ?? [];
+    if (selected.length === 0) {
+      return false;
+    }
+    return selected.every((code) => this.isAccessorySerialLocked(rowIndex, code));
+  }
+
   protected toggleAccessorySerialSelection(rowIndex: number, code: string, checked: boolean): void {
+    if (!checked && this.isAccessorySerialLocked(rowIndex, code)) {
+      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
+      return;
+    }
+
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = ctrl.value ?? [];
     const next = checked
@@ -1028,6 +1085,10 @@ export class OrderFormComponent implements OnInit {
             this.toast.warning(`נשמרו ${saved.length} מתוך ${payloads.length} הזמנות`);
           }
 
+          for (const order of saved) {
+            this.ordersSync.notifyOrderUpdated(order);
+          }
+
           const navigateDate =
             saved[0]?.shifts?.[0]?.orderDate ?? firstPayload.shifts?.[0]?.orderDate ?? null;
           this.navigateAfterOrderFlow(navigateDate);
@@ -1171,17 +1232,32 @@ export class OrderFormComponent implements OnInit {
 
     const rows: ReturnModalRow[] = (order.loanedEquipments ?? [])
       .filter((row) => row.quantity > 0 && row.id != null && row.id > 0)
-      .map((row) => ({
-        rowId: `line-${row.id}`,
-        loanedEquipmentId: row.id!,
-        label: row.isCustomItem
-          ? (row.customItemName?.trim() || 'פריט נוסף')
-          : LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType),
-        quantityLoaned: row.quantity,
-        quantityReturned: useSavedReturns
+      .map((row) => {
+        const assignedSerialCodes = (row.notes ?? [])
+          .map((n) => (n.content ?? '').trim())
+          .filter((c) => c.length > 0);
+        const isCustomItem = !!row.isCustomItem;
+        const savedReturnedCodes = (row.notes ?? [])
+          .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+          .map((n) => (n.content ?? '').trim());
+        const returnedSerialCodes = useSavedReturns ? savedReturnedCodes : [];
+        const quantityReturned = useSavedReturns
           ? Math.min(Math.max(row.returnedQuantity ?? 0, 0), row.quantity)
-          : row.quantity
-      }));
+          : 0;
+
+        return {
+          rowId: `line-${row.id}`,
+          loanedEquipmentId: row.id!,
+          label: isCustomItem
+            ? (row.customItemName?.trim() || 'פריט נוסף')
+            : LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType),
+          quantityLoaned: row.quantity,
+          quantityReturned,
+          isCustomItem,
+          assignedSerialCodes,
+          returnedSerialCodes
+        };
+      });
 
     if (rows.length === 0) {
       this.toast.show('אין ציוד מושאל להחזרה בהזמנה זו', 'info');
@@ -1196,24 +1272,108 @@ export class OrderFormComponent implements OnInit {
     if (this.returnSaving()) {
       return;
     }
+    this.returnSerialDropdownRowId.set(null);
     this.returnModalOpen.set(false);
   }
 
   protected markAllReturned(): void {
     this.returnRows.update((rows) =>
-      rows.map((row) => ({ ...row, quantityReturned: row.quantityLoaned }))
+      rows.map((row) => ({
+        ...row,
+        quantityReturned: row.quantityLoaned,
+        returnedSerialCodes: row.isCustomItem ? [] : [...row.assignedSerialCodes]
+      }))
     );
+  }
+
+  protected markRowAllReturned(index: number): void {
+    this.returnRows.update((rows) =>
+      rows.map((row, i) =>
+        i === index
+          ? {
+              ...row,
+              quantityReturned: row.isCustomItem ? row.quantityLoaned : row.assignedSerialCodes.length,
+              returnedSerialCodes: row.isCustomItem ? [] : [...row.assignedSerialCodes]
+            }
+          : row
+      )
+    );
+  }
+
+  protected hasSerializedReturnCodes(row: ReturnModalRow): boolean {
+    return !row.isCustomItem && row.assignedSerialCodes.length > 0;
+  }
+
+  protected toggleReturnSerialDropdown(row: ReturnModalRow): void {
+    const key = row.rowId;
+    this.returnSerialDropdownRowId.update((cur) => (cur === key ? null : key));
+  }
+
+  protected isReturnSerialDropdownOpen(row: ReturnModalRow): boolean {
+    return this.returnSerialDropdownRowId() === row.rowId;
+  }
+
+  protected isReturnSerialSelected(row: ReturnModalRow, code: string): boolean {
+    return row.returnedSerialCodes.some(
+      (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+  }
+
+  protected toggleReturnSerialSelection(row: ReturnModalRow, code: string, checked: boolean): void {
+    this.returnRows.update((rows) =>
+      rows.map((current) => {
+        if (current.rowId !== row.rowId) {
+          return current;
+        }
+
+        let returnedSerialCodes = [...current.returnedSerialCodes];
+        if (checked) {
+          if (
+            !returnedSerialCodes.some(
+              (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+            )
+          ) {
+            returnedSerialCodes.push(code);
+          }
+        } else {
+          returnedSerialCodes = returnedSerialCodes.filter(
+            (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0
+          );
+        }
+
+        return {
+          ...current,
+          returnedSerialCodes,
+          quantityReturned: returnedSerialCodes.length
+        };
+      })
+    );
+  }
+
+  protected returnSerialSummary(row: ReturnModalRow): string {
+    if (row.returnedSerialCodes.length === 0) {
+      return 'בחרו פריטים שהוחזרו';
+    }
+    return row.returnedSerialCodes.join(', ');
   }
 
   protected updateReturnQuantity(index: number, raw: string): void {
     const parsed = Number.parseInt(raw, 10);
     const value = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
     this.returnRows.update((rows) =>
-      rows.map((row, i) =>
-        i === index
-          ? { ...row, quantityReturned: Math.min(value, row.quantityLoaned) }
-          : row
-      )
+      rows.map((row, i) => {
+        if (i !== index) {
+          return row;
+        }
+
+        const quantityReturned = Math.min(value, row.quantityLoaned);
+        if (!this.hasSerializedReturnCodes(row)) {
+          return { ...row, quantityReturned };
+        }
+
+        const returnedSerialCodes = row.assignedSerialCodes.slice(0, quantityReturned);
+        return { ...row, quantityReturned, returnedSerialCodes };
+      })
     );
   }
 
@@ -1251,7 +1411,8 @@ export class OrderFormComponent implements OnInit {
     const request: OrderReturnRequestDto = {
       items: rows.map((row) => ({
         loanedEquipmentId: row.loanedEquipmentId,
-        quantityReturned: row.quantityReturned
+        quantityReturned: row.quantityReturned,
+        returnedSerialCodes: this.hasSerializedReturnCodes(row) ? row.returnedSerialCodes : []
       }))
     };
 
@@ -1265,6 +1426,9 @@ export class OrderFormComponent implements OnInit {
             return;
           }
           this.loadedOrder.set(updated);
+          this.syncReturnedSerialState(updated);
+          this.ordersSync.notifyOrderUpdated(updated);
+          this.refreshAccessorySerialAvailability();
           this.returnModalOpen.set(false);
           this.toast.success('ההחזרה נשמרה בהצלחה');
         }
@@ -2491,6 +2655,8 @@ export class OrderFormComponent implements OnInit {
       }
     }
 
+    this.syncReturnedSerialState(order);
+
     this.customLoanedList.clear();
     for (const row of order.loanedEquipments ?? []) {
       if (!row.isCustomItem) {
@@ -2574,17 +2740,21 @@ export class OrderFormComponent implements OnInit {
 
     const loaned: OrderLoanedEquipmentDto[] = (v['loanedEquipments'] as Record<string, unknown>[])
       .map((row) => {
+        const type = row['loanedEquipmentType'] as LoanedEquipmentType;
         const selectedCodes = Array.isArray(row['selectedCodes'])
           ? (row['selectedCodes'] as string[]).map((c) => String(c).trim()).filter((c) => c.length > 0)
           : [];
         const quantity = selectedCodes.length;
         const notes: LoanedEquipmentNoteDto[] = selectedCodes.map((code, ordinal) => ({
           ordinal,
-          content: code
+          content: code,
+          ...(this.isReturnedSerialCode(type, code) ? { isReturned: true } : {})
         }));
+        const lineId = this.loanedLineIdsByType().get(type);
         return {
+          ...(lineId ? { id: lineId } : {}),
           isCustomItem: false,
-          loanedEquipmentType: row['loanedEquipmentType'] as LoanedEquipmentType,
+          loanedEquipmentType: type,
           quantity,
           expectedNoteCount: quantity,
           notes
@@ -2609,6 +2779,36 @@ export class OrderFormComponent implements OnInit {
       .filter((row) => row.customItemName && row.customItemName.length > 0 && row.quantity > 0);
 
     return [...loaned, ...customLoaned];
+  }
+
+  private syncReturnedSerialState(order: OrderDto): void {
+    const returnedMap = new Map<LoanedEquipmentType, Set<string>>();
+    const lineIds = new Map<LoanedEquipmentType, number>();
+
+    for (const row of order.loanedEquipments ?? []) {
+      if (row.isCustomItem || row.loanedEquipmentType == null) {
+        continue;
+      }
+
+      const type = row.loanedEquipmentType;
+      if (row.id) {
+        lineIds.set(type, row.id);
+      }
+
+      const returned = new Set<string>();
+      for (const note of row.notes ?? []) {
+        const content = (note.content ?? '').trim();
+        if (note.isReturned && content.length > 0) {
+          returned.add(content);
+        }
+      }
+      if (returned.size > 0) {
+        returnedMap.set(type, returned);
+      }
+    }
+
+    this.returnedSerialCodesByType.set(returnedMap);
+    this.loanedLineIdsByType.set(lineIds);
   }
 
   /** Trims a form value and returns `null` for blanks so the server stores NULL. */

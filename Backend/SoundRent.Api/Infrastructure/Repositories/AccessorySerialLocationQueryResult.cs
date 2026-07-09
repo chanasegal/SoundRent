@@ -1,0 +1,18 @@
+using SoundRent.Api.Domain.Enums;
+
+namespace SoundRent.Api.Infrastructure.Repositories;
+
+public sealed class AccessorySerialLocationQueryResult
+{
+    public LoanedEquipmentType EquipmentType { get; init; }
+
+    public string SerialCode { get; init; } = string.Empty;
+
+    public AccessorySerialPhysicalStatus PhysicalStatus { get; init; }
+
+    public int? ActiveOrderId { get; init; }
+
+    public string? CustomerName { get; init; }
+
+    public string? Phone { get; init; }
+}

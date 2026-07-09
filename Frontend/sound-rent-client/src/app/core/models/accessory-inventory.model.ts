@@ -24,6 +24,7 @@ export interface AccessoryInventoryBatchUpdateDto {
 export interface AccessorySerialAvailabilityRequestDto {
   dates: string[];
   shifts?: OrderShiftDto[];
+  equipmentTypes?: LoanedEquipmentType[];
   excludeOrderId?: number | null;
 }
 
@@ -35,4 +36,15 @@ export interface AccessorySerialOptionDto {
 export interface AccessorySerialAvailabilityGroupDto {
   equipmentType: LoanedEquipmentType;
   options: AccessorySerialOptionDto[];
+}
+
+export interface AccessorySerialLocationDto {
+  equipmentType: LoanedEquipmentType;
+  label: string;
+  serialCode: string;
+  isRegistered: boolean;
+  isInWarehouse: boolean;
+  orderId?: number | null;
+  customerName?: string | null;
+  phone?: string | null;
 }

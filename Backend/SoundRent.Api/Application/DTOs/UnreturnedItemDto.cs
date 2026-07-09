@@ -14,4 +14,10 @@ public class UnreturnedItemDto
     public DateOnly ReturnDate { get; set; }
     public int QuantityLoaned { get; set; }
     public int MissingQuantity { get; set; }
+
+    /// <summary>Assigned serial codes not yet marked returned on this line.</summary>
+    public List<string> MissingSerialCodes { get; set; } = [];
+
+    /// <summary>All serial codes assigned to this line (for full return actions).</summary>
+    public List<string> AssignedSerialCodes { get; set; } = [];
 }

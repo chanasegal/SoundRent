@@ -4,6 +4,7 @@ export interface LoanedEquipmentNoteDto {
   id?: number;
   ordinal: number;
   content?: string | null;
+  isReturned?: boolean;
 }
 
 export interface OrderLoanedEquipmentDto {

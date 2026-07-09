@@ -3,6 +3,7 @@ import { LoanedEquipmentType } from './enums';
 export interface OrderReturnItemDto {
   loanedEquipmentId: number;
   quantityReturned: number;
+  returnedSerialCodes?: string[];
 }
 
 export interface OrderReturnRequestDto {
@@ -20,4 +21,6 @@ export interface UnreturnedItemDto {
   returnDate: string; // ISO yyyy-MM-dd
   quantityLoaned: number;
   missingQuantity: number;
+  missingSerialCodes: string[];
+  assignedSerialCodes: string[];
 }

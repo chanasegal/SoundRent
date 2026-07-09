@@ -8,6 +8,11 @@ public interface IAccessorySerialInventoryRepository
 {
     Task<List<AccessorySerialInventory>> GetAllOrderedAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Lightweight projection grouped by equipment type (optional filter).</summary>
+    Task<Dictionary<LoanedEquipmentType, List<string>>> GetSerialCodesGroupedAsync(
+        IReadOnlyCollection<LoanedEquipmentType>? typesFilter = null,
+        CancellationToken cancellationToken = default);
+
     Task ReplaceCodesForTypeAsync(
         LoanedEquipmentType equipmentType,
         IReadOnlyCollection<string> serialCodes,
@@ -22,6 +27,7 @@ public interface IAccessorySerialInventoryRepository
     Task<Dictionary<LoanedEquipmentType, HashSet<string>>> GetBookedSerialCodesByTypesAsync(
         IReadOnlyCollection<DateOnly> dates,
         IReadOnlyCollection<OrderShiftDto>? shiftsFilter,
+        IReadOnlyCollection<LoanedEquipmentType>? typesFilter,
         int? excludeOrderId,
         CancellationToken cancellationToken = default);
 
@@ -30,6 +36,30 @@ public interface IAccessorySerialInventoryRepository
         IReadOnlyCollection<DateOnly> dates,
         IReadOnlyCollection<OrderShiftDto>? shiftsFilter,
         int? excludeOrderId,
+        CancellationToken cancellationToken = default);
+
+    Task<Dictionary<LoanedEquipmentType, HashSet<string>>> GetLoanedOutCodesGroupedAsync(
+        IReadOnlyCollection<LoanedEquipmentType>? typesFilter = null,
+        CancellationToken cancellationToken = default);
+
+    Task<Dictionary<LoanedEquipmentType, HashSet<string>>> GetAssignedCodesForOrderAsync(
+        int orderId,
+        IReadOnlyCollection<LoanedEquipmentType>? typesFilter = null,
+        CancellationToken cancellationToken = default);
+
+    Task<Dictionary<(LoanedEquipmentType Type, string Code), int>> GetActiveSerialOwnersAsync(
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<AccessorySerialLocationQueryResult?> GetSerialCodeLocationAsync(
+        LoanedEquipmentType equipmentType,
+        string serialCode,
+        CancellationToken cancellationToken = default);
+
+    Task SetPhysicalStatusAsync(
+        LoanedEquipmentType equipmentType,
+        string serialCode,
+        AccessorySerialPhysicalStatus status,
         CancellationToken cancellationToken = default);
 
     Task SaveChangesAsync(CancellationToken cancellationToken = default);

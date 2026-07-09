@@ -171,10 +171,23 @@
                               <button
                                 type="button"
                                 class="accessory-row__serial-codes"
-                                [disabled]="isSavingSerialRow(item)"
+                                [class.accessory-row__serial-codes--all-returned]="allSerialsReturned(item)"
+                                [disabled]="isSavingSerialRow(item) || !canEditAccessorySerials(item)"
                                 (click)="toggleSerialDropdown(item)"
                               >
-                                {{ serialSummary(item) }}
+                                <span class="accessory-row__serial-chip-list">
+                                  @for (code of item.serialCodes; track code) {
+                                    <span
+                                      class="accessory-row__serial-chip"
+                                      [class.accessory-row__serial-chip--returned]="isSerialReturned(item, code)"
+                                    >
+                                      <span class="ltr-field">{{ code }}</span>
+                                      @if (isSerialReturned(item, code)) {
+                                        <span class="returned-serial-badge">הוחזר</span>
+                                      }
+                                    </span>
+                                  }
+                                </span>
                               </button>
                             } @else {
                               <button
@@ -183,19 +196,26 @@
                                 [disabled]="isSavingSerialRow(item)"
                                 (click)="toggleSerialDropdown(item)"
                               >
-                                לחץ לבחירת קודים
+                                לחץ לבחירת פריטים
                               </button>
                             }
-                            <button
-                              type="button"
-                              class="accessory-row__serial-edit"
-                              [disabled]="isSavingSerialRow(item)"
-                              (click)="toggleSerialDropdown(item)"
-                              aria-label="עריכת קודי סידור"
-                              title="עריכת קודי סידור"
-                            >
-                              ✎
-                            </button>
+                            @if (canEditAccessorySerials(item)) {
+                              <button
+                                type="button"
+                                class="accessory-row__serial-edit"
+                                [disabled]="isSavingSerialRow(item)"
+                                (click)="toggleSerialDropdown(item)"
+                                aria-label="עריכת קוד פריט"
+                                title="עריכת קודי פריט"
+                              >
+                                ✎
+                              </button>
+                            }
+                            @if (rowHasRecordedReturns(item) && item.returnedSerialCodes.length > 0) {
+                              <span class="return-processed-indicator" title="ההזמנה כוללת רישום החזרה שמור">
+                                החזרה נרשמה
+                              </span>
+                            }
                             @if (isSavingSerialRow(item)) {
                               <span class="accessory-row__saving" aria-live="polite">שומר…</span>
                             }
@@ -203,8 +223,13 @@
 
                           @if (isSerialDropdownOpen(item)) {
                             <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                              @if (rowHasRecordedReturns(item)) {
+                                <p class="accessory-serial-panel__return-guard">
+                                  ההזמנה כוללת רישום החזרה שמור. פריטים שסומנו כהוחזרו למלאי נעולים לעריכה.
+                                </p>
+                              }
                               @if (serialPanelState(item) === 'loading') {
-                                <p class="accessory-serial-panel__empty">טוען קודים…</p>
+                                <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
                               } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
                                 <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
                                   {{ serialPanelEmptyMessage(item) }}
@@ -213,17 +238,19 @@
                                 @for (opt of serialOptionsForRow(item); track opt.serialCode) {
                                   <label
                                     class="multi-select__option"
-                                    [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                                    [class.multi-select__option--disabled]="(!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) || isSerialEditLocked(item, opt.serialCode)"
                                   >
                                     <input
                                       type="checkbox"
                                       [checked]="isSerialSelected(item, opt.serialCode)"
-                                      [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                                      [disabled]="(!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) || isSerialEditLocked(item, opt.serialCode)"
                                       (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
                                     />
                                     <span class="multi-select__option-label">
                                       <span class="ltr-field">{{ opt.serialCode }}</span>
-                                      @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
+                                      @if (isSerialReturned(item, opt.serialCode)) {
+                                        <span class="returned-serial-badge">הוחזר למלאי</span>
+                                      } @else if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
                                         <span class="equipment-occupied-badge">תפוס</span>
                                       }
                                     </span>

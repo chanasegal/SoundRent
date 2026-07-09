@@ -14,6 +14,10 @@ public class LoanedEquipmentNoteConfiguration : IEntityTypeConfiguration<LoanedE
 
         builder.Property(n => n.Content).HasMaxLength(100);
 
+        builder.Property(n => n.IsReturned)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         builder.HasIndex(n => new { n.OrderLoanedEquipmentId, n.Ordinal })
             .IsUnique()
             .HasDatabaseName("IX_LoanedEquipmentNotes_Line_Ordinal");

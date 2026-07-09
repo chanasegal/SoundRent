@@ -80,6 +80,11 @@ public class OrderService : IOrderService
 
         var entity = OrderMapper.ToEntity(dto);
         await _orderRepository.AddAsync(entity, cancellationToken);
+        await _accessorySerialInventory.SyncPhysicalStatusForOrderAsync(
+            0,
+            new Dictionary<LoanedEquipmentType, HashSet<string>>(),
+            dto.LoanedEquipments,
+            cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
 
@@ -96,10 +101,17 @@ public class OrderService : IOrderService
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        MergeReturnedSerialStateFromExisting(existing, dto.LoanedEquipments);
         await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
             dto.LoanedEquipments,
             shifts,
             excludeOrderId: id,
+            cancellationToken);
+        await _accessorySerialInventory.ValidateReturnedSerialGuardrailsAsync(
+            id,
+            existing.IsReturnProcessed,
+            ExtractReturnedSerialCodesByType(existing),
+            dto.LoanedEquipments,
             cancellationToken);
         var priorEquipmentIds = OrderMapper
             .NormalizeEquipmentDefinitionIds(existing.Equipments.Select(e => e.EquipmentDefinitionId))
@@ -112,6 +124,8 @@ public class OrderService : IOrderService
             priorEquipmentIds,
             validateBlockedDates: false,
             cancellationToken);
+
+        var priorAssignedSerials = ExtractAssignedSerialCodesByType(existing);
 
         OrderMapper.ApplyTo(dto, existing);
 
@@ -132,6 +146,11 @@ public class OrderService : IOrderService
             .ToDictionary(le => le.Id, le => le.ReturnedQuantity);
         SyncLoanedEquipments(existing, dto.LoanedEquipments, priorReturns);
 
+        await _accessorySerialInventory.SyncPhysicalStatusForOrderAsync(
+            id,
+            priorAssignedSerials,
+            dto.LoanedEquipments,
+            cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
         return OrderMapper.ToDto(existing);
@@ -142,6 +161,7 @@ public class OrderService : IOrderService
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
+        await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
         _orderRepository.Remove(existing);
         await _orderRepository.SaveChangesAsync(cancellationToken);
     }
@@ -185,6 +205,7 @@ public class OrderService : IOrderService
         }
 
         existing.IsCancelled = true;
+        await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -219,6 +240,7 @@ public class OrderService : IOrderService
         }
 
         var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
+        var returnedSerials = new List<(LoanedEquipmentType EquipmentType, string SerialCode)>();
 
         foreach (var item in items)
         {
@@ -228,6 +250,40 @@ public class OrderService : IOrderService
             }
 
             var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
+            var assignedCodes = GetAssignedSerialCodes(line);
+
+            if (assignedCodes.Count > 0)
+            {
+                var returnedCodes = NormalizeReturnedSerialCodes(item.ReturnedSerialCodes, assignedCodes);
+                if (returnedCodes.Count != item.QuantityReturned)
+                {
+                    throw new ValidationException(
+                        $"כמות הקודים שהוחזרו עבור {label} חייבת להתאים לכמות שהוחזרה");
+                }
+
+                if (returnedCodes.Count > line.Quantity)
+                {
+                    throw new ValidationException(
+                        $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
+                }
+
+                var previouslyReturned = GetReturnedSerialCodes(line);
+                ApplyReturnedSerialCodes(line, assignedCodes, returnedCodes);
+                line.ReturnedQuantity = returnedCodes.Count;
+                if (line.LoanedEquipmentType is LoanedEquipmentType equipmentType)
+                {
+                    foreach (var code in returnedCodes)
+                    {
+                        if (!previouslyReturned.Contains(code))
+                        {
+                            returnedSerials.Add((equipmentType, code));
+                        }
+                    }
+                }
+
+                continue;
+            }
+
             if (item.QuantityReturned < 0 || item.QuantityReturned > line.Quantity)
             {
                 throw new ValidationException(
@@ -238,6 +294,7 @@ public class OrderService : IOrderService
         }
 
         existing.IsReturnProcessed = true;
+        await _accessorySerialInventory.ReleaseReturnedSerialsAsync(returnedSerials, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -245,6 +302,207 @@ public class OrderService : IOrderService
     public Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
     {
         return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
+    }
+
+    private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractAssignedSerialCodesByType(Order order)
+    {
+        var result = new Dictionary<LoanedEquipmentType, HashSet<string>>();
+        foreach (var line in order.LoanedEquipments)
+        {
+            if (line.IsCustomItem || line.LoanedEquipmentType is not LoanedEquipmentType type)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(type, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[type] = codes;
+            }
+
+            foreach (var note in line.Notes)
+            {
+                if (note.IsReturned)
+                {
+                    continue;
+                }
+
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static void MergeReturnedSerialStateFromExisting(
+        Order existing,
+        ICollection<OrderLoanedEquipmentDto> incomingItems)
+    {
+        var existingLinesById = existing.LoanedEquipments
+            .Where(le => le.Id > 0)
+            .ToDictionary(le => le.Id);
+        var existingLinesByType = existing.LoanedEquipments
+            .Where(le => !le.IsCustomItem && le.LoanedEquipmentType is not null)
+            .GroupBy(le => le.LoanedEquipmentType!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        foreach (var item in incomingItems)
+        {
+            if (item.IsCustomItem || item.LoanedEquipmentType is not LoanedEquipmentType type)
+            {
+                continue;
+            }
+
+            OrderLoanedEquipment? existingLine = null;
+            if (item.Id > 0)
+            {
+                existingLinesById.TryGetValue(item.Id, out existingLine);
+            }
+
+            existingLine ??= existingLinesByType.GetValueOrDefault(type);
+            if (existingLine is null)
+            {
+                continue;
+            }
+
+            var returnedOnLine = existingLine.Notes
+                .Where(n => n.IsReturned)
+                .Select(n => (n.Content ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (returnedOnLine.Count == 0)
+            {
+                continue;
+            }
+
+            item.Notes ??= [];
+            var notesList = item.Notes.ToList();
+            var notesByCode = notesList
+                .Select(n => ((n.Content ?? string.Empty).Trim(), n))
+                .Where(pair => pair.Item1.Length > 0)
+                .GroupBy(pair => pair.Item1, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().n, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var code in returnedOnLine)
+            {
+                if (notesByCode.TryGetValue(code, out var note))
+                {
+                    note.IsReturned = true;
+                    note.Content = code;
+                    continue;
+                }
+
+                var ordinal = notesList.Count == 0 ? 0 : notesList.Max(n => n.Ordinal) + 1;
+                var restored = new LoanedEquipmentNoteDto
+                {
+                    Ordinal = ordinal,
+                    Content = code,
+                    IsReturned = true
+                };
+                notesList.Add(restored);
+                notesByCode[code] = restored;
+            }
+
+            item.Notes = notesList;
+            var distinctCodes = notesList
+                .Select(n => (n.Content ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            item.Quantity = Math.Max(item.Quantity, distinctCodes);
+            item.ExpectedNoteCount = Math.Max(item.ExpectedNoteCount, item.Quantity);
+        }
+    }
+
+    private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractReturnedSerialCodesByType(Order order)
+    {
+        var result = new Dictionary<LoanedEquipmentType, HashSet<string>>();
+        foreach (var line in order.LoanedEquipments)
+        {
+            if (line.IsCustomItem || line.LoanedEquipmentType is not LoanedEquipmentType type)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(type, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[type] = codes;
+            }
+
+            foreach (var note in line.Notes)
+            {
+                if (!note.IsReturned)
+                {
+                    continue;
+                }
+
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static HashSet<string> GetReturnedSerialCodes(OrderLoanedEquipment line)
+    {
+        return (line.Notes ?? [])
+            .Where(n => n.IsReturned)
+            .Select(n => (n.Content ?? string.Empty).Trim())
+            .Where(c => c.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> GetAssignedSerialCodes(OrderLoanedEquipment line)
+    {
+        return (line.Notes ?? [])
+            .Select(n => (n.Content ?? string.Empty).Trim())
+            .Where(c => c.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<string> NormalizeReturnedSerialCodes(
+        IEnumerable<string>? rawCodes,
+        HashSet<string> assignedCodes)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in rawCodes ?? [])
+        {
+            var code = (raw ?? string.Empty).Trim();
+            if (code.Length == 0 || !assignedCodes.Contains(code) || !seen.Add(code))
+            {
+                continue;
+            }
+
+            result.Add(code);
+        }
+
+        return result;
+    }
+
+    private static void ApplyReturnedSerialCodes(
+        OrderLoanedEquipment line,
+        HashSet<string> assignedCodes,
+        IReadOnlyCollection<string> returnedCodes)
+    {
+        var returned = returnedCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var note in line.Notes)
+        {
+            var code = (note.Content ?? string.Empty).Trim();
+            note.IsReturned = code.Length > 0
+                && assignedCodes.Contains(code)
+                && returned.Contains(code);
+        }
     }
 
     private static void ValidateLoanedEquipments(IReadOnlyCollection<OrderLoanedEquipmentDto> items)
@@ -273,10 +531,10 @@ public class OrderService : IOrderService
         }
     }
 
-    private static void SyncLoanedEquipments(
+    private void SyncLoanedEquipments(
         Order order,
         IEnumerable<OrderLoanedEquipmentDto> incomingDtos,
-        IReadOnlyDictionary<int, int>? priorReturnsById = null)
+        IReadOnlyDictionary<int, int>? priorReturnsById)
     {
         var incoming = incomingDtos.ToList();
         var matched = new HashSet<OrderLoanedEquipment>();
@@ -309,7 +567,9 @@ public class OrderService : IOrderService
             if (line is not null)
             {
                 var returned = line.ReturnedQuantity;
-                ApplyLoanedEquipmentDto(line, dto);
+                ApplyLoanedEquipmentScalars(line, dto);
+                ApplyLoanedEquipmentNotesToLine(line, dto);
+
                 if (priorReturnsById is not null && priorReturnsById.TryGetValue(line.Id, out var priorReturned))
                 {
                     returned = priorReturned;
@@ -331,7 +591,7 @@ public class OrderService : IOrderService
         }
     }
 
-    private static void ApplyLoanedEquipmentDto(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
+    private static void ApplyLoanedEquipmentScalars(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
     {
         if (dto.IsCustomItem)
         {
@@ -340,7 +600,6 @@ public class OrderService : IOrderService
             line.LoanedEquipmentType = null;
             line.Quantity = dto.Quantity;
             line.ExpectedNoteCount = 0;
-            line.Notes.Clear();
             return;
         }
 
@@ -348,24 +607,45 @@ public class OrderService : IOrderService
         line.CustomItemName = null;
         line.LoanedEquipmentType = dto.LoanedEquipmentType;
         line.Quantity = dto.Quantity;
+        line.ExpectedNoteCount = Math.Max(0, dto.ExpectedNoteCount);
+    }
 
-        var expected = Math.Max(0, dto.ExpectedNoteCount);
-        line.ExpectedNoteCount = expected;
+    private static void ApplyLoanedEquipmentNotesToLine(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
+    {
+        if (dto.IsCustomItem)
+        {
+            line.Notes.Clear();
+            return;
+        }
+
+        var replacementNotes = BuildLoanedEquipmentNotes(dto);
         line.Notes.Clear();
+        foreach (var note in replacementNotes)
+        {
+            line.Notes.Add(note);
+        }
+    }
 
+    private static List<LoanedEquipmentNote> BuildLoanedEquipmentNotes(OrderLoanedEquipmentDto dto)
+    {
+        var expected = Math.Max(0, dto.ExpectedNoteCount);
         var byOrdinal = (dto.Notes ?? [])
             .GroupBy(n => n.Ordinal)
             .ToDictionary(g => g.Key, g => g.First());
 
+        var notes = new List<LoanedEquipmentNote>(expected);
         for (var i = 0; i < expected; i++)
         {
             byOrdinal.TryGetValue(i, out var noteDto);
-            line.Notes.Add(new LoanedEquipmentNote
+            notes.Add(new LoanedEquipmentNote
             {
                 Ordinal = i,
-                Content = string.IsNullOrWhiteSpace(noteDto?.Content) ? null : noteDto.Content.Trim()
+                Content = string.IsNullOrWhiteSpace(noteDto?.Content) ? null : noteDto.Content.Trim(),
+                IsReturned = noteDto?.IsReturned ?? false
             });
         }
+
+        return notes;
     }
 
     private static void NormalizeAndValidateOrderPhones(OrderCreateUpdateDto dto)

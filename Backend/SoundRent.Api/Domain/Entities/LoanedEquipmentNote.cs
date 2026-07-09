@@ -14,4 +14,7 @@ public class LoanedEquipmentNote
 
     [MaxLength(100)]
     public string? Content { get; set; }
+
+    /// <summary>When true, this assigned serial is checked back in and no longer blocks availability.</summary>
+    public bool IsReturned { get; set; }
 }

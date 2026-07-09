@@ -7,6 +7,27 @@
   white-space: nowrap;
 }
 
+.missing-serial-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-width: 14rem;
+  white-space: normal;
+}
+
+.missing-serial-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #9f1239;
+  background: #ffe4e6;
+  border: 1px solid #fda4af;
+  line-height: 1.2;
+}
+
 .row-removing {
   opacity: 0;
   pointer-events: none;

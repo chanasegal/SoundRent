@@ -29,6 +29,9 @@ public class OrderLoanedEquipmentConfiguration : IEntityTypeConfiguration<OrderL
         builder.Property(le => le.ExpectedNoteCount)
             .IsRequired();
 
+        builder.HasIndex(le => le.OrderId)
+            .HasDatabaseName("IX_OrderLoanedEquipments_OrderId");
+
         builder.HasIndex(le => new { le.OrderId, le.LoanedEquipmentType })
             .IsUnique()
             .HasFilter("\"IsCustomItem\" = false")

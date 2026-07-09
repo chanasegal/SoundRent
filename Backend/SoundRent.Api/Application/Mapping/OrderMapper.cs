@@ -67,7 +67,8 @@ public static class OrderMapper
                 {
                     Id = n.Id,
                     Ordinal = n.Ordinal,
-                    Content = n.Content
+                    Content = n.Content,
+                    IsReturned = n.IsReturned
                 })
                 .ToList()
     };

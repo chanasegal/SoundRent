@@ -103,6 +103,37 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
+    "Method": "GetSerialCodeLocation",
+    "RelativePath": "api/accessoryinventory/location",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "equipmentType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "serialCode",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.AccessorySerialLocationDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.AuthController",
     "Method": "Login",
     "RelativePath": "api/Auth/login",

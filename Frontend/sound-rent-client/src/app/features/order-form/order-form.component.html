@@ -475,6 +475,13 @@
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">ציוד מושאל</h2>
 
+      @if (hasRecordedReturns()) {
+        <div class="return-guard-warning" role="status">
+          <strong>ההזמנה כוללת רישום החזרה שמור.</strong>
+          פריטים שהוחזרו למלאי מוצגים כנעולים לעריכה בלבד — ניתן לשמור שינויים בשאר פרטי ההזמנה.
+        </div>
+      }
+
       <div class="overflow-hidden rounded-xl ring-1 ring-slate-200">
         <table class="loaned-table w-full">
           <thead>
@@ -486,12 +493,34 @@
           </thead>
           <tbody formArrayName="loanedEquipments">
             @for (def of rowDefinitions; track def.type; let i = $index) {
-              <tr [formGroupName]="i" class="border-t border-slate-200 odd:bg-slate-50/60 hover:bg-sky-50/40">
+              <tr
+                [formGroupName]="i"
+                class="border-t border-slate-200 odd:bg-slate-50/60 hover:bg-sky-50/40"
+                [class.loaned-row--returned-readonly]="isAccessoryRowReadOnly(i)"
+              >
                 <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.label }}</td>
                 <td class="px-3 py-2 align-middle text-center font-semibold text-[#002244]">
                   {{ selectedAccessoryQuantity(i) }}
                 </td>
                 <td class="px-3 py-2 align-middle">
+                  @if (isAccessoryRowReadOnly(i)) {
+                    <div class="loaned-serial-readonly">
+                      <span class="loaned-serial-readonly__chips">
+                        @for (code of selectedCodesControl(i).value; track code) {
+                          <span
+                            class="loaned-serial-readonly__chip"
+                            [class.loaned-serial-readonly__chip--returned]="isAccessorySerialLocked(i, code)"
+                          >
+                            <span class="ltr-field">{{ code }}</span>
+                            @if (isAccessorySerialLocked(i, code)) {
+                              <span class="returned-serial-badge">הוחזר</span>
+                            }
+                          </span>
+                        }
+                      </span>
+                      <span class="loaned-serial-readonly__hint">נעול לעריכה</span>
+                    </div>
+                  } @else {
                   <div class="multi-select loaned-serial-select">
                     <button type="button" class="multi-select__trigger" (click)="toggleAccessorySerialDropdown(i)">
                       <span>{{ selectedAccessorySerialSummary(i) }}</span>
@@ -502,27 +531,30 @@
                         @for (opt of serialOptionsForRow(i); track opt.serialCode) {
                           <label
                             class="multi-select__option"
-                            [class.multi-select__option--disabled]="!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)"
+                            [class.multi-select__option--disabled]="(!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) || isAccessorySerialLocked(i, opt.serialCode)"
                           >
                             <input
                               type="checkbox"
                               [checked]="isAccessorySerialSelected(i, opt.serialCode)"
-                              [disabled]="!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)"
+                              [disabled]="(!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) || isAccessorySerialLocked(i, opt.serialCode)"
                               (change)="toggleAccessorySerialSelection(i, opt.serialCode, $any($event.target).checked)"
                             />
                             <span class="multi-select__option-label">
                               <span class="ltr-field">{{ opt.serialCode }}</span>
-                              @if (!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) {
+                              @if (isAccessorySerialLocked(i, opt.serialCode)) {
+                                <span class="returned-serial-badge">הוחזר למלאי</span>
+                              } @else if (!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) {
                                 <span class="equipment-occupied-badge" aria-label="תפוס">(תפוס)</span>
                               }
                             </span>
                           </label>
                         } @empty {
-                          <p class="px-2 py-1 text-sm text-slate-500">אין קודים במלאי לפריט זה</p>
+                          <p class="px-2 py-1 text-sm text-slate-500">אין במלאי לפריט זה</p>
                         }
                       </div>
                     }
                   </div>
+                  }
                 </td>
               </tr>
             }
@@ -688,7 +720,7 @@
     (click)="closeReturnModal()"
   >
     <div
-      class="return-modal w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="return-modal w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -710,12 +742,13 @@
               <th class="px-3 py-2 font-semibold">פריט</th>
               <th class="px-3 py-2 font-semibold text-center">כמות מושאלת</th>
               <th class="px-3 py-2 font-semibold text-center">כמות שהוחזרה</th>
+              <th class="px-3 py-2 font-semibold">פריטים שהוחזרו</th>
               <th class="px-3 py-2 font-semibold text-center">חסר</th>
             </tr>
           </thead>
           <tbody>
             @for (row of returnRows(); track row.rowId; let i = $index) {
-              <tr class="border-b border-slate-100 odd:bg-slate-50/50">
+              <tr class="return-table__row border-b border-slate-100 odd:bg-slate-50/50">
                 <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.label }}</td>
                 <td class="px-3 py-2.5 text-center">{{ row.quantityLoaned }}</td>
                 <td class="px-3 py-2.5 text-center">
@@ -727,9 +760,50 @@
                     inputmode="numeric"
                     class="return-qty-input"
                     [value]="row.quantityReturned"
+                    [readonly]="hasSerializedReturnCodes(row)"
                     [disabled]="returnSaving()"
                     (input)="updateReturnQuantity(i, $any($event.target).value)"
                   />
+                </td>
+                <td class="return-table__codes px-3 py-2.5">
+                  @if (hasSerializedReturnCodes(row)) {
+                    <div class="return-serial-select">
+                      <button
+                        type="button"
+                        class="return-serial-select__trigger"
+                        [disabled]="returnSaving()"
+                        (click)="toggleReturnSerialDropdown(row)"
+                      >
+                        <span>{{ returnSerialSummary(row) }}</span>
+                        <span class="return-serial-select__chevron" aria-hidden="true">▾</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="return-serial-select__select-all"
+                        [disabled]="returnSaving()"
+                        (click)="markRowAllReturned(i)"
+                      >
+                        סמן הכל כהוחזר לפריט זה
+                      </button>
+                      @if (isReturnSerialDropdownOpen(row)) {
+                        <div class="return-serial-select__panel" (click)="$event.stopPropagation()">
+                          @for (code of row.assignedSerialCodes; track code) {
+                            <label class="return-serial-select__option">
+                              <input
+                                type="checkbox"
+                                [checked]="isReturnSerialSelected(row, code)"
+                                [disabled]="returnSaving()"
+                                (change)="toggleReturnSerialSelection(row, code, $any($event.target).checked)"
+                              />
+                              <span class="ltr-field">{{ code }}</span>
+                            </label>
+                          }
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <span class="return-table__codes-empty">—</span>
+                  }
                 </td>
                 <td class="px-3 py-2.5 text-center">
                   @if (missingReturnCount(row) > 0) {

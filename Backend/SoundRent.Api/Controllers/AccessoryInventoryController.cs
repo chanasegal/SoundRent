@@ -52,4 +52,14 @@ public class AccessoryInventoryController : ControllerBase
         var list = await _service.GetAvailabilityAsync(request, cancellationToken);
         return Ok(list);
     }
+
+    [HttpGet("location")]
+    public async Task<ActionResult<AccessorySerialLocationDto>> GetSerialCodeLocation(
+        [FromQuery] LoanedEquipmentType equipmentType,
+        [FromQuery] string serialCode,
+        CancellationToken cancellationToken)
+    {
+        var location = await _service.GetSerialCodeLocationAsync(equipmentType, serialCode, cancellationToken);
+        return Ok(location);
+    }
 }

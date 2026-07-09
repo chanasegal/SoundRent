@@ -13,4 +13,6 @@ public class AccessorySerialInventory
     [Required]
     [MaxLength(100)]
     public string SerialCode { get; set; } = string.Empty;
+
+    public AccessorySerialPhysicalStatus PhysicalStatus { get; set; } = AccessorySerialPhysicalStatus.InWarehouse;
 }

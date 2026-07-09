@@ -11,4 +11,6 @@ public class LoanedEquipmentNoteDto
 
     [MaxLength(100)]
     public string? Content { get; set; }
+
+    public bool IsReturned { get; set; }
 }

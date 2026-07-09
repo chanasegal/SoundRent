@@ -60,39 +60,83 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
         AccessorySerialAvailabilityRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var dates = ParseDates(request.Dates);
-        var shifts = request.Shifts?.Count > 0 ? request.Shifts : null;
-        var allRows = await _repository.GetAllOrderedAsync(cancellationToken);
-        var grouped = allRows.GroupBy(r => r.EquipmentType).ToList();
-        var bookedByType = await _repository.GetBookedSerialCodesByTypesAsync(
-            dates,
-            shifts,
-            request.ExcludeOrderId,
-            cancellationToken);
+        var typesFilter = request.EquipmentTypes?.Count > 0
+            ? request.EquipmentTypes.Distinct().ToList()
+            : null;
 
-        return grouped
-            .Select(group =>
+        var inventoryByType = await _repository.GetSerialCodesGroupedAsync(typesFilter, cancellationToken);
+        var loanedOutByType = await _repository.GetLoanedOutCodesGroupedAsync(typesFilter, cancellationToken);
+        var reservedByType = request.ExcludeOrderId is int orderId
+            ? await _repository.GetAssignedCodesForOrderAsync(orderId, typesFilter, cancellationToken)
+            : new Dictionary<LoanedEquipmentType, HashSet<string>>();
+
+        return inventoryByType
+            .OrderBy(kv => (int)kv.Key)
+            .Select(kv =>
             {
-                bookedByType.TryGetValue(group.Key, out var booked);
-                booked ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                loanedOutByType.TryGetValue(kv.Key, out var loanedOut);
+                loanedOut ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                reservedByType.TryGetValue(kv.Key, out var reserved);
+                reserved ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 return new AccessorySerialAvailabilityGroupDto
                 {
-                    EquipmentType = group.Key,
-                    Options = group
-                        .Select(r => r.SerialCode)
+                    EquipmentType = kv.Key,
+                    Options = kv.Value
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
                         .Select(code => new AccessorySerialOptionDto
                         {
                             SerialCode = code,
-                            IsAvailable = !booked.Contains(code)
+                            IsAvailable = !loanedOut.Contains(code) || reserved.Contains(code)
                         })
                         .ToList()
                 };
             })
-            .OrderBy(r => (int)r.EquipmentType)
             .ToList();
+    }
+
+    public async Task<AccessorySerialLocationDto> GetSerialCodeLocationAsync(
+        LoanedEquipmentType equipmentType,
+        string serialCode,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmed = (serialCode ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new ValidationException("יש להזין קוד סידורי לחיפוש");
+        }
+
+        if (!AccessorySerialCodeValidator.IsValid(equipmentType, trimmed))
+        {
+            throw new ValidationException(AccessorySerialCodeValidator.InvalidMessageFor(equipmentType));
+        }
+
+        var label = LoanedEquipmentTypeLabels.GetLabel(equipmentType);
+        var location = await _repository.GetSerialCodeLocationAsync(equipmentType, trimmed, cancellationToken);
+        if (location is null)
+        {
+            return new AccessorySerialLocationDto
+            {
+                EquipmentType = equipmentType,
+                Label = label,
+                SerialCode = trimmed,
+                IsRegistered = false,
+                IsInWarehouse = true
+            };
+        }
+
+        return new AccessorySerialLocationDto
+        {
+            EquipmentType = equipmentType,
+            Label = label,
+            SerialCode = location.SerialCode,
+            IsRegistered = true,
+            IsInWarehouse = location.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
+            OrderId = location.ActiveOrderId,
+            CustomerName = location.CustomerName,
+            Phone = location.Phone
+        };
     }
 
     public async Task ValidateOrderLoanedSerialsAsync(
@@ -101,29 +145,22 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
         int? excludeOrderId,
         CancellationToken cancellationToken = default)
     {
-        var dates = shifts
-            .Select(s => s.OrderDate)
+        var typesNeeded = items
+            .Where(i => !i.IsCustomItem && i.Quantity > 0 && i.LoanedEquipmentType is not null)
+            .Select(i => i.LoanedEquipmentType!.Value)
             .Distinct()
             .ToList();
 
-        if (dates.Count == 0)
+        if (typesNeeded.Count == 0)
         {
             return;
         }
 
-        var inventoryRows = await _repository.GetAllOrderedAsync(cancellationToken);
-        var inventoryByType = inventoryRows
-            .GroupBy(r => r.EquipmentType)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Select(r => r.SerialCode.Trim())
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase));
-
-        var bookedByType = await _repository.GetBookedSerialCodesByTypesAsync(
-            dates,
-            shifts,
-            excludeOrderId,
-            cancellationToken);
+        var inventoryByType = await _repository.GetSerialCodesGroupedAsync(typesNeeded, cancellationToken);
+        var loanedOutByType = await _repository.GetLoanedOutCodesGroupedAsync(typesNeeded, cancellationToken);
+        var reservedByType = excludeOrderId is int orderId
+            ? await _repository.GetAssignedCodesForOrderAsync(orderId, typesNeeded, cancellationToken)
+            : new Dictionary<LoanedEquipmentType, HashSet<string>>();
 
         foreach (var item in items)
         {
@@ -132,13 +169,19 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
                 continue;
             }
 
-            inventoryByType.TryGetValue(type, out var allowedCodes);
-            allowedCodes ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            inventoryByType.TryGetValue(type, out var allowedList);
+            var allowedCodes = allowedList is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : allowedList.Select(c => c.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             var selectedCodes = (item.Notes ?? [])
                 .OrderBy(n => n.Ordinal)
-                .Select(n => (n.Content ?? string.Empty).Trim())
-                .Where(c => c.Length > 0)
+                .Select(n => new
+                {
+                    Code = (n.Content ?? string.Empty).Trim(),
+                    n.IsReturned
+                })
+                .Where(n => n.Code.Length > 0)
                 .ToList();
 
             if (selectedCodes.Count != item.Quantity)
@@ -147,37 +190,220 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
                 throw new ValidationException($"יש לבחור קוד לכל יחידה עבור \"{label}\"");
             }
 
-            if (selectedCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != selectedCodes.Count)
+            if (selectedCodes.Select(n => n.Code).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selectedCodes.Count)
             {
                 var label = LoanedEquipmentTypeLabels.GetLabel(type);
                 throw new ValidationException($"לא ניתן לבחור את אותו קוד פעמיים עבור \"{label}\"");
             }
 
-            foreach (var code in selectedCodes)
+            foreach (var entry in selectedCodes)
             {
-                if (!AccessorySerialCodeValidator.IsValid(type, code))
+                if (!AccessorySerialCodeValidator.IsValid(type, entry.Code))
                 {
                     throw new ValidationException(AccessorySerialCodeValidator.InvalidMessageFor(type));
                 }
 
-                if (!allowedCodes.Contains(code))
+                if (!allowedCodes.Contains(entry.Code))
                 {
                     var label = LoanedEquipmentTypeLabels.GetLabel(type);
-                    throw new ValidationException($"הקוד \"{code}\" אינו רשום במלאי עבור \"{label}\"");
+                    throw new ValidationException($"הקוד \"{entry.Code}\" אינו רשום במלאי עבור \"{label}\"");
                 }
             }
 
-            bookedByType.TryGetValue(type, out var booked);
-            booked ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var code in selectedCodes)
+            loanedOutByType.TryGetValue(type, out var loanedOut);
+            loanedOut ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            reservedByType.TryGetValue(type, out var reserved);
+            reserved ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in selectedCodes.Where(n => !n.IsReturned))
             {
-                if (booked.Contains(code))
+                if (loanedOut.Contains(entry.Code) && !reserved.Contains(entry.Code))
                 {
                     var label = LoanedEquipmentTypeLabels.GetLabel(type);
-                    throw new ValidationException($"הקוד \"{code}\" כבר משויך להזמנה אחרת בתאריך זה ({label})");
+                    throw new ValidationException(
+                        $"הקוד \"{entry.Code}\" כרגע בחוץ (מושאל) ואינו זמין לבחירה ({label})");
                 }
             }
         }
+    }
+
+    public async Task SyncPhysicalStatusForOrderAsync(
+        int orderId,
+        IReadOnlyDictionary<LoanedEquipmentType, HashSet<string>> priorAssignedByType,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        CancellationToken cancellationToken = default)
+    {
+        var nextAssignedByType = ExtractAssignedCodesByType(items);
+        var allTypes = priorAssignedByType.Keys
+            .Concat(nextAssignedByType.Keys)
+            .Distinct()
+            .ToList();
+
+        foreach (var type in allTypes)
+        {
+            priorAssignedByType.TryGetValue(type, out var prior);
+            prior ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            nextAssignedByType.TryGetValue(type, out var next);
+            next ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var code in prior.Except(next, StringComparer.OrdinalIgnoreCase))
+            {
+                await _repository.SetPhysicalStatusAsync(
+                    type,
+                    code,
+                    AccessorySerialPhysicalStatus.InWarehouse,
+                    cancellationToken);
+            }
+
+            foreach (var code in next.Except(prior, StringComparer.OrdinalIgnoreCase))
+            {
+                await _repository.SetPhysicalStatusAsync(
+                    type,
+                    code,
+                    AccessorySerialPhysicalStatus.LoanedOut,
+                    cancellationToken);
+            }
+        }
+    }
+
+    public async Task ReleaseReturnedSerialsAsync(
+        IReadOnlyCollection<(LoanedEquipmentType EquipmentType, string SerialCode)> returnedCodes,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var (type, code) in returnedCodes)
+        {
+            await _repository.SetPhysicalStatusAsync(
+                type,
+                code,
+                AccessorySerialPhysicalStatus.InWarehouse,
+                cancellationToken);
+        }
+    }
+
+    public async Task ReleaseAllOrderSerialsAsync(int orderId, CancellationToken cancellationToken = default)
+    {
+        var assigned = await _repository.GetAssignedCodesForOrderAsync(orderId, cancellationToken: cancellationToken);
+        foreach (var (type, codes) in assigned)
+        {
+            foreach (var code in codes)
+            {
+                await _repository.SetPhysicalStatusAsync(
+                    type,
+                    code,
+                    AccessorySerialPhysicalStatus.InWarehouse,
+                    cancellationToken);
+            }
+        }
+    }
+
+    public async Task ValidateReturnedSerialGuardrailsAsync(
+        int orderId,
+        bool isReturnProcessed,
+        IReadOnlyDictionary<LoanedEquipmentType, HashSet<string>> existingReturnedByType,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> incomingItems,
+        CancellationToken cancellationToken = default)
+    {
+        if (existingReturnedByType.Count == 0 && !isReturnProcessed)
+        {
+            return;
+        }
+
+        var activeOwners = existingReturnedByType.Count > 0
+            ? await _repository.GetActiveSerialOwnersAsync(orderId, cancellationToken)
+            : new Dictionary<(LoanedEquipmentType Type, string Code), int>();
+
+        var incomingByType = incomingItems
+            .Where(i => !i.IsCustomItem && i.LoanedEquipmentType is not null)
+            .ToDictionary(i => i.LoanedEquipmentType!.Value, i => i);
+
+        foreach (var (type, returnedCodes) in existingReturnedByType)
+        {
+            incomingByType.TryGetValue(type, out var incomingLine);
+            var incomingNotes = incomingLine?.Notes ?? [];
+
+            foreach (var code in returnedCodes)
+            {
+                var preserved = incomingNotes.Any(note =>
+                    string.Equals((note.Content ?? string.Empty).Trim(), code, StringComparison.OrdinalIgnoreCase));
+
+                if (preserved)
+                {
+                    continue;
+                }
+
+                var label = LoanedEquipmentTypeLabels.GetLabel(type);
+                if (activeOwners.TryGetValue((type, code), out var ownerOrderId))
+                {
+                    throw new ValidationException(
+                        $"הקוד \"{code}\" הוחזר מהזמנה זו והוקצה מחדש להזמנה #{ownerOrderId} — לא ניתן לשנות או להסיר אותו ({label})");
+                }
+
+                throw new ValidationException(
+                    $"הקוד \"{code}\" הוחזר למחסן ולא ניתן לשנות או להסיר אותו ({label})");
+            }
+        }
+
+        if (!isReturnProcessed)
+        {
+            return;
+        }
+
+        foreach (var (type, returnedCodes) in existingReturnedByType)
+        {
+            foreach (var code in returnedCodes)
+            {
+                if (activeOwners.ContainsKey((type, code)))
+                {
+                    continue;
+                }
+
+                incomingByType.TryGetValue(type, out var incomingLine);
+                var stillPresent = (incomingLine?.Notes ?? []).Any(note =>
+                    string.Equals((note.Content ?? string.Empty).Trim(), code, StringComparison.OrdinalIgnoreCase));
+
+                if (!stillPresent)
+                {
+                    var label = LoanedEquipmentTypeLabels.GetLabel(type);
+                    throw new ValidationException(
+                        $"ההזמנה כוללת רישום החזרה שמור — לא ניתן לשנות קודים שהוחזרו למחסן (\"{code}\", {label})");
+                }
+            }
+        }
+    }
+
+    private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractAssignedCodesByType(
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items)
+    {
+        var result = new Dictionary<LoanedEquipmentType, HashSet<string>>();
+        foreach (var item in items)
+        {
+            if (item.IsCustomItem || item.Quantity <= 0 || item.LoanedEquipmentType is not LoanedEquipmentType type)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(type, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[type] = codes;
+            }
+
+            foreach (var note in item.Notes ?? [])
+            {
+                if (note.IsReturned)
+                {
+                    continue;
+                }
+
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+
+        return result;
     }
 
     private static AccessoryInventoryGroupDto ToGroupDto(LoanedEquipmentType type, List<string> codes) => new()
@@ -215,24 +441,5 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
         }
 
         return result.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static List<DateOnly> ParseDates(IEnumerable<string> rawDates)
-    {
-        var result = new List<DateOnly>();
-        foreach (var raw in rawDates)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                continue;
-            }
-
-            if (DateOnly.TryParse(raw.Trim(), out var date))
-            {
-                result.Add(date);
-            }
-        }
-
-        return result.Distinct().ToList();
     }
 }

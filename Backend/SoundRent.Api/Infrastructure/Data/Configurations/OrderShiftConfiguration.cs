@@ -18,6 +18,9 @@ public class OrderShiftConfiguration : IEntityTypeConfiguration<OrderShift>
         builder.HasIndex(os => new { os.OrderDate, os.TimeSlot })
             .HasDatabaseName("IX_OrderShifts_Date_TimeSlot");
 
+        builder.HasIndex(os => new { os.OrderDate, os.TimeSlot, os.OrderId })
+            .HasDatabaseName("IX_OrderShifts_Date_TimeSlot_OrderId");
+
         builder.HasOne(os => os.Order)
             .WithMany(o => o.Shifts)
             .HasForeignKey(os => os.OrderId)

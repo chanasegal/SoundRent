@@ -19,7 +19,7 @@ public class OrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         return WithOrderGraph(_db.Orders)
-            .AsSplitQuery()
+            .AsSingleQuery()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
@@ -299,25 +299,46 @@ public class OrderRepository : IOrderRepository
                 {
                     Order = o,
                     Line = le,
-                    ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate)
+                    ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
+                    Notes = le.Notes.Select(n => new { n.Content, n.IsReturned }).ToList()
                 }))
             .OrderBy(r => r.ReturnDate ?? DateOnly.MinValue)
             .ThenBy(r => r.Order.Id)
             .ThenBy(r => r.Line.Id)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(r => new UnreturnedItemDto
+        return rows.Select(r =>
         {
-            OrderId = r.Order.Id,
-            CustomerName = r.Order.CustomerName,
-            Phone = r.Order.Phone,
-            LoanedEquipmentId = r.Line.Id,
-            IsCustomItem = r.Line.IsCustomItem,
-            LoanedEquipmentType = r.Line.LoanedEquipmentType,
-            EquipmentName = OrderMapper.GetLoanedEquipmentDisplayName(r.Line),
-            ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
-            QuantityLoaned = r.Line.Quantity,
-            MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity
+            var assignedSerialCodes = r.Notes
+                .Select(n => (n.Content ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var missingSerialCodes = r.Notes
+                .Where(n => !n.IsReturned)
+                .Select(n => (n.Content ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new UnreturnedItemDto
+            {
+                OrderId = r.Order.Id,
+                CustomerName = r.Order.CustomerName,
+                Phone = r.Order.Phone,
+                LoanedEquipmentId = r.Line.Id,
+                IsCustomItem = r.Line.IsCustomItem,
+                LoanedEquipmentType = r.Line.LoanedEquipmentType,
+                EquipmentName = OrderMapper.GetLoanedEquipmentDisplayName(r.Line),
+                ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
+                QuantityLoaned = r.Line.Quantity,
+                MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity,
+                MissingSerialCodes = missingSerialCodes,
+                AssignedSerialCodes = assignedSerialCodes
+            };
         }).ToList();
     }
 

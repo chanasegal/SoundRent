@@ -30,7 +30,8 @@ import {
   AccessoryInventoryGroupDto,
   AccessoryInventoryUpdateDto,
   AccessorySerialAvailabilityGroupDto,
-  AccessorySerialAvailabilityRequestDto
+  AccessorySerialAvailabilityRequestDto,
+  AccessorySerialLocationDto
 } from '../models/accessory-inventory.model';
 import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
@@ -507,5 +508,20 @@ export class DataService {
     return this.http
       .post<AccessorySerialAvailabilityGroupDto[]>(`${this.accessoryInventoryBase}/availability`, request)
       .pipe(catchError(() => of([])));
+  }
+
+  getAccessorySerialLocation(
+    equipmentType: LoanedEquipmentType,
+    serialCode: string
+  ): Observable<AccessorySerialLocationDto | null> {
+    const params = new HttpParams()
+      .set('equipmentType', equipmentType)
+      .set('serialCode', serialCode.trim());
+    return this.http.get<AccessorySerialLocationDto>(`${this.accessoryInventoryBase}/location`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
   }
 }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoundRent.Api.Infrastructure.Data;
@@ -11,9 +12,11 @@ using SoundRent.Api.Infrastructure.Data;
 namespace SoundRent.Api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260708235051_AddLoanedEquipmentNoteIsReturned")]
+    partial class AddLoanedEquipmentNoteIsReturned
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -33,20 +36,12 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int>("EquipmentType")
                         .HasColumnType("integer");
 
-                    b.Property<int>("PhysicalStatus")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<string>("SerialCode")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("EquipmentType", "PhysicalStatus")
-                        .HasDatabaseName("IX_AccessorySerialInventory_Type_PhysicalStatus");
 
                     b.HasIndex("EquipmentType", "SerialCode")
                         .IsUnique()

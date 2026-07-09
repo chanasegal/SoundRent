@@ -86,7 +86,7 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
         href="mailto:chanasegal99@gmail.com" 
         class="!text-sm !text-slate-500 no-underline cursor-pointer !m-0 !p-0 !leading-none"
       >
-        נבנה על ידי חנה סגל
+        נבנה על ידי chana segal
       </a>
     </div>
   </div>
