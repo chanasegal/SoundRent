@@ -562,7 +562,7 @@ export class OrderFormComponent implements OnInit {
   protected selectedAccessorySerialSummary(rowIndex: number): string {
     const codes = this.selectedCodesControl(rowIndex).value ?? [];
     if (codes.length === 0) {
-      return 'בחרו קודים';
+      return 'בחרו פריטים';
     }
     return codes.join(', ');
   }
