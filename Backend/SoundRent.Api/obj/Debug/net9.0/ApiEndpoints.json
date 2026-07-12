@@ -626,6 +626,32 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefinitionsController",
+    "Method": "CreateBatch",
+    "RelativePath": "api/EquipmentDefinitions/batch",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.EquipmentDefinitionBatchCreateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.EquipmentDefinitionDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.InstitutionsController",
     "Method": "List",
     "RelativePath": "api/Institutions",

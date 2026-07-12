@@ -22,6 +22,13 @@ export interface EquipmentDefinitionCreateDto {
   sortOrder: number;
 }
 
+/** Creates one definition row per item code (each code becomes the definition id). */
+export interface EquipmentDefinitionBatchCreateDto {
+  displayName: string;
+  category: string;
+  itemCodes: string[];
+}
+
 export interface EquipmentDefinitionUpdateDto {
   displayName: string;
   sortOrder: number;

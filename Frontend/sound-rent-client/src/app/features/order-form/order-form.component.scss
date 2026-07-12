@@ -796,6 +796,21 @@
     }
   }
 
+  .customer-suggest__primary {
+    display: block;
+  }
+
+  .customer-suggest__address {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .institution-suggest__name {
     display: block;
   }

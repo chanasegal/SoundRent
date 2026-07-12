@@ -259,3 +259,12 @@ tr.row-in-maintenance:hover {
     box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
   }
 }
+
+.add-item-modal {
+  max-height: min(92vh, 40rem);
+  overflow-y: auto;
+}
+
+.add-item-modal .note-input {
+  width: 5.75rem;
+}

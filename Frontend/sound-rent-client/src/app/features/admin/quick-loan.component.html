@@ -46,7 +46,10 @@
                       [class.customer-suggest__item--active]="customerSuggestIndex() === i"
                       (mousedown)="selectCustomerSuggestion(c, $event)"
                     >
-                      {{ customerSuggestLabel(c) }}
+                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
+                      @if (c.address?.trim()) {
+                        <span class="customer-suggest__address">{{ c.address }}</span>
+                      }
                     </button>
                   </li>
                 }
@@ -93,7 +96,10 @@
                       [class.customer-suggest__item--active]="customerSuggestIndex() === i"
                       (mousedown)="selectCustomerSuggestion(c, $event)"
                     >
-                      {{ customerSuggestLabel(c) }}
+                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
+                      @if (c.address?.trim()) {
+                        <span class="customer-suggest__address">{{ c.address }}</span>
+                      }
                     </button>
                   </li>
                 }

@@ -110,6 +110,11 @@ public class EquipmentDefinitionsController : ControllerBase
             throw new ValidationException("מזהה התא לא יכול להיות ריק");
         }
 
+        if (!IsValidItemCode(trimmedId))
+        {
+            throw new ValidationException("קוד פריט לא תקין: אותיות באנגלית, מספרים, מקף ונקודה בלבד");
+        }
+
         if (await _repository.ExistsAsync(trimmedId, cancellationToken))
         {
             throw new ValidationException("מזהה זה כבר קיים במערכת");
@@ -129,6 +134,111 @@ public class EquipmentDefinitionsController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, ToDto(entity));
     }
+
+    /// <summary>
+    /// Creates one definition per item code. Does not modify existing definitions or orders.
+    /// </summary>
+    [HttpPost("batch")]
+    public async Task<ActionResult<List<EquipmentDefinitionDto>>> CreateBatch(
+        [FromBody] EquipmentDefinitionBatchCreateDto dto,
+        CancellationToken cancellationToken)
+    {
+        var displayName = (dto.DisplayName ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(displayName))
+        {
+            throw new ValidationException("יש להזין שם פריט");
+        }
+
+        var category = (dto.Category ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(category))
+        {
+            throw new ValidationException("יש לבחור קטגוריה");
+        }
+
+        var codes = NormalizeItemCodes(dto.ItemCodes);
+        if (codes.Count == 0)
+        {
+            throw new ValidationException("יש להזין לפחות קוד פריט אחד");
+        }
+
+        var existing = await _repository.GetByIdsAsync(codes, cancellationToken);
+        if (existing.Count > 0)
+        {
+            var conflict = string.Join(", ", existing.Select(e => e.Id).OrderBy(id => id));
+            throw new ValidationException($"קוד פריט כבר קיים במערכת: {conflict}");
+        }
+
+        var allRows = await _repository.GetAllOrderedAsync(cancellationToken);
+        var nextOrder = allRows.Count == 0 ? 0 : allRows.Max(r => r.SortOrder) + 1;
+
+        var created = new List<EquipmentDefinition>(codes.Count);
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            for (var i = 0; i < codes.Count; i++)
+            {
+                var entity = new EquipmentDefinition
+                {
+                    Id = codes[i],
+                    DisplayName = displayName,
+                    Category = category,
+                    SortOrder = nextOrder + i,
+                    IsMaintenanceMode = false
+                };
+                await _repository.AddAsync(entity, cancellationToken);
+                created.Add(entity);
+            }
+
+            await _repository.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return StatusCode(StatusCodes.Status201Created, created.Select(ToDto).ToList());
+    }
+
+    private static List<string> NormalizeItemCodes(IEnumerable<string>? rawCodes)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var raw in rawCodes ?? [])
+        {
+            var trimmed = (raw ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+            {
+                throw new ValidationException("לא ניתן להשאיר קוד פריט ריק");
+            }
+
+            if (trimmed.Length > 64)
+            {
+                throw new ValidationException($"קוד פריט ארוך מדי: {trimmed}");
+            }
+
+            if (!IsValidItemCode(trimmed))
+            {
+                throw new ValidationException($"קוד פריט לא תקין ({trimmed}): אותיות באנגלית, מספרים, מקף ונקודה בלבד");
+            }
+
+            if (!seen.Add(trimmed))
+            {
+                throw new ValidationException($"קוד פריט כפול: {trimmed}");
+            }
+
+            result.Add(trimmed);
+        }
+
+        return result;
+    }
+
+    private static bool IsValidItemCode(string code) =>
+        code.Length > 0
+        && char.IsLetterOrDigit(code[0])
+        && code.All(ch => char.IsLetterOrDigit(ch) || ch is '.' or '_' or '-');
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)

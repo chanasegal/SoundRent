@@ -90,6 +90,21 @@ $date-control-height: 2.5rem;
   }
 }
 
+.customer-suggest__primary {
+  display: block;
+}
+
+.customer-suggest__address {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ltr-field {
   direction: ltr;
   unicode-bidi: isolate;

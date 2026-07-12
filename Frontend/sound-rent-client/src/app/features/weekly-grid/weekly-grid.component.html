@@ -546,7 +546,10 @@
                         [class.customer-suggest__item--active]="customerSuggestIndex() === i"
                         (mousedown)="selectWaitlistCustomerSuggestion(c, $event)"
                       >
-                        {{ waitlistCustomerSuggestLabel(c) }}
+                        <span class="customer-suggest__primary">{{ waitlistCustomerSuggestLabel(c) }}</span>
+                        @if (c.address?.trim()) {
+                          <span class="customer-suggest__address">{{ c.address }}</span>
+                        }
                       </button>
                     </li>
                   }
@@ -589,7 +592,10 @@
                         [class.customer-suggest__item--active]="customerSuggestIndex() === i"
                         (mousedown)="selectWaitlistCustomerSuggestion(c, $event)"
                       >
-                        {{ waitlistCustomerSuggestLabel(c) }}
+                        <span class="customer-suggest__primary">{{ waitlistCustomerSuggestLabel(c) }}</span>
+                        @if (c.address?.trim()) {
+                          <span class="customer-suggest__address">{{ c.address }}</span>
+                        }
                       </button>
                     </li>
                   }

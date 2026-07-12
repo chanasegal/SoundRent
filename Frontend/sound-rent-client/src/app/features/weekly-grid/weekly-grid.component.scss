@@ -226,6 +226,8 @@
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  /* Allow browser pinch-zoom (including below 100%) while keeping pan scroll */
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 @media (max-width: 640px) {
@@ -1097,6 +1099,21 @@
   &--active {
     background: #fffbeb;
   }
+}
+
+.customer-suggest__primary {
+  display: block;
+}
+
+.customer-suggest__address {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .waitlist-modal-actions {

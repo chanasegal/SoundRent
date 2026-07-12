@@ -74,15 +74,25 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly saving = signal(false);
   protected readonly editSaving = signal(false);
   protected readonly editOpen = signal(false);
+  protected readonly addOpen = signal(false);
   protected readonly editingId = signal<string | null>(null);
   protected readonly deletingId = signal<string | null>(null);
   protected readonly futureOrdersModal = signal<EquipmentDefinitionDeleteFutureOrder[] | null>(null);
   protected readonly maintenanceTogglingId = signal<string | null>(null);
 
+  /** Categories offered in the add-item modal (values stored on EquipmentDefinition.Category). */
+  protected readonly categoryOptions: { value: string; label: string }[] = [
+    { value: 'Speakers', label: 'רמקולים (לוח הזמנות)' },
+    { value: 'Accessories', label: 'אביזרים' },
+    { value: 'Cables', label: 'כבלים' },
+    { value: 'Other', label: 'אחר' }
+  ];
+
   protected readonly addForm = this.fb.group({
-    id: ['', [Validators.required, Validators.maxLength(64), Validators.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)]],
     displayName: ['', [Validators.required, Validators.maxLength(200)]],
-    category: ['Speakers', Validators.required]
+    category: ['Speakers', [Validators.required, Validators.maxLength(80)]],
+    quantity: [1, [Validators.required, Validators.min(1), Validators.max(200)]],
+    codes: this.fb.array<FormControl<string>>([this.buildItemCodeControl()])
   });
 
   protected readonly editForm = this.fb.group({
@@ -93,6 +103,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   ngOnInit(): void {
     this.wireAccessoryQuantitySync();
     this.wireSerialSearchTypeFilter();
+    this.wireAddItemQuantitySync();
     this.refresh();
   }
 
@@ -349,6 +360,66 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       });
   }
 
+  protected addItemCodes(): FormArray<FormControl<string>> {
+    return this.addForm.get('codes') as FormArray<FormControl<string>>;
+  }
+
+  protected addItemCodeIndices(): number[] {
+    const len = this.addItemCodes().length;
+    return Array.from({ length: len }, (_, i) => i);
+  }
+
+  protected openAddItem(): void {
+    this.resetAddForm();
+    this.addOpen.set(true);
+  }
+
+  protected closeAddItem(): void {
+    this.addOpen.set(false);
+  }
+
+  protected autoFillItemCodes(): void {
+    const codes = this.addItemCodes();
+    if (codes.length === 0) {
+      return;
+    }
+
+    const existingPrefix = String(codes.at(0).value ?? '')
+      .trim()
+      .replace(/\d+$/, '');
+    const prefix = existingPrefix.length > 0 ? existingPrefix : 'ITEM-';
+
+    for (let i = 0; i < codes.length; i++) {
+      const current = String(codes.at(i).value ?? '').trim();
+      if (current.length > 0) {
+        continue;
+      }
+      codes.at(i).setValue(`${prefix}${i + 1}`);
+    }
+  }
+
+  protected focusNextAddItemCode(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const current = event.target;
+    if (!(current instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input.add-item-code-input[data-serial-nav="add"]')
+    );
+    const index = inputs.indexOf(current);
+    if (index < 0 || index >= inputs.length - 1) {
+      return;
+    }
+
+    const next = inputs[index + 1];
+    next.focus();
+    next.select();
+  }
+
   protected submitAdd(): void {
     if (this.addForm.invalid) {
       this.addForm.markAllAsTouched();
@@ -357,16 +428,36 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     }
 
     const v = this.addForm.getRawValue();
-    const defs = this.store.definitions();
-    const nextOrder = defs.length === 0 ? 0 : Math.max(...defs.map((d) => d.sortOrder)) + 1;
+    const displayName = (v.displayName ?? '').trim();
+    const category = (v.category ?? '').trim();
+    const rawCodes = (v.codes ?? []).map((c) => String(c ?? '').trim());
+
+    if (rawCodes.some((c) => c.length === 0)) {
+      this.toast.error('יש להזין קוד פריט בכל השדות');
+      return;
+    }
+
+    const itemCodePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+    for (let i = 0; i < rawCodes.length; i++) {
+      const code = rawCodes[i]!;
+      if (!itemCodePattern.test(code) || code.length > 64) {
+        this.toast.error(`קוד פריט לא תקין (#${i + 1}): אותיות באנגלית, מספרים, מקף ונקודה בלבד`);
+        return;
+      }
+    }
+
+    const unique = new Set(rawCodes.map((c) => c.toLowerCase()));
+    if (unique.size !== rawCodes.length) {
+      this.toast.error('קיימים קודי פריט כפולים בטופס');
+      return;
+    }
 
     this.saving.set(true);
     this.data
-      .createEquipmentDefinition({
-        id: (v.id ?? '').trim(),
-        displayName: (v.displayName ?? '').trim(),
-        category: 'Speakers',
-        sortOrder: nextOrder
+      .createEquipmentDefinitionsBatch({
+        displayName,
+        category,
+        itemCodes: rawCodes
       })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
@@ -374,15 +465,63 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           if (created === null) {
             return;
           }
-          this.toast.success('תא ההזמנה נוסף');
-          this.addForm.reset({
-            id: '',
-            displayName: '',
-            category: 'Speakers'
-          });
-          this.store.upsertDefinition(created);
+          this.toast.success(created.length === 1 ? 'הפריט נוסף בהצלחה' : `${created.length} פריטים נוספו בהצלחה`);
+          this.store.upsertDefinitions(created);
+          this.closeAddItem();
+          this.resetAddForm();
         }
       });
+  }
+
+  private wireAddItemQuantitySync(): void {
+    this.addForm.controls.quantity.valueChanges
+      .pipe(
+        startWith(this.addForm.controls.quantity.value),
+        map((v) => this.toPositiveInteger(v, 1)),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((qty) => this.setAddItemCodesLength(qty));
+  }
+
+  private setAddItemCodesLength(target: number): void {
+    const length = Math.min(200, Math.max(1, target));
+    const codes = this.addItemCodes();
+    while (codes.length < length) {
+      codes.push(this.buildItemCodeControl());
+    }
+    while (codes.length > length) {
+      codes.removeAt(codes.length - 1);
+    }
+    if (this.addForm.controls.quantity.value !== length) {
+      this.addForm.controls.quantity.setValue(length, { emitEvent: false });
+    }
+  }
+
+  private buildItemCodeControl(): FormControl<string> {
+    return this.fb.nonNullable.control('', [
+      Validators.required,
+      Validators.maxLength(64),
+      Validators.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+    ]);
+  }
+
+  private resetAddForm(): void {
+    this.addForm.reset({
+      displayName: '',
+      category: 'Speakers',
+      quantity: 1
+    });
+    this.setAddItemCodesLength(1);
+    this.addItemCodes().at(0).setValue('');
+  }
+
+  private toPositiveInteger(value: unknown, fallback: number): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+      return fallback;
+    }
+    return Math.max(1, Math.trunc(n));
   }
 
   protected rows(): EquipmentDefinitionDto[] {

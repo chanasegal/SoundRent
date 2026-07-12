@@ -1,41 +1,19 @@
 <div class="mx-auto max-w-5xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-[#002244]">ניהול ציוד</h1>
-    <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
-      רענון
-    </button>
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
+        (click)="openAddItem()"
+      >
+        הוסף פריט חדש
+      </button>
+      <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
+        רענון
+      </button>
+    </div>
   </div>
-
-  <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <h2 class="mb-4 text-lg font-bold text-[#002244]">הוספת תא רמקול</h2>
-    <p class="mb-3 text-sm text-slate-600">תאים חדשים נרשמים כרמקולים בלבד ויופיעו בלוח השבועי ובטופס ההזמנה.</p>
-    <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="grid gap-4 md:grid-cols-2">
-      <input type="hidden" formControlName="category" />
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">מזהה (למשל 712-C)</label>
-        <input formControlName="id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" dir="ltr" autocomplete="off" />
-        @if (addForm.controls.id.touched && addForm.controls.id.errors?.['required']) {
-          <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-        }
-        @if (addForm.controls.id.touched && addForm.controls.id.errors?.['pattern']) {
-          <p class="mt-1 text-xs text-rose-600">אותיות באנגלית, מספרים, מקף ונקודה בלבד</p>
-        }
-      </div>
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">שם תצוגה</label>
-        <input formControlName="displayName" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="off" />
-      </div>
-      <div class="md:col-span-2">
-        <button
-          type="submit"
-          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
-          [disabled]="saving()"
-        >
-          {{ saving() ? 'שומר…' : 'הוסף תא' }}
-        </button>
-      </div>
-    </form>
-  </section>
 
   <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <h2 class="mb-4 text-lg font-bold text-[#002244]">תאי הזמנה (לוח)</h2>
@@ -292,6 +270,122 @@
     }
   </section>
 </div>
+
+@if (addOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="add-item-modal-title"
+    (click)="closeAddItem()"
+  >
+    <div
+      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="add-item-modal-title" class="text-lg font-bold text-[#002244]">הוסף פריט חדש</h2>
+        <p class="mt-1 text-sm text-slate-600">
+          הגדירו שם, קטגוריה וכמות — לכל יחידה יווצר קוד פריט ייחודי במערכת, ללא שינוי בהזמנות קיימות.
+        </p>
+      </div>
+      <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="space-y-4 px-5 py-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-name">
+            שם הפריט <span class="text-rose-500">*</span>
+          </label>
+          <input
+            id="add-item-name"
+            formControlName="displayName"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="למשל: כבל מיקרופון"
+            autocomplete="off"
+          />
+          @if (addForm.controls.displayName.touched && addForm.controls.displayName.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-category">
+            קטגוריה <span class="text-rose-500">*</span>
+          </label>
+          <select id="add-item-category" formControlName="category" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            @for (opt of categoryOptions; track opt.value) {
+              <option [value]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+          <p class="mt-1 text-xs text-slate-500">פריטים בקטגוריית רמקולים יופיעו בלוח השבועי ובטופס ההזמנה.</p>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-qty">
+            כמות <span class="text-rose-500">*</span>
+          </label>
+          <input
+            id="add-item-qty"
+            type="number"
+            min="1"
+            max="200"
+            step="1"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            appIntegerOnly
+            formControlName="quantity"
+            class="qty-input"
+          />
+        </div>
+
+        <div>
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <label class="block text-sm font-medium text-slate-700">קוד פריט <span class="text-rose-500">*</span></label>
+            <button
+              type="button"
+              class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              (click)="autoFillItemCodes()"
+            >
+              מילוי אוטומטי
+            </button>
+          </div>
+          <div class="note-row" formArrayName="codes">
+            @for (idx of addItemCodeIndices(); track idx) {
+              <input
+                type="text"
+                maxlength="64"
+                [formControlName]="idx"
+                class="note-input add-item-code-input"
+                dir="ltr"
+                autocomplete="off"
+                [attr.data-serial-nav]="'add'"
+                [attr.placeholder]="'#' + (idx + 1)"
+                [attr.aria-label]="'קוד פריט ' + (idx + 1)"
+                (keydown.enter)="focusNextAddItemCode($event)"
+              />
+            }
+          </div>
+          <p class="mt-1 text-xs text-slate-500">אותיות באנגלית, מספרים, מקף ונקודה בלבד (למשל 712-C).</p>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeAddItem()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="saving() || addForm.invalid"
+          >
+            {{ saving() ? 'שומר…' : 'הוסף פריט' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
 
 @if (editOpen()) {
   <div

@@ -62,6 +62,20 @@ export class EquipmentDefinitionsStore {
     this.loaded = true;
   }
 
+  upsertDefinitions(dtos: EquipmentDefinitionDto[]): void {
+    if (dtos.length === 0) {
+      return;
+    }
+    this.definitions.update((rows) => {
+      const byId = new Map(rows.map((d) => [d.id, d] as const));
+      for (const dto of dtos) {
+        byId.set(dto.id, dto);
+      }
+      return [...byId.values()].sort((a, b) => a.sortOrder - b.sortOrder);
+    });
+    this.loaded = true;
+  }
+
   removeDefinition(id: string): void {
     const trimmed = id.trim();
     this.definitions.update((rows) => rows.filter((d) => d.id !== trimmed));

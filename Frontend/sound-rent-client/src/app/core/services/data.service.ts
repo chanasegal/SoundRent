@@ -10,7 +10,7 @@ import {
   UnreturnedItemDto
 } from '../models/equipment-return.model';
 import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto } from '../models/order.model';
-import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
+import { EquipmentDefinitionBatchCreateDto, EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
 import { OrderShiftDto } from '../models/order.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
@@ -404,6 +404,20 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  /** Creates one definition per item code; does not modify existing rows or orders. */
+  createEquipmentDefinitionsBatch(
+    payload: EquipmentDefinitionBatchCreateDto
+  ): Observable<EquipmentDefinitionDto[] | null> {
+    return this.http
+      .post<EquipmentDefinitionDto[]>(`${this.equipmentDefinitionsBase}/batch`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   updateEquipmentDefinition(
