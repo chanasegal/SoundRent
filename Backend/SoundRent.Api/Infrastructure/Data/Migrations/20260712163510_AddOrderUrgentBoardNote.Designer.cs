@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoundRent.Api.Infrastructure.Data;
@@ -11,9 +12,11 @@ using SoundRent.Api.Infrastructure.Data;
 namespace SoundRent.Api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260712163510_AddOrderUrgentBoardNote")]
+    partial class AddOrderUrgentBoardNote
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -223,32 +226,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Institution", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("DefaultNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Institutions_Name");
-
-                    b.ToTable("Institutions", (string)null);
-                });
-
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.LoanedEquipmentNote", b =>
                 {
                     b.Property<int>("Id")
@@ -373,13 +350,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int?>("DepositType")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("InstitutionId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("InstitutionName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
                     b.Property<bool>("IsCancelled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -421,9 +391,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("InstitutionId")
-                        .HasDatabaseName("IX_Orders_InstitutionId");
 
                     b.HasIndex("IsCancelled")
                         .HasDatabaseName("IX_Orders_IsCancelled");
@@ -644,16 +611,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("OrderLoanedEquipment");
                 });
 
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>
-                {
-                    b.HasOne("SoundRent.Api.Domain.Entities.Institution", "Institution")
-                        .WithMany("Orders")
-                        .HasForeignKey("InstitutionId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Institution");
-                });
-
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
@@ -707,11 +664,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefinition", b =>
-                {
-                    b.Navigation("Orders");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Institution", b =>
                 {
                     b.Navigation("Orders");
                 });

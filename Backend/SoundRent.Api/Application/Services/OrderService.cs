@@ -16,19 +16,22 @@ public class OrderService : IOrderService
     private readonly ICustomerService _customerService;
     private readonly IBlockedDateRepository _blockedDates;
     private readonly IAccessorySerialInventoryService _accessorySerialInventory;
+    private readonly IInstitutionRepository _institutions;
 
     public OrderService(
         IOrderRepository orderRepository,
         IEquipmentDefinitionRepository equipmentDefinitions,
         ICustomerService customerService,
         IBlockedDateRepository blockedDates,
-        IAccessorySerialInventoryService accessorySerialInventory)
+        IAccessorySerialInventoryService accessorySerialInventory,
+        IInstitutionRepository institutions)
     {
         _orderRepository = orderRepository;
         _equipmentDefinitions = equipmentDefinitions;
         _customerService = customerService;
         _blockedDates = blockedDates;
         _accessorySerialInventory = accessorySerialInventory;
+        _institutions = institutions;
     }
 
     public async Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -60,6 +63,7 @@ public class OrderService : IOrderService
     public async Task<OrderDto> CreateOrderAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken = default)
     {
         NormalizeAndValidateOrderPhones(dto);
+        await ResolveInstitutionAsync(dto, cancellationToken);
         ExtendMorningEndShiftForLateReturn(dto);
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
@@ -100,6 +104,7 @@ public class OrderService : IOrderService
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
         NormalizeAndValidateOrderPhones(dto);
+        await ResolveInstitutionAsync(dto, cancellationToken);
         ExtendMorningEndShiftForLateReturn(dto);
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
@@ -189,6 +194,94 @@ public class OrderService : IOrderService
             equipmentType.Trim(), orderDate, timeSlot, excludeOrderId, cancellationToken);
     }
 
+    public async Task<InstitutionConflictDto> CheckInstitutionConflictAsync(
+        string? institutionName,
+        int? institutionId,
+        DateOnly orderDate,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!institutionId.HasValue && string.IsNullOrWhiteSpace(institutionName))
+        {
+            return new InstitutionConflictDto { HasConflict = false };
+        }
+
+        string? defaultNote = null;
+        if (institutionId.HasValue)
+        {
+            var institution = await _institutions.GetByIdAsync(institutionId.Value, cancellationToken);
+            if (institution is null)
+            {
+                return new InstitutionConflictDto { HasConflict = false };
+            }
+
+            institutionName = institution.Name;
+            defaultNote = string.IsNullOrWhiteSpace(institution.DefaultNote)
+                ? null
+                : institution.DefaultNote.Trim();
+        }
+
+        var conflict = await _orderRepository.FindInstitutionConflictAsync(
+            institutionName,
+            institutionId,
+            orderDate,
+            excludeOrderId,
+            cancellationToken);
+
+        if (conflict is null)
+        {
+            return new InstitutionConflictDto { HasConflict = false };
+        }
+
+        if (defaultNote is null)
+        {
+            defaultNote = string.IsNullOrWhiteSpace(conflict.Institution?.DefaultNote)
+                ? (string.IsNullOrWhiteSpace(conflict.Notes) ? null : conflict.Notes.Trim())
+                : conflict.Institution!.DefaultNote!.Trim();
+        }
+
+        return new InstitutionConflictDto
+        {
+            HasConflict = true,
+            ConflictingOrderId = conflict.Id,
+            ConflictingCustomerName = string.IsNullOrWhiteSpace(conflict.CustomerName)
+                ? null
+                : conflict.CustomerName.Trim(),
+            InstitutionNote = defaultNote,
+            ConflictDate = orderDate
+        };
+    }
+
+    private async Task ResolveInstitutionAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken)
+    {
+        if (dto.InstitutionId is int institutionId)
+        {
+            var institution = await _institutions.GetByIdAsync(institutionId, cancellationToken)
+                ?? throw new ValidationException("המוסד שנבחר לא נמצא");
+            dto.InstitutionId = institution.Id;
+            dto.InstitutionName = institution.Name;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.InstitutionName))
+        {
+            var match = await _institutions.FindByNameAsync(dto.InstitutionName, cancellationToken);
+            if (match is not null)
+            {
+                dto.InstitutionId = match.Id;
+                dto.InstitutionName = match.Name;
+                return;
+            }
+
+            dto.InstitutionId = null;
+            dto.InstitutionName = dto.InstitutionName.Trim();
+            return;
+        }
+
+        dto.InstitutionId = null;
+        dto.InstitutionName = null;
+    }
+
     public async Task<List<OrderDto>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default)
     {
         var orders = await _orderRepository.GetCancelledOrdersAsync(cancellationToken);
@@ -229,6 +322,20 @@ public class OrderService : IOrderService
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
         existing.IsUnpaid = false;
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+        return OrderMapper.ToDto(existing);
+    }
+
+    public async Task<OrderDto> UpdateUrgentBoardNoteAsync(
+        int id,
+        string? urgentBoardNote,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        var trimmed = urgentBoardNote?.Trim();
+        existing.UrgentBoardNote = string.IsNullOrEmpty(trimmed) ? null : trimmed;
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }

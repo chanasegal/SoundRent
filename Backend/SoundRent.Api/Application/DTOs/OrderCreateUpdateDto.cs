@@ -25,6 +25,11 @@ public class OrderCreateUpdateDto : IValidatableObject
     [MaxLength(200, ErrorMessage = "הכתובת לא יכולה לחרוג מ-200 תווים")]
     public string? Address { get; set; }
 
+    [MaxLength(200, ErrorMessage = "שם המוסד לא יכול לחרוג מ-200 תווים")]
+    public string? InstitutionName { get; set; }
+
+    public int? InstitutionId { get; set; }
+
     public DepositType? DepositType { get; set; }
 
     [MaxLength(100, ErrorMessage = "שם הפיקדון לא יכול לחרוג מ-100 תווים")]

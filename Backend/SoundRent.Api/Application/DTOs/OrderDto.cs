@@ -16,6 +16,8 @@ public class OrderDto
     public string Phone { get; set; } = string.Empty;
     public string? Phone2 { get; set; }
     public string? Address { get; set; }
+    public string? InstitutionName { get; set; }
+    public int? InstitutionId { get; set; }
     public DepositType? DepositType { get; set; }
     public string? DepositOnName { get; set; }
     public decimal? PaymentAmount { get; set; }
@@ -26,6 +28,7 @@ public class OrderDto
     public ReturnTimeType ReturnTimeType { get; set; }
     public string? CustomReturnTime { get; set; }
     public string? Notes { get; set; }
+    public string? UrgentBoardNote { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public List<OrderLoanedEquipmentDto> LoanedEquipments { get; set; } = new();

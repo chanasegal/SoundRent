@@ -268,6 +268,7 @@
                               (focus)="setHoveredOrder(o.id)"
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
+                              (contextmenu)="onOrderContextMenu($event, o)"
                             >
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
@@ -289,6 +290,9 @@
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
+                              }
+                              @if (hasUrgentBoardNote(o)) {
+                                <span class="cell-urgent-note">{{ urgentBoardNoteText(o) }}</span>
                               }
                             </button>
                           }
@@ -383,6 +387,7 @@
                               (focus)="setHoveredOrder(o.id)"
                               (blur)="setHoveredOrder(null)"
                               (click)="openOrder(o.id)"
+                              (contextmenu)="onOrderContextMenu($event, o)"
                             >
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
@@ -404,6 +409,9 @@
                               <span class="cell-phone">{{ o.phone }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
+                              }
+                              @if (hasUrgentBoardNote(o)) {
+                                <span class="cell-urgent-note">{{ urgentBoardNoteText(o) }}</span>
                               }
                             </button>
                           }
@@ -607,6 +615,59 @@
             <button type="button" class="waitlist-btn waitlist-btn-ghost" (click)="closeWaitlistModal()">ביטול</button>
             <button type="submit" class="waitlist-btn waitlist-btn-primary" [disabled]="waitlistSaving()">
               {{ waitlistSaving() ? 'שומר…' : 'שמירה' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  @if (orderContextMenu(); as menu) {
+    <div class="order-context-menu-backdrop" (click)="closeOrderContextMenu()" (contextmenu)="$event.preventDefault()"></div>
+    <div
+      class="order-context-menu"
+      role="menu"
+      [style.top.px]="menu.y"
+      [style.left.px]="menu.x"
+      (click)="$event.stopPropagation()"
+    >
+      <button type="button" class="order-context-menu__item" role="menuitem" (click)="openUrgentBoardNoteDialog()">
+        הוסף הערה דחופה ללוח
+      </button>
+    </div>
+  }
+
+  @if (urgentNoteDialog(); as dialog) {
+    <div class="waitlist-modal-backdrop" (click)="closeUrgentBoardNoteDialog()">
+      <div
+        class="waitlist-modal urgent-note-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="urgent-note-dialog-title"
+        (click)="$event.stopPropagation()"
+      >
+        <h3 id="urgent-note-dialog-title" class="waitlist-modal-title">הערה דחופה ללוח</h3>
+        <p class="waitlist-modal-sub">{{ dialog.customerName || dialog.phone }}</p>
+        <form (ngSubmit)="saveUrgentBoardNote()" class="waitlist-modal-form">
+          <div>
+            <label class="waitlist-field-label" for="urgent-board-note-input">הערה</label>
+            <textarea
+              id="urgent-board-note-input"
+              class="waitlist-field-input urgent-note-textarea"
+              rows="3"
+              maxlength="1000"
+              [ngModel]="urgentNoteDraft()"
+              (ngModelChange)="urgentNoteDraft.set($event)"
+              [ngModelOptions]="{ standalone: true }"
+              autofocus
+            ></textarea>
+          </div>
+          <div class="waitlist-modal-actions">
+            <button type="button" class="waitlist-btn waitlist-btn-ghost" (click)="closeUrgentBoardNoteDialog()">
+              ביטול
+            </button>
+            <button type="submit" class="waitlist-btn waitlist-btn-primary" [disabled]="urgentNoteSaving()">
+              {{ urgentNoteSaving() ? 'שומר…' : 'שמירה' }}
             </button>
           </div>
         </form>

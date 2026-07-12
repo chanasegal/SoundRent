@@ -19,6 +19,25 @@ public interface IOrderRepository
     Task<bool> ExistsForSlotAsync(string equipmentType, DateOnly orderDate, TimeSlot timeSlot, int? excludeOrderId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Finds another non-cancelled order with the same institution name that has a shift on the given day.
+    /// </summary>
+    Task<Order?> FindInstitutionConflictAsync(
+        string? institutionName,
+        int? institutionId,
+        DateOnly orderDate,
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default);
+
+    Task SyncInstitutionNameAsync(
+        int institutionId,
+        string name,
+        CancellationToken cancellationToken = default);
+
+    Task<List<Order>> GetOrdersForInstitutionAsync(
+        int institutionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Equipment definition ids that are booked on at least one of the given shifts.
     /// </summary>
     Task<HashSet<string>> GetOccupiedEquipmentIdsForShiftsAsync(

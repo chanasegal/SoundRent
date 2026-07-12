@@ -32,6 +32,8 @@ export interface OrderDto {
   phone: string;
   phone2?: string | null;
   address?: string | null;
+  institutionName?: string | null;
+  institutionId?: number | null;
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
@@ -41,6 +43,8 @@ export interface OrderDto {
   returnTimeType: ReturnTimeType;
   customReturnTime?: string | null;
   notes?: string | null;
+  /** Board-only urgent note shown under return time on the weekly grid. */
+  urgentBoardNote?: string | null;
   createdAt: string;
   loanedEquipments: OrderLoanedEquipmentDto[];
 }
@@ -53,6 +57,8 @@ export interface OrderCreateUpdateDto {
   phone: string;
   phone2?: string | null;
   address?: string | null;
+  institutionName?: string | null;
+  institutionId?: number | null;
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
@@ -63,4 +69,13 @@ export interface OrderCreateUpdateDto {
   loanedEquipments: OrderLoanedEquipmentDto[];
   /** Legacy field; server-side validation now blocks overlapping grid cells. */
   allowDoubleBooking?: boolean;
+}
+
+/** Response of `GET /api/orders/check-institution-conflict`. */
+export interface InstitutionConflictDto {
+  hasConflict: boolean;
+  conflictingOrderId?: number | null;
+  conflictingCustomerName?: string | null;
+  institutionNote?: string | null;
+  conflictDate?: string | null;
 }

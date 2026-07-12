@@ -73,6 +73,72 @@ public class OrderRepository : IOrderRepository
         return query.AnyAsync(cancellationToken);
     }
 
+    public Task<Order?> FindInstitutionConflictAsync(
+        string? institutionName,
+        int? institutionId,
+        DateOnly orderDate,
+        int? excludeOrderId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmedName = institutionName?.Trim() ?? string.Empty;
+        if (!institutionId.HasValue && trimmedName.Length == 0)
+        {
+            return Task.FromResult<Order?>(null);
+        }
+
+        var normalized = trimmedName.ToLowerInvariant();
+        var query = _db.Orders.AsNoTracking()
+            .Include(o => o.Institution)
+            .Where(o =>
+                !o.IsCancelled &&
+                o.Shifts.Any(s => s.OrderDate == orderDate));
+
+        if (institutionId.HasValue)
+        {
+            query = query.Where(o => o.InstitutionId == institutionId.Value);
+        }
+        else
+        {
+            query = query.Where(o =>
+                o.InstitutionName != null &&
+                o.InstitutionName.ToLower() == normalized);
+        }
+
+        if (excludeOrderId.HasValue)
+        {
+            query = query.Where(o => o.Id != excludeOrderId.Value);
+        }
+
+        return query
+            .OrderBy(o => o.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task SyncInstitutionNameAsync(
+        int institutionId,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        await _db.Orders
+            .Where(o => o.InstitutionId == institutionId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(o => o.InstitutionName, name),
+                cancellationToken);
+    }
+
+    public Task<List<Order>> GetOrdersForInstitutionAsync(
+        int institutionId,
+        CancellationToken cancellationToken = default)
+    {
+        return WithOrderGraph(_db.Orders)
+            .AsSplitQuery()
+            .AsNoTracking()
+            .Where(o => o.InstitutionId == institutionId)
+            .OrderByDescending(o => o.Shifts.Min(s => s.OrderDate))
+            .ThenByDescending(o => o.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<HashSet<string>> GetOccupiedEquipmentIdsForShiftsAsync(
         IReadOnlyCollection<OrderShiftDto> shifts,
         int? excludeOrderId = null,
@@ -360,6 +426,7 @@ public class OrderRepository : IOrderRepository
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)
     {
         return query
+            .Include(o => o.Institution)
             .Include(o => o.Equipments)
             .ThenInclude(e => e.EquipmentDefinition)
             .Include(o => o.Shifts)

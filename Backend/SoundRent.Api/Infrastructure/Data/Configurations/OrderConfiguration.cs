@@ -26,6 +26,17 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.Address)
             .HasMaxLength(200);
 
+        builder.Property(o => o.InstitutionName)
+            .HasMaxLength(200);
+
+        builder.HasOne(o => o.Institution)
+            .WithMany(i => i.Orders)
+            .HasForeignKey(o => o.InstitutionId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(o => o.InstitutionId)
+            .HasDatabaseName("IX_Orders_InstitutionId");
+
         builder.Property(o => o.DepositOnName)
             .HasMaxLength(100);
 
@@ -48,6 +59,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasMaxLength(20);
 
         builder.Property(o => o.Notes)
+            .HasMaxLength(1000);
+
+        builder.Property(o => o.UrgentBoardNote)
             .HasMaxLength(1000);
 
         builder.Property(o => o.CreatedAt)

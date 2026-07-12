@@ -9,11 +9,12 @@ import {
   OrderReturnRequestDto,
   UnreturnedItemDto
 } from '../models/equipment-return.model';
-import { OrderCreateUpdateDto, OrderDto } from '../models/order.model';
+import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto } from '../models/order.model';
 import { EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
 import { OrderShiftDto } from '../models/order.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
+import { InstitutionCreateUpdateDto, InstitutionDto } from '../models/institution.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
 import {
   LostEquipmentCreateDto,
@@ -50,6 +51,7 @@ export class DataService {
   private readonly waitlistBase = `${environment.apiBaseUrl}/waitlist`;
   private readonly equipmentDefinitionsBase = `${environment.apiBaseUrl}/equipmentdefinitions`;
   private readonly customersBase = `${environment.apiBaseUrl}/customers`;
+  private readonly institutionsBase = `${environment.apiBaseUrl}/institutions`;
   private readonly memoBase = `${environment.apiBaseUrl}/memo`;
   private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
   private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
@@ -184,6 +186,17 @@ export class DataService {
     );
   }
 
+  updateUrgentBoardNote(id: number, urgentBoardNote: string | null): Observable<OrderDto | null> {
+    return this.http
+      .patch<OrderDto>(`${this.ordersBase}/${id}/urgent-board-note`, { urgentBoardNote })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
   recordOrderReturn(id: number, request: OrderReturnRequestDto): Observable<OrderDto | null> {
     return this.http.post<OrderDto>(`${this.ordersBase}/${id}/return`, request).pipe(
       catchError((err) => {
@@ -241,6 +254,101 @@ export class DataService {
     }
     return this.http.get<SlotTakenResponse>(`${this.ordersBase}/slot-taken`, { params }).pipe(
       catchError(() => of({ taken: false }))
+    );
+  }
+
+  /**
+   * Soft probe: another active order for the same institution on the same calendar day.
+   */
+  checkInstitutionConflict(
+    institutionName: string | null | undefined,
+    date: string,
+    excludeOrderId?: number,
+    institutionId?: number | null
+  ): Observable<InstitutionConflictDto> {
+    let params = new HttpParams().set('date', date);
+    if (institutionId != null) {
+      params = params.set('institutionId', String(institutionId));
+    }
+    if (institutionName != null && institutionName.trim().length > 0) {
+      params = params.set('institutionName', institutionName.trim());
+    }
+    if (excludeOrderId != null) {
+      params = params.set('excludeOrderId', String(excludeOrderId));
+    }
+    return this.http
+      .get<InstitutionConflictDto>(`${this.ordersBase}/check-institution-conflict`, { params })
+      .pipe(
+        catchError(() =>
+          of({
+            hasConflict: false,
+            conflictingOrderId: null,
+            conflictingCustomerName: null,
+            institutionNote: null,
+            conflictDate: null
+          } satisfies InstitutionConflictDto)
+        )
+      );
+  }
+
+  searchInstitutions(query?: string): Observable<InstitutionDto[]> {
+    let params = new HttpParams();
+    if (query != null && query.trim().length > 0) {
+      params = params.set('query', query.trim());
+    }
+    return this.http.get<InstitutionDto[]>(`${this.institutionsBase}/search`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createInstitution(payload: InstitutionCreateUpdateDto): Observable<InstitutionDto | null> {
+    return this.http.post<InstitutionDto>(this.institutionsBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateInstitution(id: number, payload: InstitutionCreateUpdateDto): Observable<InstitutionDto | null> {
+    return this.http.put<InstitutionDto>(`${this.institutionsBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteInstitution(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.institutionsBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  exportInstitutionsExcel(): Observable<HttpResponse<Blob> | null> {
+    return this.http
+      .get(`${this.institutionsBase}/export-excel`, { observe: 'response', responseType: 'blob' })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  getInstitutionOrders(id: number): Observable<OrderDto[]> {
+    return this.http.get<OrderDto[]>(`${this.institutionsBase}/${id}/orders`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
     );
   }
 

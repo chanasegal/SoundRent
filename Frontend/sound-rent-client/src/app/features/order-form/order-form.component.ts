@@ -48,7 +48,8 @@ import {
   LOST_EQUIPMENT_ACTIVE_STATUSES,
   LostEquipmentDto
 } from '../../core/models/lost-equipment.model';
-import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto } from '../../core/models/order.model';
+import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto, InstitutionConflictDto } from '../../core/models/order.model';
+import { InstitutionDto } from '../../core/models/institution.model';
 import { OrderReturnRequestDto } from '../../core/models/equipment-return.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -421,6 +422,14 @@ export class OrderFormComponent implements OnInit {
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
 
+  /** Soft warning when another order already uses the same institution on a selected day. */
+  protected readonly institutionConflict = signal<InstitutionConflictDto | null>(null);
+  private readonly institutionConflictTrigger$ = new Subject<void>();
+  protected readonly institutionSuggestions = signal<InstitutionDto[]>([]);
+  protected readonly institutionSuggestOpen = signal(false);
+  protected readonly institutionSuggestIndex = signal(-1);
+  private institutionSuggestBlurTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Digits-only snapshot of Phone1 for template visibility (updated on every keystroke). */
   private readonly phone1DigitsSig = signal('');
 
@@ -694,6 +703,8 @@ export class OrderFormComponent implements OnInit {
     this.wireCustomerPhoneLookup();
     this.wireCustomerAutocomplete();
     this.wireLostEquipmentAlertLookup();
+    this.wireInstitutionConflictCheck();
+    this.wireInstitutionAutocomplete();
 
     this.data.getBlockedDates().subscribe((blocks) => {
       this.blockedDatesSig.set(blocks);
@@ -1220,6 +1231,8 @@ export class OrderFormComponent implements OnInit {
       phone: '',
       phone2: '',
       address: '',
+      institutionName: '',
+      institutionId: null,
       depositType: null,
       depositOnName: '',
       paymentAmount: null,
@@ -1234,6 +1247,7 @@ export class OrderFormComponent implements OnInit {
     this.customLoanedList.clear();
     this.existingCustomerMatch.set(null);
     this.closeCustomerSuggestions();
+    this.institutionConflict.set(null);
     this.toast.show('הטופס נוקה', 'info');
   }
 
@@ -1509,6 +1523,8 @@ export class OrderFormComponent implements OnInit {
       phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
       phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
       address: ['', Validators.maxLength(200)],
+      institutionName: ['', Validators.maxLength(200)],
+      institutionId: [null as number | null],
       depositType: [null as DepositType | null],
       depositOnName: ['', Validators.maxLength(100)],
       paymentAmount: [null as number | null, [Validators.min(0)]],
@@ -1791,6 +1807,134 @@ export class OrderFormComponent implements OnInit {
       });
   }
 
+  private wireInstitutionConflictCheck(): void {
+    const institutionNameCtrl = this.form.controls['institutionName'];
+    const institutionIdCtrl = this.form.controls['institutionId'];
+    merge(
+      institutionNameCtrl.valueChanges.pipe(startWith(institutionNameCtrl.value)),
+      institutionIdCtrl.valueChanges.pipe(startWith(institutionIdCtrl.value)),
+      this.institutionConflictTrigger$
+    )
+      .pipe(
+        debounceTime(300),
+        switchMap(() => this.loadInstitutionConflict()),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((result) => this.institutionConflict.set(result));
+  }
+
+  private wireInstitutionAutocomplete(): void {
+    this.form.controls['institutionName'].valueChanges
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(),
+        switchMap((raw) => {
+          const q = String(raw ?? '').trim();
+          // Typing freely clears a previously selected institution id until re-selected.
+          const currentId = this.form.controls['institutionId'].value as number | null;
+          if (currentId != null) {
+            const selected = this.institutionSuggestions().find((i) => i.id === currentId);
+            if (!selected || selected.name !== q) {
+              this.form.controls['institutionId'].setValue(null, { emitEvent: false });
+            }
+          }
+          if (q.length === 0) {
+            this.institutionSuggestions.set([]);
+            this.institutionSuggestOpen.set(false);
+            return of([] as InstitutionDto[]);
+          }
+          return this.data.searchInstitutions(q);
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((list) => {
+        this.institutionSuggestions.set(list);
+        this.institutionSuggestIndex.set(list.length > 0 ? 0 : -1);
+        this.institutionSuggestOpen.set(list.length > 0);
+      });
+  }
+
+  protected onInstitutionSuggestFocus(): void {
+    if (this.institutionSuggestBlurTimer) {
+      clearTimeout(this.institutionSuggestBlurTimer);
+      this.institutionSuggestBlurTimer = null;
+    }
+    const q = String(this.form.controls['institutionName'].value ?? '').trim();
+    if (q.length > 0 && this.institutionSuggestions().length > 0) {
+      this.institutionSuggestOpen.set(true);
+    }
+  }
+
+  protected onInstitutionSuggestBlur(): void {
+    this.institutionSuggestBlurTimer = setTimeout(() => {
+      this.institutionSuggestOpen.set(false);
+      this.institutionSuggestIndex.set(-1);
+    }, 150);
+  }
+
+  protected onInstitutionSuggestKeydown(event: KeyboardEvent): void {
+    if (!this.institutionSuggestOpen() || this.institutionSuggestions().length === 0) {
+      return;
+    }
+    const list = this.institutionSuggestions();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.institutionSuggestIndex.update((i) => (i + 1) % list.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.institutionSuggestIndex.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+    } else if (event.key === 'Enter') {
+      const idx = this.institutionSuggestIndex();
+      const pick = idx >= 0 ? list[idx] : null;
+      if (pick) {
+        event.preventDefault();
+        this.selectInstitutionSuggestion(pick);
+      }
+    } else if (event.key === 'Escape') {
+      this.institutionSuggestOpen.set(false);
+    }
+  }
+
+  protected selectInstitutionSuggestion(inst: InstitutionDto, event?: Event): void {
+    event?.preventDefault();
+    this.form.patchValue(
+      {
+        institutionName: inst.name,
+        institutionId: inst.id
+      },
+      { emitEvent: false }
+    );
+    this.institutionSuggestions.set([]);
+    this.institutionSuggestOpen.set(false);
+    this.institutionSuggestIndex.set(-1);
+    this.institutionConflictTrigger$.next();
+  }
+
+  private loadInstitutionConflict() {
+    const institutionId = this.form.controls['institutionId'].value as number | null;
+    const institutionName = String(this.form.controls['institutionName'].value ?? '').trim();
+    const dates = this.orderReservationDates();
+    if ((!institutionId && !institutionName) || dates.length === 0) {
+      return of(null);
+    }
+
+    const excludeId = this.editingId() ?? undefined;
+    return from(dates).pipe(
+      concatMap((date) =>
+        this.data.checkInstitutionConflict(institutionName || null, date, excludeId, institutionId)
+      ),
+      map((result) => (result.hasConflict ? result : null)),
+      toArray(),
+      map((results) => results.find((r) => r != null) ?? null)
+    );
+  }
+
+  protected institutionConflictMessage(conflict: InstitutionConflictDto): string {
+    const customer = (conflict.conflictingCustomerName ?? '').trim() || 'לקוח אחר';
+    const note = (conflict.institutionNote ?? '').trim() || 'אין';
+    return `שים לב! קיימת כבר הזמנה באותו יום עבור מוסד זה על ידי ${customer}. הערה מיוחדת למוסד: ${note}`;
+  }
+
   private loadEquipmentAvailability(bookingIndex: number) {
     const shifts = this.selectedShiftRows(bookingIndex);
     if (shifts.length === 0) {
@@ -1879,6 +2023,7 @@ export class OrderFormComponent implements OnInit {
     booking.controls['orderDate'].setValue(startDate, { emitEvent: false });
     booking.updateValueAndValidity({ emitEvent: false });
     this.availabilityFetchTrigger$.next(bookingIndex);
+    this.institutionConflictTrigger$.next();
     this.refreshAccessorySerialAvailability();
   }
 
@@ -2687,6 +2832,8 @@ export class OrderFormComponent implements OnInit {
           phone: order.phone,
           phone2: order.phone2 ?? '',
           address: order.address ?? '',
+          institutionName: order.institutionName ?? '',
+          institutionId: order.institutionId ?? null,
           depositType: order.depositType ?? null,
           depositOnName: order.depositOnName ?? '',
           paymentAmount: order.paymentAmount ?? null,
@@ -2746,6 +2893,7 @@ export class OrderFormComponent implements OnInit {
 
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
+    this.institutionConflictTrigger$.next();
   }
 
   // -----------------------------------------------------------------
@@ -2779,7 +2927,17 @@ export class OrderFormComponent implements OnInit {
 
   private sharedCustomerPaymentFields(): Pick<
     OrderCreateUpdateDto,
-    'customerName' | 'phone' | 'phone2' | 'address' | 'depositType' | 'depositOnName' | 'paymentAmount' | 'isUnpaid' | 'notes'
+    | 'customerName'
+    | 'phone'
+    | 'phone2'
+    | 'address'
+    | 'institutionName'
+    | 'institutionId'
+    | 'depositType'
+    | 'depositOnName'
+    | 'paymentAmount'
+    | 'isUnpaid'
+    | 'notes'
   > {
     const v = this.form.getRawValue() as Record<string, unknown>;
     return {
@@ -2787,6 +2945,8 @@ export class OrderFormComponent implements OnInit {
       phone: (v['phone'] as string).trim(),
       phone2: this.optionalText(v['phone2']),
       address: this.optionalText(v['address']),
+      institutionName: this.optionalText(v['institutionName']),
+      institutionId: (v['institutionId'] as number | null) ?? null,
       depositType: (v['depositType'] as DepositType | null) ?? null,
       depositOnName: this.optionalText(v['depositOnName']),
       paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null

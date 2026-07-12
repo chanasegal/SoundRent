@@ -33,6 +33,16 @@ public interface IOrderService
         int? excludeOrderId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Soft conflict probe: another active order for the same institution on the same calendar day.
+    /// </summary>
+    Task<InstitutionConflictDto> CheckInstitutionConflictAsync(
+        string? institutionName,
+        int? institutionId,
+        DateOnly orderDate,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default);
+
     Task<List<OrderDto>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default);
 
     Task<List<OrderDto>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
@@ -42,6 +52,11 @@ public interface IOrderService
     Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default);
 
     Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default);
+
+    Task<OrderDto> UpdateUrgentBoardNoteAsync(
+        int id,
+        string? urgentBoardNote,
+        CancellationToken cancellationToken = default);
 
     Task<OrderDto> RecordReturnAsync(
         int id,

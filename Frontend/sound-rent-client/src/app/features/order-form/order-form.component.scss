@@ -154,6 +154,38 @@
     color: #d97706; // matches the leading border for visual cohesion
   }
 
+  .institution-conflict-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    width: 100%;
+    margin-top: 0.85rem;
+    padding: 0.75rem 1rem;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-inline-start: 5px solid #ea580c;
+    border-radius: 0.75rem;
+    color: #9a3412;
+    box-shadow: 0 8px 20px -16px rgba(154, 52, 18, 0.45);
+  }
+
+  .institution-conflict-alert__icon {
+    flex: 0 0 auto;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.1rem;
+    color: #ea580c;
+  }
+
+  .institution-conflict-alert__text {
+    margin: 0;
+    min-width: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.45;
+    white-space: pre-wrap;
+  }
+
   .lost-equipment-alert {
     display: flex;
     align-items: flex-start;
@@ -709,7 +741,8 @@
   }
 
   .customer-field--name,
-  .customer-field--address {
+  .customer-field--address,
+  .customer-field--institution {
     flex: 1.5 1 0;
   }
 
@@ -763,6 +796,19 @@
     }
   }
 
+  .institution-suggest__name {
+    display: block;
+  }
+
+  .institution-suggest__note {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #64748b;
+    white-space: pre-wrap;
+  }
+
   /* Match the mobile breakpoint used by .slot-row for consistent behavior. */
   @media (max-width: 800px) {
     .customer-row {
@@ -772,7 +818,8 @@
       flex: 1 1 calc(50% - 0.5rem);
     }
     .customer-field--name,
-    .customer-field--address {
+    .customer-field--address,
+    .customer-field--institution {
       flex: 1 1 100%;
     }
   }

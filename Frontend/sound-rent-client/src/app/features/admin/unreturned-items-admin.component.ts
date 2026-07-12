@@ -58,6 +58,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     return d ? this.hebrew.formatGregorianWithDayName(d) : iso;
   }
 
+  protected formatReturnHebrewDate(iso: string): string {
+    const d = this.hebrew.parseIso(iso);
+    return d ? this.hebrew.toHebrew(d) : '';
+  }
+
   protected formatPhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.length === 10) {

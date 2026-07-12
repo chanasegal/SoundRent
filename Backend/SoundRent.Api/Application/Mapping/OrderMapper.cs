@@ -24,6 +24,8 @@ public static class OrderMapper
         Phone = order.Phone,
         Phone2 = order.Phone2,
         Address = order.Address,
+        InstitutionName = order.Institution?.Name ?? order.InstitutionName,
+        InstitutionId = order.InstitutionId,
         DepositType = order.DepositType,
         DepositOnName = order.DepositOnName,
         PaymentAmount = order.PaymentAmount,
@@ -33,6 +35,7 @@ public static class OrderMapper
         ReturnTimeType = order.ReturnTimeType,
         CustomReturnTime = order.CustomReturnTime,
         Notes = order.Notes,
+        UrgentBoardNote = order.UrgentBoardNote,
         CreatedAt = order.CreatedAt,
         LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList()
     };
@@ -79,6 +82,8 @@ public static class OrderMapper
         Phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone),
         Phone2 = NormalizeOptionalPhone(dto.Phone2),
         Address = NullIfBlank(dto.Address),
+        InstitutionId = dto.InstitutionId,
+        InstitutionName = NullIfBlank(dto.InstitutionName),
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
         PaymentAmount = dto.PaymentAmount,
@@ -156,6 +161,8 @@ public static class OrderMapper
         entity.Phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone);
         entity.Phone2 = NormalizeOptionalPhone(dto.Phone2);
         entity.Address = NullIfBlank(dto.Address);
+        entity.InstitutionId = dto.InstitutionId;
+        entity.InstitutionName = NullIfBlank(dto.InstitutionName);
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.PaymentAmount = dto.PaymentAmount;

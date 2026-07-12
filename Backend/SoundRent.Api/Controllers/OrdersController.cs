@@ -119,6 +119,23 @@ public class OrdersController : ControllerBase
         return Ok(new SlotTakenResponse(taken));
     }
 
+    /// <summary>
+    /// Soft probe: another active order for the same institution on the same calendar day.
+    /// Informational only — saving remains allowed.
+    /// </summary>
+    [HttpGet("check-institution-conflict")]
+    public async Task<ActionResult<InstitutionConflictDto>> CheckInstitutionConflict(
+        [FromQuery] string? institutionName,
+        [FromQuery] int? institutionId,
+        [FromQuery] DateOnly date,
+        [FromQuery] int? excludeOrderId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _orderService.CheckInstitutionConflictAsync(
+            institutionName, institutionId, date, excludeOrderId, cancellationToken);
+        return Ok(result);
+    }
+
     [HttpPost("{id:int}/cancel")]
     public async Task<ActionResult<OrderDto>> Cancel(int id, CancellationToken cancellationToken)
     {
@@ -137,6 +154,20 @@ public class OrdersController : ControllerBase
     public async Task<ActionResult<OrderDto>> MarkAsPaid(int id, CancellationToken cancellationToken)
     {
         var order = await _orderService.MarkOrderAsPaidAsync(id, cancellationToken);
+        return Ok(order);
+    }
+
+    /// <summary>Lightweight update for the weekly-board urgent note only.</summary>
+    [HttpPatch("{id:int}/urgent-board-note")]
+    public async Task<ActionResult<OrderDto>> UpdateUrgentBoardNote(
+        int id,
+        [FromBody] UrgentBoardNoteUpdateDto dto,
+        CancellationToken cancellationToken)
+    {
+        var order = await _orderService.UpdateUrgentBoardNoteAsync(
+            id,
+            dto.UrgentBoardNote,
+            cancellationToken);
         return Ok(order);
     }
 

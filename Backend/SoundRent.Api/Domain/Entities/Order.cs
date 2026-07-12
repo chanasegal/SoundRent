@@ -20,6 +20,15 @@ public class Order
     [MaxLength(200)]
     public string? Address { get; set; }
 
+    /// <summary>Optional institution / venue name used for same-day conflict warnings.</summary>
+    [MaxLength(200)]
+    public string? InstitutionName { get; set; }
+
+    /// <summary>Optional FK to the managed Institutions directory.</summary>
+    public int? InstitutionId { get; set; }
+
+    public Institution? Institution { get; set; }
+
     public DepositType? DepositType { get; set; }
 
     [MaxLength(100)]
@@ -42,6 +51,10 @@ public class Order
 
     [MaxLength(1000)]
     public string? Notes { get; set; }
+
+    /// <summary>Urgent board-only note shown under return time on the weekly grid.</summary>
+    [MaxLength(1000)]
+    public string? UrgentBoardNote { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

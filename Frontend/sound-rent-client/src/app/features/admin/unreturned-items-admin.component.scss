@@ -7,6 +7,23 @@
   white-space: nowrap;
 }
 
+.return-date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  line-height: 1.25;
+}
+
+.return-date-cell__gregorian {
+  color: inherit;
+}
+
+.return-date-cell__hebrew {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
 .missing-serial-list {
   display: inline-flex;
   flex-wrap: wrap;

@@ -55,7 +55,14 @@
                     {{ row.missingQuantity }}
                   </span>
                 </td>
-                <td class="px-3 py-2.5">{{ formatReturnDate(row.returnDate) }}</td>
+                <td class="px-3 py-2.5">
+                  <div class="return-date-cell">
+                    <span class="return-date-cell__gregorian">{{ formatReturnDate(row.returnDate) }}</span>
+                    @if (formatReturnHebrewDate(row.returnDate); as heb) {
+                      <span class="return-date-cell__hebrew">{{ heb }}</span>
+                    }
+                  </div>
+                </td>
                 <td class="px-3 py-2.5 text-center">
                   <a
                     [routerLink]="['/orders', row.orderId]"

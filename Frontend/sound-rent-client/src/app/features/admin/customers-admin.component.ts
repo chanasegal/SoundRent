@@ -7,6 +7,7 @@ import { debounceTime, distinctUntilChanged, finalize } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 
 import { CustomerDto, CustomerUpsertDto } from '../../core/models/customer.model';
+import { InstitutionCreateUpdateDto, InstitutionDto } from '../../core/models/institution.model';
 import { OrderDto } from '../../core/models/order.model';
 import { TIME_SLOT_LABELS, TimeSlot } from '../../core/models/enums';
 import { CustomersStore } from '../../core/services/customers.store';
@@ -18,6 +19,8 @@ import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
+
+type AdminListMode = 'customers' | 'institutions';
 
 @Component({
   selector: 'app-customers-admin',
@@ -35,19 +38,27 @@ export class CustomersAdminComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
+  protected readonly listMode = signal<AdminListMode>('customers');
   protected readonly rows = signal<CustomerDto[]>([]);
+  protected readonly institutionRows = signal<InstitutionDto[]>([]);
   protected readonly loading = signal(false);
   protected readonly saving = signal(false);
   protected readonly deletingPhone = signal<string | null>(null);
+  protected readonly deletingInstitutionId = signal<number | null>(null);
   protected readonly exportInProgress = signal(false);
   protected readonly editOpen = signal(false);
   protected readonly isNewCustomer = signal(false);
   protected readonly editOriginalPhone1 = signal('');
   protected readonly phone1ServerError = signal<string | null>(null);
+  protected readonly institutionEditOpen = signal(false);
+  protected readonly isNewInstitution = signal(false);
+  protected readonly editingInstitutionId = signal<number | null>(null);
   protected readonly historyOpen = signal(false);
   protected readonly historyLoading = signal(false);
   protected readonly historyOrders = signal<OrderDto[]>([]);
   protected readonly historyPhone = signal('');
+  protected readonly historyInstitutionName = signal('');
+  protected readonly historyKind = signal<'customer' | 'institution'>('customer');
 
   protected readonly searchInput = this.fb.nonNullable.control('');
 
@@ -57,6 +68,11 @@ export class CustomersAdminComponent implements OnInit {
     fullName: ['', Validators.maxLength(200)],
     address: ['', Validators.maxLength(500)],
     notes: ['', Validators.maxLength(4000)]
+  });
+
+  protected readonly institutionForm = this.fb.group({
+    name: ['', [Validators.required, Validators.maxLength(200)]],
+    defaultNote: ['', Validators.maxLength(2000)]
   });
 
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
@@ -73,8 +89,27 @@ export class CustomersAdminComponent implements OnInit {
       .subscribe((q) => this.runSearch(q));
   }
 
+  protected setListMode(mode: AdminListMode): void {
+    if (this.listMode() === mode) {
+      return;
+    }
+    this.listMode.set(mode);
+    this.searchInput.setValue('', { emitEvent: false });
+    this.runSearch('');
+  }
+
   protected runSearch(q: string): void {
     this.loading.set(true);
+    if (this.listMode() === 'institutions') {
+      this.data
+        .searchInstitutions(q.trim())
+        .pipe(finalize(() => this.loading.set(false)))
+        .subscribe({
+          next: (list) => this.institutionRows.set(list)
+        });
+      return;
+    }
+
     this.customers
       .search(q.trim())
       .pipe(finalize(() => this.loading.set(false)))
@@ -209,7 +244,9 @@ export class CustomersAdminComponent implements OnInit {
   }
 
   protected openHistory(phone1: string): void {
+    this.historyKind.set('customer');
     this.historyPhone.set(phone1);
+    this.historyInstitutionName.set('');
     this.historyOrders.set([]);
     this.historyOpen.set(true);
     this.historyLoading.set(true);
@@ -220,6 +257,21 @@ export class CustomersAdminComponent implements OnInit {
         next: (orders) => {
           this.historyOrders.set(orders);
         }
+      });
+  }
+
+  protected openInstitutionHistory(row: InstitutionDto): void {
+    this.historyKind.set('institution');
+    this.historyPhone.set('');
+    this.historyInstitutionName.set(row.name);
+    this.historyOrders.set([]);
+    this.historyOpen.set(true);
+    this.historyLoading.set(true);
+    this.data
+      .getInstitutionOrders(row.id)
+      .pipe(finalize(() => this.historyLoading.set(false)))
+      .subscribe({
+        next: (orders) => this.historyOrders.set(orders)
       });
   }
 
@@ -257,6 +309,77 @@ export class CustomersAdminComponent implements OnInit {
       });
   }
 
+  protected openAddInstitution(): void {
+    this.isNewInstitution.set(true);
+    this.editingInstitutionId.set(null);
+    this.institutionForm.reset({ name: '', defaultNote: '' });
+    this.institutionEditOpen.set(true);
+  }
+
+  protected openEditInstitution(row: InstitutionDto): void {
+    this.isNewInstitution.set(false);
+    this.editingInstitutionId.set(row.id);
+    this.institutionForm.reset({
+      name: row.name,
+      defaultNote: row.defaultNote ?? ''
+    });
+    this.institutionEditOpen.set(true);
+  }
+
+  protected closeInstitutionEdit(): void {
+    this.institutionEditOpen.set(false);
+  }
+
+  protected saveInstitutionEdit(): void {
+    if (this.institutionForm.invalid) {
+      this.institutionForm.markAllAsTouched();
+      this.toast.error('אנא תקנו את השדות המסומנים');
+      return;
+    }
+
+    const raw = this.institutionForm.getRawValue();
+    const payload: InstitutionCreateUpdateDto = {
+      name: String(raw.name ?? '').trim(),
+      defaultNote: String(raw.defaultNote ?? '').trim() || null
+    };
+
+    this.saving.set(true);
+    const request$ = this.isNewInstitution()
+      ? this.data.createInstitution(payload)
+      : this.data.updateInstitution(this.editingInstitutionId()!, payload);
+
+    request$.pipe(finalize(() => this.saving.set(false))).subscribe({
+      next: (saved) => {
+        if (!saved) {
+          return;
+        }
+        this.toast.success(this.isNewInstitution() ? 'המוסד נוסף' : 'המוסד נשמר');
+        this.closeInstitutionEdit();
+        this.runSearch(this.searchInput.value.trim());
+      }
+    });
+  }
+
+  protected deleteInstitution(row: InstitutionDto): void {
+    if (!confirm(`האם אתה בטוח שברצונך למחוק את המוסד ${row.name}?`)) {
+      return;
+    }
+
+    this.deletingInstitutionId.set(row.id);
+    this.data
+      .deleteInstitution(row.id)
+      .pipe(finalize(() => this.deletingInstitutionId.set(null)))
+      .subscribe({
+        next: (ok) => {
+          if (!ok) {
+            return;
+          }
+          this.toast.success('המוסד נמחק');
+          this.runSearch(this.searchInput.value.trim());
+        }
+      });
+  }
+
   protected exportToCustomersExcel(): void {
     if (this.exportInProgress()) {
       return;
@@ -277,17 +400,47 @@ export class CustomersAdminComponent implements OnInit {
             this.fileNameFromContentDisposition(response.headers.get('content-disposition')) ??
             `customers_backup_${this.todayFileStamp()}.xlsx`;
 
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = fileName;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          URL.revokeObjectURL(url);
+          this.downloadBlob(blob, fileName);
           this.toast.success('קובץ Excel של הלקוחות הורד');
         }
       });
+  }
+
+  protected exportToInstitutionsExcel(): void {
+    if (this.exportInProgress()) {
+      return;
+    }
+
+    this.exportInProgress.set(true);
+    this.data
+      .exportInstitutionsExcel()
+      .pipe(finalize(() => this.exportInProgress.set(false)))
+      .subscribe({
+        next: (response) => {
+          const blob = response?.body;
+          if (!blob) {
+            return;
+          }
+
+          const fileName =
+            this.fileNameFromContentDisposition(response.headers.get('content-disposition')) ??
+            `institutions_backup_${this.todayFileStamp()}.xlsx`;
+
+          this.downloadBlob(blob, fileName);
+          this.toast.success('קובץ Excel של המוסדות הורד');
+        }
+      });
+  }
+
+  private downloadBlob(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   protected slotLabel(slot: TimeSlot): string {

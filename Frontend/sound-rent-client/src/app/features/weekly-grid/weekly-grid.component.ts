@@ -184,6 +184,21 @@ interface DashboardDateFilterState {
   hebrewYear: number;
 }
 
+interface OrderContextMenuState {
+  orderId: number;
+  customerName: string | null | undefined;
+  phone: string;
+  urgentBoardNote: string | null | undefined;
+  x: number;
+  y: number;
+}
+
+interface UrgentNoteDialogState {
+  orderId: number;
+  customerName: string | null | undefined;
+  phone: string;
+}
+
 function toLocalIsoDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -297,6 +312,10 @@ export class WeeklyGridComponent {
   protected readonly dashboardRefreshing = signal(false);
   protected readonly loadingMoreWeeks = signal(false);
   protected readonly hoveredOrderId = signal<number | null>(null);
+  protected readonly orderContextMenu = signal<OrderContextMenuState | null>(null);
+  protected readonly urgentNoteDialog = signal<UrgentNoteDialogState | null>(null);
+  protected readonly urgentNoteDraft = signal('');
+  protected readonly urgentNoteSaving = signal(false);
 
   protected readonly waitlistModalForm = this.fb.group({
     bookingSlot: this.fb.nonNullable.control('', Validators.required),
@@ -611,7 +630,75 @@ export class WeeklyGridComponent {
   }
 
   protected openOrder(orderId: number): void {
+    this.closeOrderContextMenu();
     this.router.navigate(['/orders', orderId]);
+  }
+
+  protected onOrderContextMenu(event: MouseEvent, order: OrderDto): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const pad = 8;
+    const menuW = 220;
+    const menuH = 44;
+    const x = Math.min(event.clientX, window.innerWidth - menuW - pad);
+    const y = Math.min(event.clientY, window.innerHeight - menuH - pad);
+    this.orderContextMenu.set({
+      orderId: order.id,
+      customerName: order.customerName,
+      phone: order.phone,
+      urgentBoardNote: order.urgentBoardNote,
+      x: Math.max(pad, x),
+      y: Math.max(pad, y)
+    });
+  }
+
+  protected closeOrderContextMenu(): void {
+    this.orderContextMenu.set(null);
+  }
+
+  protected openUrgentBoardNoteDialog(): void {
+    const menu = this.orderContextMenu();
+    if (!menu) {
+      return;
+    }
+    this.urgentNoteDraft.set((menu.urgentBoardNote ?? '').trim());
+    this.urgentNoteDialog.set({
+      orderId: menu.orderId,
+      customerName: menu.customerName,
+      phone: menu.phone
+    });
+    this.closeOrderContextMenu();
+  }
+
+  protected closeUrgentBoardNoteDialog(): void {
+    if (this.urgentNoteSaving()) {
+      return;
+    }
+    this.urgentNoteDialog.set(null);
+    this.urgentNoteDraft.set('');
+  }
+
+  protected saveUrgentBoardNote(): void {
+    const dialog = this.urgentNoteDialog();
+    if (!dialog || this.urgentNoteSaving()) {
+      return;
+    }
+    const note = this.urgentNoteDraft().trim();
+    this.urgentNoteSaving.set(true);
+    this.data
+      .updateUrgentBoardNote(dialog.orderId, note.length > 0 ? note : null)
+      .pipe(finalize(() => this.urgentNoteSaving.set(false)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.orders.update((list) =>
+          list.map((o) => (o.id === updated.id ? { ...o, urgentBoardNote: updated.urgentBoardNote } : o))
+        );
+        this.urgentNoteDialog.set(null);
+        this.urgentNoteDraft.set('');
+        this.toast.success('ההערה הדחופה נשמרה');
+      });
   }
 
   protected addAnotherOrder(cell: GridCell): void {
@@ -671,6 +758,14 @@ export class WeeklyGridComponent {
 
   protected hasOrderNotes(order: OrderDto): boolean {
     return (order.notes ?? '').trim().length > 0;
+  }
+
+  protected hasUrgentBoardNote(order: OrderDto): boolean {
+    return (order.urgentBoardNote ?? '').trim().length > 0;
+  }
+
+  protected urgentBoardNoteText(order: OrderDto): string {
+    return (order.urgentBoardNote ?? '').trim();
   }
 
   protected hasNameDuplicateOnSameDay(order: OrderDto, row: GridRow): boolean {

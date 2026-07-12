@@ -1,6 +1,6 @@
 <div class="mx-auto max-w-6xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-    <h1 class="text-2xl font-bold text-[#002244]">ניהול לקוחות</h1>
+    <h1 class="text-2xl font-bold text-[#002244]">ניהול לקוחות ומוסדות</h1>
     <div class="flex flex-wrap gap-2">
       <button
         type="button"
@@ -9,125 +9,255 @@
       >
         רענון
       </button>
-      <button
-        type="button"
-        class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366]"
-        (click)="openAdd()"
-      >
-        לקוח חדש
-      </button>
+      @if (listMode() === 'customers') {
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366]"
+          (click)="openAdd()"
+        >
+          לקוח חדש
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366]"
+          (click)="openAddInstitution()"
+        >
+          מוסד חדש
+        </button>
+      }
     </div>
   </div>
 
+  <div class="admin-tabs mb-5" role="tablist" aria-label="בחירת רשימה">
+    <button
+      type="button"
+      role="tab"
+      class="admin-tab"
+      [class.admin-tab--active]="listMode() === 'customers'"
+      [attr.aria-selected]="listMode() === 'customers'"
+      (click)="setListMode('customers')"
+    >
+      רשימת לקוחות
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="admin-tab"
+      [class.admin-tab--active]="listMode() === 'institutions'"
+      [attr.aria-selected]="listMode() === 'institutions'"
+      (click)="setListMode('institutions')"
+    >
+      רשימת מוסדות
+    </button>
+  </div>
+
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש (טלפון או שם)</label>
+    <label class="mb-2 block text-sm font-medium text-slate-700">
+      {{ listMode() === 'customers' ? 'חיפוש (טלפון או שם)' : 'חיפוש לפי שם מוסד' }}
+    </label>
     <input
       [formControl]="searchInput"
       class="w-full max-w-xl rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      placeholder="הקלידו ספרות או שם — החיפוש מתעדכן אוטומטית"
+      [placeholder]="listMode() === 'customers' ? 'הקלידו ספרות או שם — החיפוש מתעדכן אוטומטית' : 'הקלידו שם מוסד — החיפוש מתעדכן אוטומטית'"
       autocomplete="off"
     />
-    <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
+    @if (listMode() === 'customers') {
+      <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
+    }
   </section>
 
-  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <div class="mb-3 flex items-center justify-between gap-2">
-      <div class="customers-list-title">
-        <h2 class="text-lg font-bold text-[#002244]">רשימת לקוחות</h2>
-        <button
-          type="button"
-          class="customers-export-btn"
-          [disabled]="exportInProgress()"
-          (click)="exportToCustomersExcel()"
-          title="גיבוי נתוני לקוחות לקובץ Excel"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 3v11"></path>
-            <path d="m8 10 4 4 4-4"></path>
-            <path d="M5 17v2h14v-2"></path>
-          </svg>
-          {{ exportInProgress() ? 'מייצא…' : 'גיבוי נתונים ל-Excel' }}
-        </button>
+  @if (listMode() === 'customers') {
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <div class="customers-list-title">
+          <h2 class="text-lg font-bold text-[#002244]">רשימת לקוחות</h2>
+          <button
+            type="button"
+            class="customers-export-btn"
+            [disabled]="exportInProgress()"
+            (click)="exportToCustomersExcel()"
+            title="גיבוי נתוני לקוחות לקובץ Excel"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 17v2h14v-2"></path>
+            </svg>
+            {{ exportInProgress() ? 'מייצא…' : 'גיבוי נתונים ל-Excel' }}
+          </button>
+        </div>
+        @if (loading()) {
+          <span class="text-sm text-slate-500">טוען…</span>
+        }
       </div>
-      @if (loading()) {
-        <span class="text-sm text-slate-500">טוען…</span>
-      }
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full border-collapse text-right text-sm">
-        <thead>
-          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-2 font-semibold">טלפון 1</th>
-            <th class="px-3 py-2 font-semibold">טלפון 2</th>
-            <th class="px-3 py-2 font-semibold">שם</th>
-            <th class="px-3 py-2 font-semibold">כתובת</th>
-            <th class="px-3 py-2 text-center font-semibold">פעולות</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of rows(); track row.phone1) {
-            <tr class="border-b border-slate-100 hover:bg-slate-50/80">
-              <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone1 }}</td>
-              <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone2 || '—' }}</td>
-              <td class="px-3 py-2">{{ row.fullName || '—' }}</td>
-              <td class="px-3 py-2 max-w-xs truncate" [title]="row.address || ''">{{ row.address || '—' }}</td>
-              <td class="px-3 py-2">
-                <div class="customer-actions" aria-label="פעולות לקוח">
-                <button
-                  type="button"
-                  class="customer-action-btn"
-                  (click)="openEdit(row)"
-                  title="עריכה"
-                  aria-label="עריכה"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
-                    <path d="M13.5 6 18 10.5"></path>
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="customer-action-btn"
-                  (click)="openHistory(row.phone1)"
-                  title="היסטוריית הזמנות"
-                  aria-label="היסטוריית הזמנות"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 8v5l3 2"></path>
-                    <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"></path>
-                    <path d="M4 4v4h4"></path>
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="customer-action-btn customer-action-btn--delete"
-                  [disabled]="deletingPhone() === row.phone1"
-                  (click)="deleteCustomer(row)"
-                  title="מחיקה"
-                  aria-label="מחיקה"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 7h16"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
-                    <path d="M6 7l1 14h10l1-14"></path>
-                    <path d="M9 7V4h6v3"></path>
-                  </svg>
-                </button>
-                </div>
-              </td>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">טלפון 1</th>
+              <th class="px-3 py-2 font-semibold">טלפון 2</th>
+              <th class="px-3 py-2 font-semibold">שם</th>
+              <th class="px-3 py-2 font-semibold">כתובת</th>
+              <th class="px-3 py-2 text-center font-semibold">פעולות</th>
             </tr>
-          } @empty {
-            <tr>
-              <td colspan="5" class="px-3 py-8 text-center text-slate-500">
-                {{ loading() ? 'טוען…' : 'לא נמצאו לקוחות' }}
-              </td>
+          </thead>
+          <tbody>
+            @for (row of rows(); track row.phone1) {
+              <tr class="border-b border-slate-100 hover:bg-slate-50/80">
+                <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone1 }}</td>
+                <td class="px-3 py-2 font-mono text-xs" dir="ltr">{{ row.phone2 || '—' }}</td>
+                <td class="px-3 py-2">{{ row.fullName || '—' }}</td>
+                <td class="px-3 py-2 max-w-xs truncate" [title]="row.address || ''">{{ row.address || '—' }}</td>
+                <td class="px-3 py-2">
+                  <div class="customer-actions" aria-label="פעולות לקוח">
+                    <button type="button" class="customer-action-btn" (click)="openEdit(row)" title="עריכה" aria-label="עריכה">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                        <path d="M13.5 6 18 10.5"></path>
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="customer-action-btn"
+                      (click)="openHistory(row.phone1)"
+                      title="היסטוריית הזמנות"
+                      aria-label="היסטוריית הזמנות"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 8v5l3 2"></path>
+                        <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"></path>
+                        <path d="M4 4v4h4"></path>
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="customer-action-btn customer-action-btn--delete"
+                      [disabled]="deletingPhone() === row.phone1"
+                      (click)="deleteCustomer(row)"
+                      title="מחיקה"
+                      aria-label="מחיקה"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16"></path>
+                        <path d="M10 11v6"></path>
+                        <path d="M14 11v6"></path>
+                        <path d="M6 7l1 14h10l1-14"></path>
+                        <path d="M9 7V4h6v3"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="5" class="px-3 py-8 text-center text-slate-500">
+                  {{ loading() ? 'טוען…' : 'לא נמצאו לקוחות' }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  } @else {
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <div class="customers-list-title">
+          <h2 class="text-lg font-bold text-[#002244]">רשימת מוסדות</h2>
+          <button
+            type="button"
+            class="customers-export-btn"
+            [disabled]="exportInProgress()"
+            (click)="exportToInstitutionsExcel()"
+            title="גיבוי נתוני מוסדות לקובץ Excel"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 17v2h14v-2"></path>
+            </svg>
+            {{ exportInProgress() ? 'מייצא…' : 'גיבוי נתונים ל-Excel' }}
+          </button>
+        </div>
+        @if (loading()) {
+          <span class="text-sm text-slate-500">טוען…</span>
+        }
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">שם מוסד</th>
+              <th class="px-3 py-2 font-semibold">הערה ברירת מחדל</th>
+              <th class="px-3 py-2 text-center font-semibold">פעולות</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-  </section>
+          </thead>
+          <tbody>
+            @for (row of institutionRows(); track row.id) {
+              <tr class="border-b border-slate-100 hover:bg-slate-50/80">
+                <td class="px-3 py-2 font-semibold text-[#002244]">{{ row.name }}</td>
+                <td class="px-3 py-2 max-w-md whitespace-pre-wrap" [title]="row.defaultNote || ''">
+                  {{ row.defaultNote || '—' }}
+                </td>
+                <td class="px-3 py-2">
+                  <div class="customer-actions" aria-label="פעולות מוסד">
+                    <button
+                      type="button"
+                      class="customer-action-btn"
+                      (click)="openEditInstitution(row)"
+                      title="עריכה"
+                      aria-label="עריכה"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                        <path d="M13.5 6 18 10.5"></path>
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="customer-action-btn"
+                      (click)="openInstitutionHistory(row)"
+                      title="היסטוריית הזמנות"
+                      aria-label="היסטוריית הזמנות"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 8v5l3 2"></path>
+                        <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"></path>
+                        <path d="M4 4v4h4"></path>
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="customer-action-btn customer-action-btn--delete"
+                      [disabled]="deletingInstitutionId() === row.id"
+                      (click)="deleteInstitution(row)"
+                      title="מחיקה"
+                      aria-label="מחיקה"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16"></path>
+                        <path d="M10 11v6"></path>
+                        <path d="M14 11v6"></path>
+                        <path d="M6 7l1 14h10l1-14"></path>
+                        <path d="M9 7V4h6v3"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="3" class="px-3 py-8 text-center text-slate-500">
+                  {{ loading() ? 'טוען…' : 'לא נמצאו מוסדות' }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
 </div>
 
 @if (editOpen()) {
@@ -195,6 +325,51 @@
   </div>
 }
 
+@if (institutionEditOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    (click)="closeInstitutionEdit()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">{{ isNewInstitution() ? 'מוסד חדש' : 'עריכת מוסד' }}</h2>
+      <form [formGroup]="institutionForm" (ngSubmit)="saveInstitutionEdit()" class="space-y-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם מוסד <span class="text-rose-500">*</span></label>
+          <input formControlName="name" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" maxlength="200" />
+          @if (institutionForm.controls.name.touched && institutionForm.controls.name.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">הערה ברירת מחדל</label>
+          <textarea formControlName="defaultNote" rows="4" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" maxlength="2000"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeInstitutionEdit()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="saving() || institutionForm.invalid"
+          >
+            {{ saving() ? 'שומר…' : 'שמירה' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
 @if (historyOpen()) {
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
@@ -209,15 +384,22 @@
       <div class="border-b border-slate-200 px-5 py-4">
         <h2 class="text-lg font-bold text-[#002244]">היסטוריית הזמנות</h2>
         <p class="mt-1 text-sm text-slate-600">
-          טלפון ראשי:
-          <span class="font-mono" dir="ltr">{{ historyPhone() }}</span>
+          @if (historyKind() === 'customer') {
+            טלפון ראשי:
+            <span class="font-mono" dir="ltr">{{ historyPhone() }}</span>
+          } @else {
+            מוסד:
+            <span class="font-semibold">{{ historyInstitutionName() }}</span>
+          }
         </p>
       </div>
       <div class="max-h-[60vh] overflow-y-auto px-3 py-3">
         @if (historyLoading()) {
           <p class="py-8 text-center text-slate-500">טוען…</p>
         } @else if (historyOrders().length === 0) {
-          <p class="py-8 text-center text-slate-500">אין הזמנות ללקוח זה</p>
+          <p class="py-8 text-center text-slate-500">
+            {{ historyKind() === 'customer' ? 'אין הזמנות ללקוח זה' : 'אין הזמנות למוסד זה' }}
+          </p>
         } @else {
           <table class="history-orders-table w-full border-collapse text-right text-sm">
             <thead>
@@ -250,12 +432,7 @@
                       >
                         חדש הזמנה
                       </button>
-                      <a
-                        class="history-order-action history-order-action--edit"
-                        [routerLink]="['/orders', o.id]"
-                      >
-                        עריכה
-                      </a>
+                      <a class="history-order-action history-order-action--edit" [routerLink]="['/orders', o.id]">עריכה</a>
                     </div>
                   </td>
                 </tr>
