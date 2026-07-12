@@ -435,6 +435,7 @@ export class OrderFormComponent implements OnInit {
     new Map()
   );
   protected readonly accessorySerialDropdownRow = signal<number | null>(null);
+  protected readonly accessorySerialQuickEntry = signal('');
 
   /** Active date blocks loaded from the API (new orders only). */
   private readonly blockedDatesSig = signal<BlockedDateDto[]>([]);
@@ -482,11 +483,57 @@ export class OrderFormComponent implements OnInit {
     if (this.isAccessoryRowReadOnly(rowIndex)) {
       return;
     }
-    this.accessorySerialDropdownRow.update((cur) => (cur === rowIndex ? null : rowIndex));
+    this.accessorySerialDropdownRow.update((cur) => {
+      const next = cur === rowIndex ? null : rowIndex;
+      this.accessorySerialQuickEntry.set('');
+      return next;
+    });
+    if (this.accessorySerialDropdownRow() === rowIndex) {
+      queueMicrotask(() => {
+        const input = this.document.querySelector<HTMLInputElement>(
+          `.loaned-serial-select .multi-select__quick-input`
+        );
+        input?.focus();
+        input?.select();
+      });
+    }
   }
 
   protected isAccessorySerialDropdownOpen(rowIndex: number): boolean {
     return this.accessorySerialDropdownRow() === rowIndex;
+  }
+
+  protected onAccessorySerialQuickEnter(rowIndex: number, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const typed = this.accessorySerialQuickEntry().trim();
+    if (!typed) {
+      return;
+    }
+
+    const match = this.serialOptionsForRow(rowIndex).find(
+      (opt) => opt.serialCode.localeCompare(typed, undefined, { sensitivity: 'accent' }) === 0
+    );
+
+    if (!match) {
+      this.toast.warning(`קוד "${typed}" לא קיים במלאי לפריט זה`);
+      return;
+    }
+
+    if (this.isAccessorySerialLocked(rowIndex, match.serialCode)) {
+      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
+      return;
+    }
+
+    const alreadySelected = this.isAccessorySerialSelected(rowIndex, match.serialCode);
+    if (!alreadySelected && !match.isAvailable) {
+      this.toast.warning(`קוד "${match.serialCode}" אינו זמין `);
+      return;
+    }
+
+    this.toggleAccessorySerialSelection(rowIndex, match.serialCode, !alreadySelected);
+    this.accessorySerialQuickEntry.set('');
   }
 
   protected selectedCodesControl(rowIndex: number): FormControl<string[]> {

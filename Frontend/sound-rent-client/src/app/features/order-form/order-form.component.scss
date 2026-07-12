@@ -366,6 +366,42 @@
     box-shadow: 0 18px 40px -20px rgba(15, 23, 42, 0.45);
   }
 
+  .multi-select__quick-entry {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin-bottom: 0.25rem;
+    padding: 0.15rem;
+    background: #fff;
+  }
+
+  .multi-select__quick-input {
+    width: 100%;
+    border-radius: 0.45rem;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #0f172a;
+    outline: none;
+    direction: ltr;
+    text-align: start;
+
+    &::placeholder {
+      color: #94a3b8;
+      font-weight: 500;
+      direction: rtl;
+      text-align: right;
+    }
+
+    &:focus {
+      border-color: #0ea5e9;
+      background: #fff;
+      box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+    }
+  }
+
   .multi-select__option {
     display: flex;
     align-items: center;

@@ -157,6 +157,28 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     return this.accessoryRowGroup(rowIndex).get('equipmentType')?.value === LoanedEquipmentType.Microphone;
   }
 
+  protected focusNextSerialInput(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const current = event.target;
+    if (!(current instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input.note-input[data-serial-nav="1"]')
+    );
+    const index = inputs.indexOf(current);
+    if (index < 0 || index >= inputs.length - 1) {
+      return;
+    }
+
+    const next = inputs[index + 1];
+    next.focus();
+    next.select();
+  }
+
   protected refresh(): void {
     this.store.invalidate();
     this.store.load().subscribe();

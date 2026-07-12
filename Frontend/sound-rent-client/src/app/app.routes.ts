@@ -32,6 +32,11 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'admin/quick-loan',
+        loadComponent: () =>
+          import('./features/admin/quick-loan.component').then((m) => m.QuickLoanComponent)
+      },
+      {
         path: 'orders/new',
         loadComponent: () =>
           import('./features/order-form/order-form.component').then(

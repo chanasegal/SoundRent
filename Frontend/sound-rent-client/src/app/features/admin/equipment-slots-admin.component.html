@@ -251,7 +251,9 @@
                             maxlength="100"
                             [formControlName]="idx"
                             class="note-input"
+                            [attr.data-serial-nav]="'1'"
                             [attr.placeholder]="'#' + (idx + 1)"
+                            (keydown.enter)="focusNextSerialInput($event)"
                           />
                         } @else {
                           <input
@@ -262,7 +264,9 @@
                             appIntegerOnly
                             [formControlName]="idx"
                             class="note-input"
+                            [attr.data-serial-nav]="'1'"
                             [attr.placeholder]="'#' + (idx + 1)"
+                            (keydown.enter)="focusNextSerialInput($event)"
                           />
                         }
                       }

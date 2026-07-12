@@ -288,6 +288,21 @@ public class OrderRepository : IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
+    {
+        return WithOrderGraph(_db.Orders)
+            .AsSplitQuery()
+            .Where(o =>
+                !o.IsCancelled
+                && o.IsUnpaid
+                && !o.Equipments.Any()
+                && o.LoanedEquipments.Any(le => le.Quantity > 0))
+            .OrderByDescending(o => o.CreatedAt)
+            .ThenByDescending(o => o.Id)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
     {
         var rows = await _db.Orders

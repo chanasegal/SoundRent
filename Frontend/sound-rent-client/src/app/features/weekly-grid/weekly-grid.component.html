@@ -451,11 +451,92 @@
           </div>
           <div>
             <label class="waitlist-field-label">שם</label>
-            <input type="text" formControlName="customerName" class="waitlist-field-input" maxlength="100" />
+            <div class="customer-suggest">
+              <input
+                type="text"
+                formControlName="customerName"
+                class="waitlist-field-input"
+                maxlength="100"
+                autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'name'"
+                aria-controls="waitlist-suggest-name"
+                (focus)="onWaitlistCustomerSuggestFocus('name')"
+                (blur)="onWaitlistCustomerSuggestBlur()"
+                (keydown)="onWaitlistCustomerSuggestKeydown($event, 'name')"
+              />
+              @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+                <ul
+                  id="waitlist-suggest-name"
+                  class="customer-suggest__panel"
+                  role="listbox"
+                  aria-label="לקוחות תואמים"
+                >
+                  @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                    <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                      <button
+                        type="button"
+                        class="customer-suggest__item"
+                        [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                        (mousedown)="selectWaitlistCustomerSuggestion(c, $event)"
+                      >
+                        {{ waitlistCustomerSuggestLabel(c) }}
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
           </div>
           <div>
             <label class="waitlist-field-label">טלפון 1 <span class="text-rose-500">*</span></label>
-            <input type="tel" formControlName="phone" class="waitlist-field-input ltr-field" maxlength="20" />
+            <div class="customer-suggest">
+              <input
+                type="tel"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="10"
+                appIntegerOnly
+                formControlName="phone"
+                class="waitlist-field-input ltr-field"
+                autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+                aria-controls="waitlist-suggest-phone"
+                (focus)="onWaitlistCustomerSuggestFocus('phone')"
+                (blur)="onWaitlistCustomerSuggestBlur()"
+                (keydown)="onWaitlistCustomerSuggestKeydown($event, 'phone')"
+              />
+              @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+                <ul
+                  id="waitlist-suggest-phone"
+                  class="customer-suggest__panel"
+                  role="listbox"
+                  aria-label="לקוחות תואמים"
+                >
+                  @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                    <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                      <button
+                        type="button"
+                        class="customer-suggest__item"
+                        [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                        (mousedown)="selectWaitlistCustomerSuggestion(c, $event)"
+                      >
+                        {{ waitlistCustomerSuggestLabel(c) }}
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+            @if (waitlistModalForm.controls.phone.touched && waitlistModalForm.controls.phone.errors?.['required']) {
+              <p class="waitlist-field-error">שדה חובה</p>
+            }
+            @if (waitlistModalForm.controls.phone.touched && waitlistModalForm.controls.phone.errors?.['israeliPhone']) {
+              <p class="waitlist-field-error">{{ israeliPhoneInvalidMessage }}</p>
+            }
           </div>
           <div>
             <label class="waitlist-field-label">כתובת</label>

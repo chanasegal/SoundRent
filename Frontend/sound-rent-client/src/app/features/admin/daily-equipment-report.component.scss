@@ -540,16 +540,40 @@ $date-control-height: 2.5rem;
   white-space: nowrap;
 }
 
-.accessory-serial-panel__return-guard {
-  margin: 0 0 0.45rem;
-  padding: 0.45rem 0.55rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.35;
-  color: #9a3412;
-  background: #fff7ed;
-  border: 1px solid #fdba74;
+.multi-select__quick-entry {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 0.25rem;
+  padding: 0.15rem;
+  background: #fff;
+}
+
+.multi-select__quick-input {
+  width: 100%;
   border-radius: 0.45rem;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  direction: ltr;
+  text-align: start;
+
+  &::placeholder {
+    color: #94a3b8;
+    font-weight: 500;
+    direction: rtl;
+    text-align: right;
+  }
+
+  &:focus {
+    border-color: #0ea5e9;
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+  }
 }
 
 .add-accessory {

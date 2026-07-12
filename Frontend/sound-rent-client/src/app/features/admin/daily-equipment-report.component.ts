@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -89,6 +89,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
   private readonly extraYearsSig = signal<number[]>([]);
@@ -106,6 +107,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly serialAvailabilityLoadingKeys = signal<Set<string>>(new Set());
   private readonly serialDraftByRowKey = signal<Map<string, string[]>>(new Map());
   protected readonly openSerialDropdownKey = signal<string | null>(null);
+  protected readonly serialQuickEntry = signal('');
   protected readonly savingSerialRowKey = signal<string | null>(null);
   protected readonly openAddAccessoryCustomerKey = signal<string | null>(null);
   protected readonly addAccessoryTargetOrderId = signal<number | null>(null);
@@ -367,8 +369,52 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
 
     this.initSerialDraft(row);
+    this.serialQuickEntry.set('');
     this.openSerialDropdownKey.set(key);
     this.loadSerialAvailability(row);
+    queueMicrotask(() => this.focusSerialQuickEntry());
+  }
+
+  protected onSerialQuickEnter(row: CustomerAccessoryLine, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const typed = this.serialQuickEntry().trim();
+    if (!typed) {
+      return;
+    }
+
+    const match = this.serialOptionsForRow(row).find(
+      (opt) => opt.serialCode.localeCompare(typed, undefined, { sensitivity: 'accent' }) === 0
+    );
+
+    if (!match) {
+      this.toast.warning(`קוד "${typed}" לא קיים במלאי לפריט זה`);
+      return;
+    }
+
+    if (this.isSerialEditLocked(row, match.serialCode)) {
+      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
+      return;
+    }
+
+    const alreadySelected = this.isSerialSelected(row, match.serialCode);
+    if (!alreadySelected && !match.isAvailable) {
+      this.toast.warning(`קוד "${match.serialCode}" אינו זמין`);
+      return;
+    }
+
+    this.toggleSerialSelection(row, match.serialCode, !alreadySelected);
+    this.serialQuickEntry.set('');
+    queueMicrotask(() => this.focusSerialQuickEntry());
+  }
+
+  private focusSerialQuickEntry(): void {
+    const input = this.document.querySelector<HTMLInputElement>(
+      '.accessory-serial-panel .multi-select__quick-input'
+    );
+    input?.focus();
+    input?.select();
   }
 
   protected confirmSerialDropdown(row: CustomerAccessoryLine, event?: Event): void {
@@ -569,6 +615,7 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
 
     this.clearSerialDraft(row.rowKey);
+    this.serialQuickEntry.set('');
     this.openSerialDropdownKey.set(null);
   }
 

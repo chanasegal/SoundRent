@@ -527,7 +527,18 @@
                       <span class="multi-select__chevron">▾</span>
                     </button>
                     @if (isAccessorySerialDropdownOpen(i)) {
-                      <div class="multi-select__panel">
+                      <div class="multi-select__panel" (click)="$event.stopPropagation()">
+                        <div class="multi-select__quick-entry">
+                          <input
+                            type="text"
+                            class="multi-select__quick-input"
+                            placeholder="Enter הקלידו קוד פריט ולחצו "
+                            autocomplete="off"
+                            [value]="accessorySerialQuickEntry()"
+                            (input)="accessorySerialQuickEntry.set($any($event.target).value)"
+                            (keydown.enter)="onAccessorySerialQuickEnter(i, $event)"
+                          />
+                        </div>
                         @for (opt of serialOptionsForRow(i); track opt.serialCode) {
                           <label
                             class="multi-select__option"

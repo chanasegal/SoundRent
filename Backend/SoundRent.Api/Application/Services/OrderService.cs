@@ -69,6 +69,8 @@ public class OrderService : IOrderService
             shifts,
             excludeOrderId: null,
             cancellationToken);
+        var allowAccessoryOnly =
+            (dto.LoanedEquipments ?? []).Any(le => le.Quantity > 0);
         await ValidateReservationRequestAsync(
             equipmentIds,
             shifts,
@@ -76,6 +78,7 @@ public class OrderService : IOrderService
             allowDoubleBooking: dto.AllowDoubleBooking,
             priorEquipmentIds: null,
             validateBlockedDates: true,
+            allowAccessoryOnlyLoan: allowAccessoryOnly,
             cancellationToken);
 
         var entity = OrderMapper.ToEntity(dto);
@@ -116,6 +119,9 @@ public class OrderService : IOrderService
         var priorEquipmentIds = OrderMapper
             .NormalizeEquipmentDefinitionIds(existing.Equipments.Select(e => e.EquipmentDefinitionId))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var allowAccessoryOnly =
+            (dto.LoanedEquipments ?? []).Any(le => le.Quantity > 0)
+            || existing.LoanedEquipments.Any(le => le.Quantity > 0);
         await ValidateReservationRequestAsync(
             equipmentIds,
             shifts,
@@ -123,6 +129,7 @@ public class OrderService : IOrderService
             allowDoubleBooking: dto.AllowDoubleBooking,
             priorEquipmentIds,
             validateBlockedDates: false,
+            allowAccessoryOnlyLoan: allowAccessoryOnly,
             cancellationToken);
 
         var priorAssignedSerials = ExtractAssignedSerialCodesByType(existing);
@@ -191,6 +198,12 @@ public class OrderService : IOrderService
     public async Task<List<OrderDto>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default)
     {
         var orders = await _orderRepository.GetUnpaidOrdersAsync(cancellationToken);
+        return orders.Select(OrderMapper.ToDto).ToList();
+    }
+
+    public async Task<List<OrderDto>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
+    {
+        var orders = await _orderRepository.GetQuickLoansAsync(cancellationToken);
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
@@ -691,11 +704,15 @@ public class OrderService : IOrderService
         bool allowDoubleBooking,
         IReadOnlySet<string>? priorEquipmentIds,
         bool validateBlockedDates,
+        bool allowAccessoryOnlyLoan,
         CancellationToken cancellationToken)
     {
         if (equipmentIds.Count == 0)
         {
-            throw new ValidationException("יש לבחור לפחות ציוד אחד");
+            if (!allowAccessoryOnlyLoan)
+            {
+                throw new ValidationException("יש לבחור לפחות ציוד אחד");
+            }
         }
 
         if (shifts.Count == 0)
@@ -714,6 +731,11 @@ public class OrderService : IOrderService
         }
 
         await ValidateShiftsNotBlockedAsync(shifts, validateBlockedDates, cancellationToken);
+
+        if (equipmentIds.Count == 0)
+        {
+            return;
+        }
 
         var definitions = await _equipmentDefinitions.GetByIdsAsync(equipmentIds, cancellationToken);
         var definitionsById = definitions.ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);

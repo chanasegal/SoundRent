@@ -223,11 +223,6 @@
 
                           @if (isSerialDropdownOpen(item)) {
                             <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
-                              @if (rowHasRecordedReturns(item)) {
-                                <p class="accessory-serial-panel__return-guard">
-                                  ההזמנה כוללת רישום החזרה שמור. פריטים שסומנו כהוחזרו למלאי נעולים לעריכה.
-                                </p>
-                              }
                               @if (serialPanelState(item) === 'loading') {
                                 <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
                               } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
@@ -235,6 +230,17 @@
                                   {{ serialPanelEmptyMessage(item) }}
                                 </p>
                               } @else {
+                                <div class="multi-select__quick-entry">
+                                  <input
+                                    type="text"
+                                    class="multi-select__quick-input"
+                                    placeholder="Enter הקלידו קוד פריט ולחצו "
+                                    autocomplete="off"
+                                    [value]="serialQuickEntry()"
+                                    (input)="serialQuickEntry.set($any($event.target).value)"
+                                    (keydown.enter)="onSerialQuickEnter(item, $event)"
+                                  />
+                                </div>
                                 @for (opt of serialOptionsForRow(item); track opt.serialCode) {
                                   <label
                                     class="multi-select__option"

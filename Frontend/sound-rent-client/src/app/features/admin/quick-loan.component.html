@@ -1,0 +1,655 @@
+<div class="mx-auto max-w-5xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-[#002244]">השאלת אביזרים</h1>
+  </div>
+
+  <form [formGroup]="form" class="space-y-6" (ngSubmit)="submit()">
+    @if (editingId(); as editId) {
+      <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
+        עורכים השאלת אביזרים <strong>#{{ editId }}</strong> — שמירה תעדכן את ההזמנה הקיימת.
+      </div>
+    }
+
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">פרטי לקוח ומועד</h2>
+
+      <div class="loan-client-row">
+        <div class="loan-client-field loan-client-field--name">
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-name">שם לקוח</label>
+          <div class="customer-suggest">
+            <input
+              id="quick-loan-name"
+              type="text"
+              formControlName="customerName"
+              class="loan-client-input"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'name'"
+              aria-controls="equipment-loan-suggest-name"
+              (focus)="onCustomerSuggestFocus('name')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'name')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+              <ul
+                id="equipment-loan-suggest-name"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+
+        <div class="loan-client-field loan-client-field--phone">
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-phone">
+            טלפון <span class="text-rose-500">*</span>
+          </label>
+          <div class="customer-suggest">
+            <input
+              id="quick-loan-phone"
+              type="tel"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="10"
+              appIntegerOnly
+              formControlName="phone"
+              class="loan-client-input ltr-field"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+              aria-controls="equipment-loan-suggest-phone"
+              (focus)="onCustomerSuggestFocus('phone')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+              <ul
+                id="equipment-loan-suggest-phone"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      {{ customerSuggestLabel(c) }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+          @if (form.controls.phone.touched && form.controls.phone.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (form.controls.phone.touched && form.controls.phone.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+          }
+        </div>
+
+        <div class="loan-client-field loan-client-field--date">
+          <span class="mb-1 block text-sm font-medium text-slate-700">תאריך</span>
+          <div class="hebrew-date-field-row">
+            <div class="hebrew-date-picker-group">
+              <select
+                formControlName="hebrewDay"
+                class="hebrew-date-picker-group__select hebrew-date-picker-group__select--day"
+                aria-label="יום"
+              >
+                @for (day of dayOptions(); track day) {
+                  <option [value]="day">{{ dayLabel(day) }}</option>
+                }
+              </select>
+              <select
+                formControlName="hebrewMonth"
+                class="hebrew-date-picker-group__select hebrew-date-picker-group__select--month"
+                aria-label="חודש"
+              >
+                @for (month of monthOptions(); track month.value) {
+                  <option [value]="month.value">{{ month.label }}</option>
+                }
+              </select>
+              <select
+                formControlName="hebrewYear"
+                class="hebrew-date-picker-group__select hebrew-date-picker-group__select--year"
+                aria-label="שנה"
+              >
+                @for (year of yearOptions(); track year) {
+                  <option [value]="year">{{ yearLabel(year) }}</option>
+                }
+              </select>
+            </div>
+            <app-hebrew-calendar-picker
+              [year]="hebrewYearSig()"
+              [month]="hebrewMonthSig()"
+              [day]="hebrewDaySig()"
+              (yearChange)="patchHebrewFromCalendar({ year: $event })"
+              (monthChange)="patchHebrewFromCalendar({ month: $event })"
+              (dayChange)="patchHebrewFromCalendar({ day: $event })"
+              ariaLabel="פתח לוח שנה לבחירת תאריך השאלת ציוד"
+              dialogLabel="בחירת תאריך להשאלת ציוד"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-notes">הערות</label>
+        <textarea
+          id="quick-loan-notes"
+          formControlName="notes"
+          rows="2"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        ></textarea>
+      </div>
+    </section>
+
+    <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h2 class="mb-1 text-lg font-bold text-[#002244]">בחירת אביזרים</h2>
+      <p class="mb-4 text-sm text-slate-600">
+        הוסיפו אביזר והגדירו כמות — ניתן לקבוע קודי פריט עכשיו או בהמשך.
+      </p>
+
+      <article class="customer-breakdown-card">
+        @if (accessoryRows().length === 0 && !addAccessoryOpen()) {
+          <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים</p>
+        }
+
+        <ul class="customer-breakdown-card__items">
+          @for (item of accessoryRows(); track item.type) {
+            <li class="accessory-row">
+              <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
+                <span class="accessory-row__qty-label">כמות</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="numeric"
+                  class="accessory-row__qty-input"
+                  [value]="item.quantity"
+                  (input)="updateRowQuantity(item, $any($event.target).value)"
+                />
+              </label>
+              <span class="accessory-row__label">{{ item.label }}</span>
+
+              <span class="accessory-row__serial">
+                <span class="accessory-row__serial-sep">:</span>
+                @if (selectedCodes(item).length > 0) {
+                  <button
+                    type="button"
+                    class="accessory-row__serial-codes"
+                    (click)="toggleSerialDropdown(item)"
+                  >
+                    <span class="accessory-row__serial-chip-list">
+                      @for (code of selectedCodes(item); track code) {
+                        <span class="accessory-row__serial-chip">
+                          <span class="ltr-field">{{ code }}</span>
+                        </span>
+                      }
+                    </span>
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="accessory-row__serial-placeholder"
+                    (click)="toggleSerialDropdown(item)"
+                  >
+                    לקביעת קודים בהמשך
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="accessory-row__serial-edit"
+                  (click)="toggleSerialDropdown(item)"
+                  aria-label="עריכת קוד פריט"
+                  title="עריכת קודי פריט"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  class="accessory-row__remove"
+                  (click)="removeAccessoryRow(item)"
+                  aria-label="הסרת אביזר"
+                  title="הסרת אביזר"
+                >
+                  ×
+                </button>
+              </span>
+
+              @if (isSerialDropdownOpen(item)) {
+                <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                  @if (serialPanelState(item) === 'loading') {
+                    <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
+                  } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
+                    <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
+                      {{ serialPanelEmptyMessage(item) }}
+                    </p>
+                  } @else {
+                    <div class="multi-select__quick-entry">
+                      <input
+                        type="text"
+                        class="multi-select__quick-input"
+                        placeholder="הקלידו קוד ולחצו Enter"
+                        autocomplete="off"
+                        [value]="serialQuickEntry()"
+                        (input)="serialQuickEntry.set($any($event.target).value)"
+                        (keydown.enter)="onSerialQuickEnter(item, $event)"
+                      />
+                    </div>
+                    @for (opt of serialOptionsForRow(item); track opt.serialCode) {
+                      <label
+                        class="multi-select__option"
+                        [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                      >
+                        <input
+                          type="checkbox"
+                          [checked]="isSerialSelected(item, opt.serialCode)"
+                          [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                          (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
+                        />
+                        <span class="multi-select__option-label">
+                          <span class="ltr-field">{{ opt.serialCode }}</span>
+                          @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
+                            <span class="equipment-occupied-badge">תפוס</span>
+                          }
+                        </span>
+                      </label>
+                    }
+                  }
+
+                  <div class="accessory-serial-panel__actions">
+                    <button
+                      type="button"
+                      class="accessory-serial-panel__btn accessory-serial-panel__btn--ghost"
+                      (click)="closeSerialDropdown(item, $event)"
+                    >
+                      סגור
+                    </button>
+                  </div>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+
+        <div class="add-accessory">
+          @if (addAccessoryOpen()) {
+            <div class="add-accessory__picker">
+              <label class="add-accessory__field">
+                <span class="add-accessory__label">סוג אביזר</span>
+                <select
+                  class="add-accessory__select"
+                  (change)="onAccessoryTypeChosen($any($event.target).value); $any($event.target).value = ''"
+                >
+                  <option value="" selected disabled>בחרו סוג אביזר…</option>
+                  @for (type of availableAccessoryTypes(); track type) {
+                    <option [value]="type">{{ accessoryTypeLabel(type) }}</option>
+                  }
+                </select>
+              </label>
+              @if (availableAccessoryTypes().length === 0) {
+                <p class="add-accessory__hint">כל סוגי האביזרים כבר נוספו</p>
+              }
+            </div>
+          }
+
+          <button
+            type="button"
+            class="add-accessory__trigger"
+            [class.add-accessory__trigger--active]="addAccessoryOpen()"
+            (click)="toggleAddAccessory()"
+          >
+            <span aria-hidden="true">+</span>
+            {{ addAccessoryOpen() ? 'ביטול' : 'הוספת אביזר' }}
+          </button>
+        </div>
+      </article>
+    </section>
+
+    <div class="flex flex-wrap justify-end gap-3">
+      @if (editingId(); as editId) {
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          [disabled]="submitting()"
+          (click)="cancelEdit()"
+        >
+          ביטול עריכה
+        </button>
+        <button
+          type="submit"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="submitting()"
+        >
+          {{ submitting() ? 'שומר…' : 'עדכון השאלה #' + editId }}
+        </button>
+      } @else {
+        <a
+          routerLink="/admin/equipment-report"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          לדוח ציוד
+        </a>
+        <button
+          type="submit"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="submitting()"
+        >
+          {{ submitting() ? 'שומר…' : 'שמור השאלה' }}
+        </button>
+      }
+    </div>
+  </form>
+
+  <section class="mt-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 class="text-lg font-bold text-[#002244]">השאלות אביזרים אחרונות</h2>
+        <p class="mt-1 text-sm text-slate-600">הזמנות אביזרים ללא רמקולים.</p>
+      </div>
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        [disabled]="recentLoading()"
+        (click)="refreshRecentLoans()"
+      >
+        {{ recentLoading() ? 'טוען…' : 'רענון' }}
+      </button>
+    </div>
+
+    @if (recentLoading() && recentLoans().length === 0) {
+      <p class="py-6 text-center text-sm text-slate-500">טוען…</p>
+    } @else if (recentLoans().length === 0) {
+      <p class="py-6 text-center text-sm text-slate-500">אין השאלות אביזרים פעילות</p>
+    } @else {
+      <div class="recent-loans-list">
+        @for (order of recentLoans(); track order.id) {
+          <article class="recent-loan-card" [class.recent-loan-card--editing]="editingId() === order.id">
+            <header class="recent-loan-card__header">
+              <div class="recent-loan-card__primary">
+                <span class="recent-loan-card__name">{{ order.customerName || 'ללא שם' }}</span>
+                <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(order.phone) }}</span>
+                <span class="recent-loan-card__meta">
+                  #{{ order.id }}
+                  <span class="recent-loan-card__sep">·</span>
+                  {{ orderDateLabel(order) }}
+                  @if (orderShiftLabel(order)) {
+                    <span class="recent-loan-card__sep">·</span>
+                    {{ orderShiftLabel(order) }}
+                  }
+                </span>
+              </div>
+              <div class="recent-loan-card__actions">
+                <button
+                  type="button"
+                  class="recent-loan-action"
+                  title="רישום החזרה"
+                  aria-label="רישום החזרה"
+                  (click)="openReturnForOrder(order)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 10H4V5"></path>
+                    <path d="M4 10a8 8 0 1 1 2.3 5.7"></path>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="recent-loan-action"
+                  title="עריכה"
+                  aria-label="עריכה"
+                  (click)="startEdit(order)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                    <path d="M13.5 6 18 10.5"></path>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="recent-loan-action recent-loan-action--delete"
+                  title="מחיקה"
+                  aria-label="מחיקה"
+                  [disabled]="deletingId() === order.id"
+                  (click)="askDelete(order)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </header>
+
+            @if (orderAccessoryLines(order).length === 0) {
+              <p class="recent-loan-card__empty">(ללא ציוד מושאל)</p>
+            } @else {
+              <ul class="recent-loan-card__items">
+                @for (item of orderAccessoryLines(order); track item.label) {
+                  <li class="recent-loan-item">
+                    <span class="recent-loan-item__qty">{{ item.quantity }}</span>
+                    <span class="recent-loan-item__label">{{ item.label }}</span>
+                    @if (item.codes.length > 0) {
+                      <span class="recent-loan-item__codes">
+                        :
+                        @for (code of item.codes; track code; let last = $last) {
+                          <span class="ltr-field">{{ code }}</span>@if (!last) {<span>, </span>}
+                        }
+                      </span>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+          </article>
+        }
+      </div>
+    }
+  </section>
+</div>
+
+@if (deleteConfirmOrder(); as doomed) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="quick-loan-delete-title"
+    (click)="closeDeleteConfirm()"
+  >
+    <div
+      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="quick-loan-delete-title" class="text-lg font-bold text-[#002244]">מחיקת השאלת ציוד</h2>
+      </div>
+      <div class="space-y-3 px-5 py-4 text-sm text-slate-700">
+        <p>
+          למחוק את השאלה
+          <strong>#{{ doomed.id }}</strong>
+          עבור
+          <strong>{{ doomed.customerName || formatPhone(doomed.phone) }}</strong>?
+        </p>
+        <p class="text-slate-500">הפריטים המקושרים יוחזרו למלאי וההזמנה תימחק לצמיתות.</p>
+      </div>
+      <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          [disabled]="deletingId() === doomed.id"
+          (click)="closeDeleteConfirm()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+          [disabled]="deletingId() === doomed.id"
+          (click)="confirmDelete()"
+        >
+          {{ deletingId() === doomed.id ? 'מוחק…' : 'מחק' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (returnModalOpen()) {
+  <div
+    class="return-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="return-modal-title"
+    (click)="closeReturnModal()"
+  >
+    <div
+      class="return-modal w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">
+          רישום החזרת ציוד
+          @if (returnOrderId(); as rid) {
+            <span class="text-base font-semibold text-slate-500">#{{ rid }}</span>
+          }
+        </h2>
+        <button
+          type="button"
+          class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+          [disabled]="returnSaving()"
+          (click)="markAllReturned()"
+        >
+          סמן הכל כהוחזר
+        </button>
+      </div>
+
+      <div class="overflow-x-auto px-5 py-4">
+        <table class="return-table w-full border-collapse text-right text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+              <th class="px-3 py-2 font-semibold">פריט</th>
+              <th class="px-3 py-2 font-semibold text-center">כמות מושאלת</th>
+              <th class="px-3 py-2 font-semibold text-center">כמות שהוחזרה</th>
+              <th class="px-3 py-2 font-semibold">פריטים שהוחזרו</th>
+              <th class="px-3 py-2 font-semibold text-center">חסר</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of returnRows(); track row.rowId; let i = $index) {
+              <tr class="return-table__row border-b border-slate-100 odd:bg-slate-50/50">
+                <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.label }}</td>
+                <td class="px-3 py-2.5 text-center">{{ row.quantityLoaned }}</td>
+                <td class="px-3 py-2.5 text-center">
+                  <input
+                    type="number"
+                    min="0"
+                    [max]="row.quantityLoaned"
+                    step="1"
+                    inputmode="numeric"
+                    class="return-qty-input"
+                    [value]="row.quantityReturned"
+                    [readonly]="hasSerializedReturnCodes(row)"
+                    [disabled]="returnSaving()"
+                    (input)="updateReturnQuantity(i, $any($event.target).value)"
+                  />
+                </td>
+                <td class="return-table__codes px-3 py-2.5">
+                  @if (hasSerializedReturnCodes(row)) {
+                    <div class="return-serial-select">
+                      <button
+                        type="button"
+                        class="return-serial-select__trigger"
+                        [disabled]="returnSaving()"
+                        (click)="toggleReturnSerialDropdown(row)"
+                      >
+                        <span>{{ returnSerialSummary(row) }}</span>
+                        <span class="return-serial-select__chevron" aria-hidden="true">▾</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="return-serial-select__select-all"
+                        [disabled]="returnSaving()"
+                        (click)="markRowAllReturned(i)"
+                      >
+                        סמן הכל כהוחזר לפריט זה
+                      </button>
+                      @if (isReturnSerialDropdownOpen(row)) {
+                        <div class="return-serial-select__panel" (click)="$event.stopPropagation()">
+                          @for (code of row.assignedSerialCodes; track code) {
+                            <label class="return-serial-select__option">
+                              <input
+                                type="checkbox"
+                                [checked]="isReturnSerialSelected(row, code)"
+                                [disabled]="returnSaving()"
+                                (change)="toggleReturnSerialSelection(row, code, $any($event.target).checked)"
+                              />
+                              <span class="ltr-field">{{ code }}</span>
+                            </label>
+                          }
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <span class="return-table__codes-empty">—</span>
+                  }
+                </td>
+                <td class="px-3 py-2.5 text-center">
+                  @if (missingReturnCount(row) > 0) {
+                    <span class="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">
+                      {{ missingReturnCount(row) }}
+                    </span>
+                  } @else {
+                    <span class="text-emerald-600">✓</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          [disabled]="returnSaving()"
+          (click)="closeReturnModal()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="returnSaving()"
+          (click)="saveReturn()"
+        >
+          {{ returnSaving() ? 'שומר…' : 'שמור החזרה' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

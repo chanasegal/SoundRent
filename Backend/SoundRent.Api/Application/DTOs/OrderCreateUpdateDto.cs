@@ -7,7 +7,6 @@ namespace SoundRent.Api.Application.DTOs;
 
 public class OrderCreateUpdateDto : IValidatableObject
 {
-    [MinLength(1, ErrorMessage = "יש לבחור לפחות ציוד אחד")]
     public List<string> EquipmentDefinitionIds { get; set; } = new();
 
     [MinLength(1, ErrorMessage = "יש לבחור לפחות מועד אחד")]
@@ -50,6 +49,15 @@ public class OrderCreateUpdateDto : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        var hasEquipment = EquipmentDefinitionIds.Any(id => !string.IsNullOrWhiteSpace(id));
+        var hasLoanedAccessories = LoanedEquipments.Any(le => le.Quantity > 0);
+        if (!hasEquipment && !hasLoanedAccessories)
+        {
+            yield return new ValidationResult(
+                "יש לבחור לפחות ציוד אחד",
+                new[] { nameof(EquipmentDefinitionIds) });
+        }
+
         if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone, out _))
         {
             yield return new ValidationResult(

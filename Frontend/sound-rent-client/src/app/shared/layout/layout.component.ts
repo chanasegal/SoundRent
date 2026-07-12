@@ -28,6 +28,11 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
                 class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
               >דוח ציוד</a>
               <a
+                routerLink="/admin/quick-loan"
+                routerLinkActive="bg-white/10 text-white"
+                class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+              >השאלת אביזרים</a>
+              <a
                 routerLink="/admin/equipment-slots"
                 routerLinkActive="bg-white/10 text-white"
                 class="rounded-lg px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"

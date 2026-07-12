@@ -968,6 +968,26 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "GetQuickLoans",
+    "RelativePath": "api/Orders/quick-loans",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "IsSlotTaken",
     "RelativePath": "api/Orders/slot-taken",
     "HttpMethod": "GET",

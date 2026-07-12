@@ -184,7 +184,7 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
                 .Where(n => n.Code.Length > 0)
                 .ToList();
 
-            if (selectedCodes.Count != item.Quantity)
+            if (selectedCodes.Count > 0 && selectedCodes.Count != item.Quantity)
             {
                 var label = LoanedEquipmentTypeLabels.GetLabel(type);
                 throw new ValidationException($"יש לבחור קוד לכל יחידה עבור \"{label}\"");

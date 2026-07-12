@@ -4,7 +4,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
-import { forkJoin, finalize, Subscription, timer } from 'rxjs';
+import { forkJoin, finalize, Subscription, timer, EMPTY, merge } from 'rxjs';
+import { debounceTime, map, switchMap } from 'rxjs/operators';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -20,6 +21,7 @@ import {
   bookingSlotToBaseEquipment,
   defaultBookingSlotForEquipmentType
 } from '../../core/models/booking-slots';
+import { CustomerDto } from '../../core/models/customer.model';
 import { EquipmentDefinitionDto } from '../../core/models/equipment-definition.model';
 import { WaitlistEntryDto } from '../../core/models/waitlist.model';
 import {
@@ -35,6 +37,11 @@ import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
+import {
+  ISRAELI_PHONE_INVALID_MESSAGE,
+  israeliPhoneValidator
+} from '../../core/validators/israeli-phone.validator';
+import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
 interface WeeklyGridColumnDef {
   id: string;
@@ -163,7 +170,7 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 @Component({
   selector: 'app-weekly-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective],
   templateUrl: './weekly-grid.component.html',
   styleUrl: './weekly-grid.component.scss'
 })
@@ -182,12 +189,19 @@ export class WeeklyGridComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   private static readonly POLL_INTERVAL_MS = 30_000;
+  private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
   private weekLoadSub: Subscription | null = null;
   private weekLoadInFlightKey = '';
 
   protected readonly equipmentLabels = EQUIPMENT_TYPE_LABELS;
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
+  protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
+
+  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestOpen = signal(false);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
+  protected readonly customerSuggestIndex = signal(-1);
 
   /** Live speaker slots from the equipment catalog (same source as order forms). */
   protected readonly waitlistSpeakerOptions = computed(() =>
@@ -220,7 +234,7 @@ export class WeeklyGridComponent {
   protected readonly waitlistModalForm = this.fb.group({
     bookingSlot: this.fb.nonNullable.control('', Validators.required),
     customerName: ['', Validators.maxLength(100)],
-    phone: ['', [Validators.required, Validators.maxLength(20)]],
+    phone: ['', [Validators.required, Validators.maxLength(10), israeliPhoneValidator()]],
     address: ['', Validators.maxLength(500)],
     notes: ['', Validators.maxLength(1000)]
   });
@@ -277,6 +291,8 @@ export class WeeklyGridComponent {
         const end = this.toIsoDate(this.weekEnd());
         this.loadWeekData(start, end);
       });
+
+    this.wireWaitlistCustomerAutocomplete();
   }
 
   protected refreshDashboard(): void {
@@ -610,6 +626,7 @@ export class WeeklyGridComponent {
 
   protected openAddWaitlistModal(date: Date): void {
     this.waitlistModalContext.set({ date });
+    this.closeWaitlistCustomerSuggestions();
     const applyDefaults = (): void => {
       const defaultSlot = this.equipmentSlots.firstAvailableSpeakerSlotId();
       this.waitlistModalForm.reset({
@@ -631,7 +648,134 @@ export class WeeklyGridComponent {
   }
 
   protected closeWaitlistModal(): void {
+    this.closeWaitlistCustomerSuggestions();
     this.waitlistModalContext.set(null);
+  }
+
+  protected waitlistCustomerSuggestLabel(c: CustomerDto): string {
+    const name = (c.fullName ?? '').trim() || 'ללא שם';
+    return `${name} - ${c.phone1}`;
+  }
+
+  protected onWaitlistCustomerSuggestFocus(field: 'name' | 'phone'): void {
+    this.customerSuggestField.set(field);
+    if (this.customerSuggestions().length > 0) {
+      this.customerSuggestOpen.set(true);
+    }
+  }
+
+  protected onWaitlistCustomerSuggestBlur(): void {
+    setTimeout(() => this.closeWaitlistCustomerSuggestions(), 150);
+  }
+
+  protected onWaitlistCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone'): void {
+    if (!this.customerSuggestOpen() || this.customerSuggestField() !== field) {
+      if (event.key === 'ArrowDown' && this.customerSuggestions().length > 0) {
+        this.customerSuggestField.set(field);
+        this.customerSuggestOpen.set(true);
+        this.customerSuggestIndex.set(0);
+        event.preventDefault();
+      }
+      return;
+    }
+
+    const list = this.customerSuggestions();
+    if (list.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i + 1) % list.length);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      const idx = this.customerSuggestIndex();
+      const pick = idx >= 0 ? list[idx] : null;
+      if (pick) {
+        event.preventDefault();
+        this.selectWaitlistCustomerSuggestion(pick);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeWaitlistCustomerSuggestions();
+    }
+  }
+
+  protected selectWaitlistCustomerSuggestion(c: CustomerDto, event?: Event): void {
+    event?.preventDefault();
+    this.waitlistModalForm.patchValue(
+      {
+        customerName: c.fullName ?? '',
+        phone: c.phone1 ?? '',
+        address: c.address ?? ''
+      },
+      { emitEvent: false }
+    );
+    this.closeWaitlistCustomerSuggestions();
+    this.toast.show('פרטי הלקוח מולאו מהרשימה', 'info');
+  }
+
+  private closeWaitlistCustomerSuggestions(): void {
+    this.customerSuggestOpen.set(false);
+    this.customerSuggestIndex.set(-1);
+    this.customerSuggestions.set([]);
+    this.customerSuggestField.set(null);
+  }
+
+  private wireWaitlistCustomerAutocomplete(): void {
+    const name$ = this.waitlistModalForm.controls.customerName.valueChanges.pipe(
+      map((v) => ({ field: 'name' as const, q: String(v ?? '').trim() }))
+    );
+    const phone$ = this.waitlistModalForm.controls.phone.valueChanges.pipe(
+      map((v) => ({ field: 'phone' as const, q: String(v ?? '').trim() }))
+    );
+
+    merge(name$, phone$)
+      .pipe(
+        debounceTime(300),
+        switchMap(({ field, q }) => {
+          if (q.length < 1 || !this.waitlistModalContext()) {
+            this.closeWaitlistCustomerSuggestions();
+            return EMPTY;
+          }
+          return this.customers.search(q).pipe(
+            map((list) => ({
+              field,
+              q,
+              list: list.slice(0, WeeklyGridComponent.CUSTOMER_SUGGEST_LIMIT)
+            }))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(({ field, q, list }) => {
+        if (!this.waitlistModalContext()) {
+          return;
+        }
+        const current =
+          field === 'name'
+            ? String(this.waitlistModalForm.controls.customerName.value ?? '').trim()
+            : String(this.waitlistModalForm.controls.phone.value ?? '').trim();
+        if (current !== q) {
+          return;
+        }
+        if (list.length === 0) {
+          this.closeWaitlistCustomerSuggestions();
+          return;
+        }
+        this.customerSuggestField.set(field);
+        this.customerSuggestions.set(list);
+        this.customerSuggestIndex.set(0);
+        this.customerSuggestOpen.set(true);
+      });
   }
 
   protected submitWaitlistModal(): void {

@@ -44,6 +44,14 @@ public class OrdersController : ControllerBase
         return Ok(items);
     }
 
+    /// <summary>Recent accessory-only unpaid orders created via Quick Loan.</summary>
+    [HttpGet("quick-loans")]
+    public async Task<ActionResult<List<OrderDto>>> GetQuickLoans(CancellationToken cancellationToken)
+    {
+        var orders = await _orderService.GetQuickLoansAsync(cancellationToken);
+        return Ok(orders);
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<OrderDto>> GetById(int id, CancellationToken cancellationToken)
     {

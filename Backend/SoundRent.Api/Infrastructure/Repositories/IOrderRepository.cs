@@ -62,5 +62,10 @@ public interface IOrderRepository
 
     Task<List<Order>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Accessory-only unpaid orders (no booking-slot equipment), newest first.
+    /// </summary>
+    Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
+
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
 }

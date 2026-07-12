@@ -128,6 +128,15 @@ export class DataService {
     );
   }
 
+  getQuickLoans(): Observable<OrderDto[]> {
+    return this.http.get<OrderDto[]>(`${this.ordersBase}/quick-loans`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
   createOrder(payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
     return this.http.post<OrderDto>(this.ordersBase, payload).pipe(
       catchError((err) => {
