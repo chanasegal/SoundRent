@@ -123,12 +123,12 @@
 
   <!-- Grid: the scroll wrapper owns both axes so sticky table headers have a scrollport. -->
   <div class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-    <div class="weekly-grid-scroll">
+    <div #gridScroll class="weekly-grid-scroll">
       <table class="weekly-grid border-collapse text-sm">
         <thead>
-          <tr class="bg-[#002244] text-white">
+          <tr #equipmentHeaderRow class="equipment-header-row bg-[#002244] text-white">
             <th
-              class="weekly-grid-axis sticky right-0 z-20 border-b border-l border-[#003366] bg-[#002244] px-2 py-2 text-right text-xs font-semibold shadow-[-4px_0_8px_rgba(0,0,0,0.08)]"
+              class="weekly-grid-axis sticky right-0 z-40 border-b border-l border-[#003366] bg-[#002244] px-2 py-2 text-right text-xs font-semibold shadow-[-4px_0_8px_rgba(0,0,0,0.08)]"
             >
               יום / משמרת
             </th>
@@ -147,9 +147,52 @@
               </th>
             }
           </tr>
+          <tr #daysHeaderRow class="days-header-row">
+            <th
+              class="weekly-grid-axis days-header-axis border-b border-l border-sky-200 bg-sky-50 px-2 py-1.5 text-right text-[0.65rem] font-semibold text-slate-600"
+            >
+              תאריכים
+            </th>
+            <th
+              class="border-b border-sky-200 bg-sky-50 px-1 py-1.5 text-center"
+              [attr.colspan]="gridDataColumnCount()"
+            >
+              <div class="active-week-days" role="list" aria-label="ימי השבוע הנצפים">
+                @for (day of activeWeekDays(); track day.iso) {
+                  <div
+                    class="active-week-day"
+                    role="listitem"
+                    [class.active-week-day--shabbat]="day.isShabbat"
+                    [title]="day.dayLabel + ' · ' + day.gregorian + ' · ' + day.hebrewDate"
+                  >
+                    <span class="active-week-day-name">{{ day.dayShort }}</span>
+                    <span class="active-week-day-greg">{{ day.gregorian }}</span>
+                    <span class="active-week-day-heb">{{ day.hebrewDate }}</span>
+                  </div>
+                }
+              </div>
+            </th>
+          </tr>
         </thead>
         <tbody>
-          @for (row of rows(); track row.date.getTime()) {
+          @for (week of weeks(); track week.startIso) {
+            <tr
+              #weekMarker
+              class="week-marker-row"
+              [attr.data-week-start]="week.startIso"
+            >
+              <td
+                class="week-marker-cell"
+                [attr.colspan]="1 + gridDataColumnCount()"
+              >
+                <span class="week-marker-label">
+                  שבוע {{ week.gregorianRange }}
+                  <span class="week-marker-heb">{{ week.hebrewRange }}</span>
+                </span>
+              </td>
+            </tr>
+
+            @for (row of week.rows; track row.date.getTime()) {
             <!-- Morning row -->
             @if (row.morning) {
               <tr class="border-b border-slate-200" [class.bg-sky-50/40]="row.isShabbat">
@@ -430,8 +473,22 @@
               </td>
             </tr>
           }
+          }
         </tbody>
       </table>
+      <div
+        #loadMoreSentinel
+        class="infinite-scroll-sentinel"
+        [attr.aria-busy]="loadingMoreWeeks()"
+      >
+        @if (loadingMoreWeeks()) {
+          <span class="infinite-scroll-loading">טוען שבועות נוספים…</span>
+        } @else if (weeksCount() >= maxWeeksLoaded) {
+          <span class="infinite-scroll-end">הגעת לסוף הטווח הנטען</span>
+        } @else {
+          <span class="infinite-scroll-hint">גלול להמשך שבועות</span>
+        }
+      </div>
     </div>
   </div>
 

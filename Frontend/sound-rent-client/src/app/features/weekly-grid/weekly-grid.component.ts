@@ -1,5 +1,18 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  ElementRef,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+  viewChildren
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -29,6 +42,7 @@ import {
   BlockedDateDto,
   findBlockedDateForIso
 } from '../../core/models/blocked-date.model';
+import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { DataService } from '../../core/services/data.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
@@ -102,9 +116,30 @@ interface GridRow {
   sameDayLastNameDuplicateOrderIds: ReadonlySet<number>;
 }
 
+interface WeekDayHeader {
+  iso: string;
+  dayLabel: string;
+  dayShort: string;
+  gregorian: string;
+  hebrewDate: string;
+  isShabbat: boolean;
+}
+
+interface WeekBlock {
+  startIso: string;
+  weekStart: Date;
+  weekEnd: Date;
+  gregorianRange: string;
+  hebrewRange: string;
+  rows: GridRow[];
+}
+
 const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const DAY_NAMES_SHORT_HE = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 const EMPTY_ORDER_ID_SET: ReadonlySet<number> = new Set();
 const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה על שם זהה היום';
+const INITIAL_WEEKS_LOADED = 2;
+const MAX_WEEKS_LOADED = 20;
 const GREGORIAN_MONTH_OPTIONS = [
   { value: 0, label: 'ינואר' },
   { value: 1, label: 'פברואר' },
@@ -149,15 +184,28 @@ interface DashboardDateFilterState {
   hebrewYear: number;
 }
 
+function toLocalIsoDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function createInitialDashboardDateState(): DashboardDateFilterState {
   const hebrewSvc = inject(HebrewDateService);
   const route = inject(ActivatedRoute);
-  const raw = route.snapshot.queryParamMap.get('date');
-  const anchor = raw ? hebrewSvc.parseIso(raw.trim()) ?? new Date() : new Date();
+  const calendarView = inject(CalendarViewStateService);
+  // Prefer URL (?date=), then remembered board date, then today.
+  const raw =
+    route.snapshot.queryParamMap.get('date')?.trim() ||
+    calendarView.selectedDateIso() ||
+    null;
+  const anchor = raw ? hebrewSvc.parseIso(raw) ?? new Date() : new Date();
   const weekStart = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   const monthAnchor = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const hebrew = hebrewSvc.toHebrewParts(monthAnchor);
+  calendarView.setSelectedDate(toLocalIsoDate(anchor));
   return {
     weekStart,
     gregorianMonth: anchor.getMonth(),
@@ -182,6 +230,7 @@ export class WeeklyGridComponent {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly hebrew = inject(HebrewDateService);
+  private readonly calendarView = inject(CalendarViewStateService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -192,8 +241,20 @@ export class WeeklyGridComponent {
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
   private weekLoadSub: Subscription | null = null;
+  private appendLoadSub: Subscription | null = null;
   private weekLoadInFlightKey = '';
+  private weekIntersectionObserver: IntersectionObserver | null = null;
+  private loadMoreObserver: IntersectionObserver | null = null;
+  private headerResizeObserver: ResizeObserver | null = null;
+  private syncingUrlFromScroll = false;
 
+  private readonly gridScroll = viewChild<ElementRef<HTMLElement>>('gridScroll');
+  private readonly equipmentHeaderRow = viewChild<ElementRef<HTMLTableRowElement>>('equipmentHeaderRow');
+  private readonly daysHeaderRow = viewChild<ElementRef<HTMLTableRowElement>>('daysHeaderRow');
+  private readonly weekMarkers = viewChildren<ElementRef<HTMLElement>>('weekMarker');
+  private readonly loadMoreSentinel = viewChild<ElementRef<HTMLElement>>('loadMoreSentinel');
+
+  protected readonly maxWeeksLoaded = MAX_WEEKS_LOADED;
   protected readonly equipmentLabels = EQUIPMENT_TYPE_LABELS;
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
@@ -221,7 +282,12 @@ export class WeeklyGridComponent {
 
   protected readonly gridDataColumnCount = computed(() => this.gridColumns().length);
 
+  /** First (anchor) week currently loaded in the continuous board. */
   protected readonly weekStart = signal<Date>(this.initialDateState.weekStart);
+  /** How many consecutive weeks are loaded from `weekStart`. */
+  protected readonly weeksCount = signal(INITIAL_WEEKS_LOADED);
+  /** Week currently most visible while scrolling (drives toolbar + URL). */
+  protected readonly activeWeekStart = signal<Date>(this.initialDateState.weekStart);
   protected readonly orders = signal<OrderDto[]>([]);
   protected readonly waitlistEntries = signal<WaitlistEntryDto[]>([]);
   protected readonly blockedDates = signal<BlockedDateDto[]>([]);
@@ -229,6 +295,7 @@ export class WeeklyGridComponent {
   protected readonly waitlistModalContext = signal<{ date: Date } | null>(null);
   protected readonly exportBackupInProgress = signal(false);
   protected readonly dashboardRefreshing = signal(false);
+  protected readonly loadingMoreWeeks = signal(false);
   protected readonly hoveredOrderId = signal<number | null>(null);
 
   protected readonly waitlistModalForm = this.fb.group({
@@ -254,20 +321,63 @@ export class WeeklyGridComponent {
     this.buildHebrewYearOptions(this.selectedHebrewYear())
   );
 
-  protected readonly weekEnd = computed(() => this.addDays(this.weekStart(), 6));
+  protected readonly weekEnd = computed(() => this.addDays(this.activeWeekStart(), 6));
+
+  protected readonly rangeEnd = computed(() =>
+    this.addDays(this.weekStart(), this.weeksCount() * 7 - 1)
+  );
 
   protected readonly gregorianRange = computed(() => {
     const fmt = (d: Date) => this.formatDate(d);
-    return `${fmt(this.weekStart())} – ${fmt(this.weekEnd())}`;
+    return `${fmt(this.activeWeekStart())} – ${fmt(this.weekEnd())}`;
   });
 
   protected readonly hebrewRange = computed(() =>
-    this.hebrew.toHebrewRange(this.weekStart(), this.weekEnd())
+    this.hebrew.toHebrewRange(this.activeWeekStart(), this.weekEnd())
   );
 
-  protected readonly rows = computed<GridRow[]>(() => this.buildRows());
+  /** Sticky Sun–Sat strip under the equipment models header. */
+  protected readonly activeWeekDays = computed<WeekDayHeader[]>(() => {
+    const start = this.activeWeekStart();
+    const days: WeekDayHeader[] = [];
+    for (let i = 0; i < 7; i++) {
+      const date = this.addDays(start, i);
+      const day = date.getDay();
+      days.push({
+        iso: this.toIsoDate(date),
+        dayLabel: DAY_NAMES_HE[day]!,
+        dayShort: DAY_NAMES_SHORT_HE[day]!,
+        gregorian: this.formatDate(date),
+        hebrewDate: this.hebrew.toHebrew(date),
+        isShabbat: day === 5 || day === 6
+      });
+    }
+    return days;
+  });
+
+  protected readonly weeks = computed<WeekBlock[]>(() => {
+    const start = this.weekStart();
+    const count = this.weeksCount();
+    const blocks: WeekBlock[] = [];
+    for (let w = 0; w < count; w++) {
+      const weekStart = this.addDays(start, w * 7);
+      const weekEnd = this.addDays(weekStart, 6);
+      blocks.push({
+        startIso: this.toIsoDate(weekStart),
+        weekStart,
+        weekEnd,
+        gregorianRange: `${this.formatDate(weekStart)} – ${this.formatDate(weekEnd)}`,
+        hebrewRange: this.hebrew.toHebrewRange(weekStart, weekEnd),
+        rows: this.buildRowsForWeek(weekStart)
+      });
+    }
+    return blocks;
+  });
 
   constructor() {
+    // Keep ?date= in the URL so refresh / shared links restore the same week.
+    this.persistViewedDate(this.activeWeekStart(), { replaceUrl: true });
+
     effect(() => {
       const v = this.maintenanceSync.version();
       if (v === 0) {
@@ -279,26 +389,48 @@ export class WeeklyGridComponent {
     });
 
     effect(() => {
-      const start = this.toIsoDate(this.weekStart());
-      const end = this.toIsoDate(this.weekEnd());
-      untracked(() => this.loadWeekData(start, end));
+      const start = this.weekStart();
+      untracked(() => {
+        this.weeksCount.set(INITIAL_WEEKS_LOADED);
+        this.activeWeekStart.set(start);
+        const end = this.addDays(start, INITIAL_WEEKS_LOADED * 7 - 1);
+        this.loadWeekData(this.toIsoDate(start), this.toIsoDate(end), { replace: true });
+        queueMicrotask(() => this.scrollBoardToTop());
+      });
     });
 
     timer(WeeklyGridComponent.POLL_INTERVAL_MS, WeeklyGridComponent.POLL_INTERVAL_MS)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         const start = this.toIsoDate(this.weekStart());
-        const end = this.toIsoDate(this.weekEnd());
-        this.loadWeekData(start, end);
+        const end = this.toIsoDate(this.rangeEnd());
+        this.loadWeekData(start, end, { replace: true });
       });
 
     this.wireWaitlistCustomerAutocomplete();
+
+    afterNextRender(() => {
+      this.setupScrollObservers();
+      this.setupStickyHeaderOffsets();
+    });
+
+    effect(() => {
+      // Re-bind week markers whenever the continuous week list changes.
+      this.weeks();
+      untracked(() => queueMicrotask(() => this.setupWeekIntersectionObserver()));
+    });
+
+    this.destroyRef.onDestroy(() => {
+      this.weekIntersectionObserver?.disconnect();
+      this.loadMoreObserver?.disconnect();
+      this.headerResizeObserver?.disconnect();
+    });
   }
 
   protected refreshDashboard(): void {
     const start = this.toIsoDate(this.weekStart());
-    const end = this.toIsoDate(this.weekEnd());
-    this.loadWeekData(start, end);
+    const end = this.toIsoDate(this.rangeEnd());
+    this.loadWeekData(start, end, { replace: true });
   }
 
   protected onGregorianMonthModelChange(value: number): void {
@@ -322,11 +454,11 @@ export class WeeklyGridComponent {
   }
 
   protected previousWeek(): void {
-    this.navigateToDate(this.addDays(this.weekStart(), -7));
+    this.navigateToDate(this.addDays(this.activeWeekStart(), -7));
   }
 
   protected nextWeek(): void {
-    this.navigateToDate(this.addDays(this.weekStart(), 7));
+    this.navigateToDate(this.addDays(this.activeWeekStart(), 7));
   }
 
   protected goToday(): void {
@@ -877,11 +1009,17 @@ export class WeeklyGridComponent {
   }
 
   private reloadCurrentWeek(): void {
-    this.loadWeekData(this.toIsoDate(this.weekStart()), this.toIsoDate(this.weekEnd()));
+    this.loadWeekData(this.toIsoDate(this.weekStart()), this.toIsoDate(this.rangeEnd()), {
+      replace: true
+    });
   }
 
-  private loadWeekData(start: string, end: string): void {
-    const key = `${start}|${end}`;
+  private loadWeekData(
+    start: string,
+    end: string,
+    options: { replace: boolean }
+  ): void {
+    const key = `${start}|${end}|${options.replace ? 'r' : 'm'}`;
 
     this.weekLoadSub?.unsubscribe();
     this.weekLoadInFlightKey = key;
@@ -903,9 +1041,15 @@ export class WeeklyGridComponent {
             return;
           }
           this.weekLoadInFlightKey = '';
-          this.orders.set(orders);
-          this.waitlistEntries.set(waitlist);
-          this.blockedDates.set(blockedDates);
+          if (options.replace) {
+            this.orders.set(orders);
+            this.waitlistEntries.set(waitlist);
+            this.blockedDates.set(blockedDates);
+          } else {
+            this.orders.update((prev) => this.mergeById(prev, orders));
+            this.waitlistEntries.update((prev) => this.mergeById(prev, waitlist));
+            this.blockedDates.update((prev) => this.mergeBlockedDates(prev, blockedDates));
+          }
         },
         error: () => {
           if (this.weekLoadInFlightKey === key) {
@@ -915,18 +1059,205 @@ export class WeeklyGridComponent {
       });
   }
 
-  private navigateToDate(date: Date): void {
-    this.weekStart.set(this.startOfWeek(date));
-    this.syncFiltersFromDate(date);
+  private appendNextWeeks(): void {
+    if (this.loadingMoreWeeks() || this.weeksCount() >= MAX_WEEKS_LOADED) {
+      return;
+    }
+
+    const nextWeekStart = this.addDays(this.weekStart(), this.weeksCount() * 7);
+    const nextWeekEnd = this.addDays(nextWeekStart, 6);
+    const start = this.toIsoDate(nextWeekStart);
+    const end = this.toIsoDate(nextWeekEnd);
+
+    this.loadingMoreWeeks.set(true);
+    this.appendLoadSub?.unsubscribe();
+    this.appendLoadSub = forkJoin({
+      orders: this.data.getWeeklyOrders(start, end),
+      waitlist: this.data.getWeeklyWaitlist(start, end),
+      blockedDates: this.data.getBlockedDates(start, end)
+    })
+      .pipe(
+        finalize(() => this.loadingMoreWeeks.set(false)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: ({ orders, waitlist, blockedDates }) => {
+          this.orders.update((prev) => this.mergeById(prev, orders));
+          this.waitlistEntries.update((prev) => this.mergeById(prev, waitlist));
+          this.blockedDates.update((prev) => this.mergeBlockedDates(prev, blockedDates));
+          this.weeksCount.update((count) => Math.min(MAX_WEEKS_LOADED, count + 1));
+        }
+      });
   }
 
-  /** When opening the board from the order flow, `?date=yyyy-MM-dd` selects that week (Sunday-based). */
-  private parseOrderDateFromQuery(): Date | null {
-    const raw = this.route.snapshot.queryParamMap.get('date');
-    if (!raw) {
-      return null;
+  private mergeById<T extends { id: number }>(prev: T[], incoming: T[]): T[] {
+    if (incoming.length === 0) {
+      return prev;
     }
-    return this.hebrew.parseIso(raw.trim());
+    const map = new Map<number, T>();
+    for (const item of prev) {
+      map.set(item.id, item);
+    }
+    for (const item of incoming) {
+      map.set(item.id, item);
+    }
+    return [...map.values()];
+  }
+
+  private mergeBlockedDates(prev: BlockedDateDto[], incoming: BlockedDateDto[]): BlockedDateDto[] {
+    if (incoming.length === 0) {
+      return prev;
+    }
+    const map = new Map<number, BlockedDateDto>();
+    for (const item of prev) {
+      map.set(item.id, item);
+    }
+    for (const item of incoming) {
+      map.set(item.id, item);
+    }
+    return [...map.values()];
+  }
+
+  private navigateToDate(date: Date): void {
+    const weekStart = this.startOfWeek(date);
+    this.weekStart.set(weekStart);
+    this.activeWeekStart.set(weekStart);
+    this.syncFiltersFromDate(date);
+    this.persistViewedDate(date);
+  }
+
+  /** Persist viewed date in shared state and `?date=` so leaving the board does not reset to today. */
+  private persistViewedDate(date: Date, options?: { replaceUrl?: boolean }): void {
+    const iso = this.toIsoDate(date);
+    this.calendarView.setSelectedDate(iso);
+    const current = this.route.snapshot.queryParamMap.get('date');
+    if (current === iso) {
+      return;
+    }
+    this.syncingUrlFromScroll = true;
+    void this.router
+      .navigate([], {
+        relativeTo: this.route,
+        queryParams: { date: iso },
+        queryParamsHandling: 'merge',
+        replaceUrl: options?.replaceUrl ?? true
+      })
+      .finally(() => {
+        this.syncingUrlFromScroll = false;
+      });
+  }
+
+  private setActiveWeekFromScroll(weekStartIso: string): void {
+    if (this.syncingUrlFromScroll) {
+      return;
+    }
+    const parsed = this.hebrew.parseIso(weekStartIso);
+    if (!parsed) {
+      return;
+    }
+    const weekStart = this.startOfWeek(parsed);
+    const currentIso = this.toIsoDate(this.activeWeekStart());
+    const nextIso = this.toIsoDate(weekStart);
+    if (currentIso === nextIso) {
+      return;
+    }
+    this.activeWeekStart.set(weekStart);
+    this.syncFiltersFromDate(weekStart);
+    this.persistViewedDate(weekStart, { replaceUrl: true });
+  }
+
+  private setupScrollObservers(): void {
+    this.setupWeekIntersectionObserver();
+    this.setupLoadMoreObserver();
+  }
+
+  private setupWeekIntersectionObserver(): void {
+    const root = this.gridScroll()?.nativeElement;
+    if (!root) {
+      return;
+    }
+
+    this.weekIntersectionObserver?.disconnect();
+    const markers = this.weekMarkers();
+    if (markers.length === 0) {
+      return;
+    }
+
+    // Prefer the week whose marker sits just under the sticky headers.
+    this.weekIntersectionObserver = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        const top = visible[0];
+        const weekStart = top?.target.getAttribute('data-week-start');
+        if (weekStart) {
+          this.setActiveWeekFromScroll(weekStart);
+        }
+      },
+      {
+        root,
+        // Offset for sticky equipment + day headers so the "active" week is the one under them.
+        rootMargin: '-120px 0px -55% 0px',
+        threshold: [0, 0.1, 0.25, 0.5, 1]
+      }
+    );
+
+    for (const marker of markers) {
+      this.weekIntersectionObserver.observe(marker.nativeElement);
+    }
+  }
+
+  private setupLoadMoreObserver(): void {
+    const root = this.gridScroll()?.nativeElement;
+    const sentinel = this.loadMoreSentinel()?.nativeElement;
+    if (!root || !sentinel) {
+      return;
+    }
+
+    this.loadMoreObserver?.disconnect();
+    this.loadMoreObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          this.appendNextWeeks();
+        }
+      },
+      {
+        root,
+        rootMargin: '240px 0px',
+        threshold: 0
+      }
+    );
+    this.loadMoreObserver.observe(sentinel);
+  }
+
+  private setupStickyHeaderOffsets(): void {
+    const scrollEl = this.gridScroll()?.nativeElement;
+    const equipRow = this.equipmentHeaderRow()?.nativeElement;
+    const daysRow = this.daysHeaderRow()?.nativeElement;
+    if (!scrollEl || !equipRow || !daysRow) {
+      return;
+    }
+
+    const apply = (): void => {
+      const equipH = Math.ceil(equipRow.getBoundingClientRect().height);
+      scrollEl.style.setProperty('--wg-equip-header-h', `${equipH}px`);
+      const daysH = Math.ceil(daysRow.getBoundingClientRect().height);
+      scrollEl.style.setProperty('--wg-days-header-h', `${daysH}px`);
+    };
+
+    apply();
+    this.headerResizeObserver?.disconnect();
+    this.headerResizeObserver = new ResizeObserver(() => apply());
+    this.headerResizeObserver.observe(equipRow);
+    this.headerResizeObserver.observe(daysRow);
+  }
+
+  private scrollBoardToTop(): void {
+    const el = this.gridScroll()?.nativeElement;
+    if (el) {
+      el.scrollTop = 0;
+    }
   }
 
   private syncFiltersFromDate(date: Date): void {
@@ -959,7 +1290,10 @@ export class WeeklyGridComponent {
       return;
     }
     this.syncFiltersFromGregorianMonthYear(gregorianYear, gregorianMonth);
-    this.weekStart.set(this.startOfWeek(target));
+    const weekStart = this.startOfWeek(target);
+    this.weekStart.set(weekStart);
+    this.activeWeekStart.set(weekStart);
+    this.persistViewedDate(target);
   }
 
   private applyHebrewSelection(): void {
@@ -968,7 +1302,10 @@ export class WeeklyGridComponent {
     try {
       const target = this.hebrew.toGregorian(hebrewYear, hebrewMonth, 1);
       this.syncFiltersFromHebrewMonthYear(hebrewYear, hebrewMonth);
-      this.weekStart.set(this.startOfWeek(target));
+      const weekStart = this.startOfWeek(target);
+      this.weekStart.set(weekStart);
+      this.activeWeekStart.set(weekStart);
+      this.persistViewedDate(target);
     } catch {
       this.toast.error('תאריך עברי לא תקין');
     }
@@ -1003,12 +1340,17 @@ export class WeeklyGridComponent {
     return [0, 3, 6, 8, 11, 14, 17].includes(year % 19);
   }
 
-  private buildRows(): GridRow[] {
-    const start = this.weekStart();
+  private buildRowsForWeek(start: Date): GridRow[] {
     const ordersByKey = new Map<string, OrderDto[]>();
+    const weekStartIso = this.toIsoDate(start);
+    const weekEndIso = this.toIsoDate(this.addDays(start, 6));
+
     for (const order of this.orders()) {
       for (const equipmentId of order.equipmentDefinitionIds) {
         for (const shift of order.shifts) {
+          if (shift.orderDate < weekStartIso || shift.orderDate > weekEndIso) {
+            continue;
+          }
           const key = this.cellKey(equipmentId, shift.orderDate, shift.timeSlot);
           const bucket = ordersByKey.get(key) ?? [];
           bucket.push(order);
@@ -1022,6 +1364,9 @@ export class WeeklyGridComponent {
 
     const waitlistByIso = new Map<string, WaitlistEntryDto[]>();
     for (const entry of this.waitlistEntries()) {
+      if (entry.date < weekStartIso || entry.date > weekEndIso) {
+        continue;
+      }
       const bucket = waitlistByIso.get(entry.date) ?? [];
       bucket.push(entry);
       waitlistByIso.set(entry.date, bucket);
@@ -1033,7 +1378,11 @@ export class WeeklyGridComponent {
       });
     }
 
-    const sameDayLastNameDuplicates = this.buildSameDayLastNameDuplicateOrderIds(this.orders());
+    const sameDayLastNameDuplicates = this.buildSameDayLastNameDuplicateOrderIds(
+      this.orders().filter((o) =>
+        (o.shifts ?? []).some((s) => s.orderDate >= weekStartIso && s.orderDate <= weekEndIso)
+      )
+    );
 
     const rows: GridRow[] = [];
     for (let i = 0; i < 7; i++) {

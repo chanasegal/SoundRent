@@ -2,7 +2,11 @@
   <!-- Page header -->
   <div class="mb-5 flex items-center justify-between gap-4">
     <div class="flex items-center gap-3">
-      <a routerLink="/dashboard" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700">
+      <a
+        routerLink="/dashboard"
+        [queryParams]="boardQueryParams()"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
+      >
         ▶ חזרה ללוח
       </a>
       <h1 class="text-2xl font-bold text-[#002244]">{{ title() }}</h1>

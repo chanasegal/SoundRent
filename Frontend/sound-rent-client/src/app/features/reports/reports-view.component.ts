@@ -1,9 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { OrderDto } from '../../core/models/order.model';
+import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
@@ -25,7 +26,9 @@ export class ReportsViewComponent implements OnInit {
   private readonly hebrew = inject(HebrewDateService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly toast = inject(ToastService);
+  private readonly calendarView = inject(CalendarViewStateService);
 
+  protected readonly boardQueryParams = computed(() => this.calendarView.dashboardQueryParams());
   protected readonly activeTab = signal<ReportsTab>('cancelled');
   protected readonly cancelledOrders = signal<OrderDto[]>([]);
   protected readonly unpaidOrders = signal<OrderDto[]>([]);

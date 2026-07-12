@@ -53,6 +53,7 @@ import { OrderReturnRequestDto } from '../../core/models/equipment-return.model'
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
 import { BlockedDateDto, findBlockedDateForIso } from '../../core/models/blocked-date.model';
+import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { CustomersStore } from '../../core/services/customers.store';
@@ -118,6 +119,17 @@ export class OrderFormComponent implements OnInit {
   private readonly customers = inject(CustomersStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly ordersSync = inject(OrdersSyncService);
+  private readonly calendarView = inject(CalendarViewStateService);
+
+  /** Preserves the board week when using "חזרה ללוח". */
+  protected readonly boardQueryParams = computed(() => {
+    const fromService = this.calendarView.dashboardQueryParams();
+    if (fromService.date) {
+      return fromService;
+    }
+    const fromQuery = this.route.snapshot.queryParamMap.get('date')?.trim();
+    return fromQuery && /^\d{4}-\d{2}-\d{2}$/.test(fromQuery) ? { date: fromQuery } : {};
+  });
 
   protected readonly bookingEquipmentSlotIds = computed(() =>
     this.equipmentSlots
@@ -1041,11 +1053,14 @@ export class OrderFormComponent implements OnInit {
 
   /** `date` is only added when it is a valid `yyyy-MM-dd` (Gregorian order date). */
   private dashboardDateQueryParams(orderDateIso: string | null | undefined): { date?: string } {
-    if (!orderDateIso || typeof orderDateIso !== 'string') {
-      return {};
+    if (orderDateIso && typeof orderDateIso === 'string') {
+      const t = orderDateIso.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+        this.calendarView.setSelectedDate(t);
+        return { date: t };
+      }
     }
-    const t = orderDateIso.trim();
-    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? { date: t } : {};
+    return this.calendarView.dashboardQueryParams();
   }
 
   /**

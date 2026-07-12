@@ -220,6 +220,8 @@
 }
 
 .weekly-grid-scroll {
+  --wg-equip-header-h: 2.75rem;
+  --wg-days-header-h: 3.25rem;
   max-height: calc(100vh - 9rem);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -240,15 +242,29 @@
   min-width: 100%;
   table-layout: fixed;
 
-  thead th {
+  .equipment-header-row th {
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: 30;
     background-color: #002244;
   }
 
-  thead th.weekly-grid-axis {
-    z-index: 30;
+  .equipment-header-row th.weekly-grid-axis {
+    z-index: 40;
+    right: 0;
+  }
+
+  .days-header-row th {
+    position: sticky;
+    top: var(--wg-equip-header-h);
+    z-index: 28;
+    background-color: #f0f9ff;
+  }
+
+  .days-header-row th.days-header-axis {
+    z-index: 35;
+    right: 0;
+    box-shadow: -4px 0 8px rgba(15, 23, 42, 0.06);
   }
 
   th.weekly-grid-axis {
@@ -1025,3 +1041,101 @@
     cursor: not-allowed;
   }
 }
+
+.active-week-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.2rem;
+  width: 100%;
+  min-width: 0;
+  direction: rtl;
+}
+
+.active-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 0;
+  padding: 0.15rem 0.1rem;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.7);
+  line-height: 1.15;
+}
+
+.active-week-day--shabbat {
+  background: rgba(224, 242, 254, 0.95);
+}
+
+.active-week-day-name {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #002244;
+}
+
+.active-week-day-greg {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.active-week-day-heb {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #0369a1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.week-marker-row td,
+.week-marker-cell {
+  padding: 0.45rem 0.75rem;
+  background: linear-gradient(180deg, #e2e8f0 0%, #f8fafc 100%);
+  border-bottom: 1px solid #cbd5e1;
+  text-align: center;
+}
+
+.week-marker-label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.week-marker-heb {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #0369a1;
+}
+
+.infinite-scroll-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.infinite-scroll-loading {
+  color: #0369a1;
+}
+
+.infinite-scroll-end {
+  color: #94a3b8;
+}
+
+.infinite-scroll-hint {
+  color: #94a3b8;
+}
+
