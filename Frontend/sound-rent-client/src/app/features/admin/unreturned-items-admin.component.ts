@@ -8,6 +8,7 @@ import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 
 @Component({
   selector: 'app-unreturned-items-admin',
@@ -21,6 +22,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('פריטים שלא חזרו');
 
   protected readonly rows = signal<UnreturnedItemDto[]>([]);
   protected readonly loading = signal(false);

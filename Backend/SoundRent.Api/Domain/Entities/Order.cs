@@ -58,6 +58,9 @@ public class Order
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Which product system this order belongs to (Sound / Tools / Library).</summary>
+    public SystemType SystemType { get; set; } = SystemType.Sound;
+
     public ICollection<OrderEquipment> Equipments { get; set; } = new List<OrderEquipment>();
 
     public ICollection<OrderShift> Shifts { get; set; } = new List<OrderShift>();

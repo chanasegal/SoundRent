@@ -37,6 +37,7 @@ public static class OrderMapper
         Notes = order.Notes,
         UrgentBoardNote = order.UrgentBoardNote,
         CreatedAt = order.CreatedAt,
+        SystemType = order.SystemType,
         LoanedEquipments = order.LoanedEquipments.Select(ToDto).ToList()
     };
 
@@ -91,6 +92,7 @@ public static class OrderMapper
         ReturnTimeType = dto.ReturnTimeType,
         CustomReturnTime = NormalizeCustomReturnTime(dto),
         Notes = NullIfBlank(dto.Notes),
+        SystemType = dto.SystemType,
         Equipments = NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds)
             .Select(ToEntity)
             .ToList(),

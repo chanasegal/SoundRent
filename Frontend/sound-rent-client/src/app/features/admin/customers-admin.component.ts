@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -9,10 +9,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { CustomerDto, CustomerUpsertDto } from '../../core/models/customer.model';
 import { InstitutionCreateUpdateDto, InstitutionDto } from '../../core/models/institution.model';
 import { OrderDto } from '../../core/models/order.model';
-import { TIME_SLOT_LABELS, TimeSlot } from '../../core/models/enums';
+import { TIME_SLOT_LABELS, TimeSlot, workspacePageTitle } from '../../core/models/enums';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import {
   israeliPhoneValidator,
@@ -34,6 +35,7 @@ export class CustomersAdminComponent implements OnInit {
   private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
+  private readonly systemContext = inject(SystemContextService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
@@ -59,6 +61,9 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly historyPhone = signal('');
   protected readonly historyInstitutionName = signal('');
   protected readonly historyKind = signal<'customer' | 'institution'>('customer');
+  protected readonly pageTitle = computed(() =>
+    workspacePageTitle('לקוחות', this.systemContext.currentSystemType())
+  );
 
   protected readonly searchInput = this.fb.nonNullable.control('');
 
@@ -81,9 +86,18 @@ export class CustomersAdminComponent implements OnInit {
   private static readonly PHONE1_CHANGE_CONFIRM =
     'האם אתם בטוחים שברצונכם לשנות את מספר הטלפון הראשי? פעולה זו תעדכן את מספר הטלפון בכל ההזמנות המשויכות ללקוח זה. לחצו על אישור להמשך.';
 
-  ngOnInit(): void {
-    this.runSearch('');
+  constructor() {
+    effect(() => {
+      const system = this.systemContext.currentSystemType();
+      untracked(() => {
+        void system;
+        this.customers.invalidate();
+        this.runSearch(this.searchInput.value.trim());
+      });
+    });
+  }
 
+  ngOnInit(): void {
     this.searchInput.valueChanges
       .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe((q) => this.runSearch(q));

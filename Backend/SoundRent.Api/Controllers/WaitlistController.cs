@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Services;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Controllers;
 
@@ -21,9 +22,14 @@ public class WaitlistController : ControllerBase
     public async Task<ActionResult<List<WaitlistEntryDto>>> GetWeekly(
         [FromQuery] DateOnly startDate,
         [FromQuery] DateOnly endDate,
+        [FromQuery] SystemType? systemType,
         CancellationToken cancellationToken)
     {
-        var list = await _waitlistService.GetWeeklyAsync(startDate, endDate, cancellationToken);
+        var list = await _waitlistService.GetWeeklyAsync(
+            startDate,
+            endDate,
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(list);
     }
 

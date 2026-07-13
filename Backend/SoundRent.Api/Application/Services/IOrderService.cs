@@ -10,6 +10,7 @@ public interface IOrderService
     Task<List<OrderDto>> GetWeeklyOrdersAsync(
         DateOnly startDate,
         DateOnly endDate,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Every order in the database (any date), for full Excel backup.</summary>

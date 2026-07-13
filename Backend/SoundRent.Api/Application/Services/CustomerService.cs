@@ -5,6 +5,7 @@ using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Application.Services;
@@ -20,19 +21,23 @@ public class CustomerService : ICustomerService
         _orders = orders;
     }
 
-    public async Task<List<CustomerDto>> SearchAsync(string? query, CancellationToken cancellationToken = default)
+    public async Task<List<CustomerDto>> SearchAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var rows = await _customers.SearchAsync(query, cancellationToken);
+        var rows = await _customers.SearchAsync(query, systemType, cancellationToken);
         return rows.Select(ToDto).ToList();
     }
 
-    public async Task<(byte[] Content, string FileName)> ExportToExcelAsync(CancellationToken cancellationToken = default)
+    public async Task<(byte[] Content, string FileName)> ExportToExcelAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var customers = await _customers.GetAllAsync(cancellationToken);
+        var customers = await _customers.GetAllAsync(systemType, cancellationToken);
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("לקוחות");
-        worksheet.RightToLeft = true;
 
         string[] headers = ["שם", "טלפון 1", "טלפון 2", "כתובת"];
         for (var col = 0; col < headers.Length; col++)
@@ -50,16 +55,11 @@ public class CustomerService : ICustomerService
             worksheet.Cell(excelRow, 4).Value = customer.Address ?? string.Empty;
         }
 
-        var usedRange = worksheet.Range(1, 1, Math.Max(customers.Count + 1, 1), headers.Length);
-        usedRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-        usedRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-
-        var headerRange = worksheet.Range(1, 1, 1, headers.Length);
-        headerRange.Style.Font.Bold = true;
-        headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#E0F2FE");
-        headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-
-        worksheet.Columns().AdjustToContents();
+        ExcelExportFormatting.ApplyStandardLayout(
+            worksheet,
+            headerRow: 1,
+            columnCount: headers.Length,
+            lastDataRow: Math.Max(customers.Count + 1, 1));
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -96,6 +96,11 @@ public class CustomerService : ICustomerService
         };
 
         await _customers.UpsertAsync(entity, cancellationToken);
+        if (dto.SystemType.HasValue)
+        {
+            await _customers.EnsureSystemLinkAsync(p1, dto.SystemType.Value, cancellationToken);
+        }
+
         await _customers.SaveChangesAsync(cancellationToken);
 
         var saved = await _customers.GetByPhone1Async(p1, cancellationToken);
@@ -150,6 +155,12 @@ public class CustomerService : ICustomerService
         else
         {
             await _customers.UpdateFieldsAsync(entity, cancellationToken);
+            await _customers.SaveChangesAsync(cancellationToken);
+        }
+
+        if (dto.SystemType.HasValue)
+        {
+            await _customers.EnsureSystemLinkAsync(newP1, dto.SystemType.Value, cancellationToken);
             await _customers.SaveChangesAsync(cancellationToken);
         }
 
@@ -232,6 +243,7 @@ public class CustomerService : ICustomerService
         };
 
         await _customers.UpsertAsync(entity, cancellationToken);
+        await _customers.EnsureSystemLinkAsync(p1, dto.SystemType, cancellationToken);
         await _customers.SaveChangesAsync(cancellationToken);
     }
 
@@ -239,6 +251,7 @@ public class CustomerService : ICustomerService
         string phone,
         string? customerName,
         string? address,
+        SystemType systemType,
         CancellationToken cancellationToken = default)
     {
         var p1 = PhoneNumberNormalizer.DigitsOnly(phone);
@@ -259,6 +272,7 @@ public class CustomerService : ICustomerService
         };
 
         await _customers.UpsertAsync(entity, cancellationToken);
+        await _customers.EnsureSystemLinkAsync(p1, systemType, cancellationToken);
         await _customers.SaveChangesAsync(cancellationToken);
     }
 
@@ -269,7 +283,12 @@ public class CustomerService : ICustomerService
         FullName = c.FullName,
         Address = c.Address,
         Notes = c.Notes,
-        UpdatedAt = c.UpdatedAt
+        UpdatedAt = c.UpdatedAt,
+        SystemTypes = c.Systems
+            .Select(s => s.SystemType)
+            .Distinct()
+            .OrderBy(s => s)
+            .ToList()
     };
 
     private static string? NullIfWhiteSpace(string? s)

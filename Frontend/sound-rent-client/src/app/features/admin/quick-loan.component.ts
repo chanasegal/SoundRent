@@ -28,6 +28,7 @@ import { OrderReturnRequestDto } from '../../core/models/equipment-return.model'
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import {
@@ -78,6 +79,7 @@ export class QuickLoanComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('השאלת אביזרים');
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
   private readonly extraYearsSig = signal<number[]>([]);
@@ -981,7 +983,7 @@ export class QuickLoanComponent implements OnInit {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.search(q).pipe(
+          return this.customers.searchGlobal(q).pipe(
             map((list) => ({
               field,
               q,

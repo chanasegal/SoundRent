@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
@@ -18,4 +19,6 @@ public class EquipmentDefinitionCreateDto
 
     [Range(0, 1_000_000)]
     public int SortOrder { get; set; }
+
+    public SystemType SystemType { get; set; } = SystemType.Tools;
 }

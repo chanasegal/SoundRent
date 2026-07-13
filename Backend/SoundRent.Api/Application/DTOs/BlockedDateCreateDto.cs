@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
@@ -12,4 +13,6 @@ public class BlockedDateCreateDto
 
     [MaxLength(500, ErrorMessage = "הסיבה לא יכולה לחרוג מ-500 תווים")]
     public string? Reason { get; set; }
+
+    public SystemType SystemType { get; set; } = SystemType.Tools;
 }

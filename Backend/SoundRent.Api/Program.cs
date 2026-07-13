@@ -51,6 +51,8 @@ builder.Services.AddScoped<IBlockedDateRepository, BlockedDateRepository>();
 builder.Services.AddScoped<IBlockedDateService, BlockedDateService>();
 builder.Services.AddScoped<IAccessorySerialInventoryRepository, AccessorySerialInventoryRepository>();
 builder.Services.AddScoped<IAccessorySerialInventoryService, AccessorySerialInventoryService>();
+builder.Services.AddScoped<IInventoryDefinitionRepository, InventoryDefinitionRepository>();
+builder.Services.AddScoped<IInventoryDefinitionService, InventoryDefinitionService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 // --- Authentication (JWT) ------------------------------------------------

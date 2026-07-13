@@ -23,9 +23,14 @@ public class OrdersController : ControllerBase
     public async Task<ActionResult<List<OrderDto>>> GetWeekly(
         [FromQuery] DateOnly startDate,
         [FromQuery] DateOnly endDate,
+        [FromQuery] SystemType? systemType,
         CancellationToken cancellationToken)
     {
-        var orders = await _orderService.GetWeeklyOrdersAsync(startDate, endDate, cancellationToken);
+        var orders = await _orderService.GetWeeklyOrdersAsync(
+            startDate,
+            endDate,
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(orders);
     }
 

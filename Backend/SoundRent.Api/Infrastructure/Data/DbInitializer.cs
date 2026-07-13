@@ -17,6 +17,9 @@ public static class DbInitializer
         await db.Database.MigrateAsync();
         await equipmentService.EnsureAllEquipmentRowsExistAsync();
 
+        var inventoryDefinitions = scope.ServiceProvider.GetRequiredService<IInventoryDefinitionService>();
+        await inventoryDefinitions.EnsureSystemTypesSeededAsync();
+
         var username = configuration["AdminSeed:Username"];
         var password = configuration["AdminSeed:Password"];
 

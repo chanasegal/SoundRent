@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
@@ -16,11 +17,19 @@ public class WaitlistRepository : IWaitlistRepository
     public Task<List<WaitlistEntry>> GetByDateRangeAsync(
         DateOnly startDate,
         DateOnly endDate,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
-        return _db.WaitlistEntries
+        var query = _db.WaitlistEntries
             .AsNoTracking()
-            .Where(e => e.WaitlistDate >= startDate && e.WaitlistDate <= endDate)
+            .Where(e => e.WaitlistDate >= startDate && e.WaitlistDate <= endDate);
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(e => e.SystemType == systemType.Value);
+        }
+
+        return query
             .OrderBy(e => e.WaitlistDate)
             .ThenBy(e => e.EquipmentType)
             .ThenBy(e => e.CreatedAt)

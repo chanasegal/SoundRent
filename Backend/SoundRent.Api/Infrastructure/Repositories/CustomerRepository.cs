@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
@@ -16,30 +17,48 @@ public class CustomerRepository : ICustomerRepository
 
     public Task<Customer?> GetByPhone1Async(string phone1Digits, CancellationToken cancellationToken = default)
     {
-        return _db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
+        return WithSystems(_db.Customers.AsNoTracking())
+            .FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
     }
 
     public Task<Customer?> GetTrackedByPhone1Async(string phone1Digits, CancellationToken cancellationToken = default)
     {
-        return _db.Customers.FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
+        return WithSystems(_db.Customers)
+            .FirstOrDefaultAsync(c => c.Phone1 == phone1Digits, cancellationToken);
     }
 
-    public Task<List<Customer>> GetAllAsync(CancellationToken cancellationToken = default)
+    public Task<List<Customer>> GetAllAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return _db.Customers
-            .AsNoTracking()
+        var query = WithSystems(_db.Customers.AsNoTracking());
+        if (systemType.HasValue)
+        {
+            query = query.Where(c => c.Systems.Any(s => s.SystemType == systemType.Value));
+        }
+
+        return query
             .OrderBy(c => c.FullName ?? string.Empty)
             .ThenBy(c => c.Phone1)
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<List<Customer>> SearchAsync(string? query, CancellationToken cancellationToken = default)
+    public async Task<List<Customer>> SearchAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
         var q = (query ?? string.Empty).Trim();
+        var baseQuery = WithSystems(_db.Customers.AsNoTracking());
+
+        if (systemType.HasValue)
+        {
+            baseQuery = baseQuery.Where(c => c.Systems.Any(s => s.SystemType == systemType.Value));
+        }
+
         if (q.Length == 0)
         {
-            return await _db.Customers
-                .AsNoTracking()
+            return await baseQuery
                 .OrderByDescending(c => c.UpdatedAt)
                 .ThenBy(c => c.Phone1)
                 .Take(500)
@@ -48,8 +67,7 @@ public class CustomerRepository : ICustomerRepository
 
         var digits = PhoneNumberNormalizer.DigitsOnly(q);
 
-        return await _db.Customers
-            .AsNoTracking()
+        return await baseQuery
             .Where(c =>
                 (digits.Length >= 2 &&
                  (c.Phone1.Contains(digits) || (c.Phone2 != null && c.Phone2.Contains(digits)))) ||
@@ -63,6 +81,7 @@ public class CustomerRepository : ICustomerRepository
     public async Task UpsertAsync(Customer customer, CancellationToken cancellationToken = default)
     {
         var tracked = await _db.Customers
+            .Include(c => c.Systems)
             .FirstOrDefaultAsync(c => c.Phone1 == customer.Phone1, cancellationToken);
 
         if (tracked is null)
@@ -91,6 +110,29 @@ public class CustomerRepository : ICustomerRepository
         tracked.UpdatedAt = customer.UpdatedAt;
     }
 
+    public async Task EnsureSystemLinkAsync(
+        string phone1Digits,
+        SystemType systemType,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await _db.CustomerSystems.AnyAsync(
+            cs => cs.CustomerPhone1 == phone1Digits && cs.SystemType == systemType,
+            cancellationToken);
+        if (exists)
+        {
+            return;
+        }
+
+        await _db.CustomerSystems.AddAsync(
+            new CustomerSystem
+            {
+                CustomerPhone1 = phone1Digits,
+                SystemType = systemType,
+                LinkedAt = DateTime.UtcNow
+            },
+            cancellationToken);
+    }
+
     public async Task ReplacePhone1WithCascadeAsync(
         string oldPhone1,
         Customer updated,
@@ -111,12 +153,31 @@ public class CustomerRepository : ICustomerRepository
                     s => s.SetProperty(w => w.Phone, updated.Phone1),
                     cancellationToken);
 
+            var existingLinks = await _db.CustomerSystems
+                .Where(cs => cs.CustomerPhone1 == oldPhone1)
+                .ToListAsync(cancellationToken);
+
             var existing = await _db.Customers
                 .FirstOrDefaultAsync(c => c.Phone1 == oldPhone1, cancellationToken)
                 ?? throw new InvalidOperationException($"Customer {oldPhone1} was not found for phone change.");
 
+            _db.CustomerSystems.RemoveRange(existingLinks);
             _db.Customers.Remove(existing);
+            await _db.SaveChangesAsync(cancellationToken);
+
             await _db.Customers.AddAsync(updated, cancellationToken);
+            foreach (var link in existingLinks)
+            {
+                await _db.CustomerSystems.AddAsync(
+                    new CustomerSystem
+                    {
+                        CustomerPhone1 = updated.Phone1,
+                        SystemType = link.SystemType,
+                        LinkedAt = link.LinkedAt
+                    },
+                    cancellationToken);
+            }
+
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -136,4 +197,7 @@ public class CustomerRepository : ICustomerRepository
     {
         return _db.SaveChangesAsync(cancellationToken);
     }
+
+    private static IQueryable<Customer> WithSystems(IQueryable<Customer> query) =>
+        query.Include(c => c.Systems);
 }

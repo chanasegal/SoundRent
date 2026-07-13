@@ -40,7 +40,8 @@ import {
   RETURN_TIME_TYPE_LABELS,
   ReturnTimeType,
   TIME_SLOT_LABELS,
-  TimeSlot
+  TimeSlot,
+  workspacePageTitle
 } from '../../core/models/enums';
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
 import { CustomerDto } from '../../core/models/customer.model';
@@ -61,6 +62,7 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService, HebrewDateParts, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
+import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
@@ -121,6 +123,7 @@ export class OrderFormComponent implements OnInit {
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly calendarView = inject(CalendarViewStateService);
+  private readonly systemContext = inject(SystemContextService);
 
   /** Preserves the board week when using "חזרה ללוח". */
   protected readonly boardQueryParams = computed(() => {
@@ -134,8 +137,8 @@ export class OrderFormComponent implements OnInit {
 
   protected readonly bookingEquipmentSlotIds = computed(() =>
     this.equipmentSlots
-      .definitions()
-      .filter((d) => d.category === 'Speakers' && d.isUnderMaintenance !== true)
+      .boardSlotDefinitions()
+      .filter((d) => d.isUnderMaintenance !== true)
       .map((d) => d.id)
   );
 
@@ -364,7 +367,12 @@ export class OrderFormComponent implements OnInit {
     return true;
   });
   protected readonly hasRecordedReturns = computed(() => this.loadedOrder()?.isReturnProcessed === true);
-  protected readonly title = computed(() => (this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה'));
+  protected readonly title = computed(() =>
+    workspacePageTitle(
+      this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה',
+      this.systemContext.currentSystemType()
+    )
+  );
   protected readonly submitting = signal(false);
 
   /** One row per loaned equipment type (labels + dynamic פירוט). */
@@ -2179,7 +2187,7 @@ export class OrderFormComponent implements OnInit {
             this.existingCustomerMatch.set(null);
             return EMPTY;
           }
-          return this.customers.search(digits).pipe(map((list) => ({ list, digits })));
+          return this.customers.searchGlobal(digits).pipe(map((list) => ({ list, digits })));
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -2217,7 +2225,7 @@ export class OrderFormComponent implements OnInit {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.search(q).pipe(
+          return this.customers.searchGlobal(q).pipe(
             map((list) => ({
               field,
               q,

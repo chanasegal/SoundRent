@@ -2,24 +2,48 @@ import { inject, Injectable } from '@angular/core';
 import { finalize, map, Observable, of, shareReplay, tap } from 'rxjs';
 
 import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
+import { SystemType } from '../models/enums';
 import { DataService } from './data.service';
+import { SystemContextService } from './system-context.service';
 
 @Injectable({ providedIn: 'root' })
 export class CustomersStore {
   private readonly data = inject(DataService);
+  private readonly systemContext = inject(SystemContextService);
 
   private cache: CustomerDto[] = [];
   private loaded = false;
+  private loadedForSystem: SystemType | null = null;
   private loadInFlight: Observable<CustomerDto[]> | null = null;
 
-  /** Load the capped customer list once, then serve searches from memory. */
+  /**
+   * System-scoped search for the customers admin list.
+   * Loads the active system's linked customers once, then filters in memory.
+   */
   search(q?: string): Observable<CustomerDto[]> {
     const trimmed = (q ?? '').trim();
     return this.ensureLoaded().pipe(map(() => this.filterCustomers(trimmed)));
   }
 
+  /**
+   * Cross-context autocomplete over the unified directory (all systems).
+   * Selecting a hit and saving links that profile to the current system.
+   */
+  searchGlobal(q?: string): Observable<CustomerDto[]> {
+    return this.data.searchCustomers(q, { global: true });
+  }
+
   upsert(saved: CustomerDto): void {
     const idx = this.cache.findIndex((c) => c.phone1 === saved.phone1);
+    const current = this.systemContext.currentSystemType();
+    const linkedToCurrent =
+      !saved.systemTypes?.length || saved.systemTypes.includes(current);
+
+    if (!linkedToCurrent) {
+      // Profile exists globally but not yet for this system — keep list scoped.
+      return;
+    }
+
     if (idx >= 0) {
       const next = [...this.cache];
       next[idx] = saved;
@@ -36,13 +60,18 @@ export class CustomersStore {
     }
     const phone1 = payload.phone1.trim();
     const existing = this.cache.find((c) => c.phone1 === phone1);
+    const systemType = payload.systemType ?? this.systemContext.currentSystemType();
+    const systemTypes = Array.from(
+      new Set([...(existing?.systemTypes ?? []), systemType])
+    );
     this.upsert({
       phone1,
       phone2: payload.phone2 ?? null,
       fullName: payload.fullName ?? null,
       address: payload.address ?? null,
-      notes: payload.notes ?? null,
-      updatedAt: existing?.updatedAt ?? new Date().toISOString()
+      notes: payload.notes ?? existing?.notes ?? null,
+      updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      systemTypes
     });
   }
 
@@ -57,22 +86,32 @@ export class CustomersStore {
 
   invalidate(): void {
     this.loaded = false;
+    this.loadedForSystem = null;
     this.cache = [];
     this.loadInFlight = null;
   }
 
   private ensureLoaded(): Observable<CustomerDto[]> {
-    if (this.loaded) {
+    const system = this.systemContext.currentSystemType();
+    if (this.loaded && this.loadedForSystem === system) {
       return of(this.cache);
     }
-    if (this.loadInFlight) {
+    if (this.loadInFlight && this.loadedForSystem === system) {
       return this.loadInFlight;
     }
 
-    this.loadInFlight = this.data.searchCustomers().pipe(
+    if (this.loadedForSystem !== system) {
+      this.loaded = false;
+      this.cache = [];
+      this.loadInFlight = null;
+    }
+
+    this.loadedForSystem = system;
+    this.loadInFlight = this.data.searchCustomers(undefined, { systemType: system }).pipe(
       tap((list) => {
         this.cache = list ?? [];
         this.loaded = true;
+        this.loadedForSystem = system;
       }),
       finalize(() => {
         this.loadInFlight = null;

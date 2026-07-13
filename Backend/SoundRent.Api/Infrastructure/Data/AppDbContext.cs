@@ -20,11 +20,14 @@ public class AppDbContext : DbContext
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
     public DbSet<EquipmentDefinition> EquipmentDefinitions => Set<EquipmentDefinition>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerSystem> CustomerSystems => Set<CustomerSystem>();
     public DbSet<Institution> Institutions => Set<Institution>();
     public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
     public DbSet<LostEquipment> LostEquipments => Set<LostEquipment>();
     public DbSet<BlockedDate> BlockedDates => Set<BlockedDate>();
     public DbSet<AccessorySerialInventory> AccessorySerialInventory => Set<AccessorySerialInventory>();
+    public DbSet<InventoryDefinition> InventoryDefinitions => Set<InventoryDefinition>();
+    public DbSet<InventorySerialCode> InventorySerialCodes => Set<InventorySerialCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

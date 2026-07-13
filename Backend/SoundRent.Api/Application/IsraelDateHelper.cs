@@ -6,21 +6,27 @@ namespace SoundRent.Api.Application;
 /// </summary>
 public static class IsraelDateHelper
 {
+    public static TimeZoneInfo IsraelTimeZone { get; } = ResolveIsraelTimeZone();
+
     public static DateOnly TodayInIsrael()
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, IsraelTimeZone);
+        return DateOnly.FromDateTime(local.Date);
+    }
+
+    private static TimeZoneInfo ResolveIsraelTimeZone()
     {
         try
         {
-            var tz = TimeZoneInfo.FindSystemTimeZoneById("Asia/Jerusalem");
-            var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            return DateOnly.FromDateTime(local.Date);
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Jerusalem");
         }
         catch (TimeZoneNotFoundException)
         {
-            return DateOnly.FromDateTime(DateTime.UtcNow.Date);
+            return TimeZoneInfo.Utc;
         }
         catch (InvalidTimeZoneException)
         {
-            return DateOnly.FromDateTime(DateTime.UtcNow.Date);
+            return TimeZoneInfo.Utc;
         }
     }
 }

@@ -67,6 +67,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.CreatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        builder.Property(o => o.SystemType)
+            .HasDefaultValue(SystemType.Sound)
+            .IsRequired();
+
         builder.HasIndex(o => o.Phone)
             .HasDatabaseName("IX_Orders_Phone");
 
@@ -79,6 +83,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.HasIndex(o => o.IsUnpaid)
             .HasDatabaseName("IX_Orders_IsUnpaid");
+
+        builder.HasIndex(o => o.SystemType)
+            .HasDatabaseName("IX_Orders_SystemType");
 
         builder.HasMany(o => o.Equipments)
             .WithOne(e => e.Order)

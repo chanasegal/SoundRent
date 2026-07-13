@@ -11,7 +11,11 @@ public interface IOrderRepository
     /// <summary>Read-only order fetch with full graph (no change tracking).</summary>
     Task<Order?> GetByIdForReadAsync(int id, CancellationToken cancellationToken = default);
 
-    Task<List<Order>> GetByDateRangeAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
+    Task<List<Order>> GetByDateRangeAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>All orders with loaned-equipment graph (backup / full export).</summary>
     Task<List<Order>> GetAllForExportAsync(CancellationToken cancellationToken = default);

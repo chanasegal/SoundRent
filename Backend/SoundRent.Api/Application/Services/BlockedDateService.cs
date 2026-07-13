@@ -1,6 +1,7 @@
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Application.Services;
@@ -14,20 +15,23 @@ public class BlockedDateService : IBlockedDateService
         _repository = repository;
     }
 
-    public async Task<List<BlockedDateDto>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<List<BlockedDateDto>> GetAllAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var rows = await _repository.GetAllOrderedAsync(cancellationToken);
+        var rows = await _repository.GetAllOrderedAsync(systemType, cancellationToken);
         return rows.Select(ToDto).ToList();
     }
 
     public async Task<List<BlockedDateDto>> GetOverlappingAsync(
         DateOnly? rangeStart,
         DateOnly? rangeEnd,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
         if (rangeStart is null || rangeEnd is null)
         {
-            return await GetAllAsync(cancellationToken);
+            return await GetAllAsync(systemType, cancellationToken);
         }
 
         if (rangeEnd.Value < rangeStart.Value)
@@ -35,7 +39,11 @@ public class BlockedDateService : IBlockedDateService
             throw new ValidationException("תאריך הסיום חייב להיות באותו יום או אחרי תאריך ההתחלה");
         }
 
-        var rows = await _repository.GetOverlappingAsync(rangeStart.Value, rangeEnd.Value, cancellationToken);
+        var rows = await _repository.GetOverlappingAsync(
+            rangeStart.Value,
+            rangeEnd.Value,
+            systemType,
+            cancellationToken);
         return rows.Select(ToDto).ToList();
     }
 
@@ -49,6 +57,7 @@ public class BlockedDateService : IBlockedDateService
             StartDate = dto.StartDate,
             EndDate = dto.EndDate,
             Reason = NullIfBlank(dto.Reason),
+            SystemType = dto.SystemType,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -100,7 +109,8 @@ public class BlockedDateService : IBlockedDateService
         EndDate = b.EndDate,
         Reason = b.Reason,
         CreatedAt = b.CreatedAt,
-        UpdatedAt = b.UpdatedAt
+        UpdatedAt = b.UpdatedAt,
+        SystemType = b.SystemType
     };
 
     private static string? NullIfBlank(string? value)

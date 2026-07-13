@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
@@ -13,10 +14,18 @@ public class EquipmentDefinitionRepository : IEquipmentDefinitionRepository
         _db = db;
     }
 
-    public async Task<IReadOnlyList<EquipmentDefinition>> GetAllOrderedAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<EquipmentDefinition>> GetAllOrderedAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var list = await _db.EquipmentDefinitions
-            .AsNoTracking()
+        var query = _db.EquipmentDefinitions.AsNoTracking();
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(e => e.SystemType == systemType.Value);
+        }
+
+        var list = await query
             .OrderBy(e => e.SortOrder)
             .ThenBy(e => e.Id)
             .ToListAsync(cancellationToken);

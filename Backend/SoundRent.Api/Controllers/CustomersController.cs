@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Services;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Controllers;
 
@@ -17,31 +18,56 @@ public class CustomersController : ControllerBase
         _customerService = customerService;
     }
 
-    /// <summary>Search by digits in phone fields or by name (fuzzy on phones via digit substring).</summary>
+    /// <summary>
+    /// Search by digits in phone fields or by name.
+    /// Pass <paramref name="systemType"/> to limit to customers linked to that system.
+    /// Omit it (or set <paramref name="global"/>) for cross-context autocomplete over the unified directory.
+    /// </summary>
     [HttpGet("search")]
-    public async Task<ActionResult<List<CustomerDto>>> Search([FromQuery] string? q, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<CustomerDto>>> Search(
+        [FromQuery] string? q,
+        [FromQuery] SystemType? systemType,
+        [FromQuery] bool global = false,
+        CancellationToken cancellationToken = default)
     {
-        var list = await _customerService.SearchAsync(q, cancellationToken);
+        var filter = global ? null : systemType;
+        var list = await _customerService.SearchAsync(q, filter, cancellationToken);
         return Ok(list);
     }
 
-    /// <summary>All customers when <paramref name="q"/> is empty (capped); same search when provided.</summary>
+    /// <summary>
+    /// Customers for the active system when <paramref name="systemType"/> is provided;
+    /// otherwise same as search.
+    /// </summary>
     [HttpGet]
-    public Task<ActionResult<List<CustomerDto>>> List([FromQuery] string? q, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<CustomerDto>>> List(
+        [FromQuery] string? q,
+        [FromQuery] SystemType? systemType,
+        [FromQuery] bool global = false,
+        CancellationToken cancellationToken = default)
     {
-        return Search(q, cancellationToken);
+        SystemType? filter = global ? null : (systemType ?? SystemType.Tools);
+        var list = await _customerService.SearchAsync(q, filter, cancellationToken);
+        return Ok(list);
     }
 
     [HttpGet("export")]
-    public async Task<FileResult> Export(CancellationToken cancellationToken)
+    public async Task<FileResult> Export(
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
     {
-        var export = await _customerService.ExportToExcelAsync(cancellationToken);
+        var export = await _customerService.ExportToExcelAsync(
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return File(export.Content, ICustomerService.ExcelContentType, export.FileName);
     }
 
     [HttpPost]
-    public async Task<ActionResult<CustomerDto>> Upsert([FromBody] CustomerUpsertDto dto, CancellationToken cancellationToken)
+    public async Task<ActionResult<CustomerDto>> Upsert(
+        [FromBody] CustomerUpsertDto dto,
+        CancellationToken cancellationToken)
     {
+        dto.SystemType ??= SystemType.Tools;
         var saved = await _customerService.UpsertAsync(dto, cancellationToken);
         return Ok(saved);
     }

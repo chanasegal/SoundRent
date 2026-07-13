@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
@@ -13,10 +14,18 @@ public class BlockedDateRepository : IBlockedDateRepository
         _db = db;
     }
 
-    public Task<List<BlockedDate>> GetAllOrderedAsync(CancellationToken cancellationToken = default)
+    public Task<List<BlockedDate>> GetAllOrderedAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return _db.BlockedDates
-            .AsNoTracking()
+        var query = _db.BlockedDates.AsNoTracking();
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(b => b.SystemType == systemType.Value);
+        }
+
+        return query
             .OrderBy(b => b.StartDate)
             .ThenBy(b => b.EndDate)
             .ThenBy(b => b.Id)
@@ -26,11 +35,19 @@ public class BlockedDateRepository : IBlockedDateRepository
     public Task<List<BlockedDate>> GetOverlappingAsync(
         DateOnly rangeStart,
         DateOnly rangeEnd,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
-        return _db.BlockedDates
+        var query = _db.BlockedDates
             .AsNoTracking()
-            .Where(b => b.StartDate <= rangeEnd && b.EndDate >= rangeStart)
+            .Where(b => b.StartDate <= rangeEnd && b.EndDate >= rangeStart);
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(b => b.SystemType == systemType.Value);
+        }
+
+        return query
             .OrderBy(b => b.StartDate)
             .ThenBy(b => b.EndDate)
             .ThenBy(b => b.Id)
@@ -42,11 +59,21 @@ public class BlockedDateRepository : IBlockedDateRepository
         return _db.BlockedDates.FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
     }
 
-    public Task<bool> AnyBlockCoversDateAsync(DateOnly date, CancellationToken cancellationToken = default)
+    public Task<bool> AnyBlockCoversDateAsync(
+        DateOnly date,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return _db.BlockedDates
+        var query = _db.BlockedDates
             .AsNoTracking()
-            .AnyAsync(b => b.StartDate <= date && b.EndDate >= date, cancellationToken);
+            .Where(b => b.StartDate <= date && b.EndDate >= date);
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(b => b.SystemType == systemType.Value);
+        }
+
+        return query.AnyAsync(cancellationToken);
     }
 
     public async Task AddAsync(BlockedDate entity, CancellationToken cancellationToken = default)

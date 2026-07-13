@@ -22,6 +22,7 @@ import { DataService } from '../../core/services/data.service';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
@@ -44,6 +45,7 @@ export class LostEquipmentAdminComponent implements OnInit {
   private readonly customers = inject(CustomersStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly hebrew = inject(HebrewDateService);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('ציוד שנשכח');
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
 
@@ -332,7 +334,7 @@ export class LostEquipmentAdminComponent implements OnInit {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.search(q).pipe(
+          return this.customers.searchGlobal(q).pipe(
             map((list) => ({
               field,
               q,

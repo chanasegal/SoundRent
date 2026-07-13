@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Infrastructure.Data.Configurations;
 
@@ -27,10 +28,17 @@ public class BlockedDateConfiguration : IEntityTypeConfiguration<BlockedDate>
         builder.Property(b => b.UpdatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        builder.Property(b => b.SystemType)
+            .HasDefaultValue(SystemType.Sound)
+            .IsRequired();
+
         builder.HasIndex(b => b.StartDate)
             .HasDatabaseName("IX_BlockedDates_StartDate");
 
         builder.HasIndex(b => b.EndDate)
             .HasDatabaseName("IX_BlockedDates_EndDate");
+
+        builder.HasIndex(b => b.SystemType)
+            .HasDatabaseName("IX_BlockedDates_SystemType");
     }
 }

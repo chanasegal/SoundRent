@@ -22,4 +22,6 @@ public class Customer
     public string? Notes { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<CustomerSystem> Systems { get; set; } = new List<CustomerSystem>();
 }

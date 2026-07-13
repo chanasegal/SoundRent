@@ -136,4 +136,11 @@ C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\RBush.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SixLabors.Fonts.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\System.IO.Packaging.dll
 C:\SoundRent\Backend\SoundRent.Api\bin\Debug\net9.0\SoundRent.Api.exe
+c:\SoundRent\Backend\_build_check\appsettings.Development.json
+c:\SoundRent\Backend\_build_check\appsettings.json
+c:\SoundRent\Backend\_build_check\SoundRent.Api.staticwebassets.endpoints.json
+c:\SoundRent\Backend\_build_check\SoundRent.Api.deps.json
+c:\SoundRent\Backend\_build_check\SoundRent.Api.runtimeconfig.json
+c:\SoundRent\Backend\_build_check\SoundRent.Api.dll
+c:\SoundRent\Backend\_build_check\SoundRent.Api.pdb
 C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

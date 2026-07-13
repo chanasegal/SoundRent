@@ -22,4 +22,7 @@ public class WaitlistEntry
     public string? Notes { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Which product system this waitlist row belongs to.</summary>
+    public SystemType SystemType { get; set; } = SystemType.Sound;
 }

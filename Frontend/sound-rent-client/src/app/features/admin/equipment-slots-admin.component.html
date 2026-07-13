@@ -1,22 +1,22 @@
 <div class="mx-auto max-w-5xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-    <h1 class="text-2xl font-bold text-[#002244]">ניהול ציוד</h1>
-    <div class="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
-        (click)="openAddItem()"
-      >
-        הוסף פריט חדש
-      </button>
-      <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
-        רענון
-      </button>
-    </div>
+    <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
+    <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" (click)="refresh()">
+      רענון
+    </button>
   </div>
 
   <section class="mb-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <h2 class="mb-4 text-lg font-bold text-[#002244]">תאי הזמנה (לוח)</h2>
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-bold text-[#002244]">רמקולים</h2>
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
+        (click)="openAddSlot()"
+      >
+        הוסף רמקול
+      </button>
+    </div>
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-right text-sm">
         <thead>
@@ -40,7 +40,7 @@
               <td class="px-3 py-2">{{ row.category }}</td>
               <td class="px-3 py-2">{{ row.sortOrder }}</td>
               <td class="px-3 py-2 text-sm">
-                @if (row.category === 'Speakers') {
+                @if (isBoardColumnCategory(row.category)) {
                   <label class="inline-flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
@@ -93,6 +93,13 @@
           הגדירו כמות לכל פריט והזינו קוד ייחודי בכל שדה. לכל סוג מלבד מיקרופון — ספרות בלבד.
         </p>
       </div>
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
+        (click)="openAddInventoryItem()"
+      >
+        הוסף פריט חדש
+      </button>
     </div>
 
     <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
@@ -191,19 +198,20 @@
     @if (accessoryLoading()) {
       <p class="text-sm text-slate-500">טוען מלאי אביזרים…</p>
     } @else {
-      <div class="overflow-x-auto" [formGroup]="accessoryForm">
+      <div class="overflow-x-auto" [formGroup]="customInventoryForm">
         <table class="accessory-inventory-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
               <th class="w-44 px-3 py-2 font-semibold">פריט</th>
               <th class="w-24 px-3 py-2 text-center font-semibold">כמות</th>
               <th class="px-3 py-2 font-semibold">קוד פריט</th>
+              <th class="w-28 px-3 py-2 font-semibold"></th>
             </tr>
           </thead>
           <tbody formArrayName="rows">
-            @for (def of accessoryRowDefinitions; track def.type; let i = $index) {
+            @for (def of customInventoryDefinitions(); track def.id; let i = $index) {
               <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="i">
-                <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.label }}</td>
+                <td class="px-3 py-2 align-middle font-semibold text-[#002244]">{{ def.displayName }}</td>
                 <td class="px-3 py-2 align-middle text-center">
                   <input
                     type="number"
@@ -218,12 +226,12 @@
                   />
                 </td>
                 <td class="px-3 py-2 align-middle">
-                  @if (codeIndicesForAccessoryRow(i).length === 0) {
+                  @if (codeIndicesForCustomInventoryRow(i).length === 0) {
                     <span class="text-xs text-slate-400">—</span>
                   } @else {
                     <div class="note-row" formArrayName="codes">
-                      @for (idx of codeIndicesForAccessoryRow(i); track idx) {
-                        @if (isMicrophoneAccessoryRow(i)) {
+                      @for (idx of codeIndicesForCustomInventoryRow(i); track idx) {
+                        @if (isMicrophoneInventoryRow(i) || !isLinkedInventoryRow(i)) {
                           <input
                             type="text"
                             maxlength="100"
@@ -251,6 +259,29 @@
                     </div>
                   }
                 </td>
+                <td class="px-3 py-2 align-middle">
+                  <div class="slot-actions">
+                    <button
+                      type="button"
+                      class="slot-action-btn slot-action-btn--edit"
+                      (click)="openEditInventoryItem(def)"
+                    >
+                      עריכה
+                    </button>
+                    <button
+                      type="button"
+                      class="slot-action-btn slot-action-btn--delete"
+                      [disabled]="deletingInventoryId() === def.id"
+                      (click)="deleteInventoryItem(def, i)"
+                    >
+                      {{ deletingInventoryId() === def.id ? 'מוחק…' : 'מחק' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="px-3 py-6 text-center text-slate-500">אין פריטי מלאי</td>
               </tr>
             }
           </tbody>
@@ -271,115 +302,235 @@
   </section>
 </div>
 
-@if (addOpen()) {
+@if (addSlotOpen()) {
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="add-item-modal-title"
-    (click)="closeAddItem()"
+    aria-labelledby="add-slot-modal-title"
+    (click)="closeAddSlot()"
   >
     <div
       class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
-        <h2 id="add-item-modal-title" class="text-lg font-bold text-[#002244]">הוסף פריט חדש</h2>
-        <p class="mt-1 text-sm text-slate-600">
-          הגדירו שם, קטגוריה וכמות — לכל יחידה יווצר קוד פריט ייחודי במערכת, ללא שינוי בהזמנות קיימות.
-        </p>
+        <h2 id="add-slot-modal-title" class="text-lg font-bold text-[#002244]">הוסף רמקול</h2>
       </div>
-      <form [formGroup]="addForm" (ngSubmit)="submitAdd()" class="space-y-4 px-5 py-4">
+      <form [formGroup]="addSlotForm" (ngSubmit)="submitAddSlot()" class="space-y-4 px-5 py-4">
         <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-name">
-            שם הפריט <span class="text-rose-500">*</span>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-slot-name">
+            שם <span class="text-rose-500">*</span>
           </label>
           <input
-            id="add-item-name"
+            id="add-slot-name"
             formControlName="displayName"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="למשל: כבל מיקרופון"
+            placeholder="למשל: רמקול ראשי"
             autocomplete="off"
           />
-          @if (addForm.controls.displayName.touched && addForm.controls.displayName.errors?.['required']) {
+          @if (addSlotForm.controls.displayName.touched && addSlotForm.controls.displayName.errors?.['required']) {
             <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
           }
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-category">
-            קטגוריה <span class="text-rose-500">*</span>
-          </label>
-          <select id="add-item-category" formControlName="category" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-            @for (opt of categoryOptions; track opt.value) {
-              <option [value]="opt.value">{{ opt.label }}</option>
-            }
-          </select>
-          <p class="mt-1 text-xs text-slate-500">פריטים בקטגוריית רמקולים יופיעו בלוח השבועי ובטופס ההזמנה.</p>
-        </div>
-
-        <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-item-qty">
-            כמות <span class="text-rose-500">*</span>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-slot-code">
+            קוד <span class="text-rose-500">*</span>
           </label>
           <input
-            id="add-item-qty"
-            type="number"
-            min="1"
-            max="200"
-            step="1"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            appIntegerOnly
-            formControlName="quantity"
-            class="qty-input"
+            id="add-slot-code"
+            formControlName="code"
+            maxlength="64"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            dir="ltr"
+            placeholder="למשל 712-C"
+            autocomplete="off"
           />
-        </div>
-
-        <div>
-          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <label class="block text-sm font-medium text-slate-700">קוד פריט <span class="text-rose-500">*</span></label>
-            <button
-              type="button"
-              class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              (click)="autoFillItemCodes()"
-            >
-              מילוי אוטומטי
-            </button>
-          </div>
-          <div class="note-row" formArrayName="codes">
-            @for (idx of addItemCodeIndices(); track idx) {
-              <input
-                type="text"
-                maxlength="64"
-                [formControlName]="idx"
-                class="note-input add-item-code-input"
-                dir="ltr"
-                autocomplete="off"
-                [attr.data-serial-nav]="'add'"
-                [attr.placeholder]="'#' + (idx + 1)"
-                [attr.aria-label]="'קוד פריט ' + (idx + 1)"
-                (keydown.enter)="focusNextAddItemCode($event)"
-              />
-            }
-          </div>
-          <p class="mt-1 text-xs text-slate-500">אותיות באנגלית, מספרים, מקף ונקודה בלבד (למשל 712-C).</p>
+          @if (addSlotForm.controls.code.touched && addSlotForm.controls.code.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (addSlotForm.controls.code.touched && addSlotForm.controls.code.errors?.['pattern']) {
+            <p class="mt-1 text-xs text-rose-600">אותיות באנגלית, מספרים, מקף ונקודה בלבד</p>
+          }
         </div>
 
         <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
           <button
             type="button"
             class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
-            (click)="closeAddItem()"
+            (click)="closeAddSlot()"
           >
             ביטול
           </button>
           <button
             type="submit"
             class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
-            [disabled]="saving() || addForm.invalid"
+            [disabled]="saving() || addSlotForm.invalid"
           >
-            {{ saving() ? 'שומר…' : 'הוסף פריט' }}
+            {{ saving() ? 'שומר…' : 'הוסף' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (addInventoryOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="add-inventory-modal-title"
+    (click)="closeAddInventoryItem()"
+  >
+    <div
+      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="add-inventory-modal-title" class="text-lg font-bold text-[#002244]">הוסף פריט חדש</h2>
+      </div>
+      <form [formGroup]="addInventoryForm" (ngSubmit)="submitAddInventoryItem()" class="space-y-4 px-5 py-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-inventory-name">
+            שם הפריט <span class="text-rose-500">*</span>
+          </label>
+          <input
+            id="add-inventory-name"
+            formControlName="displayName"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="למשל: כבל מיקרופון"
+            autocomplete="off"
+          />
+          @if (addInventoryForm.controls.displayName.touched && addInventoryForm.controls.displayName.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="add-inventory-qty">
+            כמות <span class="text-slate-400">(אופציונלי)</span>
+          </label>
+          <input
+            id="add-inventory-qty"
+            type="number"
+            min="0"
+            max="200"
+            step="1"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            appIntegerOnly
+            zeroDefault
+            formControlName="quantity"
+            class="qty-input"
+            placeholder="0"
+          />
+          <p class="mt-1 text-xs text-slate-500">השאירו 0 אם עדיין אין יחידות. מעל 0 — יוצגו שדות קוד לכל יחידה.</p>
+        </div>
+
+        @if (showAddInventoryCodes()) {
+          <div>
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <label class="block text-sm font-medium text-slate-700">
+                קוד פריט <span class="text-slate-400">(אופציונלי)</span>
+              </label>
+              <button
+                type="button"
+                class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                (click)="autoFillInventoryCodes()"
+              >
+                מילוי אוטומטי
+              </button>
+            </div>
+            <div class="note-row" formArrayName="codes">
+              @for (idx of addInventoryCodeIndices(); track idx) {
+                <input
+                  type="text"
+                  maxlength="100"
+                  [formControlName]="idx"
+                  class="note-input add-inventory-code-input"
+                  dir="ltr"
+                  autocomplete="off"
+                  [attr.data-serial-nav]="'inv'"
+                  [attr.placeholder]="'#' + (idx + 1)"
+                  [attr.aria-label]="'קוד פריט ' + (idx + 1)"
+                  (keydown.enter)="focusNextAddInventoryCode($event)"
+                />
+              }
+            </div>
+            <p class="mt-1 text-xs text-slate-500">
+              ניתן להשאיר ריק — המערכת תמלא מספור רציף בעת השמירה.
+            </p>
+          </div>
+        }
+
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeAddInventoryItem()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="inventorySaving() || addInventoryForm.invalid"
+          >
+            {{ inventorySaving() ? 'שומר…' : 'הוסף למלאי' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (editInventoryOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="inventory-edit-modal-title"
+    (click)="closeEditInventoryItem()"
+  >
+    <div
+      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="border-b border-slate-200 px-5 py-4">
+        <h2 id="inventory-edit-modal-title" class="text-lg font-bold text-[#002244]">עריכת שם פריט</h2>
+        <p class="mt-1 text-sm text-slate-600">עדכון שם קטגוריית המלאי בלבד — ללא שינוי בלוח השבועי.</p>
+      </div>
+      <form [formGroup]="editInventoryForm" (ngSubmit)="saveEditInventoryItem()" class="space-y-4 px-5 py-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="edit-inventory-name">
+            שם הפריט <span class="text-rose-500">*</span>
+          </label>
+          <input
+            id="edit-inventory-name"
+            formControlName="displayName"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+          />
+          @if (editInventoryForm.controls.displayName.touched && editInventoryForm.controls.displayName.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeEditInventoryItem()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="editInventorySaving() || editInventoryForm.invalid"
+          >
+            {{ editInventorySaving() ? 'שומר…' : 'שמור' }}
           </button>
         </div>
       </form>

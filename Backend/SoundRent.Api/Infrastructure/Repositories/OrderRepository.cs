@@ -31,11 +31,22 @@ public class OrderRepository : IOrderRepository
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
-    public Task<List<Order>> GetByDateRangeAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    public Task<List<Order>> GetByDateRangeAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        var query = WithOrderGraph(_db.Orders)
             .AsSplitQuery()
-            .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= startDate && s.OrderDate <= endDate))
+            .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= startDate && s.OrderDate <= endDate));
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(o => o.SystemType == systemType.Value);
+        }
+
+        return query
             .OrderBy(o => o.Shifts.Min(s => s.OrderDate))
             .ThenBy(o => o.Id)
             .AsNoTracking()

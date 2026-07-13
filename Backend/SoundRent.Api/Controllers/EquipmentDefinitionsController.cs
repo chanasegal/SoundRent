@@ -4,6 +4,7 @@ using SoundRent.Api.Application;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 using SoundRent.Api.Infrastructure.Repositories;
 
@@ -30,9 +31,13 @@ public class EquipmentDefinitionsController : ControllerBase
 
     [HttpGet]
     [AllowAnonymous]
-    public async Task<ActionResult<List<EquipmentDefinitionDto>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<List<EquipmentDefinitionDto>>> GetAll(
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
     {
-        var rows = await _repository.GetAllOrderedAsync(cancellationToken);
+        var rows = await _repository.GetAllOrderedAsync(
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(rows.Select(ToDto).ToList());
     }
 
@@ -50,7 +55,9 @@ public class EquipmentDefinitionsController : ControllerBase
             shifts,
             request.ExcludeOrderId,
             cancellationToken);
-        var rows = await _repository.GetAllOrderedAsync(cancellationToken);
+        var rows = await _repository.GetAllOrderedAsync(
+            request.SystemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(rows.Select(r => new EquipmentDefinitionAvailabilityDto
         {
             Id = r.Id,
@@ -58,6 +65,7 @@ public class EquipmentDefinitionsController : ControllerBase
             Category = r.Category,
             SortOrder = r.SortOrder,
             IsUnderMaintenance = r.IsMaintenanceMode,
+            SystemType = r.SystemType,
             IsOccupied = occupied.Contains(r.Id)
         }).ToList());
     }
@@ -120,12 +128,19 @@ public class EquipmentDefinitionsController : ControllerBase
             throw new ValidationException("מזהה זה כבר קיים במערכת");
         }
 
+        var category = (dto.Category ?? string.Empty).Trim();
+        if (!IsBoardColumnCategory(category))
+        {
+            throw new ValidationException("קטגוריה לתא הזמנה חייבת להיות רמקולים או מקרנים בלבד");
+        }
+
         var entity = new EquipmentDefinition
         {
             Id = trimmedId,
             DisplayName = dto.DisplayName.Trim(),
-            Category = dto.Category.Trim(),
+            Category = category,
             SortOrder = dto.SortOrder,
+            SystemType = dto.SystemType,
             IsMaintenanceMode = false
         };
 
@@ -155,6 +170,12 @@ public class EquipmentDefinitionsController : ControllerBase
             throw new ValidationException("יש לבחור קטגוריה");
         }
 
+        // Board-column definitions only — accessories/inventory live in AccessorySerialInventory.
+        if (!IsBoardColumnCategory(category))
+        {
+            throw new ValidationException("קטגוריה לתא הזמנה חייבת להיות רמקולים או מקרנים בלבד");
+        }
+
         var codes = NormalizeItemCodes(dto.ItemCodes);
         if (codes.Count == 0)
         {
@@ -168,7 +189,7 @@ public class EquipmentDefinitionsController : ControllerBase
             throw new ValidationException($"קוד פריט כבר קיים במערכת: {conflict}");
         }
 
-        var allRows = await _repository.GetAllOrderedAsync(cancellationToken);
+        var allRows = await _repository.GetAllOrderedAsync(dto.SystemType, cancellationToken);
         var nextOrder = allRows.Count == 0 ? 0 : allRows.Max(r => r.SortOrder) + 1;
 
         var created = new List<EquipmentDefinition>(codes.Count);
@@ -183,6 +204,7 @@ public class EquipmentDefinitionsController : ControllerBase
                     DisplayName = displayName,
                     Category = category,
                     SortOrder = nextOrder + i,
+                    SystemType = dto.SystemType,
                     IsMaintenanceMode = false
                 };
                 await _repository.AddAsync(entity, cancellationToken);
@@ -240,6 +262,9 @@ public class EquipmentDefinitionsController : ControllerBase
         && char.IsLetterOrDigit(code[0])
         && code.All(ch => char.IsLetterOrDigit(ch) || ch is '.' or '_' or '-');
 
+    private static bool IsBoardColumnCategory(string category) =>
+        category is "Speakers" or "Projectors";
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
     {
@@ -288,6 +313,7 @@ public class EquipmentDefinitionsController : ControllerBase
         DisplayName = r.DisplayName,
         Category = r.Category,
         SortOrder = r.SortOrder,
-        IsUnderMaintenance = r.IsMaintenanceMode
+        IsUnderMaintenance = r.IsMaintenanceMode,
+        SystemType = r.SystemType
     };
 }

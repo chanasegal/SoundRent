@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
@@ -22,4 +23,6 @@ public class EquipmentDefinitionBatchCreateDto
     [Required(ErrorMessage = "יש להזין לפחות קוד פריט אחד")]
     [MinLength(1, ErrorMessage = "יש להזין לפחות קוד פריט אחד")]
     public List<string> ItemCodes { get; set; } = new();
+
+    public SystemType SystemType { get; set; } = SystemType.Tools;
 }

@@ -1,4 +1,4 @@
-import { DepositType, LoanedEquipmentType, ReturnTimeType, TimeSlot } from './enums';
+import { DepositType, LoanedEquipmentType, ReturnTimeType, SystemType, TimeSlot } from './enums';
 
 export interface LoanedEquipmentNoteDto {
   id?: number;
@@ -46,6 +46,7 @@ export interface OrderDto {
   /** Board-only urgent note shown under return time on the weekly grid. */
   urgentBoardNote?: string | null;
   createdAt: string;
+  systemType?: SystemType;
   loanedEquipments: OrderLoanedEquipmentDto[];
 }
 
@@ -69,6 +70,7 @@ export interface OrderCreateUpdateDto {
   loanedEquipments: OrderLoanedEquipmentDto[];
   /** Legacy field; server-side validation now blocks overlapping grid cells. */
   allowDoubleBooking?: boolean;
+  systemType?: SystemType;
 }
 
 /** Response of `GET /api/orders/check-institution-conflict`. */

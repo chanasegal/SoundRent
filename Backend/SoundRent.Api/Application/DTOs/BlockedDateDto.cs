@@ -1,3 +1,5 @@
+using SoundRent.Api.Domain.Enums;
+
 namespace SoundRent.Api.Application.DTOs;
 
 public class BlockedDateDto
@@ -13,4 +15,6 @@ public class BlockedDateDto
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    public SystemType SystemType { get; set; }
 }

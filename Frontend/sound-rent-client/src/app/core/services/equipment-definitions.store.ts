@@ -2,7 +2,9 @@ import { inject, Injectable, signal } from '@angular/core';
 import { finalize, map, Observable, of, shareReplay, tap } from 'rxjs';
 
 import { EquipmentDefinitionDto } from '../models/equipment-definition.model';
+import { SystemType } from '../models/enums';
 import { DataService } from './data.service';
+import { SystemContextService } from './system-context.service';
 
 export interface EquipmentDefinitionsLoadOptions {
   force?: boolean;
@@ -11,18 +13,21 @@ export interface EquipmentDefinitionsLoadOptions {
 @Injectable({ providedIn: 'root' })
 export class EquipmentDefinitionsStore {
   private readonly data = inject(DataService);
+  private readonly systemContext = inject(SystemContextService);
 
   readonly definitions = signal<EquipmentDefinitionDto[]>([]);
 
   private loaded = false;
+  private loadedForSystem: SystemType | null = null;
   private loadInFlight: Observable<void> | null = null;
 
   load(options?: EquipmentDefinitionsLoadOptions): Observable<void> {
     const force = options?.force === true;
-    if (this.loaded && !force) {
+    const system = this.systemContext.currentSystemType();
+    if (this.loaded && !force && this.loadedForSystem === system) {
       return of(undefined);
     }
-    if (this.loadInFlight && !force) {
+    if (this.loadInFlight && !force && this.loadedForSystem === system) {
       return this.loadInFlight;
     }
 
@@ -34,6 +39,7 @@ export class EquipmentDefinitionsStore {
       tap((rows) => {
         this.definitions.set(rows ?? []);
         this.loaded = true;
+        this.loadedForSystem = system;
       }),
       map(() => undefined),
       finalize(() => {
@@ -46,7 +52,17 @@ export class EquipmentDefinitionsStore {
 
   invalidate(): void {
     this.loaded = false;
+    this.loadedForSystem = null;
     this.loadInFlight = null;
+  }
+
+  /** Booking columns for the active Tools/Library workspace. */
+  boardSlotDefinitions(): EquipmentDefinitionDto[] {
+    return this.definitions();
+  }
+
+  static isBoardColumnCategory(category: string | null | undefined): boolean {
+    return category === 'Speakers' || category === 'Projectors';
   }
 
   upsertDefinition(dto: EquipmentDefinitionDto): void {
@@ -89,12 +105,12 @@ export class EquipmentDefinitionsStore {
   /** Speaker / console booking slots only (main grid + order slot dropdown). */
   hasSpeakerSlot(id: string): boolean {
     const t = id.trim();
-    return this.definitions().some((d) => d.id === t && d.category === 'Speakers');
+    return this.boardSlotDefinitions().some((d) => d.id === t);
   }
 
   /** First speaker slot not in maintenance; falls back to any speaker slot if all are in maintenance. */
   firstAvailableSpeakerSlotId(): string {
-    const speakers = this.definitions().filter((d) => d.category === 'Speakers');
+    const speakers = this.boardSlotDefinitions();
     const avail = speakers.find((d) => !d.isUnderMaintenance);
     return avail?.id ?? speakers[0]?.id ?? '';
   }
@@ -121,6 +137,6 @@ export class EquipmentDefinitionsStore {
     if (preferred.length > 0) {
       return preferred;
     }
-    return this.definitions().find((d) => d.category === 'Speakers')?.id ?? this.definitions()[0]?.id ?? '';
+    return this.boardSlotDefinitions()[0]?.id ?? this.definitions()[0]?.id ?? '';
   }
 }

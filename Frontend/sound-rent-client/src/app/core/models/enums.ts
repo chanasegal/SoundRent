@@ -9,6 +9,31 @@ export enum EquipmentType {
   Speaker310 = 'Speaker310'
 }
 
+/** Product / tenant isolation for weekly boards (Sound / Tools / Library). */
+export enum SystemType {
+  Sound = 'Sound',
+  Tools = 'Tools',
+  Library = 'Library'
+}
+
+export const SYSTEM_TYPE_LABELS: Record<SystemType, string> = {
+  [SystemType.Sound]: 'מערכת שבועית',
+  [SystemType.Tools]: 'כלי עבודה',
+  [SystemType.Library]: 'ספרייה'
+};
+
+/** Workspaces available in the navbar switcher. */
+export const SYSTEM_TYPE_OPTIONS: readonly SystemType[] = [
+  SystemType.Sound,
+  SystemType.Tools,
+  SystemType.Library
+];
+
+/** Builds a page heading like "לקוחות – כלי עבודה". */
+export function workspacePageTitle(base: string, systemType: SystemType): string {
+  return `${base} – ${SYSTEM_TYPE_LABELS[systemType]}`;
+}
+
 export enum TimeSlot {
   Morning = 'Morning',
   Evening = 'Evening'

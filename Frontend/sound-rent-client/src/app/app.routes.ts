@@ -1,7 +1,24 @@
+import { inject } from '@angular/core';
 import { Routes } from '@angular/router';
 
 import { authGuard, guestGuard } from './core/guards/auth.guard';
+import { SystemType } from './core/models/enums';
+import { SystemContextService } from './core/services/system-context.service';
 import { LayoutComponent } from './shared/layout/layout.component';
+import { WorkspaceShellComponent } from './shared/layout/workspace-shell.component';
+
+const workspaceChildren: Routes = [
+  {
+    path: '',
+    loadComponent: () =>
+      import('./features/workspace/workspace-home.component').then((m) => m.WorkspaceHomeComponent)
+  },
+  {
+    path: 'customers',
+    loadComponent: () =>
+      import('./features/admin/customers-admin.component').then((m) => m.CustomersAdminComponent)
+  }
+];
 
 export const routes: Routes = [
   {
@@ -12,17 +29,36 @@ export const routes: Routes = [
   },
   {
     path: '',
+    pathMatch: 'full',
+    redirectTo: () => inject(SystemContextService).workspaceHomePath()
+  },
+  {
+    path: 'tools',
+    component: WorkspaceShellComponent,
+    canActivate: [authGuard],
+    canActivateChild: [authGuard],
+    data: { systemType: SystemType.Tools },
+    children: workspaceChildren
+  },
+  {
+    path: 'library',
+    component: WorkspaceShellComponent,
+    canActivate: [authGuard],
+    canActivateChild: [authGuard],
+    data: { systemType: SystemType.Library },
+    children: workspaceChildren
+  },
+  {
+    path: '',
     component: LayoutComponent,
     canActivate: [authGuard],
     canActivateChild: [authGuard],
+    data: { systemType: SystemType.Sound },
     children: [
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       {
         path: 'dashboard',
         loadComponent: () =>
-          import('./features/weekly-grid/weekly-grid.component').then(
-            (m) => m.WeeklyGridComponent
-          )
+          import('./features/weekly-grid/weekly-grid.component').then((m) => m.WeeklyGridComponent)
       },
       {
         path: 'admin/equipment-report',
@@ -39,16 +75,12 @@ export const routes: Routes = [
       {
         path: 'orders/new',
         loadComponent: () =>
-          import('./features/order-form/order-form.component').then(
-            (m) => m.OrderFormComponent
-          )
+          import('./features/order-form/order-form.component').then((m) => m.OrderFormComponent)
       },
       {
         path: 'orders/:id',
         loadComponent: () =>
-          import('./features/order-form/order-form.component').then(
-            (m) => m.OrderFormComponent
-          )
+          import('./features/order-form/order-form.component').then((m) => m.OrderFormComponent)
       },
       {
         path: 'admin/equipment-slots',
@@ -87,7 +119,7 @@ export const routes: Routes = [
         path: 'reports',
         loadComponent: () =>
           import('./features/reports/reports-view.component').then((m) => m.ReportsViewComponent)
-      },
+      }
     ]
   },
   { path: '**', redirectTo: 'dashboard' }

@@ -31,5 +31,7 @@ public class OrderDto
     public string? UrgentBoardNote { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    public SystemType SystemType { get; set; }
+
     public List<OrderLoanedEquipmentDto> LoanedEquipments { get; set; } = new();
 }

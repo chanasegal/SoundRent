@@ -37,5 +37,10 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
 
         builder.HasIndex(c => c.UpdatedAt)
             .HasDatabaseName("IX_Customers_UpdatedAt");
+
+        builder.HasMany(c => c.Systems)
+            .WithOne(cs => cs.Customer)
+            .HasForeignKey(cs => cs.CustomerPhone1)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

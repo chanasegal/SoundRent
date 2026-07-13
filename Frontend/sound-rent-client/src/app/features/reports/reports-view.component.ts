@@ -10,6 +10,7 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 
 type ReportsTab = 'cancelled' | 'unpaid';
 
@@ -27,6 +28,7 @@ export class ReportsViewComponent implements OnInit {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly toast = inject(ToastService);
   private readonly calendarView = inject(CalendarViewStateService);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('דוחות');
 
   protected readonly boardQueryParams = computed(() => this.calendarView.dashboardQueryParams());
   protected readonly activeTab = signal<ReportsTab>('cancelled');

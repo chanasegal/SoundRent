@@ -11,4 +11,5 @@ public class WaitlistEntryDto
     public DateOnly Date { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
+    public SystemType SystemType { get; set; }
 }

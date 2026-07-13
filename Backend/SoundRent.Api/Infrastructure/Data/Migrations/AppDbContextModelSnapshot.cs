@@ -78,6 +78,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<DateOnly>("StartDate")
                         .HasColumnType("date");
 
+                    b.Property<int>("SystemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -90,6 +95,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("StartDate")
                         .HasDatabaseName("IX_BlockedDates_StartDate");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_BlockedDates_SystemType");
 
                     b.ToTable("BlockedDates", (string)null);
                 });
@@ -131,6 +139,28 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Customers_UpdatedAt");
 
                     b.ToTable("Customers", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CustomerSystem", b =>
+                {
+                    b.Property<string>("CustomerPhone1")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("SystemType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LinkedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("CustomerPhone1", "SystemType");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_CustomerSystems_SystemType");
+
+                    b.ToTable("CustomerSystems", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Equipment", b =>
@@ -182,10 +212,18 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<int>("SystemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.HasKey("Id");
 
                     b.HasIndex("SortOrder")
                         .HasDatabaseName("IX_EquipmentDefinitions_SortOrder");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_EquipmentDefinitions_SystemType");
 
                     b.ToTable("EquipmentDefinitions", (string)null);
                 });
@@ -247,6 +285,85 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Institutions_Name");
 
                     b.ToTable("Institutions", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventoryDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("LinkedEquipmentType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName")
+                        .IsUnique()
+                        .HasDatabaseName("IX_InventoryDefinitions_DisplayName");
+
+                    b.HasIndex("LinkedEquipmentType")
+                        .IsUnique()
+                        .HasDatabaseName("IX_InventoryDefinitions_LinkedEquipmentType")
+                        .HasFilter("\"LinkedEquipmentType\" IS NOT NULL");
+
+                    b.HasIndex("SortOrder")
+                        .HasDatabaseName("IX_InventoryDefinitions_SortOrder");
+
+                    b.ToTable("InventoryDefinitions", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventorySerialCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("InventoryDefinitionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PhysicalStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("SerialCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InventoryDefinitionId")
+                        .HasDatabaseName("IX_InventorySerialCodes_InventoryDefinitionId");
+
+                    b.HasIndex("InventoryDefinitionId", "SerialCode")
+                        .IsUnique()
+                        .HasDatabaseName("IX_InventorySerialCodes_Definition_Code");
+
+                    b.ToTable("InventorySerialCodes", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.LoanedEquipmentNote", b =>
@@ -416,6 +533,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(2);
 
+                    b.Property<int>("SystemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("UrgentBoardNote")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -437,6 +559,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.HasIndex("Phone2")
                         .HasDatabaseName("IX_Orders_Phone2")
                         .HasFilter("\"Phone2\" IS NOT NULL");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_Orders_SystemType");
 
                     b.ToTable("Orders", (string)null);
                 });
@@ -619,10 +744,18 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<int>("SystemType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateOnly>("WaitlistDate")
                         .HasColumnType("date");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_WaitlistEntries_SystemType");
 
                     b.HasIndex("WaitlistDate")
                         .HasDatabaseName("IX_WaitlistEntries_WaitlistDate");
@@ -631,6 +764,28 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_WaitlistEntries_Equipment_Date");
 
                     b.ToTable("WaitlistEntries", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CustomerSystem", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Customer", "Customer")
+                        .WithMany("Systems")
+                        .HasForeignKey("CustomerPhone1")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventorySerialCode", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
+                        .WithMany("SerialCodes")
+                        .HasForeignKey("InventoryDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("InventoryDefinition");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.LoanedEquipmentNote", b =>
@@ -706,6 +861,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Customer", b =>
+                {
+                    b.Navigation("Systems");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefinition", b =>
                 {
                     b.Navigation("Orders");
@@ -714,6 +874,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Institution", b =>
                 {
                     b.Navigation("Orders");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventoryDefinition", b =>
+                {
+                    b.Navigation("SerialCodes");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>

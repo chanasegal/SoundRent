@@ -1,6 +1,7 @@
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Application.Services;
@@ -19,6 +20,7 @@ public class WaitlistService : IWaitlistService
     public async Task<List<WaitlistEntryDto>> GetWeeklyAsync(
         DateOnly startDate,
         DateOnly endDate,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
         if (endDate < startDate)
@@ -26,7 +28,7 @@ public class WaitlistService : IWaitlistService
             throw new ValidationException("תאריך הסיום חייב להיות באותו יום או אחרי תאריך ההתחלה");
         }
 
-        var list = await _repository.GetByDateRangeAsync(startDate, endDate, cancellationToken);
+        var list = await _repository.GetByDateRangeAsync(startDate, endDate, systemType, cancellationToken);
         return list.Select(ToDto).ToList();
     }
 
@@ -44,12 +46,18 @@ public class WaitlistService : IWaitlistService
             Phone = dto.Phone.Trim(),
             EquipmentType = dto.EquipmentType,
             WaitlistDate = dto.Date,
-            Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim()
+            Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
+            SystemType = dto.SystemType
         };
 
         await _repository.AddAsync(entity, cancellationToken);
         await _repository.SaveChangesAsync(cancellationToken);
-        await _customerService.SyncFromWaitlistAsync(dto.Phone, dto.CustomerName, dto.Address, cancellationToken);
+        await _customerService.SyncFromWaitlistAsync(
+            dto.Phone,
+            dto.CustomerName,
+            dto.Address,
+            dto.SystemType,
+            cancellationToken);
 
         return ToDto(entity);
     }
@@ -71,6 +79,7 @@ public class WaitlistService : IWaitlistService
         EquipmentType = e.EquipmentType,
         Date = e.WaitlistDate,
         Notes = e.Notes,
-        CreatedAt = e.CreatedAt
+        CreatedAt = e.CreatedAt,
+        SystemType = e.SystemType
     };
 }

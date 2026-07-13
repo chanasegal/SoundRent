@@ -4,7 +4,7 @@ import { Observable, catchError, map, of } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
-import { TimeSlot } from '../models/enums';
+import { SystemType, TimeSlot } from '../models/enums';
 import {
   OrderReturnRequestDto,
   UnreturnedItemDto
@@ -34,8 +34,16 @@ import {
   AccessorySerialAvailabilityRequestDto,
   AccessorySerialLocationDto
 } from '../models/accessory-inventory.model';
+import {
+  InventoryDefinitionBatchUpdateDto,
+  InventoryDefinitionCreateDto,
+  InventoryDefinitionDto,
+  InventoryDefinitionSerialsUpdateDto,
+  InventoryDefinitionUpdateDto
+} from '../models/inventory-definition.model';
 import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
+import { SystemContextService } from './system-context.service';
 
 /** Response of `GET /api/orders/slot-taken` — purely informational. */
 export interface SlotTakenResponse {
@@ -46,6 +54,7 @@ export interface SlotTakenResponse {
 export class DataService {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastService);
+  private readonly systemContext = inject(SystemContextService);
   private readonly ordersBase = `${environment.apiBaseUrl}/orders`;
   private readonly reportsBase = `${environment.apiBaseUrl}/reports`;
   private readonly waitlistBase = `${environment.apiBaseUrl}/waitlist`;
@@ -56,13 +65,24 @@ export class DataService {
   private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
   private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
   private readonly accessoryInventoryBase = `${environment.apiBaseUrl}/accessoryinventory`;
+  private readonly inventoryDefinitionsBase = `${environment.apiBaseUrl}/inventory-definitions`;
+
+  private activeSystemType(): SystemType {
+    return this.systemContext.currentSystemType();
+  }
+
+  private withSystemType(params: HttpParams = new HttpParams()): HttpParams {
+    return params.set('systemType', this.activeSystemType());
+  }
 
   private notifyHttpError(error: unknown): void {
     this.toast.error(getApiErrorMessage(error));
   }
 
   getWeeklyOrders(startDate: string, endDate: string): Observable<OrderDto[]> {
-    const params = new HttpParams().set('startDate', startDate).set('endDate', endDate);
+    const params = this.withSystemType(
+      new HttpParams().set('startDate', startDate).set('endDate', endDate)
+    );
     return this.http.get<OrderDto[]>(`${this.ordersBase}/weekly`, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
@@ -82,7 +102,9 @@ export class DataService {
   }
 
   getWeeklyWaitlist(startDate: string, endDate: string): Observable<WaitlistEntryDto[]> {
-    const params = new HttpParams().set('startDate', startDate).set('endDate', endDate);
+    const params = this.withSystemType(
+      new HttpParams().set('startDate', startDate).set('endDate', endDate)
+    );
     return this.http.get<WaitlistEntryDto[]>(`${this.waitlistBase}/weekly`, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
@@ -102,7 +124,12 @@ export class DataService {
   }
 
   createWaitlistEntry(payload: WaitlistEntryCreateDto): Observable<WaitlistEntryDto | null> {
-    return this.http.post<WaitlistEntryDto>(this.waitlistBase, payload).pipe(
+    return this.http
+      .post<WaitlistEntryDto>(this.waitlistBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -140,7 +167,12 @@ export class DataService {
   }
 
   createOrder(payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
-    return this.http.post<OrderDto>(this.ordersBase, payload).pipe(
+    return this.http
+      .post<OrderDto>(this.ordersBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -149,7 +181,12 @@ export class DataService {
   }
 
   updateOrder(id: number, payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
-    return this.http.put<OrderDto>(`${this.ordersBase}/${id}`, payload).pipe(
+    return this.http
+      .put<OrderDto>(`${this.ordersBase}/${id}`, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -353,7 +390,11 @@ export class DataService {
   }
 
   getEquipmentDefinitions(): Observable<EquipmentDefinitionDto[]> {
-    return this.http.get<EquipmentDefinitionDto[]>(this.equipmentDefinitionsBase).pipe(
+    return this.http
+      .get<EquipmentDefinitionDto[]>(this.equipmentDefinitionsBase, {
+        params: this.withSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
@@ -369,7 +410,11 @@ export class DataService {
     shifts: OrderShiftDto[],
     excludeOrderId?: number
   ): Observable<EquipmentDefinitionAvailabilityDto[]> {
-    const body: { shifts: OrderShiftDto[]; excludeOrderId?: number } = { shifts };
+    const body: {
+      shifts: OrderShiftDto[];
+      excludeOrderId?: number;
+      systemType: SystemType;
+    } = { shifts, systemType: this.activeSystemType() };
     if (excludeOrderId != null) {
       body.excludeOrderId = excludeOrderId;
     }
@@ -398,7 +443,12 @@ export class DataService {
   createEquipmentDefinition(
     payload: EquipmentDefinitionCreateDto
   ): Observable<EquipmentDefinitionDto | null> {
-    return this.http.post<EquipmentDefinitionDto>(this.equipmentDefinitionsBase, payload).pipe(
+    return this.http
+      .post<EquipmentDefinitionDto>(this.equipmentDefinitionsBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -411,7 +461,10 @@ export class DataService {
     payload: EquipmentDefinitionBatchCreateDto
   ): Observable<EquipmentDefinitionDto[] | null> {
     return this.http
-      .post<EquipmentDefinitionDto[]>(`${this.equipmentDefinitionsBase}/batch`, payload)
+      .post<EquipmentDefinitionDto[]>(`${this.equipmentDefinitionsBase}/batch`, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
       .pipe(
         catchError((err) => {
           this.notifyHttpError(err);
@@ -443,10 +496,18 @@ export class DataService {
   }
 
   /** Search customers by digit substring in phones or by name; empty `q` returns a capped list. */
-  searchCustomers(q?: string): Observable<CustomerDto[]> {
+  searchCustomers(
+    q?: string,
+    options?: { systemType?: SystemType; global?: boolean }
+  ): Observable<CustomerDto[]> {
     let params = new HttpParams();
     if (q != null && q.trim().length > 0) {
       params = params.set('q', q.trim());
+    }
+    if (options?.global) {
+      params = params.set('global', 'true');
+    } else {
+      params = params.set('systemType', options?.systemType ?? this.activeSystemType());
     }
     return this.http.get<CustomerDto[]>(`${this.customersBase}/search`, { params }).pipe(
       catchError((err) => {
@@ -457,7 +518,12 @@ export class DataService {
   }
 
   upsertCustomer(payload: CustomerUpsertDto): Observable<CustomerDto | null> {
-    return this.http.post<CustomerDto>(this.customersBase, payload).pipe(
+    return this.http
+      .post<CustomerDto>(this.customersBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -467,7 +533,10 @@ export class DataService {
 
   updateCustomer(originalPhone1: string, payload: CustomerUpsertDto): Observable<CustomerDto> {
     const enc = encodeURIComponent(originalPhone1);
-    return this.http.put<CustomerDto>(`${this.customersBase}/${enc}`, payload);
+    return this.http.put<CustomerDto>(`${this.customersBase}/${enc}`, {
+      ...payload,
+      systemType: payload.systemType ?? this.activeSystemType()
+    });
   }
 
   deleteCustomer(phone1Digits: string): Observable<boolean> {
@@ -483,7 +552,11 @@ export class DataService {
 
   exportCustomersExcel(): Observable<HttpResponse<Blob> | null> {
     return this.http
-      .get(`${this.customersBase}/export`, { observe: 'response', responseType: 'blob' })
+      .get(`${this.customersBase}/export`, {
+        observe: 'response',
+        responseType: 'blob',
+        params: this.withSystemType()
+      })
       .pipe(
         catchError((err) => {
           this.notifyHttpError(err);
@@ -558,7 +631,7 @@ export class DataService {
   }
 
   getBlockedDates(startDate?: string, endDate?: string): Observable<BlockedDateDto[]> {
-    let params = new HttpParams();
+    let params = this.withSystemType();
     if (startDate) {
       params = params.set('startDate', startDate);
     }
@@ -574,7 +647,12 @@ export class DataService {
   }
 
   createBlockedDate(payload: BlockedDateCreateDto): Observable<BlockedDateDto | null> {
-    return this.http.post<BlockedDateDto>(this.blockedDatesBase, payload).pipe(
+    return this.http
+      .post<BlockedDateDto>(this.blockedDatesBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
@@ -649,6 +727,73 @@ export class DataService {
       .set('equipmentType', equipmentType)
       .set('serialCode', serialCode.trim());
     return this.http.get<AccessorySerialLocationDto>(`${this.accessoryInventoryBase}/location`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  getInventoryDefinitions(): Observable<InventoryDefinitionDto[]> {
+    return this.http.get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createInventoryDefinition(
+    payload: InventoryDefinitionCreateDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http.post<InventoryDefinitionDto>(this.inventoryDefinitionsBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateInventoryDefinition(
+    id: number,
+    payload: InventoryDefinitionUpdateDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http.put<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteInventoryDefinition(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.inventoryDefinitionsBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  updateInventoryDefinitionSerials(
+    id: number,
+    payload: InventoryDefinitionSerialsUpdateDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http
+      .put<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}/serials`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  updateInventoryDefinitionsBatch(
+    payload: InventoryDefinitionBatchUpdateDto
+  ): Observable<InventoryDefinitionDto[] | null> {
+    return this.http.put<InventoryDefinitionDto[]>(`${this.inventoryDefinitionsBase}/batch`, payload).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);

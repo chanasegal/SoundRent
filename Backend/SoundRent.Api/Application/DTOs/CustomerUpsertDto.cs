@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using SoundRent.Api.Application.Validation;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
@@ -20,6 +21,11 @@ public class CustomerUpsertDto : IValidatableObject
 
     [MaxLength(4000)]
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// When set, links the unified customer to this system without creating a duplicate profile.
+    /// </summary>
+    public SystemType? SystemType { get; set; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

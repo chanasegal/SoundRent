@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Infrastructure.Data.Configurations;
 
@@ -16,8 +17,15 @@ public class EquipmentDefinitionConfiguration : IEntityTypeConfiguration<Equipme
         builder.Property(e => e.DisplayName).HasMaxLength(200).IsRequired();
         builder.Property(e => e.Category).HasMaxLength(80).IsRequired();
 
+        builder.Property(e => e.SystemType)
+            .HasDefaultValue(SystemType.Sound)
+            .IsRequired();
+
         builder.HasIndex(e => e.SortOrder)
             .HasDatabaseName("IX_EquipmentDefinitions_SortOrder");
+
+        builder.HasIndex(e => e.SystemType)
+            .HasDatabaseName("IX_EquipmentDefinitions_SystemType");
 
         builder.Property(e => e.IsMaintenanceMode)
             .HasDefaultValue(false);

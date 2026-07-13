@@ -1,3 +1,5 @@
+using SoundRent.Api.Domain.Enums;
+
 namespace SoundRent.Api.Application.DTOs;
 
 public class CustomerDto
@@ -13,4 +15,7 @@ public class CustomerDto
     public string? Notes { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Product systems this unified profile is linked to.</summary>
+    public List<SystemType> SystemTypes { get; set; } = new();
 }

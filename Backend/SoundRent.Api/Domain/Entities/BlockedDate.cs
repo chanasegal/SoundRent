@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Domain.Entities;
 
@@ -17,4 +18,7 @@ public class BlockedDate
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Which product system this block applies to.</summary>
+    public SystemType SystemType { get; set; } = SystemType.Sound;
 }

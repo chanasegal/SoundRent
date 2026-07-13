@@ -19,11 +19,13 @@ import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
+import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import { LOANED_EQUIPMENT_LABELS, LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ToastService } from '../../core/services/toast.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
 @Component({
@@ -40,6 +42,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ציוד');
 
   protected readonly accessoryRowDefinitions = LOANED_EQUIPMENT_ORDER.map((type) => ({
     type,
@@ -61,6 +64,12 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     rows: this.fb.array(LOANED_EQUIPMENT_ORDER.map((type) => this.buildAccessoryRow(type)))
   });
 
+  /** Standalone inventory catalog rows (InventoryDefinitions) — not board columns. */
+  protected readonly customInventoryForm = this.fb.group({
+    rows: this.fb.array<FormGroup>([])
+  });
+  protected readonly customInventoryDefinitions = signal<InventoryDefinitionDto[]>([]);
+
   constructor() {
     effect(() => {
       const v = this.maintenanceSync.version();
@@ -72,27 +81,41 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   protected readonly saving = signal(false);
+  protected readonly inventorySaving = signal(false);
   protected readonly editSaving = signal(false);
   protected readonly editOpen = signal(false);
-  protected readonly addOpen = signal(false);
+  protected readonly addSlotOpen = signal(false);
+  protected readonly addInventoryOpen = signal(false);
+  protected readonly editInventoryOpen = signal(false);
+  protected readonly editInventorySaving = signal(false);
+  protected readonly editingInventoryId = signal<number | null>(null);
+  protected readonly deletingInventoryId = signal<number | null>(null);
   protected readonly editingId = signal<string | null>(null);
   protected readonly deletingId = signal<string | null>(null);
   protected readonly futureOrdersModal = signal<EquipmentDefinitionDeleteFutureOrder[] | null>(null);
   protected readonly maintenanceTogglingId = signal<string | null>(null);
 
-  /** Categories offered in the add-item modal (values stored on EquipmentDefinition.Category). */
-  protected readonly categoryOptions: { value: string; label: string }[] = [
-    { value: 'Speakers', label: 'רמקולים (לוח הזמנות)' },
-    { value: 'Accessories', label: 'אביזרים' },
-    { value: 'Cables', label: 'כבלים' },
-    { value: 'Other', label: 'אחר' }
-  ];
-
-  protected readonly addForm = this.fb.group({
+  /** Creates a single booking-slot column on the weekly board (not accessory inventory). */
+  protected readonly addSlotForm = this.fb.group({
     displayName: ['', [Validators.required, Validators.maxLength(200)]],
-    category: ['Speakers', [Validators.required, Validators.maxLength(80)]],
-    quantity: [1, [Validators.required, Validators.min(1), Validators.max(200)]],
-    codes: this.fb.array<FormControl<string>>([this.buildItemCodeControl()])
+    code: [
+      '',
+      [
+        Validators.required,
+        Validators.maxLength(64),
+        Validators.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+      ]
+    ]
+  });
+
+  /**
+   * Creates a standalone inventory definition (name + optional qty/serials).
+   * Saved via POST /api/inventory-definitions — never to EquipmentDefinitions.
+   */
+  protected readonly addInventoryForm = this.fb.group({
+    displayName: ['', [Validators.required, Validators.maxLength(200)]],
+    quantity: [0 as number | null, [Validators.min(0), Validators.max(200)]],
+    codes: this.fb.array<FormControl<string>>([])
   });
 
   protected readonly editForm = this.fb.group({
@@ -100,11 +123,19 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     sortOrder: [0, [Validators.required, Validators.min(0), Validators.max(1_000_000)]]
   });
 
+  protected readonly editInventoryForm = this.fb.group({
+    displayName: ['', [Validators.required, Validators.maxLength(200)]]
+  });
+
   ngOnInit(): void {
     this.wireAccessoryQuantitySync();
     this.wireSerialSearchTypeFilter();
-    this.wireAddItemQuantitySync();
+    this.wireAddInventoryQuantitySync();
     this.refresh();
+  }
+
+  protected isBoardColumnCategory(category: string | null | undefined): boolean {
+    return EquipmentDefinitionsStore.isBoardColumnCategory(category);
   }
 
   protected serialCodesForSearchType(): string[] {
@@ -199,25 +230,209 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected loadAccessoryInventory(): void {
     this.accessoryLoading.set(true);
     this.data
-      .getAccessoryInventory()
+      .getInventoryDefinitions()
       .pipe(finalize(() => this.accessoryLoading.set(false)))
-      .subscribe((groups) => {
+      .subscribe((defs) => {
+        const list = defs ?? [];
         const byType = new Map<LoanedEquipmentType, string[]>();
-        for (const group of groups) {
-          const codes = (group.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
-          byType.set(group.equipmentType, codes);
+        for (const def of list) {
+          const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+          if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
+            byType.set(
+              linked,
+              (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0)
+            );
+          }
         }
         this.accessoryCodesByType.set(byType);
-        this.accessoryRows().controls.forEach((control, idx) => {
-          const type = LOANED_EQUIPMENT_ORDER[idx]!;
-          const codes = byType.get(type) ?? [];
-          const group = control as FormGroup;
-          group.patchValue({ quantity: codes.length }, { emitEvent: false });
-          this.setAccessoryCodesLength(group, codes.length);
-          const codesFa = this.accessoryCodesArray(idx);
-          codes.forEach((code, i) => codesFa.at(i).setValue(code, { emitEvent: false }));
-        });
+        this.customInventoryDefinitions.set(list);
+        this.rebuildCustomInventoryRows(list);
       });
+  }
+
+  private rebuildCustomInventoryRows(defs: InventoryDefinitionDto[]): void {
+    const rows = this.customInventoryRows();
+    while (rows.length > 0) {
+      rows.removeAt(0);
+    }
+    for (const def of defs) {
+      const group = this.buildCustomInventoryRow(def);
+      rows.push(group);
+      this.wireCustomInventoryRowQuantitySync(group);
+    }
+  }
+
+  protected customInventoryRows(): FormArray {
+    return this.customInventoryForm.get('rows') as FormArray;
+  }
+
+  protected customInventoryRowGroup(index: number): FormGroup {
+    return this.customInventoryRows().at(index) as FormGroup;
+  }
+
+  protected customInventoryCodesArray(rowIndex: number): FormArray<FormControl<string>> {
+    return this.customInventoryRowGroup(rowIndex).get('codes') as FormArray<FormControl<string>>;
+  }
+
+  protected codeIndicesForCustomInventoryRow(rowIndex: number): number[] {
+    const len = this.customInventoryCodesArray(rowIndex).length;
+    return Array.from({ length: len }, (_, i) => i);
+  }
+
+  protected openEditInventoryItem(def: InventoryDefinitionDto): void {
+    this.editingInventoryId.set(def.id);
+    this.editInventoryForm.reset({ displayName: def.displayName });
+    this.editInventoryOpen.set(true);
+  }
+
+  protected closeEditInventoryItem(): void {
+    this.editInventoryOpen.set(false);
+    this.editingInventoryId.set(null);
+  }
+
+  protected saveEditInventoryItem(): void {
+    const id = this.editingInventoryId();
+    if (id === null) {
+      return;
+    }
+    if (this.editInventoryForm.invalid) {
+      this.editInventoryForm.markAllAsTouched();
+      this.toast.error('אנא תקנו את השדות המסומנים');
+      return;
+    }
+
+    const displayName = (this.editInventoryForm.controls.displayName.value ?? '').trim();
+    if (!displayName) {
+      this.toast.error('יש להזין שם פריט');
+      return;
+    }
+
+    this.editInventorySaving.set(true);
+    this.data
+      .updateInventoryDefinition(id, { displayName })
+      .pipe(finalize(() => this.editInventorySaving.set(false)))
+      .subscribe({
+        next: (updated) => {
+          if (updated === null) {
+            return;
+          }
+          this.toast.success('שם הפריט עודכן');
+          this.applyInventoryDefinitionPatch(updated);
+          this.closeEditInventoryItem();
+        }
+      });
+  }
+
+  protected deleteInventoryItem(def: InventoryDefinitionDto, rowIndex: number): void {
+    if (!confirm('האם אתה בטוח שברצונך למחוק פריט זה?')) {
+      return;
+    }
+
+    this.deletingInventoryId.set(def.id);
+    this.data
+      .deleteInventoryDefinition(def.id)
+      .pipe(finalize(() => this.deletingInventoryId.set(null)))
+      .subscribe({
+        next: (ok) => {
+          if (!ok) {
+            return;
+          }
+          this.removeCustomInventoryRow(def.id, rowIndex);
+          this.toast.success(`הפריט "${def.displayName}" נמחק`);
+        }
+      });
+  }
+
+  private applyInventoryDefinitionPatch(updated: InventoryDefinitionDto): void {
+    this.customInventoryDefinitions.update((rows) =>
+      rows.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+    );
+    const rows = this.customInventoryRows();
+    for (let i = 0; i < rows.length; i++) {
+      const group = rows.at(i) as FormGroup;
+      if (Number(group.get('id')?.value) === updated.id) {
+        group.patchValue({ displayName: updated.displayName }, { emitEvent: false });
+        break;
+      }
+    }
+  }
+
+  private removeCustomInventoryRow(id: number, rowIndex: number): void {
+    const rows = this.customInventoryRows();
+    if (rowIndex >= 0 && rowIndex < rows.length) {
+      const atIndex = Number((rows.at(rowIndex) as FormGroup).get('id')?.value);
+      if (atIndex === id) {
+        rows.removeAt(rowIndex);
+      } else {
+        const found = rows.controls.findIndex(
+          (c) => Number((c as FormGroup).get('id')?.value) === id
+        );
+        if (found >= 0) {
+          rows.removeAt(found);
+        }
+      }
+    } else {
+      const found = rows.controls.findIndex(
+        (c) => Number((c as FormGroup).get('id')?.value) === id
+      );
+      if (found >= 0) {
+        rows.removeAt(found);
+      }
+    }
+
+    this.customInventoryDefinitions.update((defs) => defs.filter((d) => d.id !== id));
+  }
+
+  private buildCustomInventoryRow(def: InventoryDefinitionDto): FormGroup {
+    const codes = (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
+    const codesFa = this.fb.array<FormControl<string>>(
+      codes.map((code) => this.fb.nonNullable.control(code, [Validators.maxLength(100)]))
+    );
+    return this.fb.group({
+      id: this.fb.nonNullable.control(def.id),
+      displayName: this.fb.nonNullable.control(def.displayName),
+      linkedEquipmentType: this.fb.control<string | null>(def.linkedEquipmentType ?? null),
+      quantity: this.fb.control(codes.length, [Validators.min(0)]),
+      codes: codesFa
+    });
+  }
+
+  protected isMicrophoneInventoryRow(rowIndex: number): boolean {
+    const linked = this.customInventoryRowGroup(rowIndex).get('linkedEquipmentType')?.value;
+    return linked === LoanedEquipmentType.Microphone;
+  }
+
+  protected isLinkedInventoryRow(rowIndex: number): boolean {
+    const linked = this.customInventoryRowGroup(rowIndex).get('linkedEquipmentType')?.value;
+    return typeof linked === 'string' && linked.length > 0;
+  }
+
+  private wireCustomInventoryRowQuantitySync(group: FormGroup): void {
+    const quantityCtrl = group.get('quantity');
+    if (!quantityCtrl) {
+      return;
+    }
+    quantityCtrl.valueChanges
+      .pipe(
+        map((value) => this.toNonNegativeInteger(value)),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((quantity) => this.setCustomInventoryCodesLength(group, quantity));
+  }
+
+  private setCustomInventoryCodesLength(group: FormGroup, target: number): void {
+    const length = this.toNonNegativeInteger(target);
+    const codes = group.get('codes') as FormArray<FormControl<string>> | null;
+    if (!codes) {
+      return;
+    }
+    while (codes.length < length) {
+      codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
+    }
+    while (codes.length > length) {
+      codes.removeAt(codes.length - 1);
+    }
   }
 
   private wireSerialSearchTypeFilter(): void {
@@ -231,13 +446,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   protected saveAccessoryInventory(): void {
-    const payloads: { type: LoanedEquipmentType; codes: string[]; label: string }[] = [];
+    const payloads: { id: number; codes: string[]; label: string; linked: string | null }[] = [];
 
-    for (let i = 0; i < this.accessoryRows().length; i++) {
-      const group = this.accessoryRowGroup(i);
-      const type = group.get('equipmentType')?.value as LoanedEquipmentType;
-      const label = LOANED_EQUIPMENT_LABELS[type] ?? String(type);
-      const codesFa = this.accessoryCodesArray(i);
+    for (let i = 0; i < this.customInventoryRows().length; i++) {
+      const group = this.customInventoryRowGroup(i);
+      const id = Number(group.get('id')?.value);
+      const label = String(group.get('displayName')?.value ?? '');
+      const linked = (group.get('linkedEquipmentType')?.value as string | null) ?? null;
+      const codesFa = this.customInventoryCodesArray(i);
       const serialCodes: string[] = [];
 
       for (let c = 0; c < codesFa.length; c++) {
@@ -246,9 +462,9 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
           return;
         }
-        if (!this.isValidAccessorySerialCode(type, raw)) {
+        if (linked && !this.isValidAccessorySerialCode(linked as LoanedEquipmentType, raw)) {
           this.toast.error(
-            type === LoanedEquipmentType.Microphone
+            linked === LoanedEquipmentType.Microphone
               ? `קוד מיקרופון לא תקין (#${c + 1}): אותיות, ספרות ומקף בלבד`
               : `קוד לא תקין עבור ${label} (#${c + 1}): ספרות בלבד`
           );
@@ -261,16 +477,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         serialCodes.push(raw);
       }
 
-      payloads.push({ type, codes: serialCodes, label });
+      payloads.push({ id, codes: serialCodes, label, linked });
     }
 
     this.accessorySaving.set(true);
     this.data
-      .updateAccessoryInventoryBatch({
-        items: payloads.map((p) => ({
-          equipmentType: p.type,
-          serialCodes: p.codes
-        }))
+      .updateInventoryDefinitionsBatch({
+        items: payloads.map((p) => ({ id: p.id, serialCodes: p.codes }))
       })
       .pipe(finalize(() => this.accessorySaving.set(false)))
       .subscribe({
@@ -360,45 +573,71 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       });
   }
 
-  protected addItemCodes(): FormArray<FormControl<string>> {
-    return this.addForm.get('codes') as FormArray<FormControl<string>>;
+  protected addInventoryCodes(): FormArray<FormControl<string>> {
+    return this.addInventoryForm.get('codes') as FormArray<FormControl<string>>;
   }
 
-  protected addItemCodeIndices(): number[] {
-    const len = this.addItemCodes().length;
+  protected addInventoryCodeIndices(): number[] {
+    const len = this.addInventoryCodes().length;
     return Array.from({ length: len }, (_, i) => i);
   }
 
-  protected openAddItem(): void {
-    this.resetAddForm();
-    this.addOpen.set(true);
+  protected showAddInventoryCodes(): boolean {
+    return this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value) > 0;
   }
 
-  protected closeAddItem(): void {
-    this.addOpen.set(false);
+  protected openAddSlot(): void {
+    this.resetAddSlotForm();
+    this.addSlotOpen.set(true);
   }
 
-  protected autoFillItemCodes(): void {
-    const codes = this.addItemCodes();
+  protected closeAddSlot(): void {
+    this.addSlotOpen.set(false);
+  }
+
+  protected openAddInventoryItem(): void {
+    this.resetAddInventoryForm();
+    this.addInventoryOpen.set(true);
+  }
+
+  protected closeAddInventoryItem(): void {
+    this.addInventoryOpen.set(false);
+  }
+
+  protected autoFillInventoryCodes(): void {
+    const codes = this.addInventoryCodes();
     if (codes.length === 0) {
       return;
     }
 
-    const existingPrefix = String(codes.at(0).value ?? '')
-      .trim()
-      .replace(/\d+$/, '');
-    const prefix = existingPrefix.length > 0 ? existingPrefix : 'ITEM-';
+    let next = 1;
+    const used = new Set(
+      codes.controls
+        .map((c) => String(c.value ?? '').trim())
+        .filter((c) => c.length > 0)
+        .map((c) => c.toLowerCase())
+    );
 
     for (let i = 0; i < codes.length; i++) {
       const current = String(codes.at(i).value ?? '').trim();
       if (current.length > 0) {
         continue;
       }
-      codes.at(i).setValue(`${prefix}${i + 1}`);
+      while (used.has(String(next))) {
+        next++;
+      }
+      const fallback = String(next);
+      used.add(fallback);
+      codes.at(i).setValue(fallback);
+      next++;
     }
   }
 
-  protected focusNextAddItemCode(event: Event): void {
+  protected focusNextAddInventoryCode(event: Event): void {
+    this.focusNextCodeInput(event, 'input.add-inventory-code-input[data-serial-nav="inv"]');
+  }
+
+  private focusNextCodeInput(event: Event, selector: string): void {
     event.preventDefault();
     event.stopPropagation();
 
@@ -407,9 +646,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
-    const inputs = Array.from(
-      document.querySelectorAll<HTMLInputElement>('input.add-item-code-input[data-serial-nav="add"]')
-    );
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>(selector));
     const index = inputs.indexOf(current);
     if (index < 0 || index >= inputs.length - 1) {
       return;
@@ -420,44 +657,22 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     next.select();
   }
 
-  protected submitAdd(): void {
-    if (this.addForm.invalid) {
-      this.addForm.markAllAsTouched();
+  protected submitAddSlot(): void {
+    if (this.addSlotForm.invalid) {
+      this.addSlotForm.markAllAsTouched();
       this.toast.error('אנא תקנו את השדות המסומנים');
       return;
     }
 
-    const v = this.addForm.getRawValue();
-    const displayName = (v.displayName ?? '').trim();
-    const category = (v.category ?? '').trim();
-    const rawCodes = (v.codes ?? []).map((c) => String(c ?? '').trim());
-
-    if (rawCodes.some((c) => c.length === 0)) {
-      this.toast.error('יש להזין קוד פריט בכל השדות');
-      return;
-    }
-
-    const itemCodePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-    for (let i = 0; i < rawCodes.length; i++) {
-      const code = rawCodes[i]!;
-      if (!itemCodePattern.test(code) || code.length > 64) {
-        this.toast.error(`קוד פריט לא תקין (#${i + 1}): אותיות באנגלית, מספרים, מקף ונקודה בלבד`);
-        return;
-      }
-    }
-
-    const unique = new Set(rawCodes.map((c) => c.toLowerCase()));
-    if (unique.size !== rawCodes.length) {
-      this.toast.error('קיימים קודי פריט כפולים בטופס');
-      return;
-    }
+    const displayName = (this.addSlotForm.controls.displayName.value ?? '').trim();
+    const code = (this.addSlotForm.controls.code.value ?? '').trim();
 
     this.saving.set(true);
     this.data
       .createEquipmentDefinitionsBatch({
         displayName,
-        category,
-        itemCodes: rawCodes
+        category: 'Speakers',
+        itemCodes: [code]
       })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
@@ -465,63 +680,99 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           if (created === null) {
             return;
           }
-          this.toast.success(created.length === 1 ? 'הפריט נוסף בהצלחה' : `${created.length} פריטים נוספו בהצלחה`);
+          this.toast.success('הרמקול נוסף בהצלחה');
           this.store.upsertDefinitions(created);
-          this.closeAddItem();
-          this.resetAddForm();
+          this.closeAddSlot();
+          this.resetAddSlotForm();
         }
       });
   }
 
-  private wireAddItemQuantitySync(): void {
-    this.addForm.controls.quantity.valueChanges
+  protected submitAddInventoryItem(): void {
+    if (this.addInventoryForm.invalid) {
+      this.addInventoryForm.markAllAsTouched();
+      this.toast.error('אנא תקנו את השדות המסומנים');
+      return;
+    }
+
+    const displayName = (this.addInventoryForm.controls.displayName.value ?? '').trim();
+    if (!displayName) {
+      this.addInventoryForm.controls.displayName.markAsTouched();
+      this.toast.error('יש להזין שם פריט');
+      return;
+    }
+
+    const quantity = this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value);
+    const rawCodes =
+      quantity > 0
+        ? this.addInventoryCodes().controls.map((c) => String(c.value ?? '').trim())
+        : [];
+
+    // Duplicates among filled codes only — blanks are filled by the API.
+    const filled = rawCodes.filter((c) => c.length > 0);
+    const unique = new Set(filled.map((c) => c.toLowerCase()));
+    if (unique.size !== filled.length) {
+      this.toast.error('קיימים קודי פריט כפולים בטופס');
+      return;
+    }
+
+    this.inventorySaving.set(true);
+    this.data
+      .createInventoryDefinition({
+        displayName,
+        quantity,
+        serialCodes: rawCodes
+      })
+      .pipe(finalize(() => this.inventorySaving.set(false)))
+      .subscribe({
+        next: (created) => {
+          if (created === null) {
+            return;
+          }
+          this.toast.success(`הפריט "${created.displayName}" נוסף למלאי`);
+          this.closeAddInventoryItem();
+          this.resetAddInventoryForm();
+          this.loadAccessoryInventory();
+        }
+      });
+  }
+
+  private wireAddInventoryQuantitySync(): void {
+    this.addInventoryForm.controls.quantity.valueChanges
       .pipe(
-        startWith(this.addForm.controls.quantity.value),
-        map((v) => this.toPositiveInteger(v, 1)),
+        startWith(this.addInventoryForm.controls.quantity.value),
+        map((v) => this.toNonNegativeInteger(v)),
         distinctUntilChanged(),
         takeUntilDestroyed(this.destroyRef)
       )
-      .subscribe((qty) => this.setAddItemCodesLength(qty));
+      .subscribe((qty) => this.setAddInventoryCodesLength(qty));
   }
 
-  private setAddItemCodesLength(target: number): void {
-    const length = Math.min(200, Math.max(1, target));
-    const codes = this.addItemCodes();
+  private setAddInventoryCodesLength(target: number): void {
+    const length = Math.min(200, Math.max(0, target));
+    const codes = this.addInventoryCodes();
     while (codes.length < length) {
-      codes.push(this.buildItemCodeControl());
+      // Optional serial codes — blank allowed; server generates sequential fallbacks.
+      codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
     }
     while (codes.length > length) {
       codes.removeAt(codes.length - 1);
     }
-    if (this.addForm.controls.quantity.value !== length) {
-      this.addForm.controls.quantity.setValue(length, { emitEvent: false });
-    }
   }
 
-  private buildItemCodeControl(): FormControl<string> {
-    return this.fb.nonNullable.control('', [
-      Validators.required,
-      Validators.maxLength(64),
-      Validators.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
-    ]);
-  }
-
-  private resetAddForm(): void {
-    this.addForm.reset({
+  private resetAddSlotForm(): void {
+    this.addSlotForm.reset({
       displayName: '',
-      category: 'Speakers',
-      quantity: 1
+      code: ''
     });
-    this.setAddItemCodesLength(1);
-    this.addItemCodes().at(0).setValue('');
   }
 
-  private toPositiveInteger(value: unknown, fallback: number): number {
-    const n = Number(value);
-    if (!Number.isFinite(n)) {
-      return fallback;
-    }
-    return Math.max(1, Math.trunc(n));
+  private resetAddInventoryForm(): void {
+    this.addInventoryForm.reset({
+      displayName: '',
+      quantity: 0
+    });
+    this.setAddInventoryCodesLength(0);
   }
 
   protected rows(): EquipmentDefinitionDto[] {

@@ -24,4 +24,6 @@ public class WaitlistEntryCreateDto
     /// <summary>Optional address — persisted to the customer directory, not on the waitlist row.</summary>
     [MaxLength(500, ErrorMessage = "הכתובת לא יכולה לחרוג מ-500 תווים")]
     public string? Address { get; set; }
+
+    public SystemType SystemType { get; set; } = SystemType.Tools;
 }

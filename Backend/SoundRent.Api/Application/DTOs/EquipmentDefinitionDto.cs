@@ -1,3 +1,5 @@
+using SoundRent.Api.Domain.Enums;
+
 namespace SoundRent.Api.Application.DTOs;
 
 public class EquipmentDefinitionDto
@@ -11,4 +13,6 @@ public class EquipmentDefinitionDto
     /// True when this booking slot is in maintenance mode (cannot accept new orders).
     /// </summary>
     public bool IsUnderMaintenance { get; set; }
+
+    public SystemType SystemType { get; set; }
 }

@@ -52,6 +52,9 @@ public class OrderCreateUpdateDto : IValidatableObject
     /// <summary>Legacy client field; double-booking is blocked by server validation.</summary>
     public bool AllowDoubleBooking { get; set; }
 
+    /// <summary>Product system context; defaults to Sound when omitted by older clients.</summary>
+    public SystemType SystemType { get; set; } = SystemType.Tools;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         var hasEquipment = EquipmentDefinitionIds.Any(id => !string.IsNullOrWhiteSpace(id));

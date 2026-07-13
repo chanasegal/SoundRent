@@ -29,6 +29,7 @@ import {
   OrderShiftDto
 } from '../../core/models/order.model';
 import { DataService } from '../../core/services/data.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
@@ -87,6 +88,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('דוח ציוד');
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);

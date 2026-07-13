@@ -7,6 +7,40 @@
   z-index: 40;
 }
 
+.layout-nav {
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+.layout-nav__link {
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(224 242 254);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover {
+    background-color: rgb(255 255 255 / 0.1);
+    color: #fff;
+  }
+}
+
+@media (min-width: 1280px) {
+  .layout-nav {
+    gap: 0.45rem;
+  }
+
+  .layout-nav__link {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.875rem;
+  }
+}
+
 .layout-footer {
   margin-top: auto;
   border-top: 1px solid #e2e8f0;

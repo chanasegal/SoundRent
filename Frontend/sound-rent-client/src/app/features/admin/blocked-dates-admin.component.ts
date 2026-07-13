@@ -8,6 +8,7 @@ import { BlockedDateDto } from '../../core/models/blocked-date.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateParts, HebrewDateService, HebrewMonthOption } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
+import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 type HebrewEndpoint = 'start' | 'end';
@@ -25,6 +26,7 @@ export class BlockedDatesAdminComponent implements OnInit {
   private readonly hebrew = inject(HebrewDateService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly pageTitle = inject(WorkspaceUiService).title('חסימת תאריכים');
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
 

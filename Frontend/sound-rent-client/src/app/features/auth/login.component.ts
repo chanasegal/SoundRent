@@ -5,6 +5,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
+import { SystemContextService } from '../../core/services/system-context.service';
 
 @Component({
   selector: 'app-login',
@@ -75,6 +76,7 @@ export class LoginComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly systemContext = inject(SystemContextService);
 
   protected readonly submitting = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
@@ -94,7 +96,9 @@ export class LoginComponent {
 
     this.auth.login(this.form.getRawValue()).subscribe({
       next: () => {
-        const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/dashboard';
+        const returnUrl =
+          this.route.snapshot.queryParamMap.get('returnUrl') ??
+          this.systemContext.workspaceHomePath();
         this.router.navigateByUrl(returnUrl);
       },
       error: (err: HttpErrorResponse) => {

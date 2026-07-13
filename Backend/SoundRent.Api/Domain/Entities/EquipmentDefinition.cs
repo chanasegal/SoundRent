@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Domain.Entities;
 
@@ -23,6 +24,9 @@ public class EquipmentDefinition
 
     /// <summary>When true, this booking slot cannot accept new orders (per-unit maintenance).</summary>
     public bool IsMaintenanceMode { get; set; }
+
+    /// <summary>Which product system this booking slot belongs to.</summary>
+    public SystemType SystemType { get; set; } = SystemType.Sound;
 
     public ICollection<OrderEquipment> Orders { get; set; } = new List<OrderEquipment>();
 }

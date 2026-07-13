@@ -43,6 +43,7 @@ public class OrderService : IOrderService
     public async Task<List<OrderDto>> GetWeeklyOrdersAsync(
         DateOnly startDate,
         DateOnly endDate,
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
         if (endDate < startDate)
@@ -50,7 +51,11 @@ public class OrderService : IOrderService
             throw new ValidationException("תאריך הסיום חייב להיות באותו יום או אחרי תאריך ההתחלה");
         }
 
-        var orders = await _orderRepository.GetByDateRangeAsync(startDate, endDate, cancellationToken);
+        var orders = await _orderRepository.GetByDateRangeAsync(
+            startDate,
+            endDate,
+            systemType,
+            cancellationToken);
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
@@ -83,6 +88,7 @@ public class OrderService : IOrderService
             priorEquipmentIds: null,
             validateBlockedDates: true,
             allowAccessoryOnlyLoan: allowAccessoryOnly,
+            systemType: dto.SystemType,
             cancellationToken);
 
         var entity = OrderMapper.ToEntity(dto);
@@ -135,11 +141,13 @@ public class OrderService : IOrderService
             priorEquipmentIds,
             validateBlockedDates: false,
             allowAccessoryOnlyLoan: allowAccessoryOnly,
+            systemType: dto.SystemType,
             cancellationToken);
 
         var priorAssignedSerials = ExtractAssignedSerialCodesByType(existing);
 
         OrderMapper.ApplyTo(dto, existing);
+        existing.SystemType = dto.SystemType;
 
         // Replace child collections (simple, predictable strategy for an admin tool).
         existing.Equipments.Clear();
@@ -812,6 +820,7 @@ public class OrderService : IOrderService
         IReadOnlySet<string>? priorEquipmentIds,
         bool validateBlockedDates,
         bool allowAccessoryOnlyLoan,
+        SystemType systemType,
         CancellationToken cancellationToken)
     {
         if (equipmentIds.Count == 0)
@@ -837,7 +846,7 @@ public class OrderService : IOrderService
             ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
         }
 
-        await ValidateShiftsNotBlockedAsync(shifts, validateBlockedDates, cancellationToken);
+        await ValidateShiftsNotBlockedAsync(shifts, validateBlockedDates, systemType, cancellationToken);
 
         if (equipmentIds.Count == 0)
         {
@@ -853,6 +862,11 @@ public class OrderService : IOrderService
             if (!definitionsById.TryGetValue(trimmed, out var def))
             {
                 throw new ValidationException("יש לבחור ערך ציוד תקין מהרשימה");
+            }
+
+            if (def.SystemType != systemType)
+            {
+                throw new ValidationException("לא ניתן לשריין ציוד ממערכת אחרת");
             }
 
             if (priorEquipmentIds?.Contains(equipmentId) == true)
@@ -886,6 +900,7 @@ public class OrderService : IOrderService
     private async Task ValidateShiftsNotBlockedAsync(
         IReadOnlyList<OrderShiftDto> shifts,
         bool validateBlockedDates,
+        SystemType systemType,
         CancellationToken cancellationToken)
     {
         if (!validateBlockedDates)
@@ -896,7 +911,7 @@ public class OrderService : IOrderService
         var uniqueDates = shifts.Select(s => s.OrderDate).Distinct().ToList();
         foreach (var date in uniqueDates)
         {
-            if (await _blockedDates.AnyBlockCoversDateAsync(date, cancellationToken))
+            if (await _blockedDates.AnyBlockCoversDateAsync(date, systemType, cancellationToken))
             {
                 throw new ValidationException(
                     $"התאריך {date:yyyy-MM-dd} חסום להזמנות חדשות");

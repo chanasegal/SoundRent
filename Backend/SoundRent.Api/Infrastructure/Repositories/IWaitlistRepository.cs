@@ -1,10 +1,15 @@
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
 
 public interface IWaitlistRepository
 {
-    Task<List<WaitlistEntry>> GetByDateRangeAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
+    Task<List<WaitlistEntry>> GetByDateRangeAsync(
+        DateOnly startDate,
+        DateOnly endDate,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>All waitlist rows for full backup export, ordered by requested date then creation time.</summary>
     Task<List<WaitlistEntry>> GetAllOrderedForExportAsync(CancellationToken cancellationToken = default);

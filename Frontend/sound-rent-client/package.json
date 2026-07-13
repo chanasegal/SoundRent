@@ -33,7 +33,7 @@
     "@hebcal/core": "^6.4.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
-    "xlsx": "^0.18.5"
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@angular/build": "^21.0.4",

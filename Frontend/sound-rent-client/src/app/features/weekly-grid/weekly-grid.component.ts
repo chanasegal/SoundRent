@@ -27,7 +27,8 @@ import {
   LOANED_EQUIPMENT_LABELS,
   ReturnTimeType,
   TIME_SLOT_LABELS,
-  TimeSlot
+  TimeSlot,
+  workspacePageTitle
 } from '../../core/models/enums';
 import { OrderDto, OrderShiftDto } from '../../core/models/order.model';
 import {
@@ -49,6 +50,7 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
 import {
@@ -246,6 +248,7 @@ export class WeeklyGridComponent {
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly calendarView = inject(CalendarViewStateService);
+  private readonly systemContext = inject(SystemContextService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -273,19 +276,20 @@ export class WeeklyGridComponent {
   protected readonly equipmentLabels = EQUIPMENT_TYPE_LABELS;
   protected readonly timeSlotLabels = TIME_SLOT_LABELS;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
+  protected readonly pageTitle = computed(() =>
+    workspacePageTitle('לוח הזמנות שבועי', this.systemContext.currentSystemType())
+  );
 
   protected readonly customerSuggestions = signal<CustomerDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
 
-  /** Live speaker slots from the equipment catalog (same source as order forms). */
-  protected readonly waitlistSpeakerOptions = computed(() =>
-    this.equipmentSlots.definitions().filter((d) => d.category === 'Speakers')
-  );
+  /** Live booking slots from the equipment catalog (same source as order forms). */
+  protected readonly waitlistSpeakerOptions = computed(() => this.equipmentSlots.boardSlotDefinitions());
 
   protected readonly gridColumns = computed<WeeklyGridColumnDef[]>(() => {
-    const defs = this.equipmentSlots.definitions().filter((d) => d.category === 'Speakers');
+    const defs = this.equipmentSlots.boardSlotDefinitions();
     return defs.map((d) => ({
       id: gridColIdForSlot(d.id),
       headerLabel: gridHeaderShort(d),
@@ -409,7 +413,10 @@ export class WeeklyGridComponent {
 
     effect(() => {
       const start = this.weekStart();
+      const systemType = this.systemContext.currentSystemType();
       untracked(() => {
+        void systemType;
+        this.equipmentSlots.invalidate();
         this.weeksCount.set(INITIAL_WEEKS_LOADED);
         this.activeWeekStart.set(start);
         const end = this.addDays(start, INITIAL_WEEKS_LOADED * 7 - 1);
@@ -973,7 +980,7 @@ export class WeeklyGridComponent {
             this.closeWaitlistCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.search(q).pipe(
+          return this.customers.searchGlobal(q).pipe(
             map((list) => ({
               field,
               q,
@@ -1114,7 +1121,7 @@ export class WeeklyGridComponent {
     end: string,
     options: { replace: boolean }
   ): void {
-    const key = `${start}|${end}|${options.replace ? 'r' : 'm'}`;
+    const key = `${start}|${end}|${options.replace ? 'r' : 'm'}|${this.systemContext.currentSystemType()}`;
 
     this.weekLoadSub?.unsubscribe();
     this.weekLoadInFlightKey = key;

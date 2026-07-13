@@ -102,7 +102,6 @@ public class InstitutionService : IInstitutionService
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("מוסדות");
-        worksheet.RightToLeft = true;
 
         string[] headers = ["שם מוסד", "הערה ברירת מחדל"];
         for (var col = 0; col < headers.Length; col++)
@@ -118,16 +117,11 @@ public class InstitutionService : IInstitutionService
             worksheet.Cell(excelRow, 2).Value = institution.DefaultNote ?? string.Empty;
         }
 
-        var usedRange = worksheet.Range(1, 1, Math.Max(institutions.Count + 1, 1), headers.Length);
-        usedRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-        usedRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-
-        var headerRange = worksheet.Range(1, 1, 1, headers.Length);
-        headerRange.Style.Font.Bold = true;
-        headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#E0F2FE");
-        headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-
-        worksheet.Columns().AdjustToContents();
+        ExcelExportFormatting.ApplyStandardLayout(
+            worksheet,
+            headerRow: 1,
+            columnCount: headers.Length,
+            lastDataRow: Math.Max(institutions.Count + 1, 1));
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

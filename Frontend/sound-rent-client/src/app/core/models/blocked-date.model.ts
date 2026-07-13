@@ -1,3 +1,5 @@
+import { SystemType } from './enums';
+
 export interface BlockedDateDto {
   id: number;
   startDate: string;
@@ -5,12 +7,14 @@ export interface BlockedDateDto {
   reason?: string | null;
   createdAt: string;
   updatedAt: string;
+  systemType?: SystemType;
 }
 
 export interface BlockedDateCreateDto {
   startDate: string;
   endDate: string;
   reason?: string | null;
+  systemType?: SystemType;
 }
 
 export interface BlockedDateUpdateDto {

@@ -1,4 +1,4 @@
-import { EquipmentType } from './enums';
+import { EquipmentType, SystemType } from './enums';
 
 export interface WaitlistEntryDto {
   id: number;
@@ -8,6 +8,7 @@ export interface WaitlistEntryDto {
   date: string;
   notes?: string | null;
   createdAt: string;
+  systemType?: SystemType;
 }
 
 export interface WaitlistEntryCreateDto {
@@ -18,4 +19,5 @@ export interface WaitlistEntryCreateDto {
   notes?: string | null;
   /** Saved to the customer directory only (not stored on the waitlist row). */
   address?: string | null;
+  systemType?: SystemType;
 }
