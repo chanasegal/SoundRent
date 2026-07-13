@@ -53,6 +53,8 @@ builder.Services.AddScoped<IAccessorySerialInventoryRepository, AccessorySerialI
 builder.Services.AddScoped<IAccessorySerialInventoryService, AccessorySerialInventoryService>();
 builder.Services.AddScoped<IInventoryDefinitionRepository, InventoryDefinitionRepository>();
 builder.Services.AddScoped<IInventoryDefinitionService, InventoryDefinitionService>();
+builder.Services.AddScoped<IToolInventoryService, ToolInventoryService>();
+builder.Services.AddScoped<IToolLoanService, ToolLoanService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 // --- Authentication (JWT) ------------------------------------------------

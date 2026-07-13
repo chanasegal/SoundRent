@@ -1,0 +1,62 @@
+:host {
+  display: block;
+}
+
+.returns-table th,
+.returns-table td {
+  vertical-align: middle;
+}
+
+.row-overdue {
+  background: #fff1f2;
+}
+
+.client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+
+  .phone {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+}
+
+.returned-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.returned-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+
+  input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #002244;
+  }
+}
+
+.returned-stamp {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #002244;
+  line-height: 1.3;
+}
+
+.duration-overdue {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.ltr-field {
+  direction: ltr;
+  unicode-bidi: isolate;
+}

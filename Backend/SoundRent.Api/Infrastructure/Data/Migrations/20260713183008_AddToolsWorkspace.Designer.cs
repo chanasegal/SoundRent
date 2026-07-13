@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoundRent.Api.Infrastructure.Data;
@@ -11,9 +12,11 @@ using SoundRent.Api.Infrastructure.Data;
 namespace SoundRent.Api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260713183008_AddToolsWorkspace")]
+    partial class AddToolsWorkspace
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -798,13 +801,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("HebrewReturnedDisplay")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTime?>("ReturnedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("SerialCode")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -822,9 +818,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ReturnedAt")
-                        .HasDatabaseName("IX_ToolLoanItems_ReturnedAt");
 
                     b.HasIndex("SerialCode")
                         .HasDatabaseName("IX_ToolLoanItems_SerialCode");

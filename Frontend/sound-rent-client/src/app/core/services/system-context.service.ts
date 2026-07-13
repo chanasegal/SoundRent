@@ -65,7 +65,7 @@ export class SystemContextService {
       return '/library';
     }
     if (systemType === SystemType.Tools) {
-      return '/tools';
+      return '/tools/lending';
     }
     return '/dashboard';
   }

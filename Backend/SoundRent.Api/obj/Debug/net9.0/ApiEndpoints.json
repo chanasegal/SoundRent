@@ -1606,6 +1606,352 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "GetAll",
+    "RelativePath": "api/tools-inventory",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolDefinitionDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "Create",
+    "RelativePath": "api/tools-inventory",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionCreateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "Update",
+    "RelativePath": "api/tools-inventory/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "Delete",
+    "RelativePath": "api/tools-inventory/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "ReplaceSerials",
+    "RelativePath": "api/tools-inventory/{id}/serials",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionSerialsUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "AvailableSerials",
+    "RelativePath": "api/tools-inventory/available-serials",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "toolIds",
+        "Type": "System.Int32[]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[System.String, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "ReplaceSerialsBatch",
+    "RelativePath": "api/tools-inventory/batch",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionBatchUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolDefinitionDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsInventoryController",
+    "Method": "Locate",
+    "RelativePath": "api/tools-inventory/location",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "serialCode",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "toolDefinitionId",
+        "Type": "System.Nullable\u00601[[System.Int32, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolSerialLocationDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "GetAll",
+    "RelativePath": "api/tools-loans",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "returned",
+        "Type": "System.Nullable\u00601[[System.Boolean, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "Create",
+    "RelativePath": "api/tools-loans",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanCreateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "MarkReturned",
+    "RelativePath": "api/tools-loans/{id}/return",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanReturnDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "MarkItemReturned",
+    "RelativePath": "api/tools-loans/{loanId}/items/{itemId}/return",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "loanId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "itemId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanReturnDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "GetActive",
+    "RelativePath": "api/tools-loans/active",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.WaitlistController",
     "Method": "Create",
     "RelativePath": "api/waitlist",

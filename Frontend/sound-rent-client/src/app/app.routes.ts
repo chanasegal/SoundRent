@@ -7,11 +7,39 @@ import { SystemContextService } from './core/services/system-context.service';
 import { LayoutComponent } from './shared/layout/layout.component';
 import { WorkspaceShellComponent } from './shared/layout/workspace-shell.component';
 
-const workspaceChildren: Routes = [
+const libraryChildren: Routes = [
   {
     path: '',
     loadComponent: () =>
       import('./features/workspace/workspace-home.component').then((m) => m.WorkspaceHomeComponent)
+  },
+  {
+    path: 'customers',
+    loadComponent: () =>
+      import('./features/admin/customers-admin.component').then((m) => m.CustomersAdminComponent)
+  }
+];
+
+const toolsChildren: Routes = [
+  {
+    path: '',
+    pathMatch: 'full',
+    redirectTo: 'lending'
+  },
+  {
+    path: 'lending',
+    loadComponent: () =>
+      import('./features/tools/tools-lending.component').then((m) => m.ToolsLendingComponent)
+  },
+  {
+    path: 'returns',
+    loadComponent: () =>
+      import('./features/tools/tools-returns.component').then((m) => m.ToolsReturnsComponent)
+  },
+  {
+    path: 'inventory',
+    loadComponent: () =>
+      import('./features/tools/tools-inventory.component').then((m) => m.ToolsInventoryComponent)
   },
   {
     path: 'customers',
@@ -38,7 +66,7 @@ export const routes: Routes = [
     canActivate: [authGuard],
     canActivateChild: [authGuard],
     data: { systemType: SystemType.Tools },
-    children: workspaceChildren
+    children: toolsChildren
   },
   {
     path: 'library',
@@ -46,7 +74,7 @@ export const routes: Routes = [
     canActivate: [authGuard],
     canActivateChild: [authGuard],
     data: { systemType: SystemType.Library },
-    children: workspaceChildren
+    children: libraryChildren
   },
   {
     path: '',

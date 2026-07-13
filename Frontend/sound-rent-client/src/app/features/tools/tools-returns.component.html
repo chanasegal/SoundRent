@@ -1,0 +1,84 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
+      <p class="mt-1 text-sm text-slate-600">
+        סימון החזרה רושם תאריך עברי ושעה. משך ההשאלה אינו כולל שבתות וחגים.
+      </p>
+    </div>
+    <button
+      type="button"
+      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      (click)="refresh()"
+    >
+      רענון
+    </button>
+  </div>
+
+  <div class="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+    @if (loading()) {
+      <p class="px-4 py-8 text-center text-sm text-slate-500">טוען השאלות…</p>
+    } @else {
+      <table class="returns-table w-full min-w-[52rem] border-collapse text-right text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <th class="px-3 py-3 font-semibold">פריט</th>
+            <th class="px-3 py-3 font-semibold">קוד פריט</th>
+            <th class="px-3 py-3 font-semibold">פרטי לקוח</th>
+            <th class="px-3 py-3 font-semibold">מועד החזרה</th>
+            <th class="px-3 py-3 font-semibold">הוחזר</th>
+            <th class="px-3 py-3 font-semibold">משך כולל</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.rowKey) {
+            <tr
+              class="border-b border-slate-100"
+              [class.row-overdue]="isOverdue(row)"
+            >
+              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.toolName }}</td>
+              <td class="px-3 py-3">
+                <span class="ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+              </td>
+              <td class="px-3 py-3">
+                <div class="client-cell">
+                  <span>{{ row.clientName || '—' }}</span>
+                  <span class="ltr-field phone" dir="ltr">{{ formatPhone(row.phone) }}</span>
+                </div>
+              </td>
+              <td class="px-3 py-3 whitespace-nowrap">
+                {{ formatDeadline(row.deadlineAt) || '—' }}
+              </td>
+              <td class="px-3 py-3">
+                <div class="returned-cell">
+                  <label class="returned-check">
+                    <input
+                      type="checkbox"
+                      [checked]="!!row.returnedAt"
+                      [disabled]="!!row.returnedAt || row.returning"
+                      (change)="onReturnedToggle(row, $any($event.target).checked)"
+                    />
+                    <span>הוחזר</span>
+                  </label>
+                  @if (row.hebrewReturnedDisplay) {
+                    <span class="returned-stamp">{{ row.hebrewReturnedDisplay }}</span>
+                  }
+                </div>
+              </td>
+              <td
+                class="px-3 py-3 whitespace-nowrap font-medium"
+                [class.duration-overdue]="isOverdue(row)"
+              >
+                {{ durationText(row) }}
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="px-3 py-8 text-center text-slate-500">אין השאלות פעילות</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>

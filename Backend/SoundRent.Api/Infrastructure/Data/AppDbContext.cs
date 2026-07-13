@@ -28,6 +28,10 @@ public class AppDbContext : DbContext
     public DbSet<AccessorySerialInventory> AccessorySerialInventory => Set<AccessorySerialInventory>();
     public DbSet<InventoryDefinition> InventoryDefinitions => Set<InventoryDefinition>();
     public DbSet<InventorySerialCode> InventorySerialCodes => Set<InventorySerialCode>();
+    public DbSet<ToolDefinition> ToolDefinitions => Set<ToolDefinition>();
+    public DbSet<ToolSerialCode> ToolSerialCodes => Set<ToolSerialCode>();
+    public DbSet<ToolLoan> ToolLoans => Set<ToolLoan>();
+    public DbSet<ToolLoanItem> ToolLoanItems => Set<ToolLoanItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

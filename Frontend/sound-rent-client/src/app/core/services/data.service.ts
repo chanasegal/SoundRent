@@ -41,6 +41,17 @@ import {
   InventoryDefinitionSerialsUpdateDto,
   InventoryDefinitionUpdateDto
 } from '../models/inventory-definition.model';
+import {
+  ToolDefinitionBatchUpdateDto,
+  ToolDefinitionCreateDto,
+  ToolDefinitionDto,
+  ToolDefinitionSerialsUpdateDto,
+  ToolDefinitionUpdateDto,
+  ToolLoanCreateDto,
+  ToolLoanDto,
+  ToolLoanReturnDto,
+  ToolSerialLocationDto
+} from '../models/tools-workspace.model';
 import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
 import { SystemContextService } from './system-context.service';
@@ -66,6 +77,8 @@ export class DataService {
   private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
   private readonly accessoryInventoryBase = `${environment.apiBaseUrl}/accessoryinventory`;
   private readonly inventoryDefinitionsBase = `${environment.apiBaseUrl}/inventory-definitions`;
+  private readonly toolsInventoryBase = `${environment.apiBaseUrl}/tools-inventory`;
+  private readonly toolsLoansBase = `${environment.apiBaseUrl}/tools-loans`;
 
   private activeSystemType(): SystemType {
     return this.systemContext.currentSystemType();
@@ -799,5 +812,154 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  // --- Tools workspace (isolated from Sound inventory / orders) -------------
+
+  getToolDefinitions(): Observable<ToolDefinitionDto[]> {
+    return this.http.get<ToolDefinitionDto[]>(this.toolsInventoryBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createToolDefinition(payload: ToolDefinitionCreateDto): Observable<ToolDefinitionDto | null> {
+    return this.http.post<ToolDefinitionDto>(this.toolsInventoryBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateToolDefinition(
+    id: number,
+    payload: ToolDefinitionUpdateDto
+  ): Observable<ToolDefinitionDto | null> {
+    return this.http.put<ToolDefinitionDto>(`${this.toolsInventoryBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteToolDefinition(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.toolsInventoryBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  updateToolDefinitionSerials(
+    id: number,
+    payload: ToolDefinitionSerialsUpdateDto
+  ): Observable<ToolDefinitionDto | null> {
+    return this.http.put<ToolDefinitionDto>(`${this.toolsInventoryBase}/${id}/serials`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateToolDefinitionsBatch(
+    payload: ToolDefinitionBatchUpdateDto
+  ): Observable<ToolDefinitionDto[] | null> {
+    return this.http.put<ToolDefinitionDto[]>(`${this.toolsInventoryBase}/batch`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  locateToolSerial(
+    serialCode: string,
+    toolDefinitionId?: number | null
+  ): Observable<ToolSerialLocationDto | null> {
+    let params = new HttpParams().set('serialCode', serialCode.trim());
+    if (toolDefinitionId != null) {
+      params = params.set('toolDefinitionId', String(toolDefinitionId));
+    }
+    return this.http.get<ToolSerialLocationDto>(`${this.toolsInventoryBase}/location`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  getAvailableToolSerials(toolIds: number[]): Observable<string[]> {
+    let params = new HttpParams();
+    for (const id of toolIds) {
+      params = params.append('toolIds', String(id));
+    }
+    return this.http.get<string[]>(`${this.toolsInventoryBase}/available-serials`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  getActiveToolLoans(): Observable<ToolLoanDto[]> {
+    return this.http.get<ToolLoanDto[]>(`${this.toolsLoansBase}/active`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  getToolLoans(returned?: boolean): Observable<ToolLoanDto[]> {
+    let params = new HttpParams();
+    if (returned !== undefined) {
+      params = params.set('returned', String(returned));
+    }
+    return this.http.get<ToolLoanDto[]>(this.toolsLoansBase, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createToolLoan(payload: ToolLoanCreateDto): Observable<ToolLoanDto | null> {
+    return this.http.post<ToolLoanDto>(this.toolsLoansBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  returnToolLoan(id: number, payload: ToolLoanReturnDto): Observable<ToolLoanDto | null> {
+    return this.http.post<ToolLoanDto>(`${this.toolsLoansBase}/${id}/return`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  returnToolLoanItem(
+    loanId: number,
+    itemId: number,
+    payload: ToolLoanReturnDto
+  ): Observable<ToolLoanDto | null> {
+    return this.http
+      .post<ToolLoanDto>(`${this.toolsLoansBase}/${loanId}/items/${itemId}/return`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 }
