@@ -9,13 +9,15 @@ import {
 } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
+import Aura from '@primeuix/themes/aura';
+import { providePrimeNG } from 'primeng/config';
+import { firstValueFrom } from 'rxjs';
 
+import { routes } from './app.routes';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { loadingInterceptor } from './core/interceptors/loading.interceptor';
 import { AuthService } from './core/services/auth.service';
 import { EquipmentDefinitionsStore } from './core/services/equipment-definitions.store';
-import { routes } from './app.routes';
-import { firstValueFrom } from 'rxjs';
 
 function initializeAuthFactory(auth: AuthService) {
   return () => {
@@ -42,6 +44,16 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     provideRouter(routes, withComponentInputBinding()),
     provideHttpClient(withInterceptors([authInterceptor, loadingInterceptor])),
+    providePrimeNG({
+      theme: {
+        preset: Aura,
+        options: {
+          darkModeSelector: false,
+          cssLayer: false
+        }
+      },
+      ripple: false
+    }),
     {
       provide: APP_INITIALIZER,
       multi: true,

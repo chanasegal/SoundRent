@@ -1,0 +1,257 @@
+﻿:host {
+  display: block;
+}
+
+.slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.slot-action-btn {
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.slot-action-btn--edit {
+  color: #002244;
+
+  &:hover:not(:disabled) {
+    color: #003366;
+    text-decoration: underline;
+  }
+}
+
+.slot-action-btn--delete {
+  color: #b91c1c;
+  font-weight: 500;
+
+  &:hover:not(:disabled) {
+    color: #7f1d1d;
+  }
+}
+
+.serial-locator__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 0.85rem;
+}
+
+.serial-locator__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 9rem;
+
+  &--code {
+    flex: 1 1 12rem;
+    min-width: 10rem;
+    max-width: 18rem;
+  }
+}
+
+.serial-locator__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.serial-locator__select,
+.serial-locator__input {
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+  outline: none;
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.serial-locator__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.serial-locator__search-btn {
+  border: none;
+  border-radius: 0.5rem;
+  background: #002244;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.serial-locator__clear-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #475569;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.serial-locator__result {
+  margin-top: 0.85rem;
+  border-radius: 0.65rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+
+  &--warehouse {
+    border-color: #86efac;
+    background: #f0fdf4;
+  }
+
+  &--loaned {
+    border-color: #fca5a5;
+    background: #fff1f2;
+  }
+
+  &--missing {
+    border-color: #fcd34d;
+    background: #fffbeb;
+  }
+}
+
+.serial-locator__status {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.serial-locator__meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.serial-locator__sep {
+  margin: 0 0.25rem;
+}
+
+.serial-locator__loan-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.55rem 1rem;
+  margin: 0.65rem 0 0;
+
+  div {
+    min-width: 0;
+  }
+
+  dt {
+    margin: 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+}
+
+.accessory-inventory-table {
+  th,
+  td {
+    vertical-align: middle;
+  }
+}
+
+.qty-input {
+  width: 4.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  padding: 0.4rem 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.note-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.note-input {
+  flex: 0 0 auto;
+  width: 5.25rem;
+  border-radius: 0.4rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.75rem;
+  color: #0f172a;
+  outline: none;
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &::placeholder {
+    color: #cbd5e1;
+    font-weight: 600;
+  }
+
+  &:focus {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
+  }
+}
+
+.add-item-modal {
+  max-height: min(92vh, 40rem);
+  overflow-y: auto;
+}
+
+.add-item-modal .note-input {
+  width: 5.75rem;
+}
+
+.ltr-field {
+  direction: ltr;
+  unicode-bidi: isolate;
+}

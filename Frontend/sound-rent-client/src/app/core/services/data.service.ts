@@ -17,6 +17,10 @@ import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
 import { InstitutionCreateUpdateDto, InstitutionDto } from '../models/institution.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
 import {
+  MarkOpenDebtGroupPaidDto,
+  OpenDebtGroupDto
+} from '../models/open-debt.model';
+import {
   LostEquipmentCreateDto,
   LostEquipmentDto,
   LostEquipmentUpdateDto
@@ -42,16 +46,33 @@ import {
   InventoryDefinitionUpdateDto
 } from '../models/inventory-definition.model';
 import {
+  ToolAvailableSerialsGroupDto,
   ToolDefinitionBatchUpdateDto,
   ToolDefinitionCreateDto,
   ToolDefinitionDto,
   ToolDefinitionSerialsUpdateDto,
   ToolDefinitionUpdateDto,
+  ToolItemBorrowHistoryDto,
   ToolLoanCreateDto,
   ToolLoanDto,
+  ToolLoanReturnByCodeDto,
   ToolLoanReturnDto,
   ToolSerialLocationDto
 } from '../models/tools-workspace.model';
+import {
+  BookAvailableCopiesGroupDto,
+  BookBatchUpdateDto,
+  BookCopiesUpdateDto,
+  BookCreateDto,
+  BookCopyLocationDto,
+  BookDto,
+  BookItemBorrowHistoryDto,
+  BookLoanCreateDto,
+  BookLoanDto,
+  BookLoanReturnByCodeDto,
+  BookLoanReturnDto,
+  BookUpdateDto
+} from '../models/library-workspace.model';
 import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
 import { SystemContextService } from './system-context.service';
@@ -79,6 +100,8 @@ export class DataService {
   private readonly inventoryDefinitionsBase = `${environment.apiBaseUrl}/inventory-definitions`;
   private readonly toolsInventoryBase = `${environment.apiBaseUrl}/tools-inventory`;
   private readonly toolsLoansBase = `${environment.apiBaseUrl}/tools-loans`;
+  private readonly booksInventoryBase = `${environment.apiBaseUrl}/books-inventory`;
+  private readonly bookLoansBase = `${environment.apiBaseUrl}/book-loans`;
 
   private activeSystemType(): SystemType {
     return this.systemContext.currentSystemType();
@@ -279,6 +302,35 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
+      })
+    );
+  }
+
+  getOpenDebtGroupsReport(): Observable<OpenDebtGroupDto[]> {
+    return this.http.get<OpenDebtGroupDto[]>(`${this.reportsBase}/open-debts`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  markOpenDebtGroupPaid(payload: MarkOpenDebtGroupPaidDto): Observable<boolean> {
+    return this.http.post<void>(`${this.reportsBase}/open-debts/mark-paid`, payload).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  markCustomerDebtPaid(debtId: number): Observable<boolean> {
+    return this.http.post<void>(`${this.reportsBase}/open-debts/${debtId}/mark-paid`, {}).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
       })
     );
   }
@@ -908,6 +960,18 @@ export class DataService {
     );
   }
 
+  /** Single bulk fetch of all unborrowed serials, grouped by tool definition. */
+  getAllAvailableToolSerials(): Observable<ToolAvailableSerialsGroupDto[]> {
+    return this.http
+      .get<ToolAvailableSerialsGroupDto[]>(`${this.toolsInventoryBase}/available-serials/all`)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
   getActiveToolLoans(): Observable<ToolLoanDto[]> {
     return this.http.get<ToolLoanDto[]>(`${this.toolsLoansBase}/active`).pipe(
       catchError((err) => {
@@ -959,6 +1023,248 @@ export class DataService {
         catchError((err) => {
           this.notifyHttpError(err);
           return of(null);
+        })
+      );
+  }
+
+  /** Quick return by tool definition + serial code (one active item). */
+  returnToolLoanByCode(payload: ToolLoanReturnByCodeDto): Observable<ToolLoanDto | null> {
+    return this.http.post<ToolLoanDto>(`${this.toolsLoansBase}/return-by-code`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  undoToolLoanItemReturn(loanId: number, itemId: number): Observable<ToolLoanDto | null> {
+    return this.http
+      .post<ToolLoanDto>(`${this.toolsLoansBase}/${loanId}/items/${itemId}/undo-return`, {})
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  deleteToolLoan(loanId: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.toolsLoansBase}/${loanId}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  /** Completed returns for one tool+code, sorted ReturnedAt DESC on the server. */
+  getToolItemBorrowHistory(
+    toolDefinitionId: number,
+    serialCode: string
+  ): Observable<ToolItemBorrowHistoryDto[]> {
+    const params = new HttpParams()
+      .set('toolDefinitionId', String(toolDefinitionId))
+      .set('serialCode', serialCode);
+    return this.http
+      .get<ToolItemBorrowHistoryDto[]>(`${this.toolsLoansBase}/item-history`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
+  // --- Library workspace (books inventory / loans) ---------------------------
+
+  getBooks(): Observable<BookDto[]> {
+    return this.http.get<BookDto[]>(this.booksInventoryBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createBook(payload: BookCreateDto): Observable<BookDto | null> {
+    return this.http.post<BookDto>(this.booksInventoryBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateBook(id: number, payload: BookUpdateDto): Observable<BookDto | null> {
+    return this.http.put<BookDto>(`${this.booksInventoryBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteBook(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.booksInventoryBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  updateBookCopies(id: number, payload: BookCopiesUpdateDto): Observable<BookDto | null> {
+    return this.http.put<BookDto>(`${this.booksInventoryBase}/${id}/copies`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateBooksBatch(payload: BookBatchUpdateDto): Observable<BookDto[] | null> {
+    return this.http.put<BookDto[]>(`${this.booksInventoryBase}/batch`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  locateBookCopy(copyNumber: string, bookId?: number | null): Observable<BookCopyLocationDto | null> {
+    let params = new HttpParams().set('copyNumber', copyNumber.trim());
+    if (bookId != null) {
+      params = params.set('bookId', String(bookId));
+    }
+    return this.http.get<BookCopyLocationDto>(`${this.booksInventoryBase}/location`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  getAvailableBookCopies(bookIds: number[]): Observable<string[]> {
+    let params = new HttpParams();
+    for (const id of bookIds) {
+      params = params.append('bookIds', String(id));
+    }
+    return this.http.get<string[]>(`${this.booksInventoryBase}/available-copies`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  getAllAvailableBookCopies(): Observable<BookAvailableCopiesGroupDto[]> {
+    return this.http
+      .get<BookAvailableCopiesGroupDto[]>(`${this.booksInventoryBase}/available-copies/all`)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
+  getActiveBookLoans(): Observable<BookLoanDto[]> {
+    return this.http.get<BookLoanDto[]>(`${this.bookLoansBase}/active`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  getBookLoans(returned?: boolean): Observable<BookLoanDto[]> {
+    let params = new HttpParams();
+    if (returned !== undefined) {
+      params = params.set('returned', String(returned));
+    }
+    return this.http.get<BookLoanDto[]>(this.bookLoansBase, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  createBookLoan(payload: BookLoanCreateDto): Observable<BookLoanDto | null> {
+    return this.http.post<BookLoanDto>(this.bookLoansBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  returnBookLoan(id: number, payload: BookLoanReturnDto): Observable<BookLoanDto | null> {
+    return this.http.post<BookLoanDto>(`${this.bookLoansBase}/${id}/return`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  returnBookLoanItem(
+    loanId: number,
+    itemId: number,
+    payload: BookLoanReturnDto
+  ): Observable<BookLoanDto | null> {
+    return this.http
+      .post<BookLoanDto>(`${this.bookLoansBase}/${loanId}/items/${itemId}/return`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  returnBookLoanByCode(payload: BookLoanReturnByCodeDto): Observable<BookLoanDto | null> {
+    return this.http.post<BookLoanDto>(`${this.bookLoansBase}/return-by-code`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  undoBookLoanItemReturn(loanId: number, itemId: number): Observable<BookLoanDto | null> {
+    return this.http
+      .post<BookLoanDto>(`${this.bookLoansBase}/${loanId}/items/${itemId}/undo-return`, {})
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  deleteBookLoan(loanId: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.bookLoansBase}/${loanId}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
+  getBookItemBorrowHistory(bookId: number, copyNumber: string): Observable<BookItemBorrowHistoryDto[]> {
+    const params = new HttpParams()
+      .set('bookId', String(bookId))
+      .set('copyNumber', copyNumber);
+    return this.http
+      .get<BookItemBorrowHistoryDto[]>(`${this.bookLoansBase}/item-history`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
         })
       );
   }

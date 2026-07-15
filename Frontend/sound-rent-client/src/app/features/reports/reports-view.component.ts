@@ -1,9 +1,18 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { OrderDto } from '../../core/models/order.model';
+import { OpenDebtGroupDto } from '../../core/models/open-debt.model';
 import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
@@ -13,11 +22,12 @@ import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 
 type ReportsTab = 'cancelled' | 'unpaid';
+type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספריה';
 
 @Component({
   selector: 'app-reports-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, FormsModule],
   templateUrl: './reports-view.component.html',
   styleUrl: './reports-view.component.scss'
 })
@@ -33,13 +43,23 @@ export class ReportsViewComponent implements OnInit {
   protected readonly boardQueryParams = computed(() => this.calendarView.dashboardQueryParams());
   protected readonly activeTab = signal<ReportsTab>('cancelled');
   protected readonly cancelledOrders = signal<OrderDto[]>([]);
-  protected readonly unpaidOrders = signal<OrderDto[]>([]);
+  protected readonly openDebtGroups = signal<OpenDebtGroupDto[]>([]);
+  protected readonly debtCategoryFilter = signal<DebtCategoryFilter>('all');
   protected readonly loadingCancelled = signal(false);
   protected readonly loadingUnpaid = signal(false);
   protected readonly exportCancelledInProgress = signal(false);
   protected readonly exportUnpaidInProgress = signal(false);
-  protected readonly markingPaidId = signal<number | null>(null);
+  protected readonly markingPaidKey = signal<string | null>(null);
   protected readonly deletingOrderId = signal<number | null>(null);
+
+  protected readonly filteredOpenDebts = computed(() => {
+    const filter = this.debtCategoryFilter();
+    const rows = this.openDebtGroups();
+    if (filter === 'all') {
+      return rows;
+    }
+    return rows.filter((r) => r.categoryLabel === filter);
+  });
 
   ngOnInit(): void {
     this.equipmentSlots.load().subscribe();
@@ -72,11 +92,18 @@ export class ReportsViewComponent implements OnInit {
   protected loadUnpaid(): void {
     this.loadingUnpaid.set(true);
     this.data
-      .getUnpaidOrdersReport()
+      .getOpenDebtGroupsReport()
       .pipe(finalize(() => this.loadingUnpaid.set(false)))
       .subscribe({
-        next: (orders) => this.unpaidOrders.set(orders)
+        next: (groups) => this.openDebtGroups.set(groups)
       });
+  }
+
+  protected onDebtCategoryFilterChange(value: string): void {
+    const allowed: DebtCategoryFilter[] = ['all', 'כלי עבודה', 'הגברה', 'ספריה'];
+    this.debtCategoryFilter.set(
+      allowed.includes(value as DebtCategoryFilter) ? (value as DebtCategoryFilter) : 'all'
+    );
   }
 
   protected exportCancelledToExcel(): void {
@@ -91,7 +118,7 @@ export class ReportsViewComponent implements OnInit {
     this.exportCancelledInProgress.set(true);
     void this.exportSvc
       .exportToExcel(
-        rows.map((o) => this.toExcelRow(o)),
+        rows.map((o) => this.toCancelledExcelRow(o)),
         `cancelled_orders_${this.todayFileStamp()}.xlsx`
       )
       .then(() => this.toast.success('קובץ Excel הורד'))
@@ -99,7 +126,7 @@ export class ReportsViewComponent implements OnInit {
   }
 
   protected exportUnpaidToExcel(): void {
-    const rows = this.unpaidOrders();
+    const rows = this.filteredOpenDebts();
     if (rows.length === 0) {
       this.toast.show('אין חובות פתוחים לייצוא', 'info');
       return;
@@ -110,28 +137,38 @@ export class ReportsViewComponent implements OnInit {
     this.exportUnpaidInProgress.set(true);
     void this.exportSvc
       .exportToExcel(
-        rows.map((o) => this.toExcelRow(o, true)),
-        `unpaid_orders_${this.todayFileStamp()}.xlsx`
+        rows.map((g) => ({
+          'שם לקוח': g.customerName ?? '',
+          טלפון: g.phone,
+          קטגוריה: g.categoryLabel,
+          ציוד: g.equipmentSummary,
+          'תאריך חיוב': this.sessionHebrewDate(g),
+          'סכום כולל': g.totalAmount
+        })),
+        `open_debts_${this.todayFileStamp()}.xlsx`
       )
       .then(() => this.toast.success('קובץ Excel הורד'))
       .finally(() => this.exportUnpaidInProgress.set(false));
   }
 
-  protected markAsPaid(order: OrderDto): void {
-    if (this.markingPaidId() !== null) {
+  protected markGroupAsPaid(group: OpenDebtGroupDto): void {
+    if (this.markingPaidKey() !== null) {
       return;
     }
-    this.markingPaidId.set(order.id);
+    this.markingPaidKey.set(group.groupKey);
     this.data
-      .markOrderAsPaid(order.id)
-      .pipe(finalize(() => this.markingPaidId.set(null)))
+      .markOpenDebtGroupPaid({
+        debtIds: group.debtIds ?? [],
+        orderIds: group.orderIds ?? []
+      })
+      .pipe(finalize(() => this.markingPaidKey.set(null)))
       .subscribe({
-        next: (updated) => {
-          if (updated === null) {
+        next: (ok) => {
+          if (!ok) {
             return;
           }
-          this.unpaidOrders.update((list) => list.filter((o) => o.id !== order.id));
-          this.toast.success('ההזמנה סומנה כשולמה');
+          this.openDebtGroups.update((list) => list.filter((g) => g.groupKey !== group.groupKey));
+          this.toast.success('החובות בקבוצה סומנו כשולמו');
         }
       });
   }
@@ -184,6 +221,22 @@ export class ReportsViewComponent implements OnInit {
     return date ? this.hebrew.toHebrew(date) : iso;
   }
 
+  protected sessionHebrewDate(group: OpenDebtGroupDto): string {
+    const date = new Date(group.sessionDate);
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    return this.hebrew.toHebrew(date);
+  }
+
+  protected formatGroupAmount(group: OpenDebtGroupDto): string {
+    return new Intl.NumberFormat('he-IL', {
+      style: 'currency',
+      currency: 'ILS',
+      maximumFractionDigits: 0
+    }).format(group.totalAmount ?? 0);
+  }
+
   protected formatAmount(order: OrderDto): string {
     if (order.paymentAmount == null) {
       return '—';
@@ -199,19 +252,16 @@ export class ReportsViewComponent implements OnInit {
     return order.isCancelled ? 'מבוטלת' : 'פעילה';
   }
 
-  private toExcelRow(order: OrderDto, includeStatus = false): Record<string, unknown> {
-    const row: Record<string, unknown> = {
+  private toCancelledExcelRow(order: OrderDto): Record<string, unknown> {
+    return {
       'שם לקוח': order.customerName ?? '',
       טלפון: order.phone,
       ציוד: this.equipmentLabel(order),
       'תאריך התחלה': this.startHebrewDate(order),
       'תאריך סיום': this.endHebrewDate(order),
-      'סכום כולל': order.paymentAmount ?? ''
+      'סכום כולל': order.paymentAmount ?? '',
+      סטטוס: this.orderStatusLabel(order)
     };
-    if (includeStatus) {
-      row['סטטוס'] = this.orderStatusLabel(order);
-    }
-    return row;
   }
 
   private firstShiftDate(order: OrderDto): string | null {

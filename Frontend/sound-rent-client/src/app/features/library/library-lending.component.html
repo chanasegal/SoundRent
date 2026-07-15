@@ -1,8 +1,8 @@
-<div class="mx-auto max-w-6xl px-4 py-6">
+﻿<div class="mx-auto max-w-6xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
-      <p class="mt-1 text-sm text-slate-600">השאלות פעילות — סימון החזרה מעביר את הפריט לדף ההחזרות.</p>
+      <p class="mt-1 text-sm text-slate-600">השאלות פעילות — סימון החזרה מעביר את הספר לדף ההחזרות.</p>
     </div>
 
     <div class="time-limit-bar">
@@ -12,18 +12,18 @@
         [class.time-limit-toggle--on]="timeLimitEnabled()"
         (click)="toggleTimeLimit()"
       >
-        {{ timeLimitEnabled() ? 'הגבלת זמן פעילה' : 'הפעלת הגבלת זמן' }}
+        {{ timeLimitEnabled() ? 'הגבלת ימים פעילה' : 'הפעלת הגבלת ימים' }}
       </button>
       @if (timeLimitEnabled()) {
         <label class="time-limit-hours" [formGroup]="timeLimitForm">
-          <span>משך (שעות)</span>
-          <input type="number" min="0.25" max="168" step="0.25" formControlName="hours" />
+          <span>משך (ימים)</span>
+          <input type="number" min="1" max="365" step="1" formControlName="days" />
         </label>
       }
       @if (formOpen()) {
         <button type="button" class="add-row-btn" (click)="closeFormPanel()">סגור טופס</button>
       } @else {
-        <button type="button" class="add-row-btn add-row-btn--primary" (click)="addForm()">הוסף השאלה</button>
+        <button type="button" class="add-row-btn add-row-btn--primary" (click)="addForm()">הוסף השאלת ספר</button>
       }
       <button
         type="button"
@@ -35,12 +35,12 @@
     </div>
   </div>
 
-  <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד פריט">
-    <h2 class="quick-return-card__title">החזרה מהירה לפי קוד פריט</h2>
+  <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד ספר">
+    <h2 class="quick-return-card__title">החזרה מהירה לפי קוד ספר</h2>
     <div class="quick-return-card__row">
       <label class="quick-return-field">
-        <span>סוג כלי</span>
-        <app-tool-type-select
+        <span>ספר</span>
+        <app-book-title-select
           class="field-input-wrap"
           [options]="definitions()"
           [ngModel]="quickReturnToolId()"
@@ -48,7 +48,7 @@
         />
       </label>
       <label class="quick-return-field">
-        <span>קוד פריט</span>
+        <span>ברקוד</span>
         <input
           type="text"
           class="field-input ltr-field"
@@ -96,7 +96,7 @@
         <section class="loan-card">
           <header class="loan-card__header">
             <div>
-              <p class="loan-card__eyebrow">תאריך ושעה</p>
+              <p class="loan-card__eyebrow">תאריך</p>
               <p class="loan-card__datetime">{{ form.hebrewDateTime }}</p>
             </div>
             @if (showDeadline()) {
@@ -109,33 +109,33 @@
 
           <div class="loan-card__grid">
             <div class="field-block field-block--span2">
-              <label class="field-label">ציוד מושאל</label>
+              <label class="field-label">ספרים מושאלים</label>
               <div class="tool-lines">
-                @for (line of form.toolLines; track line.id) {
+                @for (line of form.bookLines; track line.id) {
                   <div class="tool-line">
                     <div class="tool-line__tool" data-tool-suggest>
                       <input
                         type="text"
                         class="field-input"
-                        placeholder="חיפוש כלי (למשל: מברגה)"
-                        [value]="line.toolQuery"
+                        placeholder="חיפוש ספר"
+                        [value]="line.bookQuery"
                         (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
                         (focus)="onToolQueryFocus(form.id, line.id)"
                         autocomplete="off"
                       />
-                      @if (line.toolSuggestOpen) {
+                      @if (line.bookSuggestOpen) {
                         <ul class="suggest-list" (click)="$event.stopPropagation()">
                           @for (tool of filteredToolsForLine(form, line); track tool.id) {
                             <li>
                               <button type="button" (click)="selectTool(form.id, line.id, tool)">
-                                <span class="suggest-main">{{ tool.displayName }}</span>
+                                <span class="suggest-main">{{ tool.title }}</span>
                                 <span class="suggest-meta">
-                                  {{ availableByTool().get(tool.id)?.length ?? 0 }} קודים זמינים
+                                  {{ availableByBook().get(tool.id)?.length ?? 0 }} קודים זמינים
                                 </span>
                               </button>
                             </li>
                           } @empty {
-                            <li class="suggest-empty">לא נמצאו כלים תואמים</li>
+                            <li class="suggest-empty">לא נמצאו ספרים תואמים</li>
                           }
                         </ul>
                       }
@@ -145,39 +145,39 @@
                       <button
                         type="button"
                         class="ms-dropdown__btn"
-                        [disabled]="line.toolId == null"
+                        [disabled]="line.bookId == null"
                         (click)="toggleCodesDropdown(form.id, line.id, $event)"
                       >
-                        @if (line.selectedCodes.length === 0) {
+                        @if (line.selectedCopies.length === 0) {
                           <span class="placeholder">בחרו קודים…</span>
                         } @else {
-                          <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                          <span class="ltr-field" dir="ltr">{{ line.selectedCopies.join(', ') }}</span>
                         }
                       </button>
-                      @if (line.codesOpen) {
+                      @if (line.copiesOpen) {
                         <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
                           @for (code of availableCodesForLine(form, line); track code) {
                             <label class="ms-dropdown__option">
                               <input
                                 type="checkbox"
-                                [checked]="line.selectedCodes.includes(code)"
+                                [checked]="line.selectedCopies.includes(code)"
                                 (change)="toggleCodeSelection(form.id, line.id, code, $event)"
                               />
                               <span class="ltr-field" dir="ltr">{{ code }}</span>
                             </label>
                           } @empty {
-                            <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                            <p class="ms-dropdown__empty">אין קודים זמינים לספר זה</p>
                           }
                         </div>
                       }
                     </div>
 
-                    @if (form.toolLines.length > 1) {
+                    @if (form.bookLines.length > 1) {
                       <button
                         type="button"
                         class="tool-line__remove"
                         (click)="removeToolLine(form.id, line.id)"
-                        aria-label="הסר שורת כלי"
+                        aria-label="הסר שורת ספר"
                       >
                         ×
                       </button>
@@ -186,7 +186,7 @@
                 }
               </div>
               <button type="button" class="add-tool-btn" (click)="addToolLine(form.id)">
-                + הוסף פריט נוסף
+                + הוסף ספר נוסף
               </button>
             </div>
 
@@ -365,12 +365,12 @@
       <table class="loans-table w-full min-w-[56rem] border-collapse text-right text-sm">
         <thead>
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-3 font-semibold">תאריך ושעה</th>
-            <th class="px-3 py-3 font-semibold">פריט</th>
-            <th class="px-3 py-3 font-semibold">קוד פריט</th>
-            <th class="px-3 py-3 font-semibold">פרטי לקוח</th>
+            <th class="px-3 py-3 font-semibold">תאריך</th>
+            <th class="px-3 py-3 font-semibold">ספר</th>
+            <th class="px-3 py-3 font-semibold">קוד עותק</th>
+            <th class="px-3 py-3 font-semibold">פרטי קורא</th>
             <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
-            <th class="px-3 py-3 font-semibold">סכום חיוב</th>
+            <th class="px-3 py-3 font-semibold">קנס/חיוב</th>
             <th class="px-3 py-3 font-semibold">הוחזר</th>
             <th class="px-3 py-3 font-semibold">משך כולל</th>
           </tr>
@@ -381,9 +381,9 @@
               <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
                 {{ row.hebrewLentDisplay }}
               </td>
-              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.toolName }}</td>
+              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.bookTitle }}</td>
               <td class="px-3 py-3">
-                <span class="ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                <span class="ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
               </td>
               <td class="px-3 py-3">
                 <div class="client-cell">

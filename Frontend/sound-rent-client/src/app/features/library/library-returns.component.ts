@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -13,27 +13,28 @@ import { ConfirmPopup } from 'primeng/confirmpopup';
 import { finalize } from 'rxjs/operators';
 
 import {
-  ToolDefinitionDto,
-  ToolItemBorrowHistoryDto,
-  ToolLoanDto,
-  ToolLoanItemDto
-} from '../../core/models/tools-workspace.model';
+  BookDto,
+  BookItemBorrowHistoryDto,
+  BookLoanDto,
+  BookLoanItemDto
+} from '../../core/models/library-workspace.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
-  formatBillableDuration,
-  toBillableParts
-} from '../../core/utils/tools-billable-duration';
-import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
+  endOfLocalDay,
+  formatLibraryDuration,
+  libraryBillableDays
+} from '../../core/utils/library-loan-duration';
+import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 
 interface CompletedLoanRowView {
   rowKey: string;
   loanId: number;
   itemId: number;
   customerDebtId: number | null;
-  item: Pick<ToolLoanItemDto, 'toolName' | 'serialCode'>;
+  item: Pick<BookLoanItemDto, 'bookTitle' | 'copyNumber'>;
   clientName: string;
   phone: string;
   lentAt: Date;
@@ -46,14 +47,14 @@ interface CompletedLoanRowView {
 }
 
 @Component({
-  selector: 'app-tools-returns',
+  selector: 'app-library-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ToolTypeSelectComponent, ConfirmPopup],
+  imports: [CommonModule, FormsModule, BookTitleSelectComponent, ConfirmPopup],
   providers: [ConfirmationService],
-  templateUrl: './tools-returns.component.html',
-  styleUrl: './tools-returns.component.scss'
+  templateUrl: './library-returns.component.html',
+  styleUrl: './library-returns.component.scss'
 })
-export class ToolsReturnsComponent implements OnInit {
+export class LibraryReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
@@ -61,8 +62,8 @@ export class ToolsReturnsComponent implements OnInit {
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   protected readonly loading = signal(true);
-  protected readonly loans = signal<ToolLoanDto[]>([]);
-  protected readonly definitions = signal<ToolDefinitionDto[]>([]);
+  protected readonly loans = signal<BookLoanDto[]>([]);
+  protected readonly definitions = signal<BookDto[]>([]);
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
   protected readonly deletingLoanId = signal<number | null>(null);
@@ -75,12 +76,12 @@ export class ToolsReturnsComponent implements OnInit {
   protected readonly historyRows = signal<CompletedLoanRowView[]>([]);
 
   protected readonly historyCodes = computed(() => {
-    const toolId = this.historyToolId();
-    if (toolId == null) {
+    const bookId = this.historyToolId();
+    if (bookId == null) {
       return [] as string[];
     }
-    const def = this.definitions().find((d) => d.id === toolId);
-    return [...(def?.serialCodes ?? [])].sort((a, b) =>
+    const def = this.definitions().find((d) => d.id === bookId);
+    return [...(def?.copies ?? [])].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true })
     );
   });
@@ -106,11 +107,13 @@ export class ToolsReturnsComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           lentAt,
-          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
           deadlineAt,
           returnedAt,
-          hebrewReturnedDisplay:
-            item.hebrewReturnedDisplay?.trim() || this.formatHebrewDateTime(returnedAt, true),
+          hebrewReturnedDisplay: this.dateOnlyDisplay(
+            item.hebrewReturnedDisplay,
+            returnedAt
+          ),
           chargeAmount: item.chargeAmount ?? null,
           chargeIsPaid: item.chargeIsPaid ?? null
         });
@@ -125,22 +128,22 @@ export class ToolsReturnsComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    this.data.getToolDefinitions().subscribe((list) => this.definitions.set(list));
+    this.data.getBooks().subscribe((list) => this.definitions.set(list));
     this.refresh();
   }
 
   protected refresh(): void {
     this.loading.set(true);
     this.data
-      .getToolLoans()
+      .getBookLoans()
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe((list) => {
         this.loans.set(list);
       });
   }
 
-  protected onHistoryToolChange(toolId: number | null): void {
-    this.historyToolId.set(toolId != null && toolId > 0 ? toolId : null);
+  protected onHistoryToolChange(bookId: number | null): void {
+    this.historyToolId.set(bookId != null && bookId > 0 ? bookId : null);
     this.historyCode.set('');
   }
 
@@ -149,20 +152,20 @@ export class ToolsReturnsComponent implements OnInit {
   }
 
   protected searchItemHistory(): void {
-    const toolId = this.historyToolId();
+    const bookId = this.historyToolId();
     const serial = this.historyCode().trim();
-    if (toolId == null) {
-      this.toast.error('יש לבחור סוג כלי');
+    if (bookId == null) {
+      this.toast.error('יש לבחור ספר');
       return;
     }
     if (!serial) {
-      this.toast.error('יש להזין קוד פריט');
+      this.toast.error('יש להזין ברקוד');
       return;
     }
 
     this.historySearching.set(true);
     this.data
-      .getToolItemBorrowHistory(toolId, serial)
+      .getBookItemBorrowHistory(bookId, serial)
       .pipe(finalize(() => this.historySearching.set(false)))
       .subscribe((list) => {
         this.historyRows.set(list.map((h) => this.toHistoryRow(h)));
@@ -189,20 +192,19 @@ export class ToolsReturnsComponent implements OnInit {
     if (!deadline) {
       return '—';
     }
-    const hh = String(deadline.getHours()).padStart(2, '0');
-    const mm = String(deadline.getMinutes()).padStart(2, '0');
-    return `${this.hebrew.toHebrew(deadline)} ${hh}:${mm}`;
+    return this.formatHebrewDate(deadline);
   }
 
   protected durationText(row: CompletedLoanRowView): string {
-    return formatBillableDuration(toBillableParts(row.lentAt, row.returnedAt));
+    const days = libraryBillableDays(row.lentAt, row.returnedAt);
+    return formatLibraryDuration(days, this.isOverdue(row));
   }
 
   protected isOverdue(row: CompletedLoanRowView): boolean {
     if (!row.deadlineAt) {
       return false;
     }
-    return row.returnedAt.getTime() > row.deadlineAt.getTime();
+    return row.returnedAt.getTime() > endOfLocalDay(row.deadlineAt).getTime();
   }
 
   protected formatCharge(amount: number | null): string {
@@ -283,7 +285,7 @@ export class ToolsReturnsComponent implements OnInit {
   private undoReturn(row: CompletedLoanRowView): void {
     this.undoingRowKey.set(row.rowKey);
     this.data
-      .undoToolLoanItemReturn(row.loanId, row.itemId)
+      .undoBookLoanItemReturn(row.loanId, row.itemId)
       .pipe(finalize(() => this.undoingRowKey.set(null)))
       .subscribe((updated) => {
         if (!updated) {
@@ -297,7 +299,7 @@ export class ToolsReturnsComponent implements OnInit {
   private deleteLoan(row: CompletedLoanRowView): void {
     this.deletingLoanId.set(row.loanId);
     this.data
-      .deleteToolLoan(row.loanId)
+      .deleteBookLoan(row.loanId)
       .pipe(finalize(() => this.deletingLoanId.set(null)))
       .subscribe((ok) => {
         if (!ok) {
@@ -384,7 +386,7 @@ export class ToolsReturnsComponent implements OnInit {
     }
   }
 
-  private toHistoryRow(h: ToolItemBorrowHistoryDto): CompletedLoanRowView {
+  private toHistoryRow(h: BookItemBorrowHistoryDto): CompletedLoanRowView {
     const lentAt = new Date(h.lentAt);
     const returnedAt = new Date(h.returnedAt);
     return {
@@ -392,27 +394,31 @@ export class ToolsReturnsComponent implements OnInit {
       loanId: h.loanId,
       itemId: h.itemId,
       customerDebtId: h.customerDebtId ?? null,
-      item: { toolName: h.toolName, serialCode: h.serialCode },
+      item: { bookTitle: h.bookTitle, copyNumber: h.copyNumber },
       clientName: h.clientName,
       phone: h.phone,
       lentAt,
-      hebrewLentDisplay: h.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+      hebrewLentDisplay: this.dateOnlyDisplay(h.hebrewLentDisplay, lentAt),
       deadlineAt: h.deadlineAt ? new Date(h.deadlineAt) : null,
       returnedAt,
-      hebrewReturnedDisplay:
-        h.hebrewReturnedDisplay?.trim() || this.formatHebrewDateTime(returnedAt, true),
+      hebrewReturnedDisplay: this.dateOnlyDisplay(h.hebrewReturnedDisplay, returnedAt),
       chargeAmount: h.chargeAmount ?? null,
       chargeIsPaid: h.chargeIsPaid ?? null
     };
   }
 
-  private formatHebrewDateTime(date: Date, withSeconds = false): string {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    if (withSeconds) {
-      const ss = String(date.getSeconds()).padStart(2, '0');
-      return `${this.hebrew.toHebrew(date)} ${hh}:${mm}:${ss}`;
+  private dateOnlyDisplay(stored: string | null | undefined, date: Date): string {
+    const trimmed = (stored ?? '').trim();
+    if (trimmed) {
+      const withoutTime = trimmed.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*$/, '').trim();
+      if (withoutTime) {
+        return withoutTime;
+      }
     }
-    return `${this.hebrew.toHebrew(date)} ${hh}:${mm}`;
+    return this.formatHebrewDate(date);
+  }
+
+  private formatHebrewDate(date: Date): string {
+    return this.hebrew.toHebrew(date);
   }
 }

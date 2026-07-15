@@ -62,7 +62,7 @@ export class SystemContextService {
   /** Home URL for the active (or given) system. */
   workspaceHomePath(systemType: SystemType = this.currentSystemTypeSignal()): string {
     if (systemType === SystemType.Library) {
-      return '/library';
+      return '/library/lending';
     }
     if (systemType === SystemType.Tools) {
       return '/tools/lending';

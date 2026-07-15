@@ -127,7 +127,7 @@
           <button
             type="button"
             class="reports-export-btn"
-            [disabled]="exportUnpaidInProgress() || unpaidOrders().length === 0"
+            [disabled]="exportUnpaidInProgress() || filteredOpenDebts().length === 0"
             (click)="exportUnpaidToExcel()"
             title="הורדת רשימת חובות פתוחים ל-Excel"
           >
@@ -139,19 +139,34 @@
             {{ exportUnpaidInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
           </button>
         </div>
-        <button
-          type="button"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          [disabled]="loadingUnpaid()"
-          (click)="loadUnpaid()"
-        >
-          רענון
-        </button>
+        <div class="reports-panel__filters">
+          <label class="reports-category-filter">
+            <span>קטגוריה</span>
+            <select
+              class="reports-category-select"
+              [value]="debtCategoryFilter()"
+              (change)="onDebtCategoryFilterChange($any($event.target).value)"
+            >
+              <option value="all">הכל</option>
+              <option value="כלי עבודה">כלי עבודה</option>
+              <option value="הגברה">הגברה</option>
+              <option value="ספריה">ספריה</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            [disabled]="loadingUnpaid()"
+            (click)="loadUnpaid()"
+          >
+            רענון
+          </button>
+        </div>
       </div>
 
       @if (loadingUnpaid()) {
         <p class="reports-empty">טוען…</p>
-      } @else if (unpaidOrders().length === 0) {
+      } @else if (filteredOpenDebts().length === 0) {
         <p class="reports-empty">אין חובות פתוחים 🎉</p>
       } @else {
         <div class="overflow-x-auto">
@@ -160,37 +175,28 @@
               <tr>
                 <th>שם לקוח</th>
                 <th>טלפון</th>
+                <th>קטגוריה</th>
                 <th>ציוד</th>
-                <th>תאריך התחלה</th>
-                <th>תאריך סיום</th>
+                <th>תאריך חיוב</th>
                 <th>סכום כולל</th>
-                <th>סטטוס</th>
                 <th class="text-center">פעולה</th>
               </tr>
             </thead>
             <tbody>
-              @for (order of unpaidOrders(); track order.id) {
+              @for (group of filteredOpenDebts(); track group.groupKey) {
                 <tr>
-                  <td>{{ order.customerName || '—' }}</td>
-                  <td class="font-mono text-xs" dir="ltr">{{ order.phone }}</td>
-                  <td>{{ equipmentLabel(order) }}</td>
-                  <td>{{ startHebrewDate(order) }}</td>
-                  <td>{{ endHebrewDate(order) }}</td>
-                  <td class="font-semibold text-[#002244]">{{ formatAmount(order) }}</td>
-                  <td>
-                    <span
-                      class="reports-status"
-                      [class.reports-status--cancelled]="order.isCancelled"
-                    >
-                      {{ orderStatusLabel(order) }}
-                    </span>
-                  </td>
+                  <td>{{ group.customerName || '—' }}</td>
+                  <td class="font-mono text-xs" dir="ltr">{{ group.phone }}</td>
+                  <td>{{ group.categoryLabel }}</td>
+                  <td>{{ group.equipmentSummary || '—' }}</td>
+                  <td>{{ sessionHebrewDate(group) }}</td>
+                  <td class="font-semibold text-[#002244]">{{ formatGroupAmount(group) }}</td>
                   <td class="text-center">
                     <button
                       type="button"
                       class="reports-mark-paid-btn"
-                      [disabled]="markingPaidId() === order.id"
-                      (click)="markAsPaid(order)"
+                      [disabled]="markingPaidKey() === group.groupKey"
+                      (click)="markGroupAsPaid(group)"
                       title="סמן כשולם"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">

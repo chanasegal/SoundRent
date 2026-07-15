@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -17,36 +17,38 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { CustomerDto } from '../../core/models/customer.model';
 import { SystemType } from '../../core/models/enums';
 import {
-  ToolDefinitionDto,
-  ToolLoanCreateDto,
-  ToolLoanDto,
-  ToolLoanItemDto
-} from '../../core/models/tools-workspace.model';
+  BookDto,
+  BookLoanCreateDto,
+  BookLoanDto,
+  BookLoanItemDto
+} from '../../core/models/library-workspace.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
-  formatBillableDuration,
-  toBillableParts
-} from '../../core/utils/tools-billable-duration';
-import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
+  addDaysToDate,
+  endOfLocalDay,
+  formatLibraryDuration,
+  libraryBillableDays
+} from '../../core/utils/library-loan-duration';
+import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 
-interface ToolLineItem {
+interface BookLineItem {
   id: string;
-  toolId: number | null;
-  toolQuery: string;
-  selectedCodes: string[];
-  toolSuggestOpen: boolean;
-  codesOpen: boolean;
+  bookId: number | null;
+  bookQuery: string;
+  selectedCopies: string[];
+  bookSuggestOpen: boolean;
+  copiesOpen: boolean;
 }
 
 interface LendingDraftForm {
   id: string;
   createdAt: Date;
   hebrewDateTime: string;
-  toolLines: ToolLineItem[];
+  bookLines: BookLineItem[];
   clientName: string;
   phone: string;
   address: string;
@@ -60,7 +62,7 @@ interface ActiveLoanRowView {
   rowKey: string;
   loanId: number;
   itemId: number;
-  item: ToolLoanItemDto;
+  item: BookLoanItemDto;
   clientName: string;
   phone: string;
   lentAt: Date;
@@ -70,13 +72,13 @@ interface ActiveLoanRowView {
 }
 
 @Component({
-  selector: 'app-tools-lending',
+  selector: 'app-library-lending',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, FormsModule, ToolTypeSelectComponent],
-  templateUrl: './tools-lending.component.html',
-  styleUrl: './tools-lending.component.scss'
+  imports: [CommonModule, ReactiveFormsModule, FormsModule, BookTitleSelectComponent],
+  templateUrl: './library-lending.component.html',
+  styleUrl: './library-lending.component.scss'
 })
-export class ToolsLendingComponent implements OnInit {
+export class LibraryLendingComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
@@ -85,14 +87,14 @@ export class ToolsLendingComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
-  protected readonly definitions = signal<ToolDefinitionDto[]>([]);
-  protected readonly availableByTool = signal<Map<number, string[]>>(new Map());
+  protected readonly definitions = signal<BookDto[]>([]);
+  protected readonly availableByBook = signal<Map<number, string[]>>(new Map());
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
   protected readonly timeLimitEnabled = signal(false);
   protected readonly formOpen = signal(false);
   protected readonly activeLoading = signal(true);
-  protected readonly activeLoans = signal<ToolLoanDto[]>([]);
+  protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
   protected readonly nowTick = signal(Date.now());
   protected readonly customerSuggestions = signal<CustomerDto[]>([]);
@@ -109,18 +111,18 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly rowCharges = signal<Record<number, string>>({});
 
   protected readonly quickReturnCodes = computed(() => {
-    const toolId = this.quickReturnToolId();
-    if (toolId == null) {
+    const bookId = this.quickReturnToolId();
+    if (bookId == null) {
       return [] as string[];
     }
-    const def = this.definitions().find((d) => d.id === toolId);
-    return [...(def?.serialCodes ?? [])].sort((a, b) =>
+    const def = this.definitions().find((d) => d.id === bookId);
+    return [...(def?.copies ?? [])].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true })
     );
   });
 
   protected readonly timeLimitForm = this.fb.group({
-    hours: [2, [Validators.required, Validators.min(0.25), Validators.max(168)]]
+    days: [7, [Validators.required, Validators.min(1), Validators.max(365)]]
   });
 
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
@@ -149,7 +151,7 @@ export class ToolsLendingComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           lentAt,
-          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
           deadlineAt,
           returning: this.returningItemId() === item.id
         });
@@ -173,7 +175,7 @@ export class ToolsLendingComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadDefinitions();
-    this.wireTimeLimitHours();
+    this.wireTimeLimitDays();
     this.wireActiveLoansSearch();
     this.refreshActiveLoans();
     interval(60_000)
@@ -213,8 +215,8 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
-  protected onQuickReturnToolChange(toolId: number | null): void {
-    this.quickReturnToolId.set(toolId != null && toolId > 0 ? toolId : null);
+  protected onQuickReturnToolChange(bookId: number | null): void {
+    this.quickReturnToolId.set(bookId != null && bookId > 0 ? bookId : null);
     this.quickReturnCode.set('');
   }
 
@@ -247,32 +249,32 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected submitQuickReturn(): void {
-    const toolId = this.quickReturnToolId();
+    const bookId = this.quickReturnToolId();
     const serial = this.quickReturnCode().trim();
-    if (toolId == null) {
-      this.toast.error('יש לבחור סוג כלי');
+    if (bookId == null) {
+      this.toast.error('יש לבחור ספר');
       return;
     }
     if (!serial) {
-      this.toast.error('יש להזין קוד פריט');
+      this.toast.error('יש להזין ברקוד');
       return;
     }
 
     const matched = this.activeRows().find(
       (r) =>
-        r.item.toolDefinitionId === toolId &&
-        r.item.serialCode.toLowerCase() === serial.toLowerCase()
+        r.item.bookId === bookId &&
+        r.item.copyNumber.toLowerCase() === serial.toLowerCase()
     );
     const charge =
       this.parseCharge(matched ? this.rowChargeValue(matched.itemId) : null) ??
       this.parseCharge(this.quickReturnCharge());
 
-    const hebrew = this.formatHebrewDateTime(new Date(), true);
+    const hebrew = this.formatHebrewDate(new Date());
     this.quickReturning.set(true);
     this.data
-      .returnToolLoanByCode({
-        toolDefinitionId: toolId,
-        serialCode: serial,
+      .returnBookLoanByCode({
+        bookId: bookId,
+        copyNumber: serial,
         hebrewReturnedDisplay: hebrew,
         chargeAmount: charge && charge > 0 ? charge : null
       })
@@ -299,7 +301,7 @@ export class ToolsLendingComponent implements OnInit {
   protected refreshActiveLoans(): void {
     this.activeLoading.set(true);
     this.data
-      .getActiveToolLoans()
+      .getActiveBookLoans()
       .pipe(finalize(() => this.activeLoading.set(false)))
       .subscribe((list) => {
         this.activeLoans.set(list);
@@ -315,14 +317,15 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected durationText(row: ActiveLoanRowView): string {
-    return formatBillableDuration(toBillableParts(row.lentAt, new Date(this.nowTick())));
+    const days = libraryBillableDays(row.lentAt, new Date(this.nowTick()));
+    return formatLibraryDuration(days, this.isOverdue(row));
   }
 
   protected isOverdue(row: ActiveLoanRowView): boolean {
     if (!row.deadlineAt) {
       return false;
     }
-    return new Date(this.nowTick()).getTime() > row.deadlineAt.getTime();
+    return new Date(this.nowTick()).getTime() > endOfLocalDay(row.deadlineAt).getTime();
   }
 
   protected onReturnedToggle(row: ActiveLoanRowView, checked: boolean): void {
@@ -331,12 +334,12 @@ export class ToolsLendingComponent implements OnInit {
     }
 
     const stamp = new Date();
-    const hebrew = this.formatHebrewDateTime(stamp, true);
+    const hebrew = this.formatHebrewDate(stamp);
     const charge = this.parseCharge(this.rowChargeValue(row.itemId));
     this.returningItemId.set(row.itemId);
 
     this.data
-      .returnToolLoanItem(row.loanId, row.itemId, {
+      .returnBookLoanItem(row.loanId, row.itemId, {
         hebrewReturnedDisplay: hebrew,
         chargeAmount: charge && charge > 0 ? charge : null
       })
@@ -366,7 +369,7 @@ export class ToolsLendingComponent implements OnInit {
       list.map((f) =>
         f.id !== formId
           ? f
-          : { ...f, toolLines: [...f.toolLines, this.createToolLine()] }
+          : { ...f, bookLines: [...f.bookLines, this.createToolLine()] }
       )
     );
   }
@@ -377,8 +380,8 @@ export class ToolsLendingComponent implements OnInit {
         if (f.id !== formId) {
           return f;
         }
-        const next = f.toolLines.filter((l) => l.id !== lineId);
-        return { ...f, toolLines: next.length > 0 ? next : [this.createToolLine()] };
+        const next = f.bookLines.filter((l) => l.id !== lineId);
+        return { ...f, bookLines: next.length > 0 ? next : [this.createToolLine()] };
       })
     );
   }
@@ -393,30 +396,30 @@ export class ToolsLendingComponent implements OnInit {
     }
   }
 
-  protected filteredToolsForLine(form: LendingDraftForm, line: ToolLineItem): ToolDefinitionDto[] {
-    const q = line.toolQuery.trim().toLowerCase();
+  protected filteredToolsForLine(form: LendingDraftForm, line: BookLineItem): BookDto[] {
+    const q = line.bookQuery.trim().toLowerCase();
     const usedElsewhere = new Set(
-      form.toolLines
-        .filter((l) => l.id !== line.id && l.toolId != null)
-        .map((l) => l.toolId as number)
+      form.bookLines
+        .filter((l) => l.id !== line.id && l.bookId != null)
+        .map((l) => l.bookId as number)
     );
     return this.definitions().filter((d) => {
-      if (usedElsewhere.has(d.id) && d.id !== line.toolId) {
+      if (usedElsewhere.has(d.id) && d.id !== line.bookId) {
         return false;
       }
       if (!q) {
         return true;
       }
-      return d.displayName.toLowerCase().includes(q);
+      return d.title.toLowerCase().includes(q);
     });
   }
 
-  protected availableCodesForLine(_form: LendingDraftForm, line: ToolLineItem): string[] {
-    if (line.toolId == null) {
+  protected availableCodesForLine(_form: LendingDraftForm, line: BookLineItem): string[] {
+    if (line.bookId == null) {
       return [];
     }
     // Local filter only — from the single bulk cache loaded at page init.
-    const inStock = this.availableByTool().get(line.toolId) ?? [];
+    const inStock = this.availableByBook().get(line.bookId) ?? [];
     return [...inStock].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }
 
@@ -428,16 +431,16 @@ export class ToolsLendingComponent implements OnInit {
         }
         return {
           ...f,
-          toolLines: f.toolLines.map((l) =>
+          bookLines: f.bookLines.map((l) =>
             l.id !== lineId
-              ? { ...l, toolSuggestOpen: false, codesOpen: false }
+              ? { ...l, bookSuggestOpen: false, copiesOpen: false }
               : {
                   ...l,
-                  toolQuery: value,
-                  toolId: null,
-                  selectedCodes: [],
-                  toolSuggestOpen: true,
-                  codesOpen: false
+                  bookQuery: value,
+                  bookId: null,
+                  selectedCopies: [],
+                  bookSuggestOpen: true,
+                  copiesOpen: false
                 }
           )
         };
@@ -454,10 +457,10 @@ export class ToolsLendingComponent implements OnInit {
         }
         return {
           ...f,
-          toolLines: f.toolLines.map((l) => ({
+          bookLines: f.bookLines.map((l) => ({
             ...l,
-            toolSuggestOpen: l.id === lineId,
-            codesOpen: false
+            bookSuggestOpen: l.id === lineId,
+            copiesOpen: false
           }))
         };
       })
@@ -465,7 +468,7 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
-  protected selectTool(formId: string, lineId: string, tool: ToolDefinitionDto): void {
+  protected selectTool(formId: string, lineId: string, tool: BookDto): void {
     this.forms.update((list) =>
       list.map((f) => {
         if (f.id !== formId) {
@@ -473,16 +476,16 @@ export class ToolsLendingComponent implements OnInit {
         }
         return {
           ...f,
-          toolLines: f.toolLines.map((l) =>
+          bookLines: f.bookLines.map((l) =>
             l.id !== lineId
               ? l
               : {
                   ...l,
-                  toolId: tool.id,
-                  toolQuery: tool.displayName,
-                  selectedCodes: [],
-                  toolSuggestOpen: false,
-                  codesOpen: false
+                  bookId: tool.id,
+                  bookQuery: tool.title,
+                  selectedCopies: [],
+                  bookSuggestOpen: false,
+                  copiesOpen: false
                 }
           )
         };
@@ -499,10 +502,10 @@ export class ToolsLendingComponent implements OnInit {
         }
         return {
           ...f,
-          toolLines: f.toolLines.map((l) => ({
+          bookLines: f.bookLines.map((l) => ({
             ...l,
-            codesOpen: l.id === lineId ? !l.codesOpen : false,
-            toolSuggestOpen: false
+            copiesOpen: l.id === lineId ? !l.copiesOpen : false,
+            bookSuggestOpen: false
           }))
         };
       })
@@ -519,14 +522,14 @@ export class ToolsLendingComponent implements OnInit {
         }
         return {
           ...f,
-          toolLines: f.toolLines.map((l) => {
+          bookLines: f.bookLines.map((l) => {
             if (l.id !== lineId) {
               return l;
             }
-            const selected = l.selectedCodes.includes(code)
-              ? l.selectedCodes.filter((c) => c !== code)
-              : [...l.selectedCodes, code];
-            return { ...l, selectedCodes: selected };
+            const selected = l.selectedCopies.includes(code)
+              ? l.selectedCopies.filter((c) => c !== code)
+              : [...l.selectedCopies, code];
+            return { ...l, selectedCopies: selected };
           })
         };
       })
@@ -588,9 +591,7 @@ export class ToolsLendingComponent implements OnInit {
     if (!deadline) {
       return '—';
     }
-    const hh = String(deadline.getHours()).padStart(2, '0');
-    const mm = String(deadline.getMinutes()).padStart(2, '0');
-    return `${this.hebrew.toHebrew(deadline)} ${hh}:${mm}`;
+    return this.formatHebrewDate(deadline);
   }
 
   protected submitForm(form: LendingDraftForm): void {
@@ -603,7 +604,7 @@ export class ToolsLendingComponent implements OnInit {
       return;
     }
 
-    const payload: ToolLoanCreateDto = {
+    const payload: BookLoanCreateDto = {
       clientName: form.clientName.trim(),
       phone: form.phone.trim(),
       deposit: form.deposit.trim() || null,
@@ -615,7 +616,7 @@ export class ToolsLendingComponent implements OnInit {
 
     this.submittingId.set(form.id);
     this.data
-      .createToolLoan(payload)
+      .createBookLoan(payload)
       .pipe(finalize(() => this.submittingId.set(null)))
       .subscribe((created) => {
         if (!created) {
@@ -626,14 +627,14 @@ export class ToolsLendingComponent implements OnInit {
           phone1: payload.phone,
           fullName: payload.clientName || null,
           address,
-          systemType: SystemType.Tools
+          systemType: SystemType.Library
         });
         this.data
           .upsertCustomer({
             phone1: payload.phone,
             fullName: payload.clientName || null,
             address,
-            systemType: SystemType.Tools
+            systemType: SystemType.Library
           })
           .subscribe((saved) => {
             if (saved) {
@@ -671,44 +672,44 @@ export class ToolsLendingComponent implements OnInit {
     this.forms.update((list) =>
       list.map((f) => ({
         ...f,
-        toolLines: f.toolLines.map((l) => ({
+        bookLines: f.bookLines.map((l) => ({
           ...l,
-          toolSuggestOpen: false,
-          codesOpen: false
+          bookSuggestOpen: false,
+          copiesOpen: false
         }))
       }))
     );
   }
 
-  private buildLoanItems(form: LendingDraftForm): ToolLoanCreateDto['items'] | null {
-    const items: ToolLoanCreateDto['items'] = [];
+  private buildLoanItems(form: LendingDraftForm): BookLoanCreateDto['items'] | null {
+    const items: BookLoanCreateDto['items'] = [];
     const seenCodes = new Set<string>();
 
-    for (const line of form.toolLines) {
-      if (line.toolId == null) {
-        if (line.toolQuery.trim() || line.selectedCodes.length > 0) {
-          this.toast.error('יש לבחור כלי מרשימת ההשלמה בכל שורה');
+    for (const line of form.bookLines) {
+      if (line.bookId == null) {
+        if (line.bookQuery.trim() || line.selectedCopies.length > 0) {
+          this.toast.error('יש לבחור ספר מרשימת ההשלמה בכל שורה');
           return null;
         }
         continue;
       }
-      if (line.selectedCodes.length === 0) {
-        this.toast.error(`יש לבחור לפחות קוד פריט עבור ${line.toolQuery || 'הכלי שנבחר'}`);
+      if (line.selectedCopies.length === 0) {
+        this.toast.error(`יש לבחור לפחות ברקוד עבור ${line.bookQuery || 'הספר שנבחר'}`);
         return null;
       }
-      for (const code of line.selectedCodes) {
+      for (const code of line.selectedCopies) {
         const key = code.toLowerCase();
         if (seenCodes.has(key)) {
-          this.toast.error(`קוד פריט ${code} נבחר יותר מפעם אחת`);
+          this.toast.error(`ברקוד ${code} נבחר יותר מפעם אחת`);
           return null;
         }
         seenCodes.add(key);
-        items.push({ toolDefinitionId: line.toolId, serialCode: code });
+        items.push({ bookId: line.bookId, copyNumber: code });
       }
     }
 
     if (items.length === 0) {
-      this.toast.error('יש להוסיף לפחות כלי אחד עם קוד פריט');
+      this.toast.error('יש להוסיף לפחות ספר אחד עם ברקוד');
       return null;
     }
     return items;
@@ -729,7 +730,7 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private loadDefinitions(): void {
-    this.data.getToolDefinitions().subscribe((list) => {
+    this.data.getBooks().subscribe((list) => {
       this.definitions.set(list);
     });
     // Exactly one availability request for the whole page (not per row/tool).
@@ -737,17 +738,17 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private refreshAvailability(): void {
-    this.data.getAllAvailableToolSerials().subscribe((groups) => {
+    this.data.getAllAvailableBookCopies().subscribe((groups) => {
       const map = new Map<number, string[]>();
       for (const group of groups) {
-        map.set(group.toolDefinitionId, group.serialCodes ?? []);
+        map.set(group.bookId, group.copies ?? []);
       }
-      this.availableByTool.set(map);
+      this.availableByBook.set(map);
     });
   }
 
-  private wireTimeLimitHours(): void {
-    this.timeLimitForm.controls.hours.valueChanges
+  private wireTimeLimitDays(): void {
+    this.timeLimitForm.controls.days.valueChanges
       .pipe(debounceTime(150), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         if (this.timeLimitEnabled()) {
@@ -764,11 +765,11 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private recomputeAllDeadlines(): void {
-    const hours = Number(this.timeLimitForm.controls.hours.value) || 0;
+    const days = Number(this.timeLimitForm.controls.days.value) || 0;
     this.forms.update((list) =>
       list.map((f) => ({
         ...f,
-        deadlineAt: this.computeDeadline(f.createdAt, hours)
+        deadlineAt: this.computeDeadline(f.createdAt, days)
       }))
     );
   }
@@ -778,50 +779,57 @@ export class ToolsLendingComponent implements OnInit {
     return typeof sig === 'function' ? sig() : false;
   }
 
-  private computeDeadline(lentAt: Date, hours: number): Date | null {
-    if (!this.isTimeLimitEnabled() || hours <= 0) {
+  private computeDeadline(lentAt: Date, days: number): Date | null {
+    if (!this.isTimeLimitEnabled() || days <= 0) {
       return null;
     }
-    return new Date(lentAt.getTime() + hours * 3_600_000);
+    return addDaysToDate(lentAt, days);
   }
 
-  private createToolLine(): ToolLineItem {
+  private createToolLine(): BookLineItem {
     return {
       id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      toolId: null,
-      toolQuery: '',
-      selectedCodes: [],
-      toolSuggestOpen: false,
-      codesOpen: false
+      bookId: null,
+      bookQuery: '',
+      selectedCopies: [],
+      bookSuggestOpen: false,
+      copiesOpen: false
     };
   }
 
   private createDraftForm(): LendingDraftForm {
     const createdAt = new Date();
-    const hours = Number(this.timeLimitForm?.controls.hours.value) || 2;
+    const days = Number(this.timeLimitForm?.controls.days.value) || 7;
     const timeLimitOn = this.isTimeLimitEnabled();
     return {
       id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt,
-      hebrewDateTime: this.formatHebrewDateTime(createdAt),
-      toolLines: [this.createToolLine()],
+      hebrewDateTime: this.formatHebrewDate(createdAt),
+      bookLines: [this.createToolLine()],
       clientName: '',
       phone: '',
       address: '',
       deposit: '',
       notes: '',
       clientAlertNotes: null,
-      deadlineAt: timeLimitOn ? this.computeDeadline(createdAt, hours) : null
+      deadlineAt: timeLimitOn ? this.computeDeadline(createdAt, days) : null
     };
   }
 
-  private formatHebrewDateTime(date: Date, withSeconds = false): string {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    if (withSeconds) {
-      const ss = String(date.getSeconds()).padStart(2, '0');
-      return `${this.hebrew.toHebrew(date)} ${hh}:${mm}:${ss}`;
+  /** Strip any stored time suffix and show Hebrew date only. */
+  private dateOnlyDisplay(stored: string | null | undefined, date: Date): string {
+    const trimmed = (stored ?? '').trim();
+    if (trimmed) {
+      // Stored value may be "עברית HH:MM" from older Tools-style stamps — keep the date words only.
+      const withoutTime = trimmed.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*$/, '').trim();
+      if (withoutTime) {
+        return withoutTime;
+      }
     }
-    return `${this.hebrew.toHebrew(date)} ${hh}:${mm}`;
+    return this.formatHebrewDate(date);
+  }
+
+  private formatHebrewDate(date: Date): string {
+    return this.hebrew.toHebrew(date);
   }
 }

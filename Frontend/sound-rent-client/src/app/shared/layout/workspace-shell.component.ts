@@ -18,8 +18,7 @@ import { SystemContextService } from '../../core/services/system-context.service
 
 /**
  * Isolated Tools / Library application shell.
- * Tools nav: lending / returns / inventory / customers.
- * Library nav: customers only.
+ * Tools / Library nav: lending / returns / inventory / customers.
  * Workspace switcher sits at the start of the header (no brand title text).
  */
 @Component({
@@ -100,6 +99,23 @@ import { SystemContextService } from '../../core/services/system-context.service
                   class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
                 >ניהול מלאי</a>
               }
+              @if (isLibraryWorkspace()) {
+                <a
+                  routerLink="/library/lending"
+                  routerLinkActive="bg-white/10 text-white"
+                  class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+                >השאלות</a>
+                <a
+                  routerLink="/library/returns"
+                  routerLinkActive="bg-white/10 text-white"
+                  class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+                >החזרות</a>
+                <a
+                  routerLink="/library/inventory"
+                  routerLinkActive="bg-white/10 text-white"
+                  class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+                >ניהול ספרים</a>
+              }
               <a
                 [routerLink]="customersPath()"
                 routerLinkActive="bg-white/10 text-white"
@@ -152,6 +168,9 @@ export class WorkspaceShellComponent {
   protected readonly customersPath = computed(() => this.systemContext.workspaceCustomersPath());
   protected readonly isToolsWorkspace = computed(
     () => this.currentSystemType() === SystemType.Tools
+  );
+  protected readonly isLibraryWorkspace = computed(
+    () => this.currentSystemType() === SystemType.Library
   );
 
   constructor() {

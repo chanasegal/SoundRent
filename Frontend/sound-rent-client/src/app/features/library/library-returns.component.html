@@ -1,11 +1,11 @@
-<div class="mx-auto max-w-6xl px-4 py-6">
+﻿<div class="mx-auto max-w-6xl px-4 py-6">
   <p-confirmpopup />
 
   <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
       <p class="mt-1 text-sm text-slate-600">
-        היסטוריית פריטים שהוחזרו. משך ההשאלה אינו כולל שבתות וחגים.
+        היסטוריית ספרים שהוחזרו. משך ההשאלה נספר בימים (ללא שבתות וחגים).
       </p>
     </div>
     <button
@@ -17,22 +17,22 @@
     </button>
   </div>
 
-  <section class="history-filter-card mb-5" aria-label="חיפוש היסטוריית השאלה לפי קוד פריט">
-    <h2 class="history-filter-card__title">חיפוש היסטוריית השאלה לפי פריט</h2>
+  <section class="history-filter-card mb-5" aria-label="חיפוש היסטוריית השאלה לפי ספר">
+    <h2 class="history-filter-card__title">חיפוש היסטוריית השאלה לפי ספר</h2>
     <p class="history-filter-card__hint">
-      בחרו סוג כלי וקוד פריט כדי לראות מי אחז בפריט לאחרונה (האחרון למעלה).
+      בחרו ספר וברקוד כדי לראות מי אחז בספר לאחרונה (האחרון למעלה).
     </p>
     <div class="history-filter-card__row">
       <label class="history-field">
-        <span>סוג כלי</span>
-        <app-tool-type-select
+        <span>ספר</span>
+        <app-book-title-select
           [options]="definitions()"
           [ngModel]="historyToolId()"
           (ngModelChange)="onHistoryToolChange($event)"
         />
       </label>
       <label class="history-field">
-        <span>קוד פריט</span>
+        <span>ברקוד</span>
         <input
           type="text"
           class="field-input ltr-field"
@@ -82,12 +82,12 @@
       <table class="returns-table w-full min-w-[56rem] border-collapse text-right text-sm">
         <thead>
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-3 font-semibold">תאריך ושעה</th>
-            <th class="px-3 py-3 font-semibold">פריט</th>
-            <th class="px-3 py-3 font-semibold">קוד פריט</th>
-            <th class="px-3 py-3 font-semibold">פרטי לקוח</th>
+            <th class="px-3 py-3 font-semibold">תאריך השאלה</th>
+            <th class="px-3 py-3 font-semibold">ספר</th>
+            <th class="px-3 py-3 font-semibold">קוד עותק</th>
+            <th class="px-3 py-3 font-semibold">פרטי קורא</th>
             <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
-            <th class="px-3 py-3 font-semibold">תאריך ושעת החזרה</th>
+            <th class="px-3 py-3 font-semibold">תאריך החזרה</th>
             <th class="px-3 py-3 font-semibold">משך כולל</th>
             <th class="px-3 py-3 font-semibold">חיוב</th>
             <th class="px-3 py-3 font-semibold text-center">פעולות</th>
@@ -99,9 +99,9 @@
               <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
                 {{ row.hebrewLentDisplay }}
               </td>
-              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.toolName }}</td>
+              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.bookTitle }}</td>
               <td class="px-3 py-3">
-                <span class="ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                <span class="ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
               </td>
               <td class="px-3 py-3">
                 <div class="client-cell">

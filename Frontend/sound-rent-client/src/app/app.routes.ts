@@ -10,8 +10,23 @@ import { WorkspaceShellComponent } from './shared/layout/workspace-shell.compone
 const libraryChildren: Routes = [
   {
     path: '',
+    pathMatch: 'full',
+    redirectTo: 'lending'
+  },
+  {
+    path: 'lending',
     loadComponent: () =>
-      import('./features/workspace/workspace-home.component').then((m) => m.WorkspaceHomeComponent)
+      import('./features/library/library-lending.component').then((m) => m.LibraryLendingComponent)
+  },
+  {
+    path: 'returns',
+    loadComponent: () =>
+      import('./features/library/library-returns.component').then((m) => m.LibraryReturnsComponent)
+  },
+  {
+    path: 'inventory',
+    loadComponent: () =>
+      import('./features/library/library-inventory.component').then((m) => m.LibraryInventoryComponent)
   },
   {
     path: 'customers',

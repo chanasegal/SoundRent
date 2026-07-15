@@ -1,38 +1,44 @@
-export interface ToolDefinitionDto {
+﻿export interface BookDto {
   id: number;
-  displayName: string;
+  title: string;
+  author?: string | null;
+  category?: string | null;
   sortOrder: number;
   totalQuantity: number;
-  serialCodes: string[];
+  copies: string[];
 }
 
-export interface ToolDefinitionCreateDto {
-  displayName: string;
+export interface BookCreateDto {
+  title: string;
+  author?: string | null;
+  category?: string | null;
   quantity?: number | null;
-  serialCodes?: string[];
+  copies?: string[];
 }
 
-export interface ToolDefinitionUpdateDto {
-  displayName: string;
+export interface BookUpdateDto {
+  title: string;
+  author?: string | null;
+  category?: string | null;
 }
 
-export interface ToolDefinitionSerialsUpdateDto {
-  serialCodes: string[];
+export interface BookCopiesUpdateDto {
+  copies: string[];
 }
 
-export interface ToolDefinitionTypeUpdateDto {
+export interface BookTypeUpdateDto {
   id: number;
-  serialCodes: string[];
+  copies: string[];
 }
 
-export interface ToolDefinitionBatchUpdateDto {
-  items: ToolDefinitionTypeUpdateDto[];
+export interface BookBatchUpdateDto {
+  items: BookTypeUpdateDto[];
 }
 
-export interface ToolSerialLocationDto {
-  serialCode: string;
-  toolName: string;
-  toolDefinitionId?: number | null;
+export interface BookCopyLocationDto {
+  copyNumber: string;
+  bookTitle: string;
+  bookId?: number | null;
   isRegistered: boolean;
   isInWarehouse: boolean;
   loanId?: number | null;
@@ -40,16 +46,16 @@ export interface ToolSerialLocationDto {
   phone?: string | null;
 }
 
-export interface ToolAvailableSerialsGroupDto {
-  toolDefinitionId: number;
-  serialCodes: string[];
+export interface BookAvailableCopiesGroupDto {
+  bookId: number;
+  copies: string[];
 }
 
-export interface ToolLoanItemDto {
+export interface BookLoanItemDto {
   id: number;
-  toolDefinitionId: number;
-  toolName: string;
-  serialCode: string;
+  bookId: number;
+  bookTitle: string;
+  copyNumber: string;
   returnedAt?: string | null;
   hebrewReturnedDisplay?: string | null;
   chargeAmount?: number | null;
@@ -57,7 +63,7 @@ export interface ToolLoanItemDto {
   customerDebtId?: number | null;
 }
 
-export interface ToolLoanDto {
+export interface BookLoanDto {
   id: number;
   lentAt: string;
   hebrewLentDisplay: string;
@@ -68,42 +74,42 @@ export interface ToolLoanDto {
   deadlineAt?: string | null;
   returnedAt?: string | null;
   hebrewReturnedDisplay?: string | null;
-  items: ToolLoanItemDto[];
+  items: BookLoanItemDto[];
 }
 
-export interface ToolLoanItemCreateDto {
-  toolDefinitionId: number;
-  serialCode: string;
+export interface BookLoanItemCreateDto {
+  bookId: number;
+  copyNumber: string;
 }
 
-export interface ToolLoanCreateDto {
+export interface BookLoanCreateDto {
   clientName: string;
   phone: string;
   deposit?: string | null;
   notes?: string | null;
   hebrewLentDisplay: string;
   deadlineAt?: string | null;
-  items: ToolLoanItemCreateDto[];
+  items: BookLoanItemCreateDto[];
 }
 
-export interface ToolLoanReturnDto {
+export interface BookLoanReturnDto {
   hebrewReturnedDisplay: string;
   chargeAmount?: number | null;
 }
 
-export interface ToolLoanReturnByCodeDto {
-  toolDefinitionId: number;
-  serialCode: string;
+export interface BookLoanReturnByCodeDto {
+  bookId: number;
+  copyNumber: string;
   hebrewReturnedDisplay: string;
   chargeAmount?: number | null;
 }
 
-export interface ToolItemBorrowHistoryDto {
+export interface BookItemBorrowHistoryDto {
   loanId: number;
   itemId: number;
-  toolDefinitionId: number;
-  toolName: string;
-  serialCode: string;
+  bookId: number;
+  bookTitle: string;
+  copyNumber: string;
   clientName: string;
   phone: string;
   lentAt: string;
