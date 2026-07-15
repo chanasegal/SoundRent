@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SoundRent.Api.Application.Auth;
 using SoundRent.Api.Application.Services;
+using SoundRent.Api.Filters;
 using SoundRent.Api.Infrastructure.Data;
 using SoundRent.Api.Infrastructure.Repositories;
 using SoundRent.Api.Middleware;
@@ -55,6 +56,9 @@ builder.Services.AddScoped<IInventoryDefinitionRepository, InventoryDefinitionRe
 builder.Services.AddScoped<IInventoryDefinitionService, InventoryDefinitionService>();
 builder.Services.AddScoped<IToolInventoryService, ToolInventoryService>();
 builder.Services.AddScoped<IToolLoanService, ToolLoanService>();
+builder.Services.AddScoped<IBookInventoryService, BookInventoryService>();
+builder.Services.AddScoped<IBookLoanService, BookLoanService>();
+builder.Services.AddScoped<IOpenDebtService, OpenDebtService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
 // --- Authentication (JWT) ------------------------------------------------
@@ -93,7 +97,13 @@ builder.Services.AddCors(options =>
 
 // --- MVC / OpenAPI -------------------------------------------------------
 builder.Services
-    .AddControllers()
+    .AddControllers(options =>
+    {
+        // Marks ValidationException (and related) as handled → clean 400/404/401
+        // and prevents the debugger from treating them as user-unhandled crashes.
+        options.Filters.Add<ApiExceptionFilter>();
+        options.Filters.Add<ApiExceptionFilterAsync>();
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(
@@ -158,7 +168,19 @@ app.UseAuthorization();
 app.MapControllers();
 
 // --- Database migration & admin seed -------------------------------------
-await DbInitializer.InitializeAsync(app.Services);
+try
+{
+    await DbInitializer.InitializeAsync(app.Services);
+}
+catch (InvalidOperationException ex)
+{
+    var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    startupLogger.LogCritical(
+        "Startup aborted: database initialization failed. {Message}",
+        ex.Message);
+    // Exit without an opaque unhandled SocketException — check DbInitializer logs above.
+    return;
+}
 
 app.Run();
 

@@ -1,0 +1,34 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SoundRent.Api.Domain.Entities;
+
+namespace SoundRent.Api.Infrastructure.Data.Configurations;
+
+public class BookLoanConfiguration : IEntityTypeConfiguration<BookLoan>
+{
+    public void Configure(EntityTypeBuilder<BookLoan> builder)
+    {
+        builder.ToTable("BookLoans");
+
+        builder.HasKey(e => e.Id);
+
+        builder.Property(e => e.HebrewLentDisplay).HasMaxLength(120);
+        builder.Property(e => e.ClientName).HasMaxLength(200);
+        builder.Property(e => e.Phone).HasMaxLength(20).IsRequired();
+        builder.Property(e => e.Deposit).HasMaxLength(500);
+        builder.Property(e => e.Notes).HasMaxLength(2000);
+        builder.Property(e => e.HebrewReturnedDisplay).HasMaxLength(120);
+
+        builder.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+        builder.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+        builder.HasIndex(e => e.ReturnedAt).HasDatabaseName("IX_BookLoans_ReturnedAt");
+        builder.HasIndex(e => e.LentAt).HasDatabaseName("IX_BookLoans_LentAt");
+        builder.HasIndex(e => e.Phone).HasDatabaseName("IX_BookLoans_Phone");
+
+        builder.HasMany(e => e.Items)
+            .WithOne(i => i.BookLoan)
+            .HasForeignKey(i => i.BookLoanId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

@@ -6,8 +6,17 @@ using SoundRent.Api.Application.Exceptions;
 
 namespace SoundRent.Api.Middleware;
 
+/// <summary>
+/// Outer safety net: maps known domain exceptions to clean JSON status responses.
+/// ValidationException → 400 (expected business failures; not a crash).
+/// </summary>
 public class ExceptionHandlingMiddleware
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
 
@@ -25,6 +34,7 @@ public class ExceptionHandlingMiddleware
         }
         catch (ValidationException ex)
         {
+            // Expected client-facing validation — never escalate to 500 / debugger crash path.
             await WriteErrorAsync(context, HttpStatusCode.BadRequest, ex.Message);
         }
         catch (NotFoundException ex)
@@ -48,7 +58,10 @@ public class ExceptionHandlingMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception");
-            await WriteErrorAsync(context, HttpStatusCode.InternalServerError, "אירעה שגיאה בלתי צפויה. נסו שוב מאוחר יותר");
+            await WriteErrorAsync(
+                context,
+                HttpStatusCode.InternalServerError,
+                "אירעה שגיאה בלתי צפויה. נסו שוב מאוחר יותר");
         }
     }
 
@@ -58,17 +71,23 @@ public class ExceptionHandlingMiddleware
         return ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation;
     }
 
-    private static Task WriteErrorAsync(HttpContext context, HttpStatusCode statusCode, string message)
+    private static async Task WriteErrorAsync(HttpContext context, HttpStatusCode statusCode, string message)
     {
-        context.Response.ContentType = "application/json; charset=utf-8";
-        context.Response.StatusCode = (int)statusCode;
+        if (context.Response.HasStarted)
+        {
+            return;
+        }
 
-        var payload = JsonSerializer.Serialize(new
+        context.Response.Clear();
+        context.Response.StatusCode = (int)statusCode;
+        context.Response.ContentType = "application/json; charset=utf-8";
+
+        var payload = new
         {
             statusCode = (int)statusCode,
             message
-        });
+        };
 
-        return context.Response.WriteAsync(payload);
+        await context.Response.WriteAsync(JsonSerializer.Serialize(payload, JsonOptions));
     }
 }

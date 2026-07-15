@@ -32,6 +32,11 @@ public class AppDbContext : DbContext
     public DbSet<ToolSerialCode> ToolSerialCodes => Set<ToolSerialCode>();
     public DbSet<ToolLoan> ToolLoans => Set<ToolLoan>();
     public DbSet<ToolLoanItem> ToolLoanItems => Set<ToolLoanItem>();
+    public DbSet<Book> Books => Set<Book>();
+    public DbSet<BookCopy> BookCopies => Set<BookCopy>();
+    public DbSet<BookLoan> BookLoans => Set<BookLoan>();
+    public DbSet<BookLoanItem> BookLoanItems => Set<BookLoanItem>();
+    public DbSet<CustomerDebt> CustomerDebts => Set<CustomerDebt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

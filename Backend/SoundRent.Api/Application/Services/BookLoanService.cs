@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
@@ -7,48 +7,48 @@ using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Application.Services;
 
-public interface IToolLoanService
+public interface IBookLoanService
 {
-    Task<List<ToolLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default);
-    Task<List<ToolLoanDto>> GetAllAsync(bool? returnedOnly = null, CancellationToken cancellationToken = default);
-    Task<ToolLoanDto> CreateAsync(ToolLoanCreateDto dto, CancellationToken cancellationToken = default);
-    Task<ToolLoanDto> MarkReturnedAsync(int id, ToolLoanReturnDto dto, CancellationToken cancellationToken = default);
-    Task<ToolLoanDto> MarkItemReturnedAsync(
+    Task<List<BookLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default);
+    Task<List<BookLoanDto>> GetAllAsync(bool? returnedOnly = null, CancellationToken cancellationToken = default);
+    Task<BookLoanDto> CreateAsync(BookLoanCreateDto dto, CancellationToken cancellationToken = default);
+    Task<BookLoanDto> MarkReturnedAsync(int id, BookLoanReturnDto dto, CancellationToken cancellationToken = default);
+    Task<BookLoanDto> MarkItemReturnedAsync(
         int loanId,
         int itemId,
-        ToolLoanReturnDto dto,
+        BookLoanReturnDto dto,
         CancellationToken cancellationToken = default);
-    Task<ToolLoanDto> UndoItemReturnAsync(
+    Task<BookLoanDto> UndoItemReturnAsync(
         int loanId,
         int itemId,
         CancellationToken cancellationToken = default);
     Task DeleteAsync(int loanId, CancellationToken cancellationToken = default);
-    Task<ToolLoanDto> ReturnByCodeAsync(
-        ToolLoanReturnByCodeDto dto,
+    Task<BookLoanDto> ReturnByCodeAsync(
+        BookLoanReturnByCodeDto dto,
         CancellationToken cancellationToken = default);
-    Task<List<ToolItemBorrowHistoryDto>> GetItemBorrowHistoryAsync(
-        int toolDefinitionId,
-        string serialCode,
+    Task<List<BookItemBorrowHistoryDto>> GetItemBorrowHistoryAsync(
+        int bookId,
+        string copyNumber,
         CancellationToken cancellationToken = default);
 }
 
-public class ToolLoanService : IToolLoanService
+public class BookLoanService : IBookLoanService
 {
     private readonly AppDbContext _db;
 
-    public ToolLoanService(AppDbContext db)
+    public BookLoanService(AppDbContext db)
     {
         _db = db;
     }
 
-    public Task<List<ToolLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default)
+    public Task<List<BookLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default)
         => GetAllAsync(returnedOnly: false, cancellationToken);
 
-    public async Task<List<ToolLoanDto>> GetAllAsync(
+    public async Task<List<BookLoanDto>> GetAllAsync(
         bool? returnedOnly = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _db.ToolLoans
+        var query = _db.BookLoans
             .AsNoTracking()
             .Include(l => l.Items)
                 .ThenInclude(i => i.CustomerDebt)
@@ -75,8 +75,8 @@ public class ToolLoanService : IToolLoanService
         return rows.Select(ToDto).ToList();
     }
 
-    public async Task<ToolLoanDto> CreateAsync(
-        ToolLoanCreateDto dto,
+    public async Task<BookLoanDto> CreateAsync(
+        BookLoanCreateDto dto,
         CancellationToken cancellationToken = default)
     {
         var phone = (dto.Phone ?? string.Empty).Trim();
@@ -88,41 +88,41 @@ public class ToolLoanService : IToolLoanService
         var items = dto.Items ?? [];
         if (items.Count == 0)
         {
-            throw new ValidationException("יש לבחור לפחות כלי אחד להשאלה");
+            throw new ValidationException("יש לבחור לפחות ספר אחד להשאלה");
         }
 
-        var normalizedItems = new List<(int ToolDefinitionId, string SerialCode, string ToolName)>();
+        var normalizedItems = new List<(int BookId, string CopyNumber, string BookTitle)>();
         var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
         {
-            var serial = (item.SerialCode ?? string.Empty).Trim();
+            var serial = (item.CopyNumber ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(serial))
             {
-                throw new ValidationException("קוד פריט חסר");
+                throw new ValidationException("קוד עותק חסר");
             }
 
             if (!seenCodes.Add(serial))
             {
-                throw new ValidationException($"קוד פריט {serial} נבחר יותר מפעם אחת");
+                throw new ValidationException($"קוד עותק {serial} נבחר יותר מפעם אחת");
             }
 
-            var definition = await _db.ToolDefinitions
+            var definition = await _db.Books
                 .AsNoTracking()
-                .Include(t => t.SerialCodes)
-                .FirstOrDefaultAsync(t => t.Id == item.ToolDefinitionId, cancellationToken)
-                ?? throw new ValidationException($"סוג כלי #{item.ToolDefinitionId} לא נמצא");
+                .Include(t => t.Copies)
+                .FirstOrDefaultAsync(t => t.Id == item.BookId, cancellationToken)
+                ?? throw new ValidationException($"ספר #{item.BookId} לא נמצא");
 
-            if (!definition.SerialCodes.Any(s => string.Equals(s.SerialCode, serial, StringComparison.OrdinalIgnoreCase)))
+            if (!definition.Copies.Any(s => string.Equals(s.CopyNumber, serial, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new ValidationException($"קוד {serial} אינו שייך ל־{definition.DisplayName}");
+                throw new ValidationException($"קוד {serial} אינו שייך ל־{definition.Title}");
             }
 
-            var alreadyOut = await _db.ToolLoanItems
+            var alreadyOut = await _db.BookLoanItems
                 .AsNoTracking()
                 .AnyAsync(
-                    i => i.SerialCode == serial &&
-                         i.ToolDefinitionId == definition.Id &&
+                    i => i.CopyNumber == serial &&
+                         i.BookId == definition.Id &&
                          i.ReturnedAt == null,
                     cancellationToken);
 
@@ -131,10 +131,10 @@ public class ToolLoanService : IToolLoanService
                 throw new ValidationException($"קוד {serial} כבר מושאל");
             }
 
-            normalizedItems.Add((definition.Id, serial, definition.DisplayName));
+            normalizedItems.Add((definition.Id, serial, definition.Title));
         }
 
-        var entity = new ToolLoan
+        var entity = new BookLoan
         {
             LentAt = DateTime.UtcNow,
             HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
@@ -146,26 +146,26 @@ public class ToolLoanService : IToolLoanService
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             Items = normalizedItems
-                .Select(i => new ToolLoanItem
+                .Select(i => new BookLoanItem
                 {
-                    ToolDefinitionId = i.ToolDefinitionId,
-                    ToolName = i.ToolName,
-                    SerialCode = i.SerialCode
+                    BookId = i.BookId,
+                    BookTitle = i.BookTitle,
+                    CopyNumber = i.CopyNumber
                 })
                 .ToList()
         };
 
-        _db.ToolLoans.Add(entity);
+        _db.BookLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
     }
 
-    public async Task<ToolLoanDto> MarkReturnedAsync(
+    public async Task<BookLoanDto> MarkReturnedAsync(
         int id,
-        ToolLoanReturnDto dto,
+        BookLoanReturnDto dto,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _db.ToolLoans
+        var entity = await _db.BookLoans
             .Include(l => l.Items)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
             ?? throw new NotFoundException("ההשאלה לא נמצאה");
@@ -186,13 +186,13 @@ public class ToolLoanService : IToolLoanService
         return ToDto(entity);
     }
 
-    public async Task<ToolLoanDto> MarkItemReturnedAsync(
+    public async Task<BookLoanDto> MarkItemReturnedAsync(
         int loanId,
         int itemId,
-        ToolLoanReturnDto dto,
+        BookLoanReturnDto dto,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _db.ToolLoans
+        var entity = await _db.BookLoans
             .Include(l => l.Items)
                 .ThenInclude(i => i.CustomerDebt)
             .FirstOrDefaultAsync(l => l.Id == loanId, cancellationToken)
@@ -222,12 +222,12 @@ public class ToolLoanService : IToolLoanService
         return ToDto(entity);
     }
 
-    public async Task<ToolLoanDto> UndoItemReturnAsync(
+    public async Task<BookLoanDto> UndoItemReturnAsync(
         int loanId,
         int itemId,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _db.ToolLoans
+        var entity = await _db.BookLoans
             .Include(l => l.Items)
                 .ThenInclude(i => i.CustomerDebt)
             .FirstOrDefaultAsync(l => l.Id == loanId, cancellationToken)
@@ -238,23 +238,23 @@ public class ToolLoanService : IToolLoanService
 
         if (item.ReturnedAt == null)
         {
-            throw new ValidationException("הפריט אינו מסומן כהוחזר");
+            throw new ValidationException("העותק אינו מסומן כהוחזר");
         }
 
-        var serialLower = item.SerialCode.ToLowerInvariant();
-        var alreadyOutElsewhere = await _db.ToolLoanItems
+        var serialLower = item.CopyNumber.ToLowerInvariant();
+        var alreadyOutElsewhere = await _db.BookLoanItems
             .AsNoTracking()
             .AnyAsync(
                 i => i.Id != item.Id &&
-                     i.ToolDefinitionId == item.ToolDefinitionId &&
-                     i.SerialCode.ToLower() == serialLower &&
+                     i.BookId == item.BookId &&
+                     i.CopyNumber.ToLower() == serialLower &&
                      i.ReturnedAt == null,
                 cancellationToken);
 
         if (alreadyOutElsewhere)
         {
             throw new ValidationException(
-                $"לא ניתן לבטל החזרה — קוד {item.SerialCode} כבר מושאל בהשאלה אחרת");
+                $"לא ניתן לבטל החזרה — קוד {item.CopyNumber} כבר מושאל בהשאלה אחרת");
         }
 
         // Remove debt/charge created for this return (if any).
@@ -279,7 +279,7 @@ public class ToolLoanService : IToolLoanService
 
     public async Task DeleteAsync(int loanId, CancellationToken cancellationToken = default)
     {
-        var entity = await _db.ToolLoans
+        var entity = await _db.BookLoans
             .Include(l => l.Items)
                 .ThenInclude(i => i.CustomerDebt)
             .FirstOrDefaultAsync(l => l.Id == loanId, cancellationToken)
@@ -294,102 +294,102 @@ public class ToolLoanService : IToolLoanService
             }
         }
 
-        _db.ToolLoans.Remove(entity);
+        _db.BookLoans.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<ToolLoanDto> ReturnByCodeAsync(
-        ToolLoanReturnByCodeDto dto,
+    public async Task<BookLoanDto> ReturnByCodeAsync(
+        BookLoanReturnByCodeDto dto,
         CancellationToken cancellationToken = default)
     {
-        var serial = (dto.SerialCode ?? string.Empty).Trim();
-        if (dto.ToolDefinitionId <= 0)
+        var serial = (dto.CopyNumber ?? string.Empty).Trim();
+        if (dto.BookId <= 0)
         {
-            throw new ValidationException("יש לבחור סוג כלי");
+            throw new ValidationException("יש לבחור ספר");
         }
 
         if (string.IsNullOrEmpty(serial))
         {
-            throw new ValidationException("יש להזין קוד פריט");
+            throw new ValidationException("יש להזין קוד עותק");
         }
 
         var serialLower = serial.ToLowerInvariant();
 
         // Single tracked lookup for the active (unreturned) item.
-        var item = await _db.ToolLoanItems
+        var item = await _db.BookLoanItems
             .Include(i => i.CustomerDebt)
-            .Include(i => i.ToolLoan)
+            .Include(i => i.BookLoan)
                 .ThenInclude(l => l.Items)
                     .ThenInclude(i => i.CustomerDebt)
             .Where(i =>
-                i.ToolDefinitionId == dto.ToolDefinitionId &&
+                i.BookId == dto.BookId &&
                 i.ReturnedAt == null &&
-                i.SerialCode.ToLower() == serialLower)
+                i.CopyNumber.ToLower() == serialLower)
             .OrderByDescending(i => i.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (item == null)
         {
-            throw new ValidationException("הפריט אינו מסומן כמושאל כרגע");
+            throw new ValidationException("העותק אינו מסומן כמושאל כרגע");
         }
 
         var stamp = DateTime.UtcNow;
         var hebrew = (dto.HebrewReturnedDisplay ?? string.Empty).Trim();
         item.ReturnedAt = stamp;
         item.HebrewReturnedDisplay = hebrew;
-        item.ToolLoan.UpdatedAt = stamp;
-        ApplyReturnCharge(item.ToolLoan, item, dto.ChargeAmount, stamp);
+        item.BookLoan.UpdatedAt = stamp;
+        ApplyReturnCharge(item.BookLoan, item, dto.ChargeAmount, stamp);
 
-        if (item.ToolLoan.Items.All(i => i.ReturnedAt != null))
+        if (item.BookLoan.Items.All(i => i.ReturnedAt != null))
         {
-            item.ToolLoan.ReturnedAt = stamp;
-            item.ToolLoan.HebrewReturnedDisplay = hebrew;
+            item.BookLoan.ReturnedAt = stamp;
+            item.BookLoan.HebrewReturnedDisplay = hebrew;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return ToDto(item.ToolLoan);
+        return ToDto(item.BookLoan);
     }
 
-    public async Task<List<ToolItemBorrowHistoryDto>> GetItemBorrowHistoryAsync(
-        int toolDefinitionId,
-        string serialCode,
+    public async Task<List<BookItemBorrowHistoryDto>> GetItemBorrowHistoryAsync(
+        int bookId,
+        string copyNumber,
         CancellationToken cancellationToken = default)
     {
-        var serial = (serialCode ?? string.Empty).Trim();
-        if (toolDefinitionId <= 0)
+        var serial = (copyNumber ?? string.Empty).Trim();
+        if (bookId <= 0)
         {
-            throw new ValidationException("יש לבחור סוג כלי");
+            throw new ValidationException("יש לבחור ספר");
         }
 
         if (string.IsNullOrEmpty(serial))
         {
-            throw new ValidationException("יש להזין קוד פריט");
+            throw new ValidationException("יש להזין קוד עותק");
         }
 
         var serialLower = serial.ToLowerInvariant();
 
         // One AsNoTracking query — completed returns only, newest first (ReturnedAt DESC).
-        return await _db.ToolLoanItems
+        return await _db.BookLoanItems
             .AsNoTracking()
             .Include(i => i.CustomerDebt)
             .Where(i =>
-                i.ToolDefinitionId == toolDefinitionId &&
+                i.BookId == bookId &&
                 i.ReturnedAt != null &&
-                i.SerialCode.ToLower() == serialLower)
+                i.CopyNumber.ToLower() == serialLower)
             .OrderByDescending(i => i.ReturnedAt)
             .ThenByDescending(i => i.Id)
-            .Select(i => new ToolItemBorrowHistoryDto
+            .Select(i => new BookItemBorrowHistoryDto
             {
-                LoanId = i.ToolLoanId,
+                LoanId = i.BookLoanId,
                 ItemId = i.Id,
-                ToolDefinitionId = i.ToolDefinitionId,
-                ToolName = i.ToolName,
-                SerialCode = i.SerialCode,
-                ClientName = i.ToolLoan.ClientName,
-                Phone = i.ToolLoan.Phone,
-                LentAt = i.ToolLoan.LentAt,
-                HebrewLentDisplay = i.ToolLoan.HebrewLentDisplay,
-                DeadlineAt = i.ToolLoan.DeadlineAt,
+                BookId = i.BookId,
+                BookTitle = i.BookTitle,
+                CopyNumber = i.CopyNumber,
+                ClientName = i.BookLoan.ClientName,
+                Phone = i.BookLoan.Phone,
+                LentAt = i.BookLoan.LentAt,
+                HebrewLentDisplay = i.BookLoan.HebrewLentDisplay,
+                DeadlineAt = i.BookLoan.DeadlineAt,
                 ReturnedAt = i.ReturnedAt!.Value,
                 HebrewReturnedDisplay = i.HebrewReturnedDisplay,
                 ChargeAmount = i.ChargeAmount,
@@ -400,8 +400,8 @@ public class ToolLoanService : IToolLoanService
     }
 
     private static void ApplyReturnCharge(
-        ToolLoan loan,
-        ToolLoanItem item,
+        BookLoan loan,
+        BookLoanItem item,
         decimal? chargeAmount,
         DateTime stamp)
     {
@@ -425,10 +425,10 @@ public class ToolLoanService : IToolLoanService
             item.CustomerDebt.SessionKey = OpenDebtService.BuildSessionKey(
                 loan.Phone,
                 stamp,
-                DebtCategory.Tools);
+                DebtCategory.Library);
             item.CustomerDebt.CustomerName = loan.ClientName;
             item.CustomerDebt.Phone = loan.Phone;
-            item.CustomerDebt.ItemDescription = item.ToolName;
+            item.CustomerDebt.ItemDescription = item.BookTitle;
             return;
         }
 
@@ -438,17 +438,17 @@ public class ToolLoanService : IToolLoanService
             Phone = loan.Phone,
             Amount = amount,
             IsPaid = false,
-            Category = DebtCategory.Tools,
-            ItemDescription = item.ToolName,
+            Category = DebtCategory.Library,
+            ItemDescription = item.BookTitle,
             ChargedAt = stamp,
-            SessionKey = OpenDebtService.BuildSessionKey(loan.Phone, stamp, DebtCategory.Tools),
-            ToolLoanItem = item
+            SessionKey = OpenDebtService.BuildSessionKey(loan.Phone, stamp, DebtCategory.Library),
+            BookLoanItem = item
         };
     }
 
-    private static ToolLoanDto ToDto(ToolLoan entity)
+    private static BookLoanDto ToDto(BookLoan entity)
     {
-        return new ToolLoanDto
+        return new BookLoanDto
         {
             Id = entity.Id,
             LentAt = entity.LentAt,
@@ -462,12 +462,12 @@ public class ToolLoanService : IToolLoanService
             HebrewReturnedDisplay = entity.HebrewReturnedDisplay,
             Items = entity.Items
                 .OrderBy(i => i.Id)
-                .Select(i => new ToolLoanItemDto
+                .Select(i => new BookLoanItemDto
                 {
                     Id = i.Id,
-                    ToolDefinitionId = i.ToolDefinitionId,
-                    ToolName = i.ToolName,
-                    SerialCode = i.SerialCode,
+                    BookId = i.BookId,
+                    BookTitle = i.BookTitle,
+                    CopyNumber = i.CopyNumber,
                     ReturnedAt = i.ReturnedAt,
                     HebrewReturnedDisplay = i.HebrewReturnedDisplay,
                     ChargeAmount = i.ChargeAmount,

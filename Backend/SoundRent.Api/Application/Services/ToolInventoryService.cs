@@ -19,6 +19,9 @@ public interface IToolInventoryService
         int? toolDefinitionId = null,
         CancellationToken cancellationToken = default);
     Task<List<string>> GetAvailableSerialsAsync(IEnumerable<int> toolDefinitionIds, CancellationToken cancellationToken = default);
+    /// <summary>Single-query bulk availability for all tools (AsNoTracking).</summary>
+    Task<List<ToolAvailableSerialsGroupDto>> GetAllAvailableSerialsGroupedAsync(
+        CancellationToken cancellationToken = default);
 }
 
 public class ToolInventoryService : IToolInventoryService
@@ -315,6 +318,41 @@ public class ToolInventoryService : IToolInventoryService
             .Select(c => c.SerialCode)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<List<ToolAvailableSerialsGroupDto>> GetAllAvailableSerialsGroupedAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // Two AsNoTracking reads only — no per-tool round trips / connection fan-out.
+        var allCodes = await _db.ToolSerialCodes
+            .AsNoTracking()
+            .Select(s => new { s.ToolDefinitionId, s.SerialCode })
+            .ToListAsync(cancellationToken);
+
+        var borrowedPairs = await _db.ToolLoanItems
+            .AsNoTracking()
+            .Where(i => i.ReturnedAt == null)
+            .Select(i => new { i.ToolDefinitionId, i.SerialCode })
+            .ToListAsync(cancellationToken);
+
+        var borrowedKeys = borrowedPairs
+            .Select(b => $"{b.ToolDefinitionId}|{b.SerialCode.ToLowerInvariant()}")
+            .ToHashSet(StringComparer.Ordinal);
+
+        return allCodes
+            .Where(c => !borrowedKeys.Contains($"{c.ToolDefinitionId}|{c.SerialCode.ToLowerInvariant()}"))
+            .GroupBy(c => c.ToolDefinitionId)
+            .Select(g => new ToolAvailableSerialsGroupDto
+            {
+                ToolDefinitionId = g.Key,
+                SerialCodes = g
+                    .Select(x => x.SerialCode)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+            })
+            .OrderBy(g => g.ToolDefinitionId)
             .ToList();
     }
 

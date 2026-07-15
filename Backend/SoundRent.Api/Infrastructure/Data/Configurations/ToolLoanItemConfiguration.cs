@@ -15,6 +15,7 @@ public class ToolLoanItemConfiguration : IEntityTypeConfiguration<ToolLoanItem>
         builder.Property(e => e.ToolName).HasMaxLength(200).IsRequired();
         builder.Property(e => e.SerialCode).HasMaxLength(100).IsRequired();
         builder.Property(e => e.HebrewReturnedDisplay).HasMaxLength(120);
+        builder.Property(e => e.ChargeAmount).HasPrecision(18, 2);
 
         builder.HasIndex(e => e.ToolLoanId).HasDatabaseName("IX_ToolLoanItems_ToolLoanId");
         builder.HasIndex(e => e.SerialCode).HasDatabaseName("IX_ToolLoanItems_SerialCode");

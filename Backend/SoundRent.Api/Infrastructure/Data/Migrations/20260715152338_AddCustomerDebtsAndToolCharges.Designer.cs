@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoundRent.Api.Infrastructure.Data;
@@ -11,9 +12,11 @@ using SoundRent.Api.Infrastructure.Data;
 namespace SoundRent.Api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260715152338_AddCustomerDebtsAndToolCharges")]
+    partial class AddCustomerDebtsAndToolCharges
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -102,200 +105,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("BlockedDates", (string)null);
                 });
 
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Book", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Author")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Category")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SortOrder")
-                        .HasDatabaseName("IX_Books_SortOrder");
-
-                    b.HasIndex("Title")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Books_Title");
-
-                    b.ToTable("Books", (string)null);
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookCopy", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BookId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("CopyNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BookId")
-                        .HasDatabaseName("IX_BookCopies_BookId");
-
-                    b.HasIndex("BookId", "CopyNumber")
-                        .IsUnique()
-                        .HasDatabaseName("IX_BookCopies_BookId_CopyNumber");
-
-                    b.ToTable("BookCopies", (string)null);
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookLoan", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ClientName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTime?>("DeadlineAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Deposit")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("HebrewLentDisplay")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("HebrewReturnedDisplay")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTime>("LentAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Phone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTime?>("ReturnedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LentAt")
-                        .HasDatabaseName("IX_BookLoans_LentAt");
-
-                    b.HasIndex("Phone")
-                        .HasDatabaseName("IX_BookLoans_Phone");
-
-                    b.HasIndex("ReturnedAt")
-                        .HasDatabaseName("IX_BookLoans_ReturnedAt");
-
-                    b.ToTable("BookLoans", (string)null);
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookLoanItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BookId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("BookLoanId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("BookTitle")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<decimal?>("ChargeAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<string>("CopyNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("HebrewReturnedDisplay")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTime?>("ReturnedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BookId")
-                        .HasDatabaseName("IX_BookLoanItems_BookId");
-
-                    b.HasIndex("BookLoanId")
-                        .HasDatabaseName("IX_BookLoanItems_BookLoanId");
-
-                    b.HasIndex("CopyNumber")
-                        .HasDatabaseName("IX_BookLoanItems_CopyNumber");
-
-                    b.HasIndex("ReturnedAt")
-                        .HasDatabaseName("IX_BookLoanItems_ReturnedAt");
-
-                    b.ToTable("BookLoanItems", (string)null);
-                });
-
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Customer", b =>
                 {
                     b.Property<string>("Phone1")
@@ -347,9 +156,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.Property<int?>("BookLoanItemId")
-                        .HasColumnType("integer");
-
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
@@ -386,10 +192,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("BookLoanItemId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_CustomerDebts_BookLoanItemId");
 
                     b.HasIndex("ChargedAt")
                         .HasDatabaseName("IX_CustomerDebts_ChargedAt");
@@ -1221,41 +1023,12 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("WaitlistEntries", (string)null);
                 });
 
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookCopy", b =>
-                {
-                    b.HasOne("SoundRent.Api.Domain.Entities.Book", "Book")
-                        .WithMany("Copies")
-                        .HasForeignKey("BookId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Book");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookLoanItem", b =>
-                {
-                    b.HasOne("SoundRent.Api.Domain.Entities.BookLoan", "BookLoan")
-                        .WithMany("Items")
-                        .HasForeignKey("BookLoanId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("BookLoan");
-                });
-
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.CustomerDebt", b =>
                 {
-                    b.HasOne("SoundRent.Api.Domain.Entities.BookLoanItem", "BookLoanItem")
-                        .WithOne("CustomerDebt")
-                        .HasForeignKey("SoundRent.Api.Domain.Entities.CustomerDebt", "BookLoanItemId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("SoundRent.Api.Domain.Entities.ToolLoanItem", "ToolLoanItem")
                         .WithOne("CustomerDebt")
                         .HasForeignKey("SoundRent.Api.Domain.Entities.CustomerDebt", "ToolLoanItemId")
                         .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("BookLoanItem");
 
                     b.Navigation("ToolLoanItem");
                 });
@@ -1375,21 +1148,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("ToolDefinition");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.Book", b =>
-                {
-                    b.Navigation("Copies");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookLoan", b =>
-                {
-                    b.Navigation("Items");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.BookLoanItem", b =>
-                {
-                    b.Navigation("CustomerDebt");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Customer", b =>

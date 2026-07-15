@@ -1,47 +1,53 @@
-namespace SoundRent.Api.Application.DTOs;
+﻿namespace SoundRent.Api.Application.DTOs;
 
-public class ToolDefinitionDto
+public class BookDto
 {
     public int Id { get; set; }
-    public string DisplayName { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? Author { get; set; }
+    public string? Category { get; set; }
     public int SortOrder { get; set; }
     public int TotalQuantity { get; set; }
-    public List<string> SerialCodes { get; set; } = new();
+    public List<string> Copies { get; set; } = new();
 }
 
-public class ToolDefinitionCreateDto
+public class BookCreateDto
 {
-    public string DisplayName { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? Author { get; set; }
+    public string? Category { get; set; }
     public int? Quantity { get; set; }
-    public List<string>? SerialCodes { get; set; }
+    public List<string>? Copies { get; set; }
 }
 
-public class ToolDefinitionUpdateDto
+public class BookUpdateDto
 {
-    public string DisplayName { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? Author { get; set; }
+    public string? Category { get; set; }
 }
 
-public class ToolDefinitionSerialsUpdateDto
+public class BookCopiesUpdateDto
 {
-    public List<string> SerialCodes { get; set; } = new();
+    public List<string> Copies { get; set; } = new();
 }
 
-public class ToolDefinitionTypeUpdateDto
+public class BookTypeUpdateDto
 {
     public int Id { get; set; }
-    public List<string> SerialCodes { get; set; } = new();
+    public List<string> Copies { get; set; } = new();
 }
 
-public class ToolDefinitionBatchUpdateDto
+public class BookBatchUpdateDto
 {
-    public List<ToolDefinitionTypeUpdateDto> Items { get; set; } = new();
+    public List<BookTypeUpdateDto> Items { get; set; } = new();
 }
 
-public class ToolSerialLocationDto
+public class BookCopyLocationDto
 {
-    public string SerialCode { get; set; } = string.Empty;
-    public string ToolName { get; set; } = string.Empty;
-    public int? ToolDefinitionId { get; set; }
+    public string CopyNumber { get; set; } = string.Empty;
+    public string BookTitle { get; set; } = string.Empty;
+    public int? BookId { get; set; }
     public bool IsRegistered { get; set; }
     public bool IsInWarehouse { get; set; }
     public int? LoanId { get; set; }
@@ -49,19 +55,19 @@ public class ToolSerialLocationDto
     public string? Phone { get; set; }
 }
 
-/// <summary>Available (unborrowed) serials for one tool definition — bulk availability payload.</summary>
-public class ToolAvailableSerialsGroupDto
+/// <summary>Available (unborrowed) copies for one tool definition — bulk availability payload.</summary>
+public class BookAvailableCopiesGroupDto
 {
-    public int ToolDefinitionId { get; set; }
-    public List<string> SerialCodes { get; set; } = new();
+    public int BookId { get; set; }
+    public List<string> Copies { get; set; } = new();
 }
 
-public class ToolLoanItemDto
+public class BookLoanItemDto
 {
     public int Id { get; set; }
-    public int ToolDefinitionId { get; set; }
-    public string ToolName { get; set; } = string.Empty;
-    public string SerialCode { get; set; } = string.Empty;
+    public int BookId { get; set; }
+    public string BookTitle { get; set; } = string.Empty;
+    public string CopyNumber { get; set; } = string.Empty;
     public DateTime? ReturnedAt { get; set; }
     public string? HebrewReturnedDisplay { get; set; }
     public decimal? ChargeAmount { get; set; }
@@ -69,7 +75,7 @@ public class ToolLoanItemDto
     public int? CustomerDebtId { get; set; }
 }
 
-public class ToolLoanDto
+public class BookLoanDto
 {
     public int Id { get; set; }
     public DateTime LentAt { get; set; }
@@ -81,16 +87,16 @@ public class ToolLoanDto
     public DateTime? DeadlineAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
     public string? HebrewReturnedDisplay { get; set; }
-    public List<ToolLoanItemDto> Items { get; set; } = new();
+    public List<BookLoanItemDto> Items { get; set; } = new();
 }
 
-public class ToolLoanItemCreateDto
+public class BookLoanItemCreateDto
 {
-    public int ToolDefinitionId { get; set; }
-    public string SerialCode { get; set; } = string.Empty;
+    public int BookId { get; set; }
+    public string CopyNumber { get; set; } = string.Empty;
 }
 
-public class ToolLoanCreateDto
+public class BookLoanCreateDto
 {
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
@@ -98,36 +104,36 @@ public class ToolLoanCreateDto
     public string? Notes { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public DateTime? DeadlineAt { get; set; }
-    public List<ToolLoanItemCreateDto> Items { get; set; } = new();
+    public List<BookLoanItemCreateDto> Items { get; set; } = new();
 }
 
-public class ToolLoanReturnDto
+public class BookLoanReturnDto
 {
     public string HebrewReturnedDisplay { get; set; } = string.Empty;
     public decimal? ChargeAmount { get; set; }
 }
 
-public class ToolLoanReturnByCodeDto
+public class BookLoanReturnByCodeDto
 {
-    public int ToolDefinitionId { get; set; }
-    public string SerialCode { get; set; } = string.Empty;
+    public int BookId { get; set; }
+    public string CopyNumber { get; set; } = string.Empty;
     public string HebrewReturnedDisplay { get; set; } = string.Empty;
     public decimal? ChargeAmount { get; set; }
 }
 
-public class ToolLoanUndoReturnDto
+public class BookLoanUndoReturnDto
 {
     public int ItemId { get; set; }
 }
 
 /// <summary>One completed return for a specific tool definition + serial code (audit history).</summary>
-public class ToolItemBorrowHistoryDto
+public class BookItemBorrowHistoryDto
 {
     public int LoanId { get; set; }
     public int ItemId { get; set; }
-    public int ToolDefinitionId { get; set; }
-    public string ToolName { get; set; } = string.Empty;
-    public string SerialCode { get; set; } = string.Empty;
+    public int BookId { get; set; }
+    public string BookTitle { get; set; } = string.Empty;
+    public string CopyNumber { get; set; } = string.Empty;
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public DateTime LentAt { get; set; }

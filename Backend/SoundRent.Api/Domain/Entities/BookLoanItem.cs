@@ -1,25 +1,25 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace SoundRent.Api.Domain.Entities;
 
-/// <summary>One borrowed tool unit on a <see cref="ToolLoan"/>.</summary>
-public class ToolLoanItem
+/// <summary>One borrowed tool unit on a <see cref="BookLoan"/>.</summary>
+public class BookLoanItem
 {
     public int Id { get; set; }
 
-    public int ToolLoanId { get; set; }
+    public int BookLoanId { get; set; }
 
-    public ToolLoan ToolLoan { get; set; } = null!;
+    public BookLoan BookLoan { get; set; } = null!;
 
-    public int ToolDefinitionId { get; set; }
+    public int BookId { get; set; }
 
     [Required]
     [MaxLength(200)]
-    public string ToolName { get; set; } = string.Empty;
+    public string BookTitle { get; set; } = string.Empty;
 
     [Required]
     [MaxLength(100)]
-    public string SerialCode { get; set; } = string.Empty;
+    public string CopyNumber { get; set; } = string.Empty;
 
     /// <summary>When set, this specific unit has been returned independently of sibling items.</summary>
     public DateTime? ReturnedAt { get; set; }

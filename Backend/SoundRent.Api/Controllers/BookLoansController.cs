@@ -1,25 +1,25 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Services;
 
 namespace SoundRent.Api.Controllers;
 
-/// <summary>Tools-workspace lending / returns (isolated from Sound orders).</summary>
+/// <summary>Library-workspace lending / returns (isolated from Sound orders).</summary>
 [ApiController]
 [Authorize]
-[Route("api/tools-loans")]
-public class ToolsLoansController : ControllerBase
+[Route("api/book-loans")]
+public class BookLoansController : ControllerBase
 {
-    private readonly IToolLoanService _service;
+    private readonly IBookLoanService _service;
 
-    public ToolsLoansController(IToolLoanService service)
+    public BookLoansController(IBookLoanService service)
     {
         _service = service;
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<ToolLoanDto>>> GetAll(
+    public async Task<ActionResult<List<BookLoanDto>>> GetAll(
         [FromQuery] bool? returned,
         CancellationToken cancellationToken)
     {
@@ -27,14 +27,14 @@ public class ToolsLoansController : ControllerBase
     }
 
     [HttpGet("active")]
-    public async Task<ActionResult<List<ToolLoanDto>>> GetActive(CancellationToken cancellationToken)
+    public async Task<ActionResult<List<BookLoanDto>>> GetActive(CancellationToken cancellationToken)
     {
         return Ok(await _service.GetActiveAsync(cancellationToken));
     }
 
     [HttpPost]
-    public async Task<ActionResult<ToolLoanDto>> Create(
-        [FromBody] ToolLoanCreateDto dto,
+    public async Task<ActionResult<BookLoanDto>> Create(
+        [FromBody] BookLoanCreateDto dto,
         CancellationToken cancellationToken)
     {
         var created = await _service.CreateAsync(dto, cancellationToken);
@@ -42,19 +42,19 @@ public class ToolsLoansController : ControllerBase
     }
 
     [HttpPost("{id:int}/return")]
-    public async Task<ActionResult<ToolLoanDto>> MarkReturned(
+    public async Task<ActionResult<BookLoanDto>> MarkReturned(
         int id,
-        [FromBody] ToolLoanReturnDto dto,
+        [FromBody] BookLoanReturnDto dto,
         CancellationToken cancellationToken)
     {
         return Ok(await _service.MarkReturnedAsync(id, dto, cancellationToken));
     }
 
     [HttpPost("{loanId:int}/items/{itemId:int}/return")]
-    public async Task<ActionResult<ToolLoanDto>> MarkItemReturned(
+    public async Task<ActionResult<BookLoanDto>> MarkItemReturned(
         int loanId,
         int itemId,
-        [FromBody] ToolLoanReturnDto dto,
+        [FromBody] BookLoanReturnDto dto,
         CancellationToken cancellationToken)
     {
         return Ok(await _service.MarkItemReturnedAsync(loanId, itemId, dto, cancellationToken));
@@ -64,7 +64,7 @@ public class ToolsLoansController : ControllerBase
     /// Undo a returned item: clear return stamp, delete linked debt, restore to active lending.
     /// </summary>
     [HttpPost("{loanId:int}/items/{itemId:int}/undo-return")]
-    public async Task<ActionResult<ToolLoanDto>> UndoItemReturn(
+    public async Task<ActionResult<BookLoanDto>> UndoItemReturn(
         int loanId,
         int itemId,
         CancellationToken cancellationToken)
@@ -76,9 +76,9 @@ public class ToolsLoansController : ControllerBase
     /// Alias matching “undo by loan”: requires itemId in body so the correct returned unit is restored.
     /// </summary>
     [HttpPost("{id:int}/undo-return")]
-    public async Task<ActionResult<ToolLoanDto>> UndoReturn(
+    public async Task<ActionResult<BookLoanDto>> UndoReturn(
         int id,
-        [FromBody] ToolLoanUndoReturnDto dto,
+        [FromBody] BookLoanUndoReturnDto dto,
         CancellationToken cancellationToken)
     {
         if (dto.ItemId <= 0)
@@ -99,8 +99,8 @@ public class ToolsLoansController : ControllerBase
 
     /// <summary>Quick return: find active loan item by tool type + serial and mark returned.</summary>
     [HttpPost("return-by-code")]
-    public async Task<ActionResult<ToolLoanDto>> ReturnByCode(
-        [FromBody] ToolLoanReturnByCodeDto dto,
+    public async Task<ActionResult<BookLoanDto>> ReturnByCode(
+        [FromBody] BookLoanReturnByCodeDto dto,
         CancellationToken cancellationToken)
     {
         return Ok(await _service.ReturnByCodeAsync(dto, cancellationToken));
@@ -108,11 +108,11 @@ public class ToolsLoansController : ControllerBase
 
     /// <summary>Audit history of completed returns for one tool definition + serial (ReturnedAt DESC).</summary>
     [HttpGet("item-history")]
-    public async Task<ActionResult<List<ToolItemBorrowHistoryDto>>> ItemHistory(
-        [FromQuery] int toolDefinitionId,
-        [FromQuery] string serialCode,
+    public async Task<ActionResult<List<BookItemBorrowHistoryDto>>> ItemHistory(
+        [FromQuery] int bookId,
+        [FromQuery] string copyNumber,
         CancellationToken cancellationToken)
     {
-        return Ok(await _service.GetItemBorrowHistoryAsync(toolDefinitionId, serialCode, cancellationToken));
+        return Ok(await _service.GetItemBorrowHistoryAsync(bookId, copyNumber, cancellationToken));
     }
 }
