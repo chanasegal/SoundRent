@@ -3,11 +3,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   HostListener,
   OnInit,
   computed,
   inject,
-  signal
+  signal,
+  viewChild
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -34,6 +36,8 @@ import {
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
+import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
+import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
 
 interface BookLineItem {
   id: string;
@@ -74,7 +78,13 @@ interface ActiveLoanRowView {
 @Component({
   selector: 'app-library-lending',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, FormsModule, BookTitleSelectComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    FormsModule,
+    BookTitleSelectComponent,
+    AutoFocusDirective
+  ],
   templateUrl: './library-lending.component.html',
   styleUrl: './library-lending.component.scss'
 })
@@ -86,6 +96,13 @@ export class LibraryLendingComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
+
+  /** Quick-return barcode field — kept focused for sequential scanner wedges. */
+  private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
+  /** Loan-form barcode field (when the loan panel is open). */
+  private readonly loanBarcodeField = viewChild<ElementRef<HTMLInputElement>>('loanBarcodeField');
+  private readonly wedge = new BarcodeWedgeScanner();
+  protected readonly loanScanCode = signal('');
 
   protected readonly definitions = signal<BookDto[]>([]);
   protected readonly availableByBook = signal<Map<number, string[]>>(new Map());
@@ -197,8 +214,25 @@ export class LibraryLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
+  /** Global wedge scan when no input is focused — routes to return or loan. */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    const code = this.wedge.push(event);
+    if (!code) {
+      return;
+    }
+    if (this.formOpen()) {
+      this.loanScanCode.set(code);
+      this.applyLoanBarcodeScan(code);
+      return;
+    }
+    this.quickReturnCode.set(code);
+    this.submitQuickReturn();
+  }
+
   protected addForm(): void {
     this.formOpen.set(true);
+    this.loanScanCode.set('');
     if (this.forms().length === 0) {
       this.forms.set([this.createDraftForm()]);
     } else {
@@ -206,13 +240,16 @@ export class LibraryLendingComponent implements OnInit {
       this.forms.set([this.createDraftForm()]);
     }
     // Use already-cached availability — no extra API call.
+    queueMicrotask(() => this.focusLoanBarcodeField());
   }
 
   protected closeFormPanel(): void {
     this.formOpen.set(false);
+    this.loanScanCode.set('');
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
+    queueMicrotask(() => this.focusBarcodeField());
   }
 
   protected onQuickReturnToolChange(bookId: number | null): void {
@@ -248,16 +285,32 @@ export class LibraryLendingComponent implements OnInit {
     return n;
   }
 
+  /** Enter from scanner (or keyboard) on the focused barcode field. */
+  protected onQuickReturnKeydownEnter(event: Event): void {
+    event.preventDefault();
+    this.submitQuickReturn();
+  }
+
   protected submitQuickReturn(): void {
-    const bookId = this.quickReturnToolId();
-    const serial = this.quickReturnCode().trim();
-    if (bookId == null) {
-      this.toast.error('יש לבחור ספר');
+    if (this.quickReturning()) {
       return;
     }
+
+    const serial = this.quickReturnCode().trim();
     if (!serial) {
       this.toast.error('יש להזין ברקוד');
+      this.focusBarcodeField();
       return;
+    }
+
+    let bookId = this.quickReturnToolId();
+    if (bookId == null) {
+      const resolved = this.resolveActiveLoanByCopy(serial);
+      if (!resolved) {
+        return;
+      }
+      bookId = resolved.bookId;
+      this.quickReturnToolId.set(bookId);
     }
 
     const matched = this.activeRows().find(
@@ -281,6 +334,8 @@ export class LibraryLendingComponent implements OnInit {
       .pipe(finalize(() => this.quickReturning.set(false)))
       .subscribe((updated) => {
         if (!updated) {
+          this.quickReturnCode.set('');
+          this.focusBarcodeField();
           return;
         }
         this.toast.success('ההחזרה נרשמה');
@@ -295,7 +350,187 @@ export class LibraryLendingComponent implements OnInit {
         }
         this.refreshActiveLoans();
         this.refreshAvailability();
+        this.focusBarcodeField();
       });
+  }
+
+  protected onLoanScanCodeInput(value: string): void {
+    this.loanScanCode.set(value);
+  }
+
+  /** Enter on the loan-form barcode field — add the scanned copy to the draft. */
+  protected onLoanBarcodeKeydownEnter(event: Event): void {
+    event.preventDefault();
+    const code = this.loanScanCode().trim();
+    if (!code) {
+      return;
+    }
+    this.applyLoanBarcodeScan(code);
+  }
+
+  /**
+   * Resolve a scanned copy among available stock and select it on the open loan draft.
+   * Clears the scan field and re-focuses for the next wedge.
+   */
+  private applyLoanBarcodeScan(rawCode: string): void {
+    const code = rawCode.trim();
+    if (!code) {
+      return;
+    }
+
+    const hit = this.findAvailableCopy(code);
+    if (!hit) {
+      this.toast.error(`ברקוד ${code} אינו זמין להשאלה`);
+      this.loanScanCode.set('');
+      this.focusLoanBarcodeField();
+      return;
+    }
+
+    const forms = this.forms();
+    const form = forms[0];
+    if (!form) {
+      return;
+    }
+
+    const already = form.bookLines.some((l) =>
+      l.selectedCopies.some((c) => c.toLowerCase() === hit.copyNumber.toLowerCase())
+    );
+    if (already) {
+      this.toast.error(`ברקוד ${hit.copyNumber} כבר נבחר`);
+      this.loanScanCode.set('');
+      this.focusLoanBarcodeField();
+      return;
+    }
+
+    const lineWithBook = form.bookLines.find((l) => l.bookId === hit.bookId);
+    if (lineWithBook) {
+      this.forms.update((list) =>
+        list.map((f) =>
+          f.id !== form.id
+            ? f
+            : {
+                ...f,
+                bookLines: f.bookLines.map((l) =>
+                  l.id !== lineWithBook.id
+                    ? l
+                    : {
+                        ...l,
+                        selectedCopies: [...l.selectedCopies, hit.copyNumber]
+                      }
+                )
+              }
+        )
+      );
+    } else {
+      const emptyLine = form.bookLines.find(
+        (l) => l.bookId == null && l.selectedCopies.length === 0
+      );
+      const book = this.definitions().find((d) => d.id === hit.bookId);
+      if (!book) {
+        this.toast.error('הספר לא נמצא');
+        this.loanScanCode.set('');
+        this.focusLoanBarcodeField();
+        return;
+      }
+
+      if (emptyLine) {
+        this.forms.update((list) =>
+          list.map((f) =>
+            f.id !== form.id
+              ? f
+              : {
+                  ...f,
+                  bookLines: f.bookLines.map((l) =>
+                    l.id !== emptyLine.id
+                      ? l
+                      : {
+                          ...l,
+                          bookId: book.id,
+                          bookQuery: book.title,
+                          selectedCopies: [hit.copyNumber],
+                          bookSuggestOpen: false,
+                          copiesOpen: false
+                        }
+                  )
+                }
+          )
+        );
+      } else {
+        this.forms.update((list) =>
+          list.map((f) =>
+            f.id !== form.id
+              ? f
+              : {
+                  ...f,
+                  bookLines: [
+                    ...f.bookLines,
+                    {
+                      ...this.createToolLine(),
+                      bookId: book.id,
+                      bookQuery: book.title,
+                      selectedCopies: [hit.copyNumber]
+                    }
+                  ]
+                }
+          )
+        );
+      }
+    }
+
+    this.toast.success(`נוסף: ${hit.copyNumber}`);
+    this.loanScanCode.set('');
+    this.focusLoanBarcodeField();
+  }
+
+  /** Match barcode to a currently active (unreturned) loan item. */
+  private resolveActiveLoanByCopy(serial: string): { bookId: number } | null {
+    const needle = serial.toLowerCase();
+    const matches = this.activeRows().filter(
+      (r) => r.item.copyNumber.toLowerCase() === needle
+    );
+    if (matches.length === 1) {
+      return { bookId: matches[0].item.bookId };
+    }
+    if (matches.length === 0) {
+      this.toast.error('הברקוד אינו מסומן כמושאל כרגע');
+      this.focusBarcodeField();
+      return null;
+    }
+    this.toast.error('נמצאו מספר התאמות — בחרו ספר');
+    this.focusBarcodeField();
+    return null;
+  }
+
+  private findAvailableCopy(
+    code: string
+  ): { bookId: number; copyNumber: string } | null {
+    const needle = code.toLowerCase();
+    const hits: { bookId: number; copyNumber: string }[] = [];
+    for (const [bookId, copies] of this.availableByBook()) {
+      for (const copy of copies) {
+        if (copy.toLowerCase() === needle) {
+          hits.push({ bookId, copyNumber: copy });
+        }
+      }
+    }
+    return hits.length === 1 ? hits[0] : null;
+  }
+
+  private focusBarcodeField(): void {
+    queueMicrotask(() => this.focusAndSelect(this.barcodeField()?.nativeElement));
+  }
+
+  private focusLoanBarcodeField(): void {
+    queueMicrotask(() => this.focusAndSelect(this.loanBarcodeField()?.nativeElement));
+  }
+
+  /** Focus + select so the next wedge scan replaces any leftover text. */
+  private focusAndSelect(el: HTMLInputElement | undefined): void {
+    if (!el) {
+      return;
+    }
+    el.focus();
+    el.select();
   }
 
   protected refreshActiveLoans(): void {
@@ -643,9 +878,11 @@ export class LibraryLendingComponent implements OnInit {
           });
         this.toast.success('ההשאלה נשמרה');
         this.formOpen.set(false);
+        this.loanScanCode.set('');
         this.forms.set([this.createDraftForm()]);
         this.refreshAvailability();
         this.refreshActiveLoans();
+        this.focusBarcodeField();
       });
   }
 

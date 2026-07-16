@@ -20,7 +20,7 @@
   <section class="history-filter-card mb-5" aria-label="חיפוש היסטוריית השאלה לפי ספר">
     <h2 class="history-filter-card__title">חיפוש היסטוריית השאלה לפי ספר</h2>
     <p class="history-filter-card__hint">
-      בחרו ספר וברקוד כדי לראות מי אחז בספר לאחרונה (האחרון למעלה).
+      בחרו ספר וברקוד כדי לראות מי השאיל את הספר (האחרון למעלה).
     </p>
     <div class="history-filter-card__row">
       <label class="history-field">
@@ -37,12 +37,15 @@
           type="text"
           class="field-input ltr-field"
           dir="ltr"
+          id="copyCodeInput"
           list="history-item-codes"
-          placeholder="הזינו או בחרו קוד"
+          placeholder="...סרוק ברקוד"
           [value]="historyCode()"
           (input)="onHistoryCodeInput($any($event.target).value)"
-          (keydown.enter)="searchItemHistory()"
+          (keydown.enter)="onHistoryKeydownEnter($event)"
           autocomplete="off"
+          appAutoFocus
+          #barcodeField
         />
         <datalist id="history-item-codes">
           @for (code of historyCodes(); track code) {
@@ -84,7 +87,7 @@
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
             <th class="px-3 py-3 font-semibold">תאריך השאלה</th>
             <th class="px-3 py-3 font-semibold">ספר</th>
-            <th class="px-3 py-3 font-semibold">קוד עותק</th>
+            <th class="px-3 py-3 font-semibold">ברקוד</th>
             <th class="px-3 py-3 font-semibold">פרטי קורא</th>
             <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
             <th class="px-3 py-3 font-semibold">תאריך החזרה</th>

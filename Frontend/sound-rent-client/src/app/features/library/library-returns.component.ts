@@ -2,10 +2,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  HostListener,
   OnInit,
   computed,
   inject,
-  signal
+  signal,
+  viewChild
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
@@ -28,6 +31,8 @@ import {
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
+import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
+import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
 
 interface CompletedLoanRowView {
   rowKey: string;
@@ -49,7 +54,7 @@ interface CompletedLoanRowView {
 @Component({
   selector: 'app-library-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, BookTitleSelectComponent, ConfirmPopup],
+  imports: [CommonModule, FormsModule, BookTitleSelectComponent, ConfirmPopup, AutoFocusDirective],
   providers: [ConfirmationService],
   templateUrl: './library-returns.component.html',
   styleUrl: './library-returns.component.scss'
@@ -60,6 +65,9 @@ export class LibraryReturnsComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
+
+  private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
+  private readonly wedge = new BarcodeWedgeScanner();
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<BookLoanDto[]>([]);
@@ -132,6 +140,17 @@ export class LibraryReturnsComponent implements OnInit {
     this.refresh();
   }
 
+  /** Global wedge scan when no input is focused — fills barcode and searches history. */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    const code = this.wedge.push(event);
+    if (!code) {
+      return;
+    }
+    this.historyCode.set(code);
+    this.searchItemHistory();
+  }
+
   protected refresh(): void {
     this.loading.set(true);
     this.data
@@ -151,16 +170,33 @@ export class LibraryReturnsComponent implements OnInit {
     this.historyCode.set(value);
   }
 
+  protected onHistoryKeydownEnter(event: Event): void {
+    event.preventDefault();
+    this.searchItemHistory();
+  }
+
   protected searchItemHistory(): void {
-    const bookId = this.historyToolId();
-    const serial = this.historyCode().trim();
-    if (bookId == null) {
-      this.toast.error('יש לבחור ספר');
+    if (this.historySearching()) {
       return;
     }
+
+    const serial = this.historyCode().trim();
     if (!serial) {
       this.toast.error('יש להזין ברקוד');
+      this.focusBarcodeField();
       return;
+    }
+
+    let bookId = this.historyToolId();
+    if (bookId == null) {
+      const resolved = this.resolveBookFromDefinitions(serial);
+      if (!resolved) {
+        this.toast.error('יש לבחור ספר או לסרוק ברקוד מוכר במלאי');
+        this.focusBarcodeField();
+        return;
+      }
+      bookId = resolved;
+      this.historyToolId.set(bookId);
     }
 
     this.historySearching.set(true);
@@ -170,6 +206,7 @@ export class LibraryReturnsComponent implements OnInit {
       .subscribe((list) => {
         this.historyRows.set(list.map((h) => this.toHistoryRow(h)));
         this.historyMode.set(true);
+        this.focusBarcodeField();
       });
   }
 
@@ -178,6 +215,30 @@ export class LibraryReturnsComponent implements OnInit {
     this.historyRows.set([]);
     this.historyToolId.set(null);
     this.historyCode.set('');
+    this.focusBarcodeField();
+  }
+
+  private resolveBookFromDefinitions(serial: string): number | null {
+    const needle = serial.toLowerCase();
+    const hits: number[] = [];
+    for (const book of this.definitions()) {
+      if ((book.copies ?? []).some((c) => c.toLowerCase() === needle)) {
+        hits.push(book.id);
+      }
+    }
+    return hits.length === 1 ? hits[0] : null;
+  }
+
+  private focusBarcodeField(): void {
+    queueMicrotask(() => {
+      const el = this.barcodeField()?.nativeElement;
+      if (!el) {
+        return;
+      }
+      el.focus();
+      // Select leftover text so the next wedge scan replaces it.
+      el.select();
+    });
   }
 
   protected formatPhone(phone: string): string {

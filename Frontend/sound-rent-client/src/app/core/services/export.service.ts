@@ -96,7 +96,11 @@ export class ExportService {
   }
 
   private loadXlsx(): Promise<XlsxModule> {
-    this.xlsxPromise ??= import('xlsx-js-style');
+    // xlsx-js-style is CJS; under ESM dynamic import the API lives on `default`.
+    this.xlsxPromise ??= import('xlsx-js-style').then((mod) => {
+      const api = (mod as { default?: XlsxModule }).default ?? (mod as XlsxModule);
+      return api;
+    });
     return this.xlsxPromise;
   }
 

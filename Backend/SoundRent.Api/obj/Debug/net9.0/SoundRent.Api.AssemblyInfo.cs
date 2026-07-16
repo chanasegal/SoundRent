@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SoundRent.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+00c51dee22371b252684b85bed5a2ea2790f9d90")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6c7d918880394fd631eed45b478d9b5f729fca6b")]
 [assembly: System.Reflection.AssemblyProductAttribute("SoundRent.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SoundRent.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

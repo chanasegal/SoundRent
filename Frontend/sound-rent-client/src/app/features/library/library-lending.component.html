@@ -53,12 +53,15 @@
           type="text"
           class="field-input ltr-field"
           dir="ltr"
+          id="copyCodeInput"
           list="quick-return-codes"
-          placeholder="הזינו או בחרו קוד"
+          placeholder="...סרוק ברקוד"
           [value]="quickReturnCode()"
           (input)="onQuickReturnCodeInput($any($event.target).value)"
-          (keydown.enter)="submitQuickReturn()"
+          (keydown.enter)="onQuickReturnKeydownEnter($event)"
           autocomplete="off"
+          [appAutoFocus]="!formOpen()"
+          #barcodeField
         />
         <datalist id="quick-return-codes">
           @for (code of quickReturnCodes(); track code) {
@@ -110,6 +113,24 @@
           <div class="loan-card__grid">
             <div class="field-block field-block--span2">
               <label class="field-label">ספרים מושאלים</label>
+              <div class="tool-line-scan mb-3">
+                <label class="quick-return-field">
+                  <span>ברקוד (סריקה)</span>
+                  <input
+                    type="text"
+                    class="field-input ltr-field"
+                    dir="ltr"
+                    id="loanCopyCodeInput"
+                    placeholder="...סרוק ברקוד"
+                    [value]="loanScanCode()"
+                    (input)="onLoanScanCodeInput($any($event.target).value)"
+                    (keydown.enter)="onLoanBarcodeKeydownEnter($event)"
+                    autocomplete="off"
+                    [appAutoFocus]="formOpen()"
+                    #loanBarcodeField
+                  />
+                </label>
+              </div>
               <div class="tool-lines">
                 @for (line of form.bookLines; track line.id) {
                   <div class="tool-line">
@@ -367,7 +388,7 @@
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
             <th class="px-3 py-3 font-semibold">תאריך</th>
             <th class="px-3 py-3 font-semibold">ספר</th>
-            <th class="px-3 py-3 font-semibold">קוד עותק</th>
+            <th class="px-3 py-3 font-semibold">ברקוד</th>
             <th class="px-3 py-3 font-semibold">פרטי קורא</th>
             <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
             <th class="px-3 py-3 font-semibold">קנס/חיוב</th>

@@ -107,6 +107,12 @@
   align-self: flex-end;
 }
 
+.tool-line-scan {
+  .quick-return-field {
+    max-width: 24rem;
+  }
+}
+
 .forms-stack {
   display: flex;
   flex-direction: column;
