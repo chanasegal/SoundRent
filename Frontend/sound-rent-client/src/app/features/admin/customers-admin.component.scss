@@ -155,9 +155,14 @@
   padding: 0.25rem 0.55rem;
   transition: background-color 0.15s ease, color 0.15s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: #e0f2fe;
     color: #075985;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
 }
 

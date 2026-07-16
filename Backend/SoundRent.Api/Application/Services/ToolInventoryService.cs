@@ -258,7 +258,11 @@ public class ToolInventoryService : IToolInventoryService
             IsInWarehouse = false,
             LoanId = active.ToolLoanId,
             ClientName = active.ToolLoan.ClientName,
-            Phone = active.ToolLoan.Phone
+            Phone = active.ToolLoan.Phone,
+            Phone2 = active.ToolLoan.Phone2,
+            Address = active.ToolLoan.Address,
+            Deposit = active.ToolLoan.Deposit,
+            Notes = active.ToolLoan.Notes
         };
     }
 

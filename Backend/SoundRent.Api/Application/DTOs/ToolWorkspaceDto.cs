@@ -47,6 +47,10 @@ public class ToolSerialLocationDto
     public int? LoanId { get; set; }
     public string? ClientName { get; set; }
     public string? Phone { get; set; }
+    public string? Phone2 { get; set; }
+    public string? Address { get; set; }
+    public string? Deposit { get; set; }
+    public string? Notes { get; set; }
 }
 
 /// <summary>Available (unborrowed) serials for one tool definition — bulk availability payload.</summary>
@@ -76,6 +80,8 @@ public class ToolLoanDto
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string? Phone2 { get; set; }
+    public string? Address { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
     public DateTime? DeadlineAt { get; set; }
@@ -94,6 +100,8 @@ public class ToolLoanCreateDto
 {
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string? Phone2 { get; set; }
+    public string? Address { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;

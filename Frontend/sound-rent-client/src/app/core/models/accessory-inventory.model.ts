@@ -47,4 +47,8 @@ export interface AccessorySerialLocationDto {
   orderId?: number | null;
   customerName?: string | null;
   phone?: string | null;
+  phone2?: string | null;
+  address?: string | null;
+  deposit?: string | null;
+  notes?: string | null;
 }

@@ -1076,6 +1076,25 @@ export class DataService {
       );
   }
 
+  getToolLoansForCustomer(phone: string): Observable<ToolLoanDto[]> {
+    const enc = encodeURIComponent((phone ?? '').trim());
+    return this.http.get<ToolLoanDto[]>(`${this.toolsLoansBase}/customer/${enc}`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  renewToolLoan(id: number): Observable<ToolLoanDto | null> {
+    return this.http.post<ToolLoanDto>(`${this.toolsLoansBase}/${id}/renew`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   // --- Library workspace (books inventory / loans) ---------------------------
 
   getBooks(): Observable<BookDto[]> {
@@ -1267,5 +1286,24 @@ export class DataService {
           return of([]);
         })
       );
+  }
+
+  getBookLoansForCustomer(phone: string): Observable<BookLoanDto[]> {
+    const enc = encodeURIComponent((phone ?? '').trim());
+    return this.http.get<BookLoanDto[]>(`${this.bookLoansBase}/customer/${enc}`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  renewBookLoan(id: number): Observable<BookLoanDto | null> {
+    return this.http.post<BookLoanDto>(`${this.bookLoansBase}/${id}/renew`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
   }
 }

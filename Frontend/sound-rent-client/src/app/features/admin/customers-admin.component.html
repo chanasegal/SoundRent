@@ -382,7 +382,9 @@
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
-        <h2 class="text-lg font-bold text-[#002244]">היסטוריית הזמנות</h2>
+        <h2 class="text-lg font-bold text-[#002244]">
+          {{ isLoanHistorySystem() ? 'היסטוריית השאלות' : 'היסטוריית הזמנות' }}
+        </h2>
         <p class="mt-1 text-sm text-slate-600">
           @if (historyKind() === 'customer') {
             טלפון ראשי:
@@ -396,6 +398,90 @@
       <div class="max-h-[60vh] overflow-y-auto px-3 py-3">
         @if (historyLoading()) {
           <p class="py-8 text-center text-slate-500">טוען…</p>
+        } @else if (isLibrarySystem()) {
+          @if (libraryHistoryRows().length === 0) {
+            <p class="py-8 text-center text-slate-500">אין השאלות ללקוח זה</p>
+          } @else {
+            <table class="history-orders-table w-full border-collapse text-right text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                  <th class="px-2 py-2 font-semibold">תאריך השאלה</th>
+                  <th class="px-2 py-2 font-semibold">תאריך עברי</th>
+                  <th class="px-2 py-2 font-semibold">ספר</th>
+                  <th class="px-2 py-2 font-semibold">ברקוד</th>
+                  <th class="px-2 py-2 font-semibold">תאריך החזרה</th>
+                  <th class="px-2 py-2 font-semibold">פעולות</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of libraryHistoryRows(); track row.loanId + '-' + row.itemId) {
+                  <tr class="border-b border-slate-100">
+                    <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ formatDisplayDate(row.loanDate) }}</td>
+                    <td class="px-2 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
+                    <td class="px-2 py-2">{{ row.itemName }}</td>
+                    <td class="px-2 py-2 font-mono text-xs" dir="ltr">{{ row.itemCode }}</td>
+                    <td class="px-2 py-2 whitespace-nowrap">{{ row.returnDateOrStatus }}</td>
+                    <td class="px-2 py-2 text-left whitespace-nowrap">
+                      @if (row.canRenew) {
+                        <button
+                          type="button"
+                          class="history-order-action history-order-action--renew"
+                          (click)="renewLoan(row)"
+                          title="חידוש השאלה"
+                        >
+                          חידוש השאלה
+                        </button>
+                      } @else {
+                        <span class="text-slate-400">—</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        } @else if (isToolsSystem()) {
+          @if (toolsHistoryRows().length === 0) {
+            <p class="py-8 text-center text-slate-500">אין השאלות ללקוח זה</p>
+          } @else {
+            <table class="history-orders-table w-full border-collapse text-right text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                  <th class="px-2 py-2 font-semibold">תאריך השאלה</th>
+                  <th class="px-2 py-2 font-semibold">תאריך עברי</th>
+                  <th class="px-2 py-2 font-semibold">כלי/פריט</th>
+                  <th class="px-2 py-2 font-semibold">קוד פריט</th>
+                  <th class="px-2 py-2 font-semibold">תאריך החזרה</th>
+                  <th class="px-2 py-2 font-semibold">פעולות</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of toolsHistoryRows(); track row.loanId + '-' + row.itemId) {
+                  <tr class="border-b border-slate-100">
+                    <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ formatDisplayDate(row.loanDate) }}</td>
+                    <td class="px-2 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
+                    <td class="px-2 py-2">{{ row.itemName }}</td>
+                    <td class="px-2 py-2 font-mono text-xs" dir="ltr">{{ row.itemCode }}</td>
+                    <td class="px-2 py-2 whitespace-nowrap">{{ row.returnDateOrStatus }}</td>
+                    <td class="px-2 py-2 text-left whitespace-nowrap">
+                      @if (row.canRenew) {
+                        <button
+                          type="button"
+                          class="history-order-action history-order-action--renew"
+                          (click)="renewLoan(row)"
+                          title="חידוש השאלה"
+                        >
+                          חידוש השאלה
+                        </button>
+                      } @else {
+                        <span class="text-slate-400">—</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
         } @else if (historyOrders().length === 0) {
           <p class="py-8 text-center text-slate-500">
             {{ historyKind() === 'customer' ? 'אין הזמנות ללקוח זה' : 'אין הזמנות למוסד זה' }}

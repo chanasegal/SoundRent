@@ -38,6 +38,10 @@ export interface ToolSerialLocationDto {
   loanId?: number | null;
   clientName?: string | null;
   phone?: string | null;
+  phone2?: string | null;
+  address?: string | null;
+  deposit?: string | null;
+  notes?: string | null;
 }
 
 export interface ToolAvailableSerialsGroupDto {
@@ -63,6 +67,8 @@ export interface ToolLoanDto {
   hebrewLentDisplay: string;
   clientName: string;
   phone: string;
+  phone2?: string | null;
+  address?: string | null;
   deposit?: string | null;
   notes?: string | null;
   deadlineAt?: string | null;
@@ -79,6 +85,8 @@ export interface ToolLoanItemCreateDto {
 export interface ToolLoanCreateDto {
   clientName: string;
   phone: string;
+  phone2?: string | null;
+  address?: string | null;
   deposit?: string | null;
   notes?: string | null;
   hebrewLentDisplay: string;

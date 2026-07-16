@@ -11,6 +11,8 @@ public interface IBookLoanService
 {
     Task<List<BookLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default);
     Task<List<BookLoanDto>> GetAllAsync(bool? returnedOnly = null, CancellationToken cancellationToken = default);
+    Task<List<BookLoanDto>> GetByCustomerPhoneAsync(string phone, CancellationToken cancellationToken = default);
+    Task<BookLoanDto> RenewAsync(int id, CancellationToken cancellationToken = default);
     Task<BookLoanDto> CreateAsync(BookLoanCreateDto dto, CancellationToken cancellationToken = default);
     Task<BookLoanDto> MarkReturnedAsync(int id, BookLoanReturnDto dto, CancellationToken cancellationToken = default);
     Task<BookLoanDto> MarkItemReturnedAsync(
@@ -34,6 +36,9 @@ public interface IBookLoanService
 
 public class BookLoanService : IBookLoanService
 {
+    /// <summary>Default library loan period used when renewing (matches frontend default).</summary>
+    public const int DefaultLoanDays = 7;
+
     private readonly AppDbContext _db;
 
     public BookLoanService(AppDbContext db)
@@ -73,6 +78,54 @@ public class BookLoanService : IBookLoanService
             .ToListAsync(cancellationToken);
 
         return rows.Select(ToDto).ToList();
+    }
+
+    public async Task<List<BookLoanDto>> GetByCustomerPhoneAsync(
+        string phone,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedPhone = (phone ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            return [];
+        }
+
+        var rows = await _db.BookLoans
+            .AsNoTracking()
+            .Include(l => l.Items)
+                .ThenInclude(i => i.CustomerDebt)
+            .Where(l => l.Phone == normalizedPhone)
+            .OrderByDescending(l => l.LentAt)
+            .ThenByDescending(l => l.Id)
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(ToDto).ToList();
+    }
+
+    public async Task<BookLoanDto> RenewAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.BookLoans
+            .Include(l => l.Items)
+                .ThenInclude(i => i.CustomerDebt)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new NotFoundException("ההשאלה לא נמצאה");
+
+        if (!entity.Items.Any(i => i.ReturnedAt == null))
+        {
+            throw new ValidationException("לא ניתן לחדש השאלה שכבר הוחזרה במלואה");
+        }
+
+        var now = DateTime.UtcNow;
+        var baseDeadline = entity.DeadlineAt ?? now;
+        if (baseDeadline < now)
+        {
+            baseDeadline = now;
+        }
+
+        entity.DeadlineAt = baseDeadline.AddDays(DefaultLoanDays);
+        entity.UpdatedAt = now;
+        await _db.SaveChangesAsync(cancellationToken);
+        return ToDto(entity);
     }
 
     public async Task<BookLoanDto> CreateAsync(
@@ -140,6 +193,8 @@ public class BookLoanService : IBookLoanService
             HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
             ClientName = (dto.ClientName ?? string.Empty).Trim(),
             Phone = phone,
+            Phone2 = string.IsNullOrWhiteSpace(dto.Phone2) ? null : dto.Phone2.Trim(),
+            Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
@@ -455,6 +510,8 @@ public class BookLoanService : IBookLoanService
             HebrewLentDisplay = entity.HebrewLentDisplay,
             ClientName = entity.ClientName,
             Phone = entity.Phone,
+            Phone2 = entity.Phone2,
+            Address = entity.Address,
             Deposit = entity.Deposit,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,

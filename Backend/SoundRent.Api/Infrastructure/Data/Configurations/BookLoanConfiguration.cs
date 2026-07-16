@@ -15,6 +15,8 @@ public class BookLoanConfiguration : IEntityTypeConfiguration<BookLoan>
         builder.Property(e => e.HebrewLentDisplay).HasMaxLength(120);
         builder.Property(e => e.ClientName).HasMaxLength(200);
         builder.Property(e => e.Phone).HasMaxLength(20).IsRequired();
+        builder.Property(e => e.Phone2).HasMaxLength(20);
+        builder.Property(e => e.Address).HasMaxLength(500);
         builder.Property(e => e.Deposit).HasMaxLength(500);
         builder.Property(e => e.Notes).HasMaxLength(2000);
         builder.Property(e => e.HebrewReturnedDisplay).HasMaxLength(120);

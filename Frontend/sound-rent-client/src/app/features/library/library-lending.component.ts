@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { finalize, interval } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
@@ -55,6 +56,7 @@ interface LendingDraftForm {
   bookLines: BookLineItem[];
   clientName: string;
   phone: string;
+  phone2: string;
   address: string;
   deposit: string;
   notes: string;
@@ -95,7 +97,18 @@ export class LibraryLendingComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
+
+  private pendingRenew: {
+    phone: string;
+    clientName: string;
+    phone2: string;
+    address: string;
+    bookId: number;
+    copyNumber: string;
+  } | null = null;
 
   /** Quick-return barcode field — kept focused for sequential scanner wedges. */
   private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
@@ -191,6 +204,7 @@ export class LibraryLendingComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.readRenewQueryParams();
     this.loadDefinitions();
     this.wireTimeLimitDays();
     this.wireActiveLoansSearch();
@@ -776,7 +790,7 @@ export class LibraryLendingComponent implements OnInit {
     patch: Partial<
       Pick<
         LendingDraftForm,
-        'clientName' | 'phone' | 'address' | 'deposit' | 'notes' | 'clientAlertNotes'
+        'clientName' | 'phone' | 'phone2' | 'address' | 'deposit' | 'notes' | 'clientAlertNotes'
       >
     >
   ): void {
@@ -797,6 +811,11 @@ export class LibraryLendingComponent implements OnInit {
     }
   }
 
+  protected onPhone2Input(formId: string, value: string): void {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    this.patchForm(formId, { phone2: digits });
+  }
+
   protected onAddressInput(formId: string, value: string): void {
     this.patchForm(formId, { address: value });
     this.openCustomerSuggest(formId, 'address', value);
@@ -806,6 +825,7 @@ export class LibraryLendingComponent implements OnInit {
     this.patchForm(formId, {
       clientName: customer.fullName ?? '',
       phone: customer.phone1,
+      phone2: customer.phone2 ?? '',
       address: customer.address ?? ''
     });
     this.applyClientNotesAlert(formId, customer.notes);
@@ -842,6 +862,8 @@ export class LibraryLendingComponent implements OnInit {
     const payload: BookLoanCreateDto = {
       clientName: form.clientName.trim(),
       phone: form.phone.trim(),
+      phone2: form.phone2.trim() || null,
+      address: form.address.trim() || null,
       deposit: form.deposit.trim() || null,
       notes: form.notes.trim() || null,
       hebrewLentDisplay: form.hebrewDateTime,
@@ -858,8 +880,10 @@ export class LibraryLendingComponent implements OnInit {
           return;
         }
         const address = form.address.trim() || null;
+        const phone2 = form.phone2.trim() || null;
         this.customers.upsertFromPayload({
           phone1: payload.phone,
+          phone2,
           fullName: payload.clientName || null,
           address,
           systemType: SystemType.Library
@@ -867,6 +891,7 @@ export class LibraryLendingComponent implements OnInit {
         this.data
           .upsertCustomer({
             phone1: payload.phone,
+            phone2,
             fullName: payload.clientName || null,
             address,
             systemType: SystemType.Library
@@ -969,9 +994,70 @@ export class LibraryLendingComponent implements OnInit {
   private loadDefinitions(): void {
     this.data.getBooks().subscribe((list) => {
       this.definitions.set(list);
+      this.tryApplyRenewPrefill();
     });
     // Exactly one availability request for the whole page (not per row/tool).
     this.refreshAvailability();
+  }
+
+  private readRenewQueryParams(): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const phone = (qp.get('renewPhone') ?? '').trim();
+    const bookId = Number(qp.get('bookId'));
+    const copyNumber = (qp.get('copyNumber') ?? '').trim();
+    if (!phone || !Number.isFinite(bookId) || bookId <= 0 || !copyNumber) {
+      return;
+    }
+
+    this.pendingRenew = {
+      phone,
+      clientName: (qp.get('renewName') ?? '').trim(),
+      phone2: (qp.get('renewPhone2') ?? '').trim(),
+      address: (qp.get('renewAddress') ?? '').trim(),
+      bookId,
+      copyNumber
+    };
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {},
+      replaceUrl: true
+    });
+  }
+
+  private tryApplyRenewPrefill(): void {
+    const pending = this.pendingRenew;
+    if (!pending) {
+      return;
+    }
+
+    const def = this.definitions().find((d) => d.id === pending.bookId);
+    if (!def) {
+      this.pendingRenew = null;
+      this.toast.error('הספר לא נמצא במלאי');
+      return;
+    }
+
+    this.pendingRenew = null;
+    const draft = this.createDraftForm();
+    draft.clientName = pending.clientName;
+    draft.phone = pending.phone;
+    draft.phone2 = pending.phone2;
+    draft.address = pending.address;
+    draft.bookLines = [
+      {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        bookId: def.id,
+        bookQuery: def.title,
+        selectedCopies: [pending.copyNumber],
+        bookSuggestOpen: false,
+        copiesOpen: false
+      }
+    ];
+    this.forms.set([draft]);
+    this.formOpen.set(true);
+    if (pending.phone.replace(/\D/g, '').length >= 9) {
+      this.lookupClientNotesByPhone(draft.id, pending.phone.replace(/\D/g, ''));
+    }
   }
 
   private refreshAvailability(): void {
@@ -1045,6 +1131,7 @@ export class LibraryLendingComponent implements OnInit {
       bookLines: [this.createToolLine()],
       clientName: '',
       phone: '',
+      phone2: '',
       address: '',
       deposit: '',
       notes: '',

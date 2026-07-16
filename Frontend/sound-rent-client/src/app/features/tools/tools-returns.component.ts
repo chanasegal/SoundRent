@@ -26,6 +26,7 @@ import {
   formatBillableDuration,
   toBillableParts
 } from '../../core/utils/tools-billable-duration';
+import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
 
 interface CompletedLoanRowView {
@@ -48,7 +49,13 @@ interface CompletedLoanRowView {
 @Component({
   selector: 'app-tools-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ToolTypeSelectComponent, ConfirmPopup],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ToolTypeSelectComponent,
+    LoanRangeCalendarHostComponent,
+    ConfirmPopup
+  ],
   providers: [ConfirmationService],
   templateUrl: './tools-returns.component.html',
   styleUrl: './tools-returns.component.scss'

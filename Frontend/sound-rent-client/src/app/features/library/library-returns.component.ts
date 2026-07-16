@@ -31,6 +31,7 @@ import {
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
+import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
 import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
 
@@ -54,7 +55,14 @@ interface CompletedLoanRowView {
 @Component({
   selector: 'app-library-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, BookTitleSelectComponent, ConfirmPopup, AutoFocusDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    BookTitleSelectComponent,
+    LoanRangeCalendarHostComponent,
+    ConfirmPopup,
+    AutoFocusDirective
+  ],
   providers: [ConfirmationService],
   templateUrl: './library-returns.component.html',
   styleUrl: './library-returns.component.scss'

@@ -9,7 +9,9 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { CustomerDto, CustomerUpsertDto } from '../../core/models/customer.model';
 import { InstitutionCreateUpdateDto, InstitutionDto } from '../../core/models/institution.model';
 import { OrderDto } from '../../core/models/order.model';
-import { TIME_SLOT_LABELS, TimeSlot, workspacePageTitle } from '../../core/models/enums';
+import { BookLoanDto } from '../../core/models/library-workspace.model';
+import { ToolLoanDto } from '../../core/models/tools-workspace.model';
+import { SystemType, TIME_SLOT_LABELS, TimeSlot, workspacePageTitle } from '../../core/models/enums';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
@@ -22,6 +24,21 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 
 type AdminListMode = 'customers' | 'institutions';
+type LoanHistoryRow = {
+  loanId: number;
+  itemId: number;
+  itemDefId: number;
+  loanDate: string;
+  hebrewDate: string;
+  itemName: string;
+  itemCode: string;
+  clientName: string;
+  phone: string;
+  phone2: string;
+  address: string;
+  returnDateOrStatus: string;
+  canRenew: boolean;
+};
 
 @Component({
   selector: 'app-customers-admin',
@@ -58,9 +75,56 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly historyOpen = signal(false);
   protected readonly historyLoading = signal(false);
   protected readonly historyOrders = signal<OrderDto[]>([]);
+  protected readonly historyBookLoans = signal<BookLoanDto[]>([]);
+  protected readonly historyToolLoans = signal<ToolLoanDto[]>([]);
   protected readonly historyPhone = signal('');
   protected readonly historyInstitutionName = signal('');
   protected readonly historyKind = signal<'customer' | 'institution'>('customer');
+  protected readonly isLibrarySystem = computed(() => this.systemContext.currentSystemType() === SystemType.Library);
+  protected readonly isToolsSystem = computed(() => this.systemContext.currentSystemType() === SystemType.Tools);
+  protected readonly isLoanHistorySystem = computed(() => this.isLibrarySystem() || this.isToolsSystem());
+  protected readonly libraryHistoryRows = computed<LoanHistoryRow[]>(() =>
+    this.historyBookLoans().flatMap((loan) =>
+      (loan.items ?? []).map((item) => ({
+        loanId: loan.id,
+        itemId: item.id,
+        itemDefId: item.bookId,
+        loanDate: loan.lentAt || '—',
+        hebrewDate: loan.hebrewLentDisplay || '—',
+        itemName: item.bookTitle || '—',
+        itemCode: item.copyNumber || '—',
+        clientName: loan.clientName || '',
+        phone: loan.phone || '',
+        phone2: loan.phone2 || '',
+        address: loan.address || '',
+        returnDateOrStatus: item.returnedAt
+          ? item.hebrewReturnedDisplay || this.formatDisplayDate(item.returnedAt)
+          : 'טרם הוחזר',
+        canRenew: !!item.returnedAt
+      }))
+    )
+  );
+  protected readonly toolsHistoryRows = computed<LoanHistoryRow[]>(() =>
+    this.historyToolLoans().flatMap((loan) =>
+      (loan.items ?? []).map((item) => ({
+        loanId: loan.id,
+        itemId: item.id,
+        itemDefId: item.toolDefinitionId,
+        loanDate: loan.lentAt || '—',
+        hebrewDate: loan.hebrewLentDisplay || '—',
+        itemName: item.toolName || '—',
+        itemCode: item.serialCode || '—',
+        clientName: loan.clientName || '',
+        phone: loan.phone || '',
+        phone2: loan.phone2 || '',
+        address: loan.address || '',
+        returnDateOrStatus: item.returnedAt
+          ? item.hebrewReturnedDisplay || this.formatDisplayDate(item.returnedAt)
+          : 'טרם הוחזר',
+        canRenew: !!item.returnedAt
+      }))
+    )
+  );
   protected readonly pageTitle = computed(() =>
     workspacePageTitle('לקוחות', this.systemContext.currentSystemType())
   );
@@ -262,8 +326,34 @@ export class CustomersAdminComponent implements OnInit {
     this.historyPhone.set(phone1);
     this.historyInstitutionName.set('');
     this.historyOrders.set([]);
+    this.historyBookLoans.set([]);
+    this.historyToolLoans.set([]);
     this.historyOpen.set(true);
     this.historyLoading.set(true);
+    if (this.isLibrarySystem()) {
+      this.data
+        .getBookLoansForCustomer(phone1)
+        .pipe(finalize(() => this.historyLoading.set(false)))
+        .subscribe({
+          next: (loans) => {
+            this.historyBookLoans.set(loans);
+          }
+        });
+      return;
+    }
+
+    if (this.isToolsSystem()) {
+      this.data
+        .getToolLoansForCustomer(phone1)
+        .pipe(finalize(() => this.historyLoading.set(false)))
+        .subscribe({
+          next: (loans) => {
+            this.historyToolLoans.set(loans);
+          }
+        });
+      return;
+    }
+
     this.data
       .getCustomerOrders(phone1)
       .pipe(finalize(() => this.historyLoading.set(false)))
@@ -279,6 +369,8 @@ export class CustomersAdminComponent implements OnInit {
     this.historyPhone.set('');
     this.historyInstitutionName.set(row.name);
     this.historyOrders.set([]);
+    this.historyBookLoans.set([]);
+    this.historyToolLoans.set([]);
     this.historyOpen.set(true);
     this.historyLoading.set(true);
     this.data
@@ -298,6 +390,39 @@ export class CustomersAdminComponent implements OnInit {
     this.closeHistory();
     void this.router.navigate(['/orders/new'], {
       queryParams: { renewFrom: order.id }
+    });
+  }
+
+  /** Opens a new loan form pre-filled from a returned history row (current date/time). */
+  protected renewLoan(row: LoanHistoryRow): void {
+    if (!row.canRenew) {
+      return;
+    }
+
+    this.closeHistory();
+    if (this.isLibrarySystem()) {
+      void this.router.navigate(['/library/lending'], {
+        queryParams: {
+          renewPhone: row.phone,
+          renewName: row.clientName,
+          renewPhone2: row.phone2,
+          renewAddress: row.address,
+          bookId: row.itemDefId,
+          copyNumber: row.itemCode
+        }
+      });
+      return;
+    }
+
+    void this.router.navigate(['/tools/lending'], {
+      queryParams: {
+        renewPhone: row.phone,
+        renewName: row.clientName,
+        renewPhone2: row.phone2,
+        renewAddress: row.address,
+        toolId: row.itemDefId,
+        serialCode: row.itemCode
+      }
     });
   }
 
@@ -500,6 +625,23 @@ export class CustomersAdminComponent implements OnInit {
 
   protected orderEquipmentIds(order: OrderDto): string {
     return order.equipmentDefinitionIds.join(', ');
+  }
+
+  protected formatDisplayDate(rawIso: string | null | undefined): string {
+    const value = (rawIso ?? '').trim();
+    if (!value) {
+      return '—';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleDateString('he-IL', {
+      timeZone: 'Asia/Jerusalem',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
   }
 
   private fileNameFromContentDisposition(header: string | null): string | null {

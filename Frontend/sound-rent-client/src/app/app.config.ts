@@ -52,7 +52,47 @@ export const appConfig: ApplicationConfig = {
           cssLayer: false
         }
       },
-      ripple: false
+      ripple: false,
+      translation: {
+        dayNames: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'],
+        dayNamesShort: ["א'", "ב'", "ג'", "ד'", "ה'", "ו'", "ש'"],
+        dayNamesMin: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
+        monthNames: [
+          'ינואר',
+          'פברואר',
+          'מרץ',
+          'אפריל',
+          'מאי',
+          'יוני',
+          'יולי',
+          'אוגוסט',
+          'ספטמבר',
+          'אוקטובר',
+          'נובמבר',
+          'דצמבר'
+        ],
+        monthNamesShort: [
+          'ינו',
+          'פבר',
+          'מרץ',
+          'אפר',
+          'מאי',
+          'יוני',
+          'יולי',
+          'אוג',
+          'ספט',
+          'אוק',
+          'נוב',
+          'דצמ'
+        ],
+        today: 'היום',
+        clear: 'נקה',
+        weekHeader: 'שבוע',
+        firstDayOfWeek: 0,
+        dateFormat: 'dd/mm/yy',
+        emptyMessage: 'לא נמצאו תוצאות',
+        emptyFilterMessage: 'לא נמצאו תוצאות'
+      }
     }),
     {
       provide: APP_INITIALIZER,

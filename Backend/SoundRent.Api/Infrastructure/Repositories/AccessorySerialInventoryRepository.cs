@@ -259,7 +259,12 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
                 Code = note.Content!,
                 order.Id,
                 order.CustomerName,
-                order.Phone
+                order.Phone,
+                order.Phone2,
+                order.Address,
+                order.DepositType,
+                order.DepositOnName,
+                order.Notes
             }).ToListAsync(cancellationToken);
 
         var match = activeAssignment.FirstOrDefault(row =>
@@ -272,8 +277,41 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
             PhysicalStatus = inventory.PhysicalStatus,
             ActiveOrderId = match?.Id,
             CustomerName = match?.CustomerName,
-            Phone = match?.Phone
+            Phone = match?.Phone,
+            Phone2 = match?.Phone2,
+            Address = match?.Address,
+            Deposit = FormatDeposit(match?.DepositType, match?.DepositOnName),
+            Notes = match?.Notes
         };
+    }
+
+    private static string? FormatDeposit(DepositType? depositType, string? depositOnName)
+    {
+        var typeLabel = depositType switch
+        {
+            DepositType.Check => "צ׳ק",
+            DepositType.CreditCard => "כרטיס אשראי",
+            DepositType.Cash => "מזומן",
+            _ => null
+        };
+        var onName = string.IsNullOrWhiteSpace(depositOnName) ? null : depositOnName.Trim();
+
+        if (typeLabel is null && onName is null)
+        {
+            return null;
+        }
+
+        if (typeLabel is null)
+        {
+            return onName;
+        }
+
+        if (onName is null)
+        {
+            return typeLabel;
+        }
+
+        return $"{typeLabel} — {onName}";
     }
 
     public async Task SetPhysicalStatusAsync(

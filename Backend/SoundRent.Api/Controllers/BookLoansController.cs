@@ -32,6 +32,20 @@ public class BookLoansController : ControllerBase
         return Ok(await _service.GetActiveAsync(cancellationToken));
     }
 
+    [HttpGet("customer/{phone}")]
+    public async Task<ActionResult<List<BookLoanDto>>> GetByCustomerPhone(
+        string phone,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetByCustomerPhoneAsync(phone, cancellationToken));
+    }
+
+    [HttpPost("{id:int}/renew")]
+    public async Task<ActionResult<BookLoanDto>> Renew(int id, CancellationToken cancellationToken)
+    {
+        return Ok(await _service.RenewAsync(id, cancellationToken));
+    }
+
     [HttpPost]
     public async Task<ActionResult<BookLoanDto>> Create(
         [FromBody] BookLoanCreateDto dto,

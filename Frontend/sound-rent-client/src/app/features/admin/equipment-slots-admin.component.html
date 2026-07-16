@@ -170,26 +170,42 @@
               <span class="serial-locator__sep">·</span>
               <span class="ltr-field">{{ result.serialCode }}</span>
             </p>
-            <dl class="serial-locator__loan-details">
-              <div>
-                <dt>הזמנה</dt>
-                <dd>
+            <div class="customer-details-grid">
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">שם לקוח</span>
+                <span class="customer-details-grid__value">{{ result.customerName || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">טלפון</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">טלפון 2</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone2) || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">כתובת</span>
+                <span class="customer-details-grid__value">{{ result.address || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">פיקדון</span>
+                <span class="customer-details-grid__value">{{ result.deposit || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">הערות</span>
+                <span class="customer-details-grid__value">{{ result.notes || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">מספר הזמנה</span>
+                <span class="customer-details-grid__value">
                   @if (result.orderId) {
                     <a [routerLink]="['/orders', result.orderId]" class="serial-locator__order-link">#{{ result.orderId }}</a>
                   } @else {
                     —
                   }
-                </dd>
+                </span>
               </div>
-              <div>
-                <dt>לקוח</dt>
-                <dd>{{ result.customerName || '—' }}</dd>
-              </div>
-              <div>
-                <dt>טלפון</dt>
-                <dd class="ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</dd>
-              </div>
-            </dl>
+            </div>
           }
         </div>
       }

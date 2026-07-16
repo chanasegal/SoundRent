@@ -338,6 +338,32 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.BookLoansController",
+    "Method": "Renew",
+    "RelativePath": "api/book-loans/{id}/renew",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.BookLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.BookLoansController",
     "Method": "MarkReturned",
     "RelativePath": "api/book-loans/{id}/return",
     "HttpMethod": "POST",
@@ -473,6 +499,32 @@
     "IsController": true,
     "Order": 0,
     "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.BookLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.BookLoansController",
+    "Method": "GetByCustomerPhone",
+    "RelativePath": "api/book-loans/customer/{phone}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "phone",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.BookLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
@@ -2455,6 +2507,32 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "Renew",
+    "RelativePath": "api/tools-loans/{id}/renew",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.ToolLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
     "Method": "MarkReturned",
     "RelativePath": "api/tools-loans/{id}/return",
     "HttpMethod": "POST",
@@ -2590,6 +2668,32 @@
     "IsController": true,
     "Order": 0,
     "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ToolsLoansController",
+    "Method": "GetByCustomerPhone",
+    "RelativePath": "api/tools-loans/customer/{phone}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "phone",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ToolLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",

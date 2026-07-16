@@ -170,28 +170,59 @@ tr.row-in-maintenance:hover {
   margin: 0 0.25rem;
 }
 
-.serial-locator__loan-details {
+.customer-details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-  gap: 0.55rem 1rem;
-  margin: 0.65rem 0 0;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 0.85rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(252, 165, 165, 0.45);
+  text-align: right;
+}
 
-  div {
-    min-width: 0;
+.customer-details-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.customer-details-grid__label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #64748b;
+  text-align: right;
+}
+
+.customer-details-grid__value {
+  display: block;
+  width: 100%;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #0f172a;
+  word-break: break-word;
+  text-align: right;
+
+  &.ltr-field {
+    direction: ltr;
+    unicode-bidi: plaintext;
+    text-align: right;
   }
+}
 
-  dt {
-    margin: 0;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: #64748b;
+@media (min-width: 720px) {
+  .customer-details-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
+}
 
-  dd {
-    margin: 0.1rem 0 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #0f172a;
+@media (max-width: 420px) {
+  .customer-details-grid {
+    grid-template-columns: 1fr;
   }
 }
 

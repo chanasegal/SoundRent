@@ -44,6 +44,10 @@ export interface BookCopyLocationDto {
   loanId?: number | null;
   clientName?: string | null;
   phone?: string | null;
+  phone2?: string | null;
+  address?: string | null;
+  deposit?: string | null;
+  notes?: string | null;
 }
 
 export interface BookAvailableCopiesGroupDto {
@@ -69,6 +73,8 @@ export interface BookLoanDto {
   hebrewLentDisplay: string;
   clientName: string;
   phone: string;
+  phone2?: string | null;
+  address?: string | null;
   deposit?: string | null;
   notes?: string | null;
   deadlineAt?: string | null;
@@ -85,6 +91,8 @@ export interface BookLoanItemCreateDto {
 export interface BookLoanCreateDto {
   clientName: string;
   phone: string;
+  phone2?: string | null;
+  address?: string | null;
   deposit?: string | null;
   notes?: string | null;
   hebrewLentDisplay: string;

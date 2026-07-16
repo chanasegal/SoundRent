@@ -273,6 +273,20 @@
                   }
                 </div>
 
+                <div class="relative">
+                  <input
+                    type="text"
+                    class="field-input phone-input"
+                    [class.phone-input--filled]="!!form.phone2"
+                    placeholder="טלפון 2"
+                    maxlength="10"
+                    inputmode="numeric"
+                    [value]="form.phone2"
+                    (input)="onPhone2Input(form.id, $any($event.target).value)"
+                    autocomplete="off"
+                  />
+                </div>
+
                 <div class="relative client-grid__address">
                   <input
                     type="text"

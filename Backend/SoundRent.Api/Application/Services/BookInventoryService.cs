@@ -262,7 +262,11 @@ public class BookInventoryService : IBookInventoryService
             IsInWarehouse = false,
             LoanId = active.BookLoanId,
             ClientName = active.BookLoan.ClientName,
-            Phone = active.BookLoan.Phone
+            Phone = active.BookLoan.Phone,
+            Phone2 = active.BookLoan.Phone2,
+            Address = active.BookLoan.Address,
+            Deposit = active.BookLoan.Deposit,
+            Notes = active.BookLoan.Notes
         };
     }
 

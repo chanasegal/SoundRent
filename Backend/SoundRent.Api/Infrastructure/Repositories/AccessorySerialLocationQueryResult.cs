@@ -15,4 +15,12 @@ public sealed class AccessorySerialLocationQueryResult
     public string? CustomerName { get; init; }
 
     public string? Phone { get; init; }
+
+    public string? Phone2 { get; init; }
+
+    public string? Address { get; init; }
+
+    public string? Deposit { get; init; }
+
+    public string? Notes { get; init; }
 }

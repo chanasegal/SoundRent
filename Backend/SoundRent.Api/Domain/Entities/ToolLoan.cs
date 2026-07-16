@@ -19,6 +19,12 @@ public class ToolLoan
     [MaxLength(20)]
     public string Phone { get; set; } = string.Empty;
 
+    [MaxLength(20)]
+    public string? Phone2 { get; set; }
+
+    [MaxLength(500)]
+    public string? Address { get; set; }
+
     [MaxLength(500)]
     public string? Deposit { get; set; }
 

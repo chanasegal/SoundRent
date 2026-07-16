@@ -135,7 +135,11 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
             IsInWarehouse = location.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
             OrderId = location.ActiveOrderId,
             CustomerName = location.CustomerName,
-            Phone = location.Phone
+            Phone = location.Phone,
+            Phone2 = location.Phone2,
+            Address = location.Address,
+            Deposit = location.Deposit,
+            Notes = location.Notes
         };
     }
 
