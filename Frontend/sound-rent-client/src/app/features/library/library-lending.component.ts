@@ -26,6 +26,7 @@ import {
   BookLoanItemDto
 } from '../../core/models/library-workspace.model';
 import { CustomersStore } from '../../core/services/customers.store';
+import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -92,6 +93,7 @@ interface ActiveLoanRowView {
 })
 export class LibraryLendingComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly booksStore = inject(BooksStore);
   private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
@@ -117,7 +119,7 @@ export class LibraryLendingComponent implements OnInit {
   private readonly wedge = new BarcodeWedgeScanner();
   protected readonly loanScanCode = signal('');
 
-  protected readonly definitions = signal<BookDto[]>([]);
+  protected readonly definitions = this.booksStore.definitions;
   protected readonly availableByBook = signal<Map<number, string[]>>(new Map());
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
@@ -992,8 +994,7 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   private loadDefinitions(): void {
-    this.data.getBooks().subscribe((list) => {
-      this.definitions.set(list);
+    this.booksStore.load().subscribe(() => {
       this.tryApplyRenewPrefill();
     });
     // Exactly one availability request for the whole page (not per row/tool).

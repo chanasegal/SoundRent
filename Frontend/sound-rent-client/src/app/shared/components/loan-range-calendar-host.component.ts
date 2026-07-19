@@ -10,6 +10,10 @@ import { HDate } from '@hebcal/core';
 import { Popover } from 'primeng/popover';
 
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import {
+  calendarDayKeys,
+  isNonBillableDay
+} from '../../core/utils/tools-billable-duration';
 
 function toLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -28,6 +32,8 @@ interface HebrewRangeCell {
   rangeStart: boolean;
   rangeEnd: boolean;
   today: boolean;
+  /** True when the day is billable (i.e. NOT Shabbat / Yom Tov). */
+  billable: boolean;
 }
 
 interface HebrewMonthView {
@@ -47,7 +53,7 @@ interface HebrewMonthView {
   template: `
     <p-popover #rangePopover [appendTo]="'body'" styleClass="loan-range-calendar-popover">
       <div class="range-cal-panel" dir="rtl">
-        <p class="range-cal-panel__title">טווח ימי ההשאלה</p>
+        <p class="range-cal-panel__title"> ההשאלה</p>
         @if (hebrewRangeLabel()) {
           <p class="range-cal-panel__subtitle">{{ hebrewRangeLabel() }}</p>
         }
@@ -87,6 +93,8 @@ interface HebrewMonthView {
                 [class.range-cal-panel__day--start]="cell.rangeStart"
                 [class.range-cal-panel__day--end]="cell.rangeEnd"
                 [class.range-cal-panel__day--today]="cell.today"
+                [class.counted-day]="cell.inRange && cell.billable"
+                [class.skipped-day]="cell.inRange && !cell.billable"
                 [attr.title]="cellTitle(cell)"
                 role="gridcell"
               >
@@ -222,6 +230,20 @@ interface HebrewMonthView {
       }
     }
 
+    /* Billable vs non-billable days within the loan span. Compound selector keeps
+       these above the --in-range/--start/--end single-class rules. */
+    .range-cal-panel__day.counted-day {
+      background-color: darkblue;
+      border-color: darkblue;
+      color: #fff;
+    }
+
+    .range-cal-panel__day.skipped-day {
+      background-color: #DBEAFE;
+      border-color: lightblue;
+      color: darkblue;
+    }
+
     .range-cal-panel__hint {
       margin: 0.55rem 0 0;
       font-size: 0.68rem;
@@ -275,20 +297,13 @@ export class LoanRangeCalendarHostComponent {
    * Yom Tov are only excluded from *billing*, not from the display range).
    */
   private readonly highlightedKeys = computed((): Set<number> => {
-    const keys = new Set<number>();
     const range = this.rangeValue();
     if (!range || range.length < 2) {
-      return keys;
+      return new Set<number>();
     }
-
-    let cursor = toLocalDay(range[0]);
-    const end = toLocalDay(range[1]);
-    while (cursor.getTime() <= end.getTime()) {
-      // Add the day unconditionally — Fridays are treated like any other weekday.
-      keys.add(dayKey(cursor));
-      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
-    }
-    return keys;
+    // Shared source of truth: identical inclusive calendar-day span used by the
+    // "total duration" text, so a two-day loan always highlights both days.
+    return new Set<number>(calendarDayKeys(range[0], range[1]));
   });
 
   protected readonly calendarCells = computed((): HebrewRangeCell[] => {
@@ -313,7 +328,8 @@ export class LoanRangeCalendarHostComponent {
         inRange: false,
         rangeStart: false,
         rangeEnd: false,
-        today: false
+        today: false,
+        billable: false
       });
     }
 
@@ -331,7 +347,10 @@ export class LoanRangeCalendarHostComponent {
         today:
           d === todayParts.day &&
           view.month === todayParts.month &&
-          view.year === todayParts.year
+          view.year === todayParts.year,
+        // Billable = every weekday except Shabbat / Yom Tov / Chol HaMoed
+        // (Fridays remain billable).
+        billable: !isNonBillableDay(gregorian)
       });
     }
 

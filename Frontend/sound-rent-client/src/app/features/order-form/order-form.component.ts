@@ -34,7 +34,6 @@ import {
 import {
   DEPOSIT_TYPE_LABELS,
   DepositType,
-  LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType,
   RETURN_TIME_TYPE_LABELS,
@@ -53,11 +52,13 @@ import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEqui
 import { InstitutionDto } from '../../core/models/institution.model';
 import { OrderReturnRequestDto } from '../../core/models/equipment-return.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
+import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
 import { BlockedDateDto, findBlockedDateForIso } from '../../core/models/blocked-date.model';
 import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService, HebrewDateParts, HebrewMonthOption } from '../../core/services/hebrew-date.service';
@@ -72,11 +73,6 @@ import {
   isValidIsraeliPhone,
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
-
-interface LoanedRowMeta {
-  type: LoanedEquipmentType;
-  label: string;
-}
 
 interface ReturnModalRow {
   rowId: string;
@@ -119,6 +115,7 @@ export class OrderFormComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly customers = inject(CustomersStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly ordersSync = inject(OrdersSyncService);
@@ -375,11 +372,8 @@ export class OrderFormComponent implements OnInit {
   );
   protected readonly submitting = signal(false);
 
-  /** One row per loaned equipment type (labels + dynamic פירוט). */
-  protected readonly rowDefinitions: LoanedRowMeta[] = LOANED_EQUIPMENT_ORDER.map((type) => ({
-    type,
-    label: LOANED_EQUIPMENT_LABELS[type]
-  }));
+  protected readonly addAccessoryOpen = signal(false);
+  protected readonly accessoryTypeQuery = signal('');
 
   protected readonly form = this.buildForm();
 
@@ -483,10 +477,6 @@ export class OrderFormComponent implements OnInit {
     return this.form.get('loanedEquipments') as FormArray;
   }
 
-  protected get customLoanedList(): FormArray {
-    return this.form.get('customLoanedItems') as FormArray;
-  }
-
   protected bookingGroup(index: number): FormGroup {
     return this.bookings.at(index) as FormGroup;
   }
@@ -503,9 +493,109 @@ export class OrderFormComponent implements OnInit {
     return this.equipmentList.at(index) as FormGroup;
   }
 
+  /** Catalog rows not yet added to the form, sorted A–Z via the shared store. */
+  protected availableAccessoryTypes(): InventoryDefinitionDto[] {
+    const used = new Set(
+      this.equipmentList.controls
+        .map((c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+    return this.inventoryStore.definitions().filter((d) => !used.has(d.id));
+  }
+
+  protected filteredAccessoryTypes(): InventoryDefinitionDto[] {
+    const query = this.accessoryTypeQuery().trim().toLowerCase();
+    const available = this.availableAccessoryTypes();
+    if (!query) {
+      return available;
+    }
+    return available.filter((d) => d.displayName.toLowerCase().includes(query));
+  }
+
+  protected accessoryTypeLabel(def: InventoryDefinitionDto): string {
+    return def.displayName;
+  }
+
+  protected toggleAddAccessory(): void {
+    const willOpen = !this.addAccessoryOpen();
+    this.addAccessoryOpen.set(willOpen);
+    this.accessoryTypeQuery.set('');
+    if (willOpen) {
+      queueMicrotask(() => {
+        const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
+        input?.focus();
+      });
+    }
+  }
+
+  protected onAccessoryTypeChosen(def: InventoryDefinitionDto): void {
+    if (this.equipmentList.controls.some(
+      (c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value) === def.id
+    )) {
+      this.toast.warning('סוג אביזר זה כבר נוסף');
+      return;
+    }
+
+    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+    const type =
+      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
+
+    this.equipmentList.push(
+      this.buildDynamicEquipmentRow({
+        inventoryDefinitionId: def.id,
+        loanedEquipmentType: type,
+        label: def.displayName,
+        quantity: 1,
+        selectedCodes: [],
+        lineId: null,
+        isCustomItem: type == null
+      })
+    );
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+    this.refreshAccessorySerialAvailability();
+  }
+
+  protected removeAccessoryRow(index: number): void {
+    if (index < 0 || index >= this.equipmentList.length) {
+      return;
+    }
+    if (this.isAccessoryRowReadOnly(index)) {
+      this.toast.warning('לא ניתן להסיר שורה שנעולה לאחר רישום החזרה');
+      return;
+    }
+    this.equipmentList.removeAt(index);
+    if (this.accessorySerialDropdownRow() === index) {
+      this.accessorySerialDropdownRow.set(null);
+      this.accessorySerialQuickEntry.set('');
+    } else if ((this.accessorySerialDropdownRow() ?? -1) > index) {
+      this.accessorySerialDropdownRow.update((cur) => (cur == null ? null : cur - 1));
+    }
+  }
+
+  protected updateAccessoryQuantity(rowIndex: number, raw: string): void {
+    if (this.isAccessoryRowReadOnly(rowIndex)) {
+      return;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    const quantity = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    this.getRowGroup(rowIndex).patchValue({ quantity }, { emitEvent: false });
+  }
+
   protected serialOptionsForRow(rowIndex: number): AccessorySerialOptionDto[] {
-    const type = this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value as LoanedEquipmentType;
-    return this.accessoryAvailabilityByType().get(type) ?? [];
+    const group = this.getRowGroup(rowIndex);
+    const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+    if (type) {
+      return this.accessoryAvailabilityByType().get(type) ?? [];
+    }
+    const inventoryDefinitionId = Number(group.get('inventoryDefinitionId')?.value);
+    const def = Number.isFinite(inventoryDefinitionId)
+      ? this.inventoryStore.byId(inventoryDefinitionId)
+      : undefined;
+    return (def?.serialCodes ?? []).map((serialCode) => ({
+      serialCode,
+      isAvailable: true
+    }));
   }
 
   protected toggleAccessorySerialDropdown(rowIndex: number): void {
@@ -575,7 +665,9 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected isAccessorySerialLocked(rowIndex: number, code: string): boolean {
-    const type = LOANED_EQUIPMENT_ORDER[rowIndex];
+    const type = this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value as
+      | LoanedEquipmentType
+      | null;
     if (!type) {
       return false;
     }
@@ -633,6 +725,8 @@ export class OrderFormComponent implements OnInit {
     }
     ctrl.setValue(unique);
     ctrl.markAsDirty();
+    const quantity = unique.length > 0 ? unique.length : Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
+    this.getRowGroup(rowIndex).patchValue({ quantity }, { emitEvent: false });
   }
 
   protected selectedAccessorySerialSummary(rowIndex: number): string {
@@ -644,7 +738,16 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected selectedAccessoryQuantity(rowIndex: number): number {
+    const qty = Number(this.getRowGroup(rowIndex).get('quantity')?.value);
+    if (Number.isFinite(qty) && qty > 0) {
+      return qty;
+    }
     return (this.selectedCodesControl(rowIndex).value ?? []).length;
+  }
+
+  protected closeAccessorySerialDropdown(): void {
+    this.accessorySerialDropdownRow.set(null);
+    this.accessorySerialQuickEntry.set('');
   }
 
   /** Gematriya label for a Hebrew day (e.g. 23 → "כ״ג"). */
@@ -703,6 +806,7 @@ export class OrderFormComponent implements OnInit {
     queueMicrotask(() => this.resetScrollForOrderForm());
 
     this.equipmentSlots.load({ force: true }).subscribe();
+    this.inventoryStore.load().subscribe();
 
     this.ensureBookingUi(0);
     this.wireBookingGroup(0);
@@ -1248,11 +1352,13 @@ export class OrderFormComponent implements OnInit {
       notes: ''
     });
 
-    this.equipmentList.controls.forEach((row) => {
-      const g = row as FormGroup;
-      g.patchValue({ selectedCodes: [] }, { emitEvent: false });
-    });
-    this.customLoanedList.clear();
+    while (this.equipmentList.length > 0) {
+      this.equipmentList.removeAt(0);
+    }
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+    this.accessorySerialDropdownRow.set(null);
+    this.accessorySerialQuickEntry.set('');
     this.existingCustomerMatch.set(null);
     this.closeCustomerSuggestions();
     this.institutionConflict.set(null);
@@ -1334,7 +1440,9 @@ export class OrderFormComponent implements OnInit {
           loanedEquipmentId: row.id!,
           label: isCustomItem
             ? (row.customItemName?.trim() || 'פריט נוסף')
-            : LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType),
+            : row.loanedEquipmentType
+              ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
+              : String(row.loanedEquipmentType),
           quantityLoaned: row.quantity,
           quantityReturned,
           isCustomItem,
@@ -1469,15 +1577,10 @@ export class OrderFormComponent implements OnInit {
     if (row.isCustomItem) {
       return row.customItemName?.trim() || 'פריט נוסף';
     }
-    return LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType);
-  }
-
-  protected addCustomLoanedItem(): void {
-    this.customLoanedList.push(this.buildCustomLoanedRow());
-  }
-
-  protected removeCustomLoanedItem(index: number): void {
-    this.customLoanedList.removeAt(index);
+    if (row.loanedEquipmentType) {
+      return this.inventoryStore.displayLabelForType(row.loanedEquipmentType);
+    }
+    return String(row.loanedEquipmentType);
   }
 
   protected saveReturn(): void {
@@ -1539,10 +1642,7 @@ export class OrderFormComponent implements OnInit {
       isUnpaid: [false],
       notes: ['', Validators.maxLength(1000)],
 
-      loanedEquipments: this.fb.array(
-        LOANED_EQUIPMENT_ORDER.map((type) => this.buildEquipmentRow(type))
-      ),
-      customLoanedItems: this.fb.array<FormGroup>([])
+      loanedEquipments: this.fb.array<FormGroup>([])
     });
   }
 
@@ -2719,18 +2819,26 @@ export class OrderFormComponent implements OnInit {
     this.extraYearsSig.update((arr) => (arr.includes(year) ? arr : [...arr, year]));
   }
 
-  private buildEquipmentRow(type: LoanedEquipmentType): FormGroup {
+  private buildDynamicEquipmentRow(init: {
+    inventoryDefinitionId: number | null;
+    loanedEquipmentType: LoanedEquipmentType | null;
+    label: string;
+    quantity: number;
+    selectedCodes: string[];
+    lineId: number | null;
+    isCustomItem: boolean;
+  }): FormGroup {
     return this.fb.group({
-      loanedEquipmentType: this.fb.nonNullable.control(type),
-      selectedCodes: this.fb.nonNullable.control<string[]>([])
-    });
-  }
-
-  private buildCustomLoanedRow(item?: OrderLoanedEquipmentDto): FormGroup {
-    return this.fb.group({
-      id: [item?.id ?? null],
-      customItemName: [(item?.customItemName ?? '').trim(), [Validators.required, Validators.maxLength(200)]],
-      quantity: [item?.quantity ?? 1, [Validators.required, Validators.min(1)]]
+      inventoryDefinitionId: this.fb.control<number | null>(init.inventoryDefinitionId),
+      loanedEquipmentType: this.fb.control<LoanedEquipmentType | null>(init.loanedEquipmentType),
+      label: this.fb.nonNullable.control(init.label),
+      quantity: this.fb.nonNullable.control(Math.max(1, init.quantity), [
+        Validators.required,
+        Validators.min(1)
+      ]),
+      selectedCodes: this.fb.nonNullable.control<string[]>([...init.selectedCodes]),
+      lineId: this.fb.control<number | null>(init.lineId),
+      isCustomItem: this.fb.nonNullable.control(init.isCustomItem)
     });
   }
 
@@ -2739,36 +2847,42 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
 
   private loadOrder(id: number): void {
-    this.data.getOrderById(id).subscribe({
-      next: (order) => {
-        if (order === null) {
-          this.navigateAfterOrderFlow();
-          return;
+    this.inventoryStore
+      .load()
+      .pipe(switchMap(() => this.data.getOrderById(id)))
+      .subscribe({
+        next: (order) => {
+          if (order === null) {
+            this.navigateAfterOrderFlow();
+            return;
+          }
+          this.orderCancelled.set(!!order.isCancelled);
+          this.loadedOrder.set(order);
+          this.populateFormFromOrder(order, 'edit');
+          queueMicrotask(() => this.resetScrollForOrderForm());
         }
-        this.orderCancelled.set(!!order.isCancelled);
-        this.loadedOrder.set(order);
-        this.populateFormFromOrder(order, 'edit');
-        queueMicrotask(() => this.resetScrollForOrderForm());
-      }
-    });
+      });
   }
 
   /** Pre-fills a new order from an existing booking; dates are reset to today. */
   private loadOrderForRenewal(id: number): void {
-    this.data.getOrderById(id).subscribe({
-      next: (order) => {
-        if (order === null) {
-          this.toast.error('לא נמצאה ההזמנה לחידוש');
-          this.navigateAfterOrderFlow();
-          return;
+    this.inventoryStore
+      .load()
+      .pipe(switchMap(() => this.data.getOrderById(id)))
+      .subscribe({
+        next: (order) => {
+          if (order === null) {
+            this.toast.error('לא נמצאה ההזמנה לחידוש');
+            this.navigateAfterOrderFlow();
+            return;
+          }
+          this.orderCancelled.set(false);
+          this.existingCustomerMatch.set(null);
+          this.populateFormFromOrder(order, 'renew');
+          this.toast.show('הטופס מולא מהזמנה קודמת — התאריך עודכן להיום', 'info');
+          queueMicrotask(() => this.resetScrollForOrderForm());
         }
-        this.orderCancelled.set(false);
-        this.existingCustomerMatch.set(null);
-        this.populateFormFromOrder(order, 'renew');
-        this.toast.show('הטופס מולא מהזמנה קודמת — התאריך עודכן להיום', 'info');
-        queueMicrotask(() => this.resetScrollForOrderForm());
-      }
-    });
+      });
   }
 
   private populateFormFromOrder(order: OrderDto, mode: 'edit' | 'renew'): void {
@@ -2862,42 +2976,65 @@ export class OrderFormComponent implements OnInit {
 
     this.syncShiftsFromRange(bookingIndex);
 
-    const byType = new Map<LoanedEquipmentType, OrderLoanedEquipmentDto>();
-    for (const row of order.loanedEquipments ?? []) {
-      if (row.isCustomItem) {
-        continue;
-      }
-      if (row.loanedEquipmentType != null) {
-        byType.set(row.loanedEquipmentType, row);
-      }
-    }
-
     this.syncReturnedSerialState(order);
 
-    this.customLoanedList.clear();
+    while (this.equipmentList.length > 0) {
+      this.equipmentList.removeAt(0);
+    }
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+    this.accessorySerialDropdownRow.set(null);
+
+    const catalog = this.inventoryStore.definitions();
     for (const row of order.loanedEquipments ?? []) {
-      if (!row.isCustomItem) {
+      if (row.quantity <= 0) {
         continue;
       }
-      this.customLoanedList.push(this.buildCustomLoanedRow(row));
-    }
-
-    this.equipmentList.controls.forEach((control, idx) => {
-      const type = LOANED_EQUIPMENT_ORDER[idx]!;
-      const row = byType.get(type);
-      const g = control as FormGroup;
-      if (!row) {
-        g.patchValue({ selectedCodes: [] }, { emitEvent: false });
-        return;
-      }
-
       const codes = (row.notes ?? [])
         .slice()
         .sort((a, b) => a.ordinal - b.ordinal)
         .map((n) => (n.content ?? '').trim())
         .filter((c) => c.length > 0);
-      g.patchValue({ selectedCodes: codes }, { emitEvent: false });
-    });
+
+      if (row.isCustomItem) {
+        const name = (row.customItemName ?? '').trim();
+        const def =
+          catalog.find(
+            (d) =>
+              !d.linkedEquipmentType &&
+              d.displayName.localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
+          ) ?? null;
+        this.equipmentList.push(
+          this.buildDynamicEquipmentRow({
+            inventoryDefinitionId: def?.id ?? null,
+            loanedEquipmentType: null,
+            label: def?.displayName ?? (name || 'פריט נוסף'),
+            quantity: Math.max(row.quantity, codes.length, 1),
+            selectedCodes: codes,
+            lineId: row.id ?? null,
+            isCustomItem: true
+          })
+        );
+        continue;
+      }
+
+      if (row.loanedEquipmentType == null) {
+        continue;
+      }
+      const type = row.loanedEquipmentType;
+      const def = catalog.find((d) => d.linkedEquipmentType === type) ?? null;
+      this.equipmentList.push(
+        this.buildDynamicEquipmentRow({
+          inventoryDefinitionId: def?.id ?? null,
+          loanedEquipmentType: type,
+          label: def?.displayName ?? this.inventoryStore.displayLabelForType(type),
+          quantity: Math.max(row.quantity, codes.length, 1),
+          selectedCodes: codes,
+          lineId: row.id ?? null,
+          isCustomItem: false
+        })
+      );
+    }
 
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
@@ -2967,48 +3104,61 @@ export class OrderFormComponent implements OnInit {
 
   private toLoanedEquipmentsPayload(): OrderLoanedEquipmentDto[] {
     const v = this.form.getRawValue() as Record<string, unknown>;
+    const rows = (v['loanedEquipments'] as Record<string, unknown>[]) ?? [];
+    const result: OrderLoanedEquipmentDto[] = [];
 
-    const loaned: OrderLoanedEquipmentDto[] = (v['loanedEquipments'] as Record<string, unknown>[])
-      .map((row) => {
-        const type = row['loanedEquipmentType'] as LoanedEquipmentType;
-        const selectedCodes = Array.isArray(row['selectedCodes'])
-          ? (row['selectedCodes'] as string[]).map((c) => String(c).trim()).filter((c) => c.length > 0)
-          : [];
-        const quantity = selectedCodes.length;
-        const notes: LoanedEquipmentNoteDto[] = selectedCodes.map((code, ordinal) => ({
+    for (const row of rows) {
+      const selectedCodes = Array.isArray(row['selectedCodes'])
+        ? (row['selectedCodes'] as string[]).map((c) => String(c).trim()).filter((c) => c.length > 0)
+        : [];
+      const quantityRaw = Number(row['quantity']);
+      const quantity =
+        selectedCodes.length > 0
+          ? selectedCodes.length
+          : Number.isFinite(quantityRaw) && quantityRaw > 0
+            ? Math.trunc(quantityRaw)
+            : 0;
+      if (quantity <= 0) {
+        continue;
+      }
+
+      const isCustomItem = !!row['isCustomItem'] || row['loanedEquipmentType'] == null;
+      const lineId = row['lineId'];
+      const label = String(row['label'] ?? '').trim();
+
+      if (isCustomItem) {
+        result.push({
+          ...(typeof lineId === 'number' && lineId > 0 ? { id: lineId } : {}),
+          isCustomItem: true,
+          customItemName: label || 'פריט נוסף',
+          loanedEquipmentType: null,
+          quantity,
+          expectedNoteCount: quantity,
+          notes: selectedCodes.map((code, ordinal) => ({
+            ordinal,
+            content: code,
+            isReturned: false
+          }))
+        });
+        continue;
+      }
+
+      const type = row['loanedEquipmentType'] as LoanedEquipmentType;
+      result.push({
+        ...(typeof lineId === 'number' && lineId > 0 ? { id: lineId } : {}),
+        isCustomItem: false,
+        loanedEquipmentType: type,
+        quantity,
+        expectedNoteCount: quantity,
+        notes: selectedCodes.map((code, ordinal) => ({
           ordinal,
           content: code,
           ...(this.isReturnedSerialCode(type, code) ? { isReturned: true } : {})
-        }));
-        const lineId = this.loanedLineIdsByType().get(type);
-        return {
-          ...(lineId ? { id: lineId } : {}),
-          isCustomItem: false,
-          loanedEquipmentType: type,
-          quantity,
-          expectedNoteCount: quantity,
-          notes
-        };
-      })
-      .filter((row) => row.quantity > 0);
+        }))
+      });
+    }
 
-    const customLoaned: OrderLoanedEquipmentDto[] = (v['customLoanedItems'] as Record<string, unknown>[])
-      .map((row) => {
-        const name = String(row['customItemName'] ?? '').trim();
-        const quantity = this.toNonNegativeInteger(row['quantity']);
-        const id = row['id'];
-        return {
-          ...(typeof id === 'number' && id > 0 ? { id } : {}),
-          isCustomItem: true,
-          customItemName: name,
-          quantity,
-          expectedNoteCount: 0,
-          notes: []
-        } satisfies OrderLoanedEquipmentDto;
-      })
-      .filter((row) => row.customItemName && row.customItemName.length > 0 && row.quantity > 0);
-
-    return [...loaned, ...customLoaned];
+    return result;
   }
 
   private syncReturnedSerialState(order: OrderDto): void {

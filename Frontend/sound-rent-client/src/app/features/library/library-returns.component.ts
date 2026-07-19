@@ -7,6 +7,7 @@ import {
   OnInit,
   computed,
   inject,
+  isDevMode,
   signal,
   viewChild
 } from '@angular/core';
@@ -16,11 +17,11 @@ import { ConfirmPopup } from 'primeng/confirmpopup';
 import { finalize } from 'rxjs/operators';
 
 import {
-  BookDto,
   BookItemBorrowHistoryDto,
   BookLoanDto,
   BookLoanItemDto
 } from '../../core/models/library-workspace.model';
+import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -30,7 +31,7 @@ import {
   formatLibraryDuration,
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
-import { isShabbatOrChag } from '../../core/utils/tools-billable-duration';
+import { isShabbatOrChag, logBillableDays } from '../../core/utils/tools-billable-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
@@ -70,6 +71,7 @@ interface CompletedLoanRowView {
 })
 export class LibraryReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly booksStore = inject(BooksStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
@@ -80,7 +82,7 @@ export class LibraryReturnsComponent implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<BookLoanDto[]>([]);
-  protected readonly definitions = signal<BookDto[]>([]);
+  protected readonly definitions = this.booksStore.definitions;
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
   protected readonly deletingLoanId = signal<number | null>(null);
@@ -145,8 +147,40 @@ export class LibraryReturnsComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    this.data.getBooks().subscribe((list) => this.definitions.set(list));
+    this.booksStore.load().subscribe();
     this.refresh();
+
+    if (isDevMode()) {
+      (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
+        this.debugLoanCalculation(loanId);
+      console.info(
+        '[library-returns] Debug helper ready — run debugReturns(<loanId>) in the console.'
+      );
+    }
+  }
+
+  /**
+   * DEBUG (dev only): prints the day-by-day billable-day calculation for every
+   * returned item of a loan. Call `debugReturns(loanId)` from the browser console
+   * while on the Library returns page.
+   */
+  debugLoanCalculation(loanId: number): void {
+    const matches = this.rows().filter((r) => r.loanId === loanId);
+    if (!matches.length) {
+      console.warn(`[library-returns] No returned rows found for loan #${loanId}.`);
+      return;
+    }
+
+    for (const row of matches) {
+      console.group(
+        `Loan #${row.loanId} · item ${row.itemId} · ${row.item.bookTitle} (${row.item.copyNumber})`
+      );
+      console.log(`Loan timestamp:   ${row.lentAt.toString()}`);
+      console.log(`Return timestamp: ${row.returnedAt.toString()}`);
+      logBillableDays(row.lentAt, row.returnedAt);
+      console.log(`Charge: ${this.calculateCharge(row.lentAt, row.returnedAt)} ₪`);
+      console.groupEnd();
+    }
   }
 
   /** Global wedge scan when no input is focused — fills barcode and searches history. */

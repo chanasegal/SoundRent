@@ -43,3 +43,12 @@ body {
 .btn-secondary {
   @apply rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:text-sky-700;
 }
+
+/* PrimeNG Select overlays appended to <body> (Tools / Library catalog pickers). */
+.p-select-overlay.catalog-select-overlay,
+.catalog-select-overlay.p-select-overlay {
+  z-index: 1200 !important;
+  min-width: 12rem;
+  max-width: min(24rem, 92vw);
+  box-sizing: border-box;
+}

@@ -1,6 +1,16 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, effect, inject, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   FormArray,
@@ -20,10 +30,11 @@ import {
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
-import { LOANED_EQUIPMENT_LABELS, LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
+import { LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
@@ -38,26 +49,43 @@ import { IntegerOnlyDirective } from '../../shared/directives/integer-only.direc
 export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly store = inject(EquipmentDefinitionsStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ציוד');
 
-  protected readonly accessoryRowDefinitions = LOANED_EQUIPMENT_ORDER.map((type) => ({
-    type,
-    label: LOANED_EQUIPMENT_LABELS[type]
-  }));
+  /** Shared sorted inventory catalog (A–Z) — same source as loan / lookup screens. */
+  protected readonly inventoryCatalog = this.inventoryStore.definitions;
+
+  /**
+   * Local row order for the editable inventory table (kept stable during an edit session).
+   * Rebuilt from the shared store on full load / batch save.
+   */
+  protected readonly customInventoryDefinitions = signal<InventoryDefinitionDto[]>([]);
+
   protected readonly accessoryLoading = signal(true);
   protected readonly accessorySaving = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialLocationResult = signal<AccessorySerialLocationDto | null>(null);
   protected readonly serialSearchAttempted = signal(false);
-  private readonly accessoryCodesByType = signal<Map<LoanedEquipmentType, string[]>>(new Map());
+  protected readonly serialTypeQuery = signal('');
+  protected readonly serialTypePickerOpen = signal(false);
 
   protected readonly serialSearchForm = this.fb.group({
-    equipmentType: this.fb.nonNullable.control<LoanedEquipmentType>(LOANED_EQUIPMENT_ORDER[0]!),
+    inventoryDefinitionId: this.fb.control<number | null>(null, Validators.required),
     serialCode: ['', Validators.required]
+  });
+
+  /** Catalog options for איתור קוד פריט, filtered by typed query (catalog already A–Z). */
+  protected readonly filteredSerialTypes = computed(() => {
+    const query = this.serialTypeQuery().trim().toLowerCase();
+    const all = this.inventoryCatalog();
+    if (!query) {
+      return all;
+    }
+    return all.filter((d) => d.displayName.toLowerCase().includes(query));
   });
 
   protected readonly accessoryForm = this.fb.group({
@@ -68,7 +96,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly customInventoryForm = this.fb.group({
     rows: this.fb.array<FormGroup>([])
   });
-  protected readonly customInventoryDefinitions = signal<InventoryDefinitionDto[]>([]);
 
   constructor() {
     effect(() => {
@@ -139,29 +166,102 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   protected serialCodesForSearchType(): string[] {
-    const type = this.serialSearchForm.controls.equipmentType.value;
-    return this.accessoryCodesByType().get(type) ?? [];
+    const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
+    if (id == null) {
+      return [];
+    }
+    const def = this.inventoryStore.byId(id);
+    return [...(def?.serialCodes ?? [])].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    );
+  }
+
+  protected selectedSerialTypeLabel(): string {
+    const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
+    if (id == null) {
+      return '';
+    }
+    return this.inventoryStore.byId(id)?.displayName ?? '';
+  }
+
+  protected onSerialTypeQueryInput(value: string): void {
+    this.serialTypeQuery.set(value);
+    this.serialTypePickerOpen.set(true);
+  }
+
+  protected onSerialTypeFocus(): void {
+    const selected = this.selectedSerialTypeLabel();
+    if (this.serialTypeQuery().trim() === selected.trim()) {
+      this.serialTypeQuery.set('');
+    }
+    this.serialTypePickerOpen.set(true);
+  }
+
+  protected onSerialTypeBlur(): void {
+    // Delay so option mousedown/click can run before the list closes.
+    window.setTimeout(() => {
+      this.serialTypePickerOpen.set(false);
+      this.syncSerialTypeQueryFromSelection();
+    }, 150);
+  }
+
+  protected onSerialTypeChosen(def: InventoryDefinitionDto): void {
+    this.serialSearchForm.patchValue({ inventoryDefinitionId: def.id });
+    this.serialTypeQuery.set(def.displayName);
+    this.serialTypePickerOpen.set(false);
+  }
+
+  private syncSerialTypeQueryFromSelection(): void {
+    this.serialTypeQuery.set(this.selectedSerialTypeLabel());
   }
 
   protected searchSerialLocation(): void {
-    const type = this.serialSearchForm.controls.equipmentType.value;
+    const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
     const serialCode = (this.serialSearchForm.controls.serialCode.value ?? '').trim();
+    if (id == null) {
+      this.serialSearchForm.controls.inventoryDefinitionId.markAsTouched();
+      this.toast.error('יש לבחור סוג אביזר');
+      return;
+    }
     if (!serialCode) {
       this.serialSearchForm.controls.serialCode.markAsTouched();
       this.toast.error('יש לבחור קוד פריט לחיפוש');
       return;
     }
 
-    this.serialSearchLoading.set(true);
+    const def = this.inventoryStore.byId(id);
+    if (!def) {
+      this.toast.error('פריט המלאי לא נמצא');
+      return;
+    }
+
+    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+    if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
+      this.serialSearchLoading.set(true);
+      this.serialSearchAttempted.set(true);
+      this.data
+        .getAccessorySerialLocation(linked, serialCode)
+        .pipe(finalize(() => this.serialSearchLoading.set(false)))
+        .subscribe((result) => {
+          if (result) {
+            this.serialLocationResult.set(result);
+          }
+        });
+      return;
+    }
+
+    // Custom (unlinked) inventory rows — location is derived from the catalog serials.
     this.serialSearchAttempted.set(true);
-    this.data
-      .getAccessorySerialLocation(type, serialCode)
-      .pipe(finalize(() => this.serialSearchLoading.set(false)))
-      .subscribe((result) => {
-        if (result) {
-          this.serialLocationResult.set(result);
-        }
-      });
+    const registered = (def.serialCodes ?? []).some(
+      (c) => c.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
+    );
+    this.serialLocationResult.set({
+      equipmentType: LoanedEquipmentType.Connectors,
+      label: def.displayName,
+      serialCode,
+      isRegistered: registered,
+      isInWarehouse: registered
+    });
   }
 
   protected clearSerialSearch(): void {
@@ -229,25 +329,29 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected loadAccessoryInventory(): void {
     this.accessoryLoading.set(true);
-    this.data
-      .getInventoryDefinitions()
+    this.inventoryStore.invalidate();
+    this.inventoryStore
+      .load({ force: true })
       .pipe(finalize(() => this.accessoryLoading.set(false)))
-      .subscribe((defs) => {
-        const list = defs ?? [];
-        const byType = new Map<LoanedEquipmentType, string[]>();
-        for (const def of list) {
-          const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-          if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
-            byType.set(
-              linked,
-              (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0)
-            );
-          }
-        }
-        this.accessoryCodesByType.set(byType);
+      .subscribe(() => {
+        const list = this.inventoryStore.definitions();
         this.customInventoryDefinitions.set(list);
         this.rebuildCustomInventoryRows(list);
+        this.ensureSerialSearchSelection(list);
       });
+  }
+
+  private ensureSerialSearchSelection(list: InventoryDefinitionDto[]): void {
+    const current = this.serialSearchForm.controls.inventoryDefinitionId.value;
+    if (current != null && list.some((d) => d.id === current)) {
+      this.syncSerialTypeQueryFromSelection();
+      return;
+    }
+    this.serialSearchForm.patchValue(
+      { inventoryDefinitionId: list[0]?.id ?? null },
+      { emitEvent: false }
+    );
+    this.syncSerialTypeQueryFromSelection();
   }
 
   private rebuildCustomInventoryRows(defs: InventoryDefinitionDto[]): void {
@@ -344,6 +448,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   private applyInventoryDefinitionPatch(updated: InventoryDefinitionDto): void {
+    this.inventoryStore.upsert(updated);
     this.customInventoryDefinitions.update((rows) =>
       rows.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
     );
@@ -380,7 +485,9 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       }
     }
 
+    this.inventoryStore.remove(id);
     this.customInventoryDefinitions.update((defs) => defs.filter((d) => d.id !== id));
+    this.ensureSerialSearchSelection(this.inventoryStore.definitions());
   }
 
   private buildCustomInventoryRow(def: InventoryDefinitionDto): FormGroup {
@@ -436,7 +543,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   }
 
   private wireSerialSearchTypeFilter(): void {
-    this.serialSearchForm.controls.equipmentType.valueChanges
+    this.serialSearchForm.controls.inventoryDefinitionId.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         this.serialSearchForm.patchValue({ serialCode: '' }, { emitEvent: false });

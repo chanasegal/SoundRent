@@ -20,6 +20,7 @@ import { finalize } from 'rxjs';
 import { distinctUntilChanged, map } from 'rxjs/operators';
 
 import { BookDto, BookCopyLocationDto } from '../../core/models/library-workspace.model';
+import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -35,6 +36,7 @@ import { BookTitleSelectComponent } from '../../shared/components/book-title-sel
 })
 export class LibraryInventoryComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly booksStore = inject(BooksStore);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
@@ -46,7 +48,8 @@ export class LibraryInventoryComponent implements OnInit {
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialLocationResult = signal<BookCopyLocationDto | null>(null);
-  protected readonly definitions = signal<BookDto[]>([]);
+  /** Shared sorted catalog (A–Z) — same source as lending / returns. */
+  protected readonly definitions = this.booksStore.definitions;
 
   protected readonly addInventoryOpen = signal(false);
   protected readonly editInventoryOpen = signal(false);
@@ -106,11 +109,12 @@ export class LibraryInventoryComponent implements OnInit {
 
   protected refresh(): void {
     this.loading.set(true);
-    this.data
-      .getBooks()
+    this.booksStore.invalidate();
+    this.booksStore
+      .load({ force: true })
       .pipe(finalize(() => this.loading.set(false)))
-      .subscribe((list) => {
-        this.definitions.set(list);
+      .subscribe(() => {
+        const list = this.booksStore.definitions();
         this.rebuildRows(list);
         if (list.length > 0 && this.serialSearchForm.controls.bookId.value == null) {
           this.serialSearchForm.patchValue({ bookId: list[0]!.id });

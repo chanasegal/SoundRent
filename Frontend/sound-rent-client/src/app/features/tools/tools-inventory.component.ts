@@ -21,6 +21,7 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 
 import { ToolDefinitionDto, ToolSerialLocationDto } from '../../core/models/tools-workspace.model';
 import { DataService } from '../../core/services/data.service';
+import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
@@ -35,6 +36,7 @@ import { ToolTypeSelectComponent } from '../../shared/components/tool-type-selec
 })
 export class ToolsInventoryComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
@@ -46,7 +48,8 @@ export class ToolsInventoryComponent implements OnInit {
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialLocationResult = signal<ToolSerialLocationDto | null>(null);
-  protected readonly definitions = signal<ToolDefinitionDto[]>([]);
+  /** Shared sorted catalog (A–Z) — same source as lending / returns. */
+  protected readonly definitions = this.toolStore.definitions;
 
   protected readonly addInventoryOpen = signal(false);
   protected readonly editInventoryOpen = signal(false);
@@ -106,11 +109,12 @@ export class ToolsInventoryComponent implements OnInit {
 
   protected refresh(): void {
     this.loading.set(true);
-    this.data
-      .getToolDefinitions()
+    this.toolStore.invalidate();
+    this.toolStore
+      .load({ force: true })
       .pipe(finalize(() => this.loading.set(false)))
-      .subscribe((list) => {
-        this.definitions.set(list);
+      .subscribe(() => {
+        const list = this.toolStore.definitions();
         this.rebuildRows(list);
         if (list.length > 0 && this.serialSearchForm.controls.toolDefinitionId.value == null) {
           this.serialSearchForm.patchValue({ toolDefinitionId: list[0]!.id });

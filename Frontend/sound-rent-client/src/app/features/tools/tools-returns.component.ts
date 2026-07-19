@@ -5,6 +5,7 @@ import {
   OnInit,
   computed,
   inject,
+  isDevMode,
   signal
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -13,19 +14,18 @@ import { ConfirmPopup } from 'primeng/confirmpopup';
 import { finalize } from 'rxjs/operators';
 
 import {
-  ToolDefinitionDto,
   ToolItemBorrowHistoryDto,
   ToolLoanDto,
   ToolLoanItemDto
 } from '../../core/models/tools-workspace.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
-  formatBillableDuration,
-  isShabbatOrChag,
-  toBillableParts
+  formatCalendarDuration,
+  isNonBillableDay
 } from '../../core/utils/tools-billable-duration';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
@@ -63,6 +63,7 @@ interface CompletedLoanRowView {
 })
 export class ToolsReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
@@ -70,7 +71,7 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<ToolLoanDto[]>([]);
-  protected readonly definitions = signal<ToolDefinitionDto[]>([]);
+  protected readonly definitions = this.toolStore.definitions;
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
   protected readonly deletingLoanId = signal<number | null>(null);
@@ -133,8 +134,41 @@ export class ToolsReturnsComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    this.data.getToolDefinitions().subscribe((list) => this.definitions.set(list));
+    this.toolStore.load().subscribe();
     this.refresh();
+
+    if (isDevMode()) {
+      (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
+        this.debugLoanCalculation(loanId);
+      console.info(
+        '[tools-returns] Debug helper ready — run debugReturns(<loanId>) in the console.'
+      );
+    }
+  }
+
+  /**
+   * DEBUG (dev only): prints the day-by-day billable-day calculation for every
+   * returned item of a loan. Call `debugReturns(loanId)` from the browser console
+   * while on the Tools returns page.
+   */
+  debugLoanCalculation(loanId: number): void {
+    const matches = this.rows().filter((r) => r.loanId === loanId);
+    if (!matches.length) {
+      console.warn(`[tools-returns] No returned rows found for loan #${loanId}.`);
+      return;
+    }
+
+    for (const row of matches) {
+      console.group(
+        `Loan #${row.loanId} · item ${row.itemId} · ${row.item.toolName} (${row.item.serialCode})`
+      );
+      console.log(`Loan timestamp:   ${row.lentAt.toString()}`);
+      console.log(`Return timestamp: ${row.returnedAt.toString()}`);
+      // Passing loanId turns on the per-day Counting/Skipping logging.
+      const days = this.calculateBillableDays(row.lentAt, row.returnedAt, row.loanId);
+      console.log(`Charge: ${days > 1 ? days * 5 : 0} ₪`);
+      console.groupEnd();
+    }
   }
 
   protected refresh(): void {
@@ -203,15 +237,35 @@ export class ToolsReturnsComponent implements OnInit {
   }
 
   protected durationText(row: CompletedLoanRowView): string {
-    return formatBillableDuration(toBillableParts(row.lentAt, row.returnedAt));
+    return formatCalendarDuration(row.lentAt, row.returnedAt);
+  }
+
+  /** Local `YYYY-MM-DD` — built from local Y/M/D so no UTC/TZ day-shift occurs. */
+  private toIsoDay(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   /**
-   * Billable days between loan and return dates. Iterates each calendar day,
-   * counting Fridays but skipping Saturdays (Shabbat) and Jewish holidays
-   * (Yom Tov) via the shared `@hebcal`-based `isShabbatOrChag` helper.
+   * Billable days between loan and return dates.
+   *
+   * - **Date-only:** both endpoints are rebuilt from their local year/month/date
+   *   (`new Date(y, m, d)`), so time components and UTC/local offsets can never
+   *   shift the day boundary. The span is [loanDate, returnDate) — end-exclusive.
+   * - Counts every weekday **including Fridays**; skips Saturdays (Shabbat),
+   *   Jewish holidays (Yom Tov) and Chol HaMoed via the shared
+   *   `@hebcal`-based `isNonBillableDay` predicate.
+   * - **Logging:** when a `loanId` is supplied (dev mode), each day is logged
+   *   exactly once inside a `console.group` as either `Counting day` or
+   *   `Skipping day`, so the calculation can be traced per loan record.
    */
-  protected calculateBillableDays(loanDate: Date, returnDate: Date): number {
+  protected calculateBillableDays(
+    loanDate: Date,
+    returnDate: Date,
+    loanId?: number
+  ): number {
     if (
       !(loanDate instanceof Date) ||
       !(returnDate instanceof Date) ||
@@ -221,7 +275,8 @@ export class ToolsReturnsComponent implements OnInit {
       return 0;
     }
 
-    let cursor = new Date(loanDate.getFullYear(), loanDate.getMonth(), loanDate.getDate());
+    // Normalize to calendar days (drop time + timezone) for stable comparison.
+    const cursor = new Date(loanDate.getFullYear(), loanDate.getMonth(), loanDate.getDate());
     const endDay = new Date(
       returnDate.getFullYear(),
       returnDate.getMonth(),
@@ -231,13 +286,35 @@ export class ToolsReturnsComponent implements OnInit {
       return 0;
     }
 
-    let days = 0;
-    while (cursor < endDay) {
-      if (!isShabbatOrChag(cursor)) {
-        days += 1;
-      }
-      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    const debug = loanId != null && isDevMode();
+    if (debug) {
+      console.group(`calculateBillableDays — Loan #${loanId}`);
+      console.log(`Range: ${this.toIsoDay(cursor)} → ${this.toIsoDay(endDay)} (end exclusive)`);
     }
+
+    let days = 0;
+    // Efficient loop: mutate a single Date in place instead of allocating each day.
+    for (; cursor < endDay; cursor.setDate(cursor.getDate() + 1)) {
+      const iso = this.toIsoDay(cursor);
+      if (isNonBillableDay(cursor)) {
+        // Excluded branch — log the skip exactly here so each day is logged once.
+        if (debug) {
+          console.log(`Skipping day: ${iso}`);
+        }
+        continue;
+      }
+
+      days += 1;
+      if (debug) {
+        console.log(`Counting day: ${iso}`);
+      }
+    }
+
+    if (debug) {
+      console.log(`Total billable days: ${days}`);
+      console.groupEnd();
+    }
+
     return days;
   }
 

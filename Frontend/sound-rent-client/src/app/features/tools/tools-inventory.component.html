@@ -19,7 +19,7 @@
     <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
       <h3 class="mb-3 text-sm font-bold text-[#002244]">איתור קוד פריט</h3>
       <form [formGroup]="serialSearchForm" class="serial-locator__filters" (ngSubmit)="searchSerialLocation()">
-        <div class="serial-locator__field">
+        <div class="serial-locator__field serial-locator__field--type">
           <label class="serial-locator__label" for="tools-serial-search-type">סוג כלי</label>
           <app-tool-type-select
             inputId="tools-serial-search-type"

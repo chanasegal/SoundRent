@@ -15,6 +15,7 @@ import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'r
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
 import { CustomerDto } from '../../core/models/customer.model';
+import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
   LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
@@ -28,6 +29,7 @@ import { OrderReturnRequestDto } from '../../core/models/equipment-return.model'
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -39,7 +41,10 @@ import { IntegerOnlyDirective } from '../../shared/directives/integer-only.direc
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 interface QuickLoanAccessoryRow {
-  type: LoanedEquipmentType;
+  /** Catalog row id from InventoryDefinitions (shared store). */
+  inventoryDefinitionId: number;
+  /** Set when the catalog row is linked to a system LoanedEquipmentType. */
+  type: LoanedEquipmentType | null;
   label: string;
   quantity: number;
   selectedCodes: string[];
@@ -76,6 +81,7 @@ export class QuickLoanComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly customers = inject(CustomersStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
@@ -94,12 +100,13 @@ export class QuickLoanComponent implements OnInit {
 
   protected readonly accessoryRows = signal<QuickLoanAccessoryRow[]>([]);
   protected readonly addAccessoryOpen = signal(false);
+  protected readonly accessoryTypeQuery = signal('');
 
   private readonly availabilityByType = signal<Map<LoanedEquipmentType, AccessorySerialOptionDto[]>>(
     new Map()
   );
   private readonly availabilityLoading = signal(false);
-  protected readonly openSerialDropdownType = signal<LoanedEquipmentType | null>(null);
+  protected readonly openSerialDropdownId = signal<number | null>(null);
   protected readonly serialQuickEntry = signal('');
   protected readonly submitting = signal(false);
   protected readonly editingId = signal<number | null>(null);
@@ -116,12 +123,13 @@ export class QuickLoanComponent implements OnInit {
 
   protected readonly customerSuggestions = signal<CustomerDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
-  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | 'address' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
 
   protected readonly form = this.fb.group({
     customerName: ['', [Validators.maxLength(100)]],
     phone: ['', [Validators.required, Validators.maxLength(10), israeliPhoneValidator()]],
+    address: ['', [Validators.maxLength(200)]],
     hebrewYear: [this.initialHebrew.year, Validators.required],
     hebrewMonth: [this.initialHebrew.month, Validators.required],
     hebrewDay: [this.initialHebrew.day, Validators.required],
@@ -138,6 +146,7 @@ export class QuickLoanComponent implements OnInit {
     this.wireDateForm();
     this.wireAvailabilityRefresh();
     this.wireCustomerAutocomplete();
+    this.inventoryStore.load({ force: true }).subscribe();
     this.refreshAvailability();
     this.loadRecentLoans();
   }
@@ -185,68 +194,97 @@ export class QuickLoanComponent implements OnInit {
     const parsed = Number.parseInt(raw, 10);
     const quantity = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
     this.accessoryRows.update((rows) =>
-      rows.map((r) => {
-        if (r.type !== row.type) {
-          return r;
-        }
-        const selectedCodes =
-          r.selectedCodes.length > quantity ? r.selectedCodes.slice(0, quantity) : r.selectedCodes;
-        return { ...r, quantity, selectedCodes };
-      })
+      rows.map((r) => (r.inventoryDefinitionId === row.inventoryDefinitionId ? { ...r, quantity } : r))
     );
   }
 
-  protected availableAccessoryTypes(): LoanedEquipmentType[] {
-    const used = new Set(this.accessoryRows().map((r) => r.type));
-    return LOANED_EQUIPMENT_ORDER.filter((type) => !used.has(type));
+  /** Unused catalog rows from the shared sorted inventory store. */
+  protected availableAccessoryTypes(): InventoryDefinitionDto[] {
+    const used = new Set(this.accessoryRows().map((r) => r.inventoryDefinitionId));
+    return this.inventoryStore.definitions().filter((d) => !used.has(d.id));
   }
 
-  protected accessoryTypeLabel(type: LoanedEquipmentType): string {
-    return LOANED_EQUIPMENT_LABELS[type];
+  protected filteredAccessoryTypes(): InventoryDefinitionDto[] {
+    const query = this.accessoryTypeQuery().trim().toLowerCase();
+    const available = this.availableAccessoryTypes();
+    if (!query) {
+      return available;
+    }
+    return available.filter((d) => d.displayName.toLowerCase().includes(query));
+  }
+
+  protected accessoryTypeLabel(def: InventoryDefinitionDto): string {
+    return def.displayName;
   }
 
   protected toggleAddAccessory(): void {
-    this.addAccessoryOpen.update((open) => !open);
+    const willOpen = !this.addAccessoryOpen();
+    this.addAccessoryOpen.set(willOpen);
+    this.accessoryTypeQuery.set('');
+    if (willOpen) {
+      queueMicrotask(() => this.focusAccessoryTypeSearch());
+    }
   }
 
-  protected onAccessoryTypeChosen(raw: string): void {
-    const type = raw as LoanedEquipmentType;
-    if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+  protected onAccessoryTypeChosen(defOrId: InventoryDefinitionDto | number | string): void {
+    const id = typeof defOrId === 'object' ? defOrId.id : Number(defOrId);
+    if (!Number.isFinite(id) || id <= 0) {
       return;
     }
-    if (this.accessoryRows().some((r) => r.type === type)) {
+    const def = this.inventoryStore.byId(id);
+    if (!def) {
+      this.toast.warning('הפריט לא נמצא במלאי');
+      return;
+    }
+    if (this.accessoryRows().some((r) => r.inventoryDefinitionId === def.id)) {
       this.toast.warning('סוג אביזר זה כבר נוסף');
       return;
     }
 
+    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+    const type =
+      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
+
     const row: QuickLoanAccessoryRow = {
+      inventoryDefinitionId: def.id,
       type,
-      label: LOANED_EQUIPMENT_LABELS[type],
+      label: def.displayName,
       quantity: 1,
       selectedCodes: []
     };
     this.accessoryRows.update((rows) => [...rows, row]);
     this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
   }
 
   protected removeAccessoryRow(row: QuickLoanAccessoryRow): void {
-    this.accessoryRows.update((rows) => rows.filter((r) => r.type !== row.type));
-    if (this.openSerialDropdownType() === row.type) {
-      this.openSerialDropdownType.set(null);
+    this.accessoryRows.update((rows) =>
+      rows.filter((r) => r.inventoryDefinitionId !== row.inventoryDefinitionId)
+    );
+    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+      this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
     }
   }
 
   protected isSerialDropdownOpen(row: QuickLoanAccessoryRow): boolean {
-    return this.openSerialDropdownType() === row.type;
+    return this.openSerialDropdownId() === row.inventoryDefinitionId;
   }
 
   protected serialOptionsForRow(row: QuickLoanAccessoryRow): AccessorySerialOptionDto[] {
-    return this.availabilityByType().get(row.type) ?? [];
+    if (row.type) {
+      return this.availabilityByType().get(row.type) ?? [];
+    }
+    // Custom (unlinked) catalog rows — serials come from the shared inventory store.
+    const def = this.inventoryStore.byId(row.inventoryDefinitionId);
+    return (def?.serialCodes ?? []).map((serialCode) => ({
+      serialCode,
+      isAvailable: true
+    }));
   }
 
   protected serialPanelState(row: QuickLoanAccessoryRow): 'loading' | 'no-inventory' | 'all-booked' | 'options' {
-    if (this.availabilityLoading() && this.serialOptionsForRow(row).length === 0) {
+    if (row.type && this.availabilityLoading() && this.serialOptionsForRow(row).length === 0) {
       return 'loading';
     }
     const options = this.serialOptionsForRow(row);
@@ -277,13 +315,13 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected toggleSerialDropdown(row: QuickLoanAccessoryRow): void {
-    if (this.openSerialDropdownType() === row.type) {
-      this.openSerialDropdownType.set(null);
+    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+      this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
       return;
     }
 
-    this.openSerialDropdownType.set(row.type);
+    this.openSerialDropdownId.set(row.inventoryDefinitionId);
     this.serialQuickEntry.set('');
     queueMicrotask(() => this.focusSerialQuickEntry());
   }
@@ -295,22 +333,19 @@ export class QuickLoanComponent implements OnInit {
   protected toggleSerialSelection(row: QuickLoanAccessoryRow, code: string, checked: boolean): void {
     this.accessoryRows.update((rows) =>
       rows.map((r) => {
-        if (r.type !== row.type) {
+        if (r.inventoryDefinitionId !== row.inventoryDefinitionId) {
           return r;
         }
         let next = [...r.selectedCodes];
         if (checked) {
-          if (next.length >= r.quantity) {
-            this.toast.warning(`ניתן לבחור עד ${r.quantity} קודים עבור ${r.label}`);
-            return r;
-          }
           if (!next.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
             next.push(code);
           }
         } else {
           next = next.filter((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0);
         }
-        return { ...r, selectedCodes: next };
+        const quantity = next.length > 0 ? next.length : r.quantity;
+        return { ...r, selectedCodes: next, quantity };
       })
     );
   }
@@ -346,8 +381,8 @@ export class QuickLoanComponent implements OnInit {
 
   protected closeSerialDropdown(row: QuickLoanAccessoryRow, event?: Event): void {
     event?.stopPropagation();
-    if (this.openSerialDropdownType() === row.type) {
-      this.openSerialDropdownType.set(null);
+    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+      this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
     }
   }
@@ -382,7 +417,7 @@ export class QuickLoanComponent implements OnInit {
     return `${name} - ${c.phone1}`;
   }
 
-  protected onCustomerSuggestFocus(field: 'name' | 'phone'): void {
+  protected onCustomerSuggestFocus(field: 'name' | 'phone' | 'address'): void {
     this.customerSuggestField.set(field);
     if (this.customerSuggestions().length > 0) {
       this.customerSuggestOpen.set(true);
@@ -393,7 +428,7 @@ export class QuickLoanComponent implements OnInit {
     setTimeout(() => this.closeCustomerSuggestions(), 150);
   }
 
-  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone'): void {
+  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone' | 'address'): void {
     if (!this.customerSuggestOpen() || this.customerSuggestField() !== field) {
       if (event.key === 'ArrowDown' && this.customerSuggestions().length > 0) {
         this.customerSuggestField.set(field);
@@ -439,7 +474,8 @@ export class QuickLoanComponent implements OnInit {
     this.form.patchValue(
       {
         customerName: c.fullName ?? '',
-        phone: c.phone1 ?? ''
+        phone: c.phone1 ?? '',
+        address: c.address ?? ''
       },
       { emitEvent: false }
     );
@@ -456,14 +492,18 @@ export class QuickLoanComponent implements OnInit {
 
   protected orderAccessoryLines(order: OrderDto): { label: string; codes: string[]; quantity: number }[] {
     return (order.loanedEquipments ?? [])
-      .filter((le) => !le.isCustomItem && le.quantity > 0 && le.loanedEquipmentType != null)
+      .filter((le) => le.quantity > 0)
       .map((le) => {
-        const type = le.loanedEquipmentType!;
         const codes = (le.notes ?? [])
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
+        const label = le.isCustomItem
+          ? (le.customItemName?.trim() || 'פריט נוסף')
+          : le.loanedEquipmentType
+            ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType)
+            : 'פריט';
         return {
-          label: LOANED_EQUIPMENT_LABELS[type] ?? String(type),
+          label,
           codes,
           quantity: le.quantity
         };
@@ -472,7 +512,7 @@ export class QuickLoanComponent implements OnInit {
 
   protected startEdit(order: OrderDto): void {
     this.editingId.set(order.id);
-    this.openSerialDropdownType.set(null);
+    this.openSerialDropdownId.set(null);
     this.serialQuickEntry.set('');
     this.deleteConfirmOrder.set(null);
 
@@ -498,44 +538,74 @@ export class QuickLoanComponent implements OnInit {
     this.form.patchValue({
       customerName: order.customerName ?? '',
       phone: order.phone ?? '',
+      address: order.address ?? '',
       notes: order.notes ?? ''
     });
 
-    const linesByType = new Map<
-      LoanedEquipmentType,
-      { codes: string[]; quantity: number; lineId?: number }
-    >();
+    const catalog = this.inventoryStore.definitions();
+    const rows: QuickLoanAccessoryRow[] = [];
+
     for (const le of order.loanedEquipments ?? []) {
-      if (le.isCustomItem || le.loanedEquipmentType == null || le.quantity <= 0) {
+      if (le.quantity <= 0) {
         continue;
       }
       const codes = (le.notes ?? [])
         .map((n) => (n.content ?? '').trim())
         .filter((c) => c.length > 0);
-      linesByType.set(le.loanedEquipmentType, {
-        codes,
+
+      if (le.isCustomItem) {
+        const name = (le.customItemName ?? '').trim();
+        const def =
+          catalog.find(
+            (d) =>
+              !d.linkedEquipmentType &&
+              d.displayName.localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
+          ) ?? null;
+        if (!def) {
+          continue;
+        }
+        rows.push({
+          inventoryDefinitionId: def.id,
+          type: null,
+          label: def.displayName,
+          quantity: Math.max(le.quantity, codes.length, 1),
+          selectedCodes: codes,
+          lineId: le.id
+        });
+        continue;
+      }
+
+      if (le.loanedEquipmentType == null) {
+        continue;
+      }
+      const type = le.loanedEquipmentType;
+      const def =
+        catalog.find((d) => d.linkedEquipmentType === type) ??
+        null;
+      if (!def) {
+        // Fallback: synthesize a row keyed by a negative pseudo-id so edit still works
+        // until the catalog finishes loading.
+        rows.push({
+          inventoryDefinitionId: -LOANED_EQUIPMENT_ORDER.indexOf(type) - 1,
+          type,
+          label: LOANED_EQUIPMENT_LABELS[type] ?? String(type),
+          quantity: Math.max(le.quantity, codes.length, 1),
+          selectedCodes: codes,
+          lineId: le.id
+        });
+        continue;
+      }
+      rows.push({
+        inventoryDefinitionId: def.id,
+        type,
+        label: def.displayName,
         quantity: Math.max(le.quantity, codes.length, 1),
+        selectedCodes: codes,
         lineId: le.id
       });
     }
 
-    this.accessoryRows.set(
-      LOANED_EQUIPMENT_ORDER.flatMap((type) => {
-        const saved = linesByType.get(type);
-        if (!saved) {
-          return [];
-        }
-        return [
-          {
-            type,
-            label: LOANED_EQUIPMENT_LABELS[type],
-            quantity: saved.quantity,
-            selectedCodes: saved.codes,
-            lineId: saved.lineId
-          }
-        ];
-      })
-    );
+    this.accessoryRows.set(rows);
     this.addAccessoryOpen.set(false);
 
     this.refreshAvailability();
@@ -581,7 +651,9 @@ export class QuickLoanComponent implements OnInit {
           loanedEquipmentId: row.id!,
           label: isCustomItem
             ? (row.customItemName?.trim() || 'פריט נוסף')
-            : LOANED_EQUIPMENT_LABELS[row.loanedEquipmentType!] ?? String(row.loanedEquipmentType),
+            : row.loanedEquipmentType
+              ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
+              : String(row.loanedEquipmentType),
           quantityLoaned: row.quantity,
           quantityReturned,
           isCustomItem,
@@ -802,24 +874,29 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const mismatched = this.accessoryRows().find(
-      (row) => row.quantity > 0 && row.selectedCodes.length > 0 && row.selectedCodes.length !== row.quantity
-    );
-    if (mismatched) {
-      this.toast.warning(
-        `ל"${mismatched.label}" נבחרו ${mismatched.selectedCodes.length} קודים אך הכמות היא ${mismatched.quantity}`
-      );
-      return;
-    }
-
     const loanedEquipments: OrderLoanedEquipmentDto[] = this.accessoryRows()
       .filter((row) => row.quantity > 0)
       .map((row) => {
         const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
+        if (row.type) {
+          return {
+            ...(row.lineId ? { id: row.lineId } : {}),
+            isCustomItem: false,
+            loanedEquipmentType: row.type,
+            quantity: row.quantity,
+            expectedNoteCount: row.quantity,
+            notes: codes.map((code, ordinal) => ({
+              ordinal,
+              content: code,
+              isReturned: false
+            }))
+          };
+        }
         return {
           ...(row.lineId ? { id: row.lineId } : {}),
-          isCustomItem: false,
-          loanedEquipmentType: row.type,
+          isCustomItem: true,
+          customItemName: row.label,
+          loanedEquipmentType: null,
           quantity: row.quantity,
           expectedNoteCount: row.quantity,
           notes: codes.map((code, ordinal) => ({
@@ -848,7 +925,7 @@ export class QuickLoanComponent implements OnInit {
       customerName: (this.form.controls.customerName.value ?? '').trim() || null,
       phone: (this.form.controls.phone.value ?? '').trim(),
       phone2: null,
-      address: null,
+      address: (this.form.controls.address.value ?? '').trim() || null,
       depositType: null,
       depositOnName: null,
       paymentAmount: null,
@@ -887,6 +964,7 @@ export class QuickLoanComponent implements OnInit {
     this.form.patchValue({
       customerName: '',
       phone: '',
+      address: '',
       notes: ''
     });
     this.form.markAsUntouched();
@@ -895,8 +973,14 @@ export class QuickLoanComponent implements OnInit {
   private resetSelections(): void {
     this.accessoryRows.set([]);
     this.addAccessoryOpen.set(false);
-    this.openSerialDropdownType.set(null);
+    this.accessoryTypeQuery.set('');
+    this.openSerialDropdownId.set(null);
     this.serialQuickEntry.set('');
+  }
+
+  private focusAccessoryTypeSearch(): void {
+    const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
+    input?.focus();
   }
 
   protected refreshRecentLoans(): void {
@@ -974,8 +1058,11 @@ export class QuickLoanComponent implements OnInit {
     const phone$ = this.form.controls.phone.valueChanges.pipe(
       map((v) => ({ field: 'phone' as const, q: String(v ?? '').trim() }))
     );
+    const address$ = this.form.controls.address.valueChanges.pipe(
+      map((v) => ({ field: 'address' as const, q: String(v ?? '').trim() }))
+    );
 
-    merge(name$, phone$)
+    merge(name$, phone$, address$)
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
@@ -997,7 +1084,9 @@ export class QuickLoanComponent implements OnInit {
         const current =
           field === 'name'
             ? String(this.form.controls.customerName.value ?? '').trim()
-            : String(this.form.controls.phone.value ?? '').trim();
+            : field === 'phone'
+              ? String(this.form.controls.phone.value ?? '').trim()
+              : String(this.form.controls.address.value ?? '').trim();
         if (current !== q) {
           return;
         }

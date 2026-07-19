@@ -105,13 +105,50 @@
     <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
       <h3 class="mb-3 text-sm font-bold text-[#002244]">איתור קוד פריט</h3>
       <form [formGroup]="serialSearchForm" class="serial-locator__filters" (ngSubmit)="searchSerialLocation()">
-        <div class="serial-locator__field">
+        <div class="serial-locator__field serial-locator__field--type">
           <label class="serial-locator__label" for="serial-search-type">סוג אביזר</label>
-          <select id="serial-search-type" formControlName="equipmentType" class="serial-locator__select">
-            @for (def of accessoryRowDefinitions; track def.type) {
-              <option [value]="def.type">{{ def.label }}</option>
+          <div class="serial-locator__combobox">
+            <input
+              id="serial-search-type"
+              type="text"
+              class="serial-locator__search"
+              placeholder="חיפוש סוג אביזר…"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="serial-search-type-options"
+              [attr.aria-expanded]="serialTypePickerOpen()"
+              [value]="serialTypeQuery()"
+              (input)="onSerialTypeQueryInput($any($event.target).value)"
+              (focus)="onSerialTypeFocus()"
+              (blur)="onSerialTypeBlur()"
+            />
+            @if (serialTypePickerOpen()) {
+              @if (filteredSerialTypes().length > 0) {
+                <ul id="serial-search-type-options" class="serial-locator__options" role="listbox">
+                  @for (def of filteredSerialTypes(); track def.id) {
+                    <li role="option">
+                      <button
+                        type="button"
+                        class="serial-locator__option"
+                        [class.serial-locator__option--selected]="
+                          serialSearchForm.controls.inventoryDefinitionId.value === def.id
+                        "
+                        (mousedown)="$event.preventDefault()"
+                        (click)="onSerialTypeChosen(def)"
+                      >
+                        {{ def.displayName }}
+                      </button>
+                    </li>
+                  }
+                </ul>
+              } @else if (inventoryCatalog().length === 0) {
+                <p class="serial-locator__hint">אין סוגי אביזרים במלאי</p>
+              } @else {
+                <p class="serial-locator__hint">לא נמצא סוג אביזר תואם</p>
+              }
             }
-          </select>
+          </div>
         </div>
         <div class="serial-locator__field serial-locator__field--code">
           <label class="serial-locator__label" for="serial-search-code">קוד פריט</label>

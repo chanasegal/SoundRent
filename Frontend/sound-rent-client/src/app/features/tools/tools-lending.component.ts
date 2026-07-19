@@ -26,6 +26,7 @@ import {
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
@@ -80,6 +81,7 @@ interface ActiveLoanRowView {
 })
 export class ToolsLendingComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
@@ -98,7 +100,7 @@ export class ToolsLendingComponent implements OnInit {
     serialCode: string;
   } | null = null;
 
-  protected readonly definitions = signal<ToolDefinitionDto[]>([]);
+  protected readonly definitions = this.toolStore.definitions;
   protected readonly availableByTool = signal<Map<number, string[]>>(new Map());
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
@@ -747,8 +749,7 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private loadDefinitions(): void {
-    this.data.getToolDefinitions().subscribe((list) => {
-      this.definitions.set(list);
+    this.toolStore.load().subscribe(() => {
       this.tryApplyRenewPrefill();
     });
     // Exactly one availability request for the whole page (not per row/tool).

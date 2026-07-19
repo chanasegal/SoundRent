@@ -317,22 +317,40 @@
                         </label>
                       }
 
-                      <label class="add-accessory__field">
+                      <div class="add-accessory__combobox">
                         <span class="add-accessory__label">סוג אביזר</span>
-                        <select
-                          class="add-accessory__select"
-                          (change)="onAccessoryTypeChosen(customer, $any($event.target).value); $any($event.target).value = ''"
-                        >
-                          <option value="" selected disabled>בחרו סוג אביזר…</option>
-                          @for (type of availableAccessoryTypesForOrder(addAccessoryOrderId(customer)); track type) {
-                            <option [value]="type">{{ accessoryTypeLabel(type) }}</option>
-                          }
-                        </select>
-                      </label>
-
-                      @if (availableAccessoryTypesForOrder(addAccessoryOrderId(customer)).length === 0) {
-                        <p class="add-accessory__hint">כל סוגי האביזרים כבר משויכים להזמנה זו</p>
-                      }
+                        <input
+                          type="text"
+                          class="add-accessory__search"
+                          placeholder="חיפוש סוג אביזר…"
+                          autocomplete="off"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          aria-controls="report-accessory-type-options"
+                          [attr.aria-expanded]="true"
+                          [value]="accessoryTypeQuery()"
+                          (input)="accessoryTypeQuery.set($any($event.target).value)"
+                        />
+                        @if (filteredAccessoryDefsForOrder(addAccessoryOrderId(customer)).length > 0) {
+                          <ul id="report-accessory-type-options" class="add-accessory__options" role="listbox">
+                            @for (def of filteredAccessoryDefsForOrder(addAccessoryOrderId(customer)); track def.id) {
+                              <li role="option">
+                                <button
+                                  type="button"
+                                  class="add-accessory__option"
+                                  (click)="onAccessoryTypeChosen(customer, def)"
+                                >
+                                  {{ def.displayName }}
+                                </button>
+                              </li>
+                            }
+                          </ul>
+                        } @else if (availableAccessoryDefsForOrder(addAccessoryOrderId(customer)).length === 0) {
+                          <p class="add-accessory__hint">כל סוגי האביזרים כבר משויכים להזמנה זו</p>
+                        } @else {
+                          <p class="add-accessory__hint">לא נמצא סוג אביזר תואם</p>
+                        }
+                      </div>
                     </div>
                   }
 

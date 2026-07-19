@@ -114,6 +114,50 @@
           }
         </div>
 
+        <div class="loan-client-field loan-client-field--address">
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-address">כתובת</label>
+          <div class="customer-suggest">
+            <input
+              id="quick-loan-address"
+              type="text"
+              formControlName="address"
+              class="loan-client-input"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'address'"
+              aria-controls="equipment-loan-suggest-address"
+              (focus)="onCustomerSuggestFocus('address')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'address')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'address' && customerSuggestions().length > 0) {
+              <ul
+                id="equipment-loan-suggest-address"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
+                      @if (c.address?.trim()) {
+                        <span class="customer-suggest__address">{{ c.address }}</span>
+                      }
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+
         <div class="loan-client-field loan-client-field--date">
           <span class="mb-1 block text-sm font-medium text-slate-700">תאריך</span>
           <div class="hebrew-date-field-row">
@@ -183,7 +227,7 @@
         }
 
         <ul class="customer-breakdown-card__items">
-          @for (item of accessoryRows(); track item.type) {
+          @for (item of accessoryRows(); track item.inventoryDefinitionId) {
             <li class="accessory-row">
               <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
                 <span class="accessory-row__qty-label">כמות</span>
@@ -303,21 +347,40 @@
         <div class="add-accessory">
           @if (addAccessoryOpen()) {
             <div class="add-accessory__picker">
-              <label class="add-accessory__field">
+              <div class="add-accessory__combobox">
                 <span class="add-accessory__label">סוג אביזר</span>
-                <select
-                  class="add-accessory__select"
-                  (change)="onAccessoryTypeChosen($any($event.target).value); $any($event.target).value = ''"
-                >
-                  <option value="" selected disabled>בחרו סוג אביזר…</option>
-                  @for (type of availableAccessoryTypes(); track type) {
-                    <option [value]="type">{{ accessoryTypeLabel(type) }}</option>
-                  }
-                </select>
-              </label>
-              @if (availableAccessoryTypes().length === 0) {
-                <p class="add-accessory__hint">כל סוגי האביזרים כבר נוספו</p>
-              }
+                <input
+                  type="text"
+                  class="add-accessory__search"
+                  placeholder="חיפוש סוג אביזר…"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls="accessory-type-options"
+                  [attr.aria-expanded]="true"
+                  [value]="accessoryTypeQuery()"
+                  (input)="accessoryTypeQuery.set($any($event.target).value)"
+                />
+                @if (filteredAccessoryTypes().length > 0) {
+                  <ul id="accessory-type-options" class="add-accessory__options" role="listbox">
+                    @for (def of filteredAccessoryTypes(); track def.id) {
+                      <li role="option">
+                        <button
+                          type="button"
+                          class="add-accessory__option"
+                          (click)="onAccessoryTypeChosen(def)"
+                        >
+                          {{ accessoryTypeLabel(def) }}
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                } @else if (availableAccessoryTypes().length === 0) {
+                  <p class="add-accessory__hint">כל סוגי האביזרים כבר נוספו</p>
+                } @else {
+                  <p class="add-accessory__hint">לא נמצא סוג אביזר תואם</p>
+                }
+              </div>
             </div>
           }
 

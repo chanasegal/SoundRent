@@ -16,8 +16,8 @@ import { finalize } from 'rxjs';
 import {
   AccessorySerialOptionDto
 } from '../../core/models/accessory-inventory.model';
+import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
-  LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType
 } from '../../core/models/enums';
@@ -31,6 +31,7 @@ import {
 import { DataService } from '../../core/services/data.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
@@ -50,6 +51,7 @@ interface CustomerAccessoryLine {
   quantity: number;
   sortKey: number;
   loanedEquipmentType: LoanedEquipmentType | null;
+  inventoryDefinitionId: number | null;
   isCustomItem: boolean;
   serialCodes: string[];
   returnedSerialCodes: string[];
@@ -88,6 +90,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
   protected readonly pageTitle = inject(WorkspaceUiService).title('דוח ציוד');
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
@@ -113,12 +116,8 @@ export class DailyEquipmentReportComponent implements OnInit {
   protected readonly savingSerialRowKey = signal<string | null>(null);
   protected readonly openAddAccessoryCustomerKey = signal<string | null>(null);
   protected readonly addAccessoryTargetOrderId = signal<number | null>(null);
+  protected readonly accessoryTypeQuery = signal('');
   private readonly pendingAccessoryRows = signal<CustomerAccessoryLine[]>([]);
-
-  protected readonly accessoryTypeOptions = LOANED_EQUIPMENT_ORDER.map((type) => ({
-    type,
-    label: LOANED_EQUIPMENT_LABELS[type]
-  }));
 
   protected readonly dateForm = this.fb.group({
     hebrewYear: [this.initialHebrew.year, Validators.required],
@@ -167,6 +166,7 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   ngOnInit(): void {
     this.equipmentSlots.load().subscribe();
+    this.inventoryStore.load({ force: true }).subscribe();
     this.wireDateForm();
     this.loadOrders();
     this.ordersSync.orderChanged$
@@ -243,7 +243,8 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   protected canEditAccessorySerials(row: CustomerAccessoryLine): boolean {
-    if (row.isCustomItem) {
+    // Legacy free-text custom rows (no catalog id) stay read-only for serials.
+    if (row.isCustomItem && row.inventoryDefinitionId == null && !this.isPendingAccessoryRow(row)) {
       return false;
     }
     if (!row.hasRecordedReturns) {
@@ -286,19 +287,45 @@ export class DailyEquipmentReportComponent implements OnInit {
     return this.addAccessoryTargetOrderId() ?? customer.orderIds[0]!;
   }
 
-  protected availableAccessoryTypesForOrder(orderId: number): LoanedEquipmentType[] {
+  protected availableAccessoryDefsForOrder(orderId: number): InventoryDefinitionDto[] {
     const order = this.orders().find((o) => o.id === orderId);
     const usedTypes = new Set(
       (order?.loanedEquipments ?? [])
         .filter((le) => !le.isCustomItem && (le.quantity ?? 0) > 0 && le.loanedEquipmentType != null)
         .map((le) => le.loanedEquipmentType as LoanedEquipmentType)
     );
-    const pendingTypes = new Set(
-      this.pendingAccessoryRows()
-        .filter((row) => row.orderId === orderId && row.loanedEquipmentType != null)
-        .map((row) => row.loanedEquipmentType!)
+    const usedCustomNames = new Set(
+      (order?.loanedEquipments ?? [])
+        .filter((le) => le.isCustomItem && (le.quantity ?? 0) > 0)
+        .map((le) => (le.customItemName ?? '').trim().toLowerCase())
+        .filter((n) => n.length > 0)
     );
-    return LOANED_EQUIPMENT_ORDER.filter((type) => !usedTypes.has(type) && !pendingTypes.has(type));
+    const pending = this.pendingAccessoryRows().filter((row) => row.orderId === orderId);
+    for (const row of pending) {
+      if (row.loanedEquipmentType != null) {
+        usedTypes.add(row.loanedEquipmentType);
+      }
+      if (row.isCustomItem) {
+        usedCustomNames.add(row.label.trim().toLowerCase());
+      }
+    }
+
+    return this.inventoryStore.definitions().filter((def) => {
+      const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+      if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
+        return !usedTypes.has(linked);
+      }
+      return !usedCustomNames.has(def.displayName.trim().toLowerCase());
+    });
+  }
+
+  protected filteredAccessoryDefsForOrder(orderId: number): InventoryDefinitionDto[] {
+    const query = this.accessoryTypeQuery().trim().toLowerCase();
+    const available = this.availableAccessoryDefsForOrder(orderId);
+    if (!query) {
+      return available;
+    }
+    return available.filter((d) => d.displayName.toLowerCase().includes(query));
   }
 
   protected toggleAddAccessory(customer: CustomerBreakdown): void {
@@ -310,7 +337,12 @@ export class DailyEquipmentReportComponent implements OnInit {
 
     this.openAddAccessoryCustomerKey.set(key);
     this.addAccessoryTargetOrderId.set(customer.orderIds.length === 1 ? customer.orderIds[0]! : null);
+    this.accessoryTypeQuery.set('');
     this.openSerialDropdownKey.set(null);
+    queueMicrotask(() => {
+      const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
+      input?.focus();
+    });
   }
 
   protected onAddAccessoryOrderChange(customer: CustomerBreakdown, orderId: number): void {
@@ -318,21 +350,17 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
     this.addAccessoryTargetOrderId.set(orderId);
+    this.accessoryTypeQuery.set('');
   }
 
-  protected onAccessoryTypeChosen(customer: CustomerBreakdown, typeValue: string): void {
-    if (!typeValue || !LOANED_EQUIPMENT_ORDER.includes(typeValue as LoanedEquipmentType)) {
-      return;
-    }
-
-    const type = typeValue as LoanedEquipmentType;
-
+  protected onAccessoryTypeChosen(customer: CustomerBreakdown, def: InventoryDefinitionDto): void {
     const orderId = this.addAccessoryOrderId(customer);
-    if (!this.availableAccessoryTypesForOrder(orderId).includes(type)) {
+    const available = this.availableAccessoryDefsForOrder(orderId);
+    if (!available.some((d) => d.id === def.id)) {
       return;
     }
 
-    const pendingRow = this.buildPendingAccessoryRow(orderId, type);
+    const pendingRow = this.buildPendingAccessoryRow(orderId, def);
     this.pendingAccessoryRows.update((rows) => [...rows, pendingRow]);
     this.initSerialDraft(pendingRow);
     this.openSerialDropdownKey.set(pendingRow.rowKey);
@@ -340,12 +368,8 @@ export class DailyEquipmentReportComponent implements OnInit {
     this.closeAddAccessoryPicker();
   }
 
-  protected accessoryTypeLabel(type: LoanedEquipmentType): string {
-    return LOANED_EQUIPMENT_LABELS[type];
-  }
-
   protected toggleSerialDropdown(row: CustomerAccessoryLine): void {
-    if (row.isCustomItem || this.isSavingSerialRow(row)) {
+    if (this.isSavingSerialRow(row)) {
       return;
     }
 
@@ -491,7 +515,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   protected toggleSerialSelection(row: CustomerAccessoryLine, code: string, checked: boolean): void {
-    if (row.isCustomItem || this.isSavingSerialRow(row)) {
+    if (this.isSavingSerialRow(row) || !this.canEditAccessorySerials(row)) {
       return;
     }
 
@@ -574,7 +598,30 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   private loadSerialAvailability(row: CustomerAccessoryLine): void {
     const iso = this.selectedIso();
-    if (!iso || row.loanedEquipmentType == null) {
+    if (!iso) {
+      return;
+    }
+
+    if (row.loanedEquipmentType == null) {
+      const def =
+        row.inventoryDefinitionId != null
+          ? this.inventoryStore.byId(row.inventoryDefinitionId)
+          : this.inventoryStore
+              .definitions()
+              .find(
+                (d) =>
+                  !d.linkedEquipmentType &&
+                  d.displayName.localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
+              );
+      const options = (def?.serialCodes ?? []).map((serialCode) => ({
+        serialCode,
+        isAvailable: true
+      }));
+      this.accessoryAvailabilityByRow.update((map) => {
+        const next = new Map(map);
+        next.set(row.rowKey, options);
+        return next;
+      });
       return;
     }
 
@@ -583,7 +630,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       .getAccessorySerialAvailability({
         dates: [iso],
         shifts: row.shiftsOnDay,
-        equipmentTypes: row.loanedEquipmentType != null ? [row.loanedEquipmentType] : undefined,
+        equipmentTypes: [row.loanedEquipmentType],
         excludeOrderId: row.orderId
       })
       .pipe(finalize(() => this.setSerialAvailabilityLoading(row.rowKey, false)))
@@ -739,7 +786,9 @@ export class DailyEquipmentReportComponent implements OnInit {
     this.savingSerialRowKey.set(row.rowKey);
 
     const loanedEquipments = this.isPendingAccessoryRow(row)
-      ? this.appendOrPatchAccessory(order, row.loanedEquipmentType!, codes)
+      ? row.isCustomItem || row.loanedEquipmentType == null
+        ? this.appendOrPatchCustomAccessory(order, row.label, codes)
+        : this.appendOrPatchAccessory(order, row.loanedEquipmentType!, codes)
       : this.patchOrderLoanedSerials(order, row, codes);
     const payload = this.orderToUpdatePayload(order, loanedEquipments);
     const wasPending = this.isPendingAccessoryRow(row);
@@ -761,20 +810,26 @@ export class DailyEquipmentReportComponent implements OnInit {
       });
   }
 
-  private buildPendingAccessoryRow(orderId: number, type: LoanedEquipmentType): CustomerAccessoryLine {
+  private buildPendingAccessoryRow(orderId: number, def: InventoryDefinitionDto): CustomerAccessoryLine {
     const order = this.orders().find((o) => o.id === orderId);
     const iso = this.selectedIso() ?? '';
     const shiftsOnDay = (order?.shifts ?? []).filter((shift) => shift.orderDate === iso);
-    const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(type);
+    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+    const type =
+      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
+    const typeIndex = type ? LOANED_EQUIPMENT_ORDER.indexOf(type) : -1;
 
     return {
       orderId,
-      rowKey: `${orderId}|${type}|pending`,
-      label: LOANED_EQUIPMENT_LABELS[type],
+      rowKey: type
+        ? `${orderId}|${type}|pending`
+        : `${orderId}|inv-${def.id}|pending`,
+      label: def.displayName,
       quantity: 0,
-      sortKey: 1000 + (typeIndex >= 0 ? typeIndex : 99),
+      sortKey: type ? 1000 + (typeIndex >= 0 ? typeIndex : 99) : 2500,
       loanedEquipmentType: type,
-      isCustomItem: false,
+      inventoryDefinitionId: def.id,
+      isCustomItem: type == null,
       serialCodes: [],
       returnedSerialCodes: [],
       hasRecordedReturns: order?.isReturnProcessed === true,
@@ -807,6 +862,38 @@ export class DailyEquipmentReportComponent implements OnInit {
     return [...existing, nextLine];
   }
 
+  private appendOrPatchCustomAccessory(
+    order: OrderDto,
+    label: string,
+    codes: string[]
+  ): OrderLoanedEquipmentDto[] {
+    const existing = order.loanedEquipments ?? [];
+    const name = label.trim();
+    const matchIndex = existing.findIndex(
+      (le) =>
+        le.isCustomItem &&
+        (le.customItemName ?? '').trim().localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
+    );
+    const existingLine = matchIndex >= 0 ? existing[matchIndex] : undefined;
+    const notes = this.buildAccessoryNotes(codes, existingLine?.notes);
+    const quantity = codes.length > 0 ? codes.length : Math.max(existingLine?.quantity ?? 1, 1);
+    const nextLine: OrderLoanedEquipmentDto = {
+      ...(matchIndex >= 0 && existing[matchIndex]?.id ? { id: existing[matchIndex].id } : {}),
+      isCustomItem: true,
+      customItemName: name || 'פריט נוסף',
+      loanedEquipmentType: null,
+      quantity,
+      expectedNoteCount: quantity,
+      notes
+    };
+
+    if (matchIndex >= 0) {
+      return existing.map((le, index) => (index === matchIndex ? { ...le, ...nextLine } : le));
+    }
+
+    return [...existing, nextLine];
+  }
+
   private removePendingRow(row: CustomerAccessoryLine): void {
     this.pendingAccessoryRows.update((rows) => rows.filter((pending) => pending.rowKey !== row.rowKey));
     if (this.openSerialDropdownKey() === row.rowKey) {
@@ -821,6 +908,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private closeAddAccessoryPicker(): void {
     this.openAddAccessoryCustomerKey.set(null);
     this.addAccessoryTargetOrderId.set(null);
+    this.accessoryTypeQuery.set('');
   }
 
   private patchOrderLoanedSerials(
@@ -829,15 +917,19 @@ export class DailyEquipmentReportComponent implements OnInit {
     codes: string[]
   ): OrderLoanedEquipmentDto[] {
     return (order.loanedEquipments ?? []).map((le) => {
-      if (le.isCustomItem || le.loanedEquipmentType !== row.loanedEquipmentType) {
+      const isMatch = row.isCustomItem
+        ? !!le.isCustomItem &&
+          (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
+        : !le.isCustomItem && le.loanedEquipmentType === row.loanedEquipmentType;
+      if (!isMatch) {
         return le;
       }
 
       const notes = this.buildAccessoryNotes(codes, le.notes);
       return {
         ...le,
-        quantity: codes.length,
-        expectedNoteCount: codes.length,
+        quantity: codes.length > 0 ? codes.length : le.quantity,
+        expectedNoteCount: codes.length > 0 ? codes.length : le.expectedNoteCount,
         notes
       };
     });
@@ -1082,8 +1174,9 @@ export class DailyEquipmentReportComponent implements OnInit {
 
       const label = le.isCustomItem
         ? (le.customItemName?.trim() || 'פריט נוסף')
-        : (LOANED_EQUIPMENT_LABELS[le.loanedEquipmentType as LoanedEquipmentType] ??
-          String(le.loanedEquipmentType));
+        : le.loanedEquipmentType
+          ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType as LoanedEquipmentType)
+          : String(le.loanedEquipmentType);
       const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
       const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
       const serialCodes = (le.notes ?? [])
@@ -1097,6 +1190,17 @@ export class DailyEquipmentReportComponent implements OnInit {
       const loanedEquipmentType = le.isCustomItem
         ? null
         : (le.loanedEquipmentType as LoanedEquipmentType);
+      const inventoryDefinitionId = le.isCustomItem
+        ? this.inventoryStore
+            .definitions()
+            .find(
+              (d) =>
+                !d.linkedEquipmentType &&
+                d.displayName.localeCompare(label, 'he', { sensitivity: 'accent' }) === 0
+            )?.id ?? null
+        : this.inventoryStore
+            .definitions()
+            .find((d) => d.linkedEquipmentType === loanedEquipmentType)?.id ?? null;
       const rowKey = le.isCustomItem
         ? `${order.id}|custom|${label}`
         : `${order.id}|${loanedEquipmentType}`;
@@ -1108,6 +1212,7 @@ export class DailyEquipmentReportComponent implements OnInit {
         quantity: qty,
         sortKey,
         loanedEquipmentType,
+        inventoryDefinitionId,
         isCustomItem: !!le.isCustomItem,
         serialCodes,
         returnedSerialCodes,
@@ -1130,8 +1235,9 @@ export class DailyEquipmentReportComponent implements OnInit {
       }
       const label = le.isCustomItem
         ? (le.customItemName?.trim() || 'פריט נוסף')
-        : (LOANED_EQUIPMENT_LABELS[le.loanedEquipmentType as LoanedEquipmentType] ??
-          String(le.loanedEquipmentType));
+        : le.loanedEquipmentType
+          ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType as LoanedEquipmentType)
+          : String(le.loanedEquipmentType);
       const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
       const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
       this.mergeEquipmentLine(map, { label, quantity: qty, sortKey });

@@ -43,8 +43,10 @@ import { BookDto } from '../../core/models/library-workspace.model';
       [virtualScrollItemSize]="38"
       [virtualScrollOptions]="{ scrollHeight: '280px' }"
       [resetFilterOnHide]="true"
-      appendTo="body"
+      [appendTo]="'body'"
       [fluid]="true"
+      panelStyleClass="catalog-select-overlay"
+      [panelStyle]="{ minWidth: '12rem', maxWidth: 'min(24rem, 92vw)' }"
       emptyFilterMessage="לא נמצאו ספרים"
       emptyMessage="אין ספרים"
     />
@@ -53,11 +55,16 @@ import { BookDto } from '../../core/models/library-workspace.model';
     :host {
       display: block;
       width: 100%;
+      max-width: 100%;
+      position: relative;
+      z-index: 1;
+      overflow: visible;
     }
 
     :host ::ng-deep .book-title-select.p-select,
     :host ::ng-deep .p-select {
       width: 100%;
+      max-width: 100%;
       border-radius: 0.5rem;
       border: 1px solid #cbd5e1;
       font-size: 0.875rem;
