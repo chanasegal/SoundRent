@@ -707,7 +707,6 @@ export class ToolsLendingComponent implements OnInit {
 
   private buildLoanItems(form: LendingDraftForm): ToolLoanCreateDto['items'] | null {
     const items: ToolLoanCreateDto['items'] = [];
-    const seenCodes = new Set<string>();
 
     for (const line of form.toolLines) {
       if (line.toolId == null) {
@@ -722,12 +721,6 @@ export class ToolsLendingComponent implements OnInit {
         return null;
       }
       for (const code of line.selectedCodes) {
-        const key = code.toLowerCase();
-        if (seenCodes.has(key)) {
-          this.toast.error(`קוד פריט ${code} נבחר יותר מפעם אחת`);
-          return null;
-        }
-        seenCodes.add(key);
         items.push({ toolDefinitionId: line.toolId, serialCode: code });
       }
     }

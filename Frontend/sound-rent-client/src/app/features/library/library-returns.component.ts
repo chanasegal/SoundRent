@@ -30,6 +30,7 @@ import {
   formatLibraryDuration,
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
+import { isShabbatOrChag } from '../../core/utils/tools-billable-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
@@ -267,6 +268,47 @@ export class LibraryReturnsComponent implements OnInit {
   protected durationText(row: CompletedLoanRowView): string {
     const days = libraryBillableDays(row.lentAt, row.returnedAt);
     return formatLibraryDuration(days, this.isOverdue(row));
+  }
+
+  /**
+   * Billable days between loan and return dates. Iterates each calendar day,
+   * counting Fridays but skipping Saturdays (Shabbat) and Jewish holidays
+   * (Yom Tov) via the shared `@hebcal`-based `isShabbatOrChag` helper.
+   */
+  protected calculateBillableDays(loanDate: Date, returnDate: Date): number {
+    if (
+      !(loanDate instanceof Date) ||
+      !(returnDate instanceof Date) ||
+      Number.isNaN(loanDate.getTime()) ||
+      Number.isNaN(returnDate.getTime())
+    ) {
+      return 0;
+    }
+
+    let cursor = new Date(loanDate.getFullYear(), loanDate.getMonth(), loanDate.getDate());
+    const endDay = new Date(
+      returnDate.getFullYear(),
+      returnDate.getMonth(),
+      returnDate.getDate()
+    );
+    if (endDay <= cursor) {
+      return 0;
+    }
+
+    let days = 0;
+    while (cursor < endDay) {
+      if (!isShabbatOrChag(cursor)) {
+        days += 1;
+      }
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    }
+    return days;
+  }
+
+  /** Charge: free for a single billable day or less, otherwise billable days × 5 ₪. */
+  protected calculateCharge(loanDate: Date, returnDate: Date): number {
+    const days = this.calculateBillableDays(loanDate, returnDate);
+    return days > 1 ? days * 5 : 0;
   }
 
   protected isOverdue(row: CompletedLoanRowView): boolean {

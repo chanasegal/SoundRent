@@ -145,7 +145,6 @@ public class ToolLoanService : IToolLoanService
         }
 
         var normalizedItems = new List<(int ToolDefinitionId, string SerialCode, string ToolName)>();
-        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
         {
@@ -153,11 +152,6 @@ public class ToolLoanService : IToolLoanService
             if (string.IsNullOrEmpty(serial))
             {
                 throw new ValidationException("קוד פריט חסר");
-            }
-
-            if (!seenCodes.Add(serial))
-            {
-                throw new ValidationException($"קוד פריט {serial} נבחר יותר מפעם אחת");
             }
 
             var definition = await _db.ToolDefinitions

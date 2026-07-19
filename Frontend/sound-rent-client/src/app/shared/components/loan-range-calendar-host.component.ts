@@ -267,6 +267,30 @@ export class LoanRangeCalendarHostComponent {
     return start.month !== end.month || start.year !== end.year;
   });
 
+  /**
+   * Every Gregorian day-key in the loan→return span, built by iterating one
+   * calendar day at a time. EVERY weekday is included — Fridays, Saturdays and
+   * holidays alike — because the item was physically held on each of those days.
+   * No weekday/Friday exclusion is applied to the visual highlight (Shabbat /
+   * Yom Tov are only excluded from *billing*, not from the display range).
+   */
+  private readonly highlightedKeys = computed((): Set<number> => {
+    const keys = new Set<number>();
+    const range = this.rangeValue();
+    if (!range || range.length < 2) {
+      return keys;
+    }
+
+    let cursor = toLocalDay(range[0]);
+    const end = toLocalDay(range[1]);
+    while (cursor.getTime() <= end.getTime()) {
+      // Add the day unconditionally — Fridays are treated like any other weekday.
+      keys.add(dayKey(cursor));
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    }
+    return keys;
+  });
+
   protected readonly calendarCells = computed((): HebrewRangeCell[] => {
     const view = this.calendarView();
     const range = this.rangeValue();
@@ -274,8 +298,9 @@ export class LoanRangeCalendarHostComponent {
       return [];
     }
 
-    const startKey = dayKey(range[0]);
-    const endKey = dayKey(range[1]);
+    const highlighted = this.highlightedKeys();
+    const startKey = dayKey(toLocalDay(range[0]));
+    const endKey = dayKey(toLocalDay(range[1]));
     const todayParts = this.hebrew.toHebrewParts(new Date());
     const firstWeekday = new HDate(1, view.month, view.year).getDay();
     const daysInMonth = this.hebrew.daysInMonth(view.month, view.year);
@@ -295,7 +320,8 @@ export class LoanRangeCalendarHostComponent {
     for (let d = 1; d <= daysInMonth; d++) {
       const gregorian = toLocalDay(this.hebrew.toGregorian(view.year, view.month, d));
       const key = dayKey(gregorian);
-      const inRange = key >= startKey && key <= endKey;
+      // Highlight strictly from the iterated span set — includes Fridays.
+      const inRange = highlighted.has(key);
       cells.push({
         day: d,
         gregorian,
