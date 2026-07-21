@@ -40,16 +40,18 @@
     >
       רשימת לקוחות
     </button>
-    <button
-      type="button"
-      role="tab"
-      class="admin-tab"
-      [class.admin-tab--active]="listMode() === 'institutions'"
-      [attr.aria-selected]="listMode() === 'institutions'"
-      (click)="setListMode('institutions')"
-    >
-      רשימת מוסדות
-    </button>
+    @if (!isLibrarySystem()) {
+      <button
+        type="button"
+        role="tab"
+        class="admin-tab"
+        [class.admin-tab--active]="listMode() === 'institutions'"
+        [attr.aria-selected]="listMode() === 'institutions'"
+        (click)="setListMode('institutions')"
+      >
+        רשימת מוסדות
+      </button>
+    }
   </div>
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -164,7 +166,7 @@
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <div class="mb-3 flex items-center justify-between gap-2">
         <div class="customers-list-title">
-          <h2 class="text-lg font-bold text-[#002244]">רשימת מוסדות</h2>
+          <h2 class="text-lg font-bold text-[#002244]">{{ institutionsListTitle() }}</h2>
           <button
             type="button"
             class="customers-export-btn"
@@ -275,7 +277,16 @@
       <form [formGroup]="editForm" (ngSubmit)="saveEdit()" class="space-y-4">
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 1 (מפתח) <span class="text-rose-500">*</span></label>
-          <input formControlName="phone1" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            formControlName="phone1"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="10"
+            appIsraeliPhoneInput
+          />
           @if (!isNewCustomer()) {
             <p class="mt-1 text-xs text-amber-700">שינוי מספר הטלפון הראשי יעדכן גם את כל ההזמנות והרשומות המשויכות ללקוח.</p>
           }
@@ -291,7 +302,16 @@
         </div>
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700">טלפון 2</label>
-          <input formControlName="phone2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" dir="ltr" maxlength="10" />
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            formControlName="phone2"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="10"
+            appIsraeliPhoneInput
+          />
           @if (editForm.controls.phone2.touched && editForm.controls.phone2.errors?.['israeliPhone']) {
             <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
           }

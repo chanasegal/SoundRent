@@ -93,6 +93,10 @@
                 <span class="customer-details-grid__value">{{ result.clientName || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">תאריך עברי</span>
+                <span class="customer-details-grid__value">{{ formatLocatorHebrewDate(result.hebrewLentDisplay, result.loanDate) }}</span>
+              </div>
+              <div class="customer-details-grid__item">
                 <span class="customer-details-grid__label">טלפון</span>
                 <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</span>
               </div>

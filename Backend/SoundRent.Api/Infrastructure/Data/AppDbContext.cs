@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<OrderShift> OrderShifts => Set<OrderShift>();
     public DbSet<OrderLoanedEquipment> OrderLoanedEquipments => Set<OrderLoanedEquipment>();
     public DbSet<OrderCustomMissingItem> OrderCustomMissingItems => Set<OrderCustomMissingItem>();
+    public DbSet<ManualUnreturnedItem> ManualUnreturnedItems => Set<ManualUnreturnedItem>();
     public DbSet<LoanedEquipmentNote> LoanedEquipmentNotes => Set<LoanedEquipmentNote>();
     public DbSet<Equipment> Equipments => Set<Equipment>();
     public DbSet<User> Users => Set<User>();
@@ -22,10 +23,12 @@ public class AppDbContext : DbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerSystem> CustomerSystems => Set<CustomerSystem>();
     public DbSet<Institution> Institutions => Set<Institution>();
+    public DbSet<InstitutionSystem> InstitutionSystems => Set<InstitutionSystem>();
     public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
     public DbSet<LostEquipment> LostEquipments => Set<LostEquipment>();
     public DbSet<BlockedDate> BlockedDates => Set<BlockedDate>();
     public DbSet<AccessorySerialInventory> AccessorySerialInventory => Set<AccessorySerialInventory>();
+    public DbSet<EquipmentDefaultAccessory> EquipmentDefaultAccessories => Set<EquipmentDefaultAccessory>();
     public DbSet<InventoryDefinition> InventoryDefinitions => Set<InventoryDefinition>();
     public DbSet<InventorySerialCode> InventorySerialCodes => Set<InventorySerialCode>();
     public DbSet<ToolDefinition> ToolDefinitions => Set<ToolDefinition>();

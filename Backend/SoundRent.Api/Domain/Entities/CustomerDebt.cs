@@ -18,6 +18,9 @@ public class CustomerDebt
     [MaxLength(20)]
     public string Phone { get; set; } = string.Empty;
 
+    [MaxLength(300)]
+    public string? Address { get; set; }
+
     public decimal Amount { get; set; }
 
     public bool IsPaid { get; set; }
@@ -27,6 +30,10 @@ public class CustomerDebt
     /// <summary>Display label for the charged item (e.g. tool name).</summary>
     [MaxLength(300)]
     public string ItemDescription { get; set; } = string.Empty;
+
+    /// <summary>Optional deposit details (e.g. check / cash note).</summary>
+    [MaxLength(500)]
+    public string? Deposit { get; set; }
 
     public DateTime ChargedAt { get; set; } = DateTime.UtcNow;
 

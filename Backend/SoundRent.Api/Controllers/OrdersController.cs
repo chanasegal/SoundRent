@@ -49,6 +49,38 @@ public class OrdersController : ControllerBase
         return Ok(items);
     }
 
+    /// <summary>Create a standalone missing item (no order required).</summary>
+    [HttpPost("unreturned/manual")]
+    public async Task<ActionResult<UnreturnedItemDto>> CreateManualUnreturned(
+        [FromBody] CreateManualUnreturnedItemDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var created = await _orderService.CreateManualUnreturnedItemAsync(dto, cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, created);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Mark a standalone missing item as returned / resolved.</summary>
+    [HttpPost("unreturned/manual/{id:int}/resolve")]
+    public async Task<IActionResult> ResolveManualUnreturned(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.ResolveManualUnreturnedItemAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Recent accessory-only unpaid orders created via Quick Loan.</summary>
     [HttpGet("quick-loans")]
     public async Task<ActionResult<List<OrderDto>>> GetQuickLoans(CancellationToken cancellationToken)
@@ -185,6 +217,27 @@ public class OrdersController : ControllerBase
         try
         {
             var order = await _orderService.RecordReturnAsync(id, request, cancellationToken);
+            return Ok(order);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Manually mark loaned items as not returned; updates order return state
+    /// so the unreturned report and order details stay in sync.
+    /// </summary>
+    [HttpPost("{id:int}/mark-unreturned")]
+    public async Task<ActionResult<OrderDto>> MarkUnreturned(
+        int id,
+        [FromBody] MarkUnreturnedRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var order = await _orderService.MarkUnreturnedAsync(id, request, cancellationToken);
             return Ok(order);
         }
         catch (ValidationException ex)

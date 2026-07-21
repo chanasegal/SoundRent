@@ -868,6 +868,20 @@
     line-height: 1.2;
   }
 
+  .not-returned-serial-badge,
+  .not-returned-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #9f1239;
+    background: #ffe4e6;
+    border: 1px solid #fda4af;
+    border-radius: 999px;
+    padding: 0.02rem 0.35rem;
+    line-height: 1.2;
+    margin-inline-start: 0.35rem;
+    white-space: nowrap;
+  }
+
   .loaned-row--returned-readonly {
     background: #f8fafc;
   }
@@ -898,6 +912,11 @@
     &--returned {
       background: #ecfdf5;
       border-color: #86efac;
+    }
+
+    &--not-returned {
+      background: #fff1f2;
+      border-color: #fda4af;
     }
   }
 

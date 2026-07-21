@@ -355,6 +355,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<int?>("BookLoanItemId")
                         .HasColumnType("integer");
 
@@ -368,6 +372,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Deposit")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsPaid")
                         .HasColumnType("boolean");
@@ -463,6 +471,42 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Equipments_EquipmentType_Unique");
 
                     b.ToTable("Equipments", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefaultAccessory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccessoryEquipmentType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AccessorySerialCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("ParentEquipmentType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ParentSerialCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentEquipmentType", "ParentSerialCode")
+                        .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit");
+
+                    b.HasIndex("ParentEquipmentType", "ParentSerialCode", "AccessoryEquipmentType", "AccessorySerialCode")
+                        .IsUnique()
+                        .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit_Type_Code");
+
+                    b.ToTable("EquipmentDefaultAccessories", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefinition", b =>
@@ -562,6 +606,27 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_Institutions_Name");
 
                     b.ToTable("Institutions", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InstitutionSystem", b =>
+                {
+                    b.Property<int>("InstitutionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SystemType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LinkedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("InstitutionId", "SystemType");
+
+                    b.HasIndex("SystemType")
+                        .HasDatabaseName("IX_InstitutionSystems_SystemType");
+
+                    b.ToTable("InstitutionSystems", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventoryDefinition", b =>
@@ -843,6 +908,53 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.ToTable("Orders", (string)null);
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.ManualUnreturnedItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("InventoryDefinitionId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsResolved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ItemName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("LoanedEquipmentType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_ManualUnreturnedItems_CreatedAt");
+
+                    b.HasIndex("InventoryDefinitionId")
+                        .HasDatabaseName("IX_ManualUnreturnedItems_InventoryDefinitionId");
+
+                    b.HasIndex("IsResolved")
+                        .HasDatabaseName("IX_ManualUnreturnedItems_IsResolved");
+
+                    b.HasIndex("ItemCode", "IsResolved")
+                        .HasDatabaseName("IX_ManualUnreturnedItems_Code_Resolved");
+
+                    b.ToTable("ManualUnreturnedItems", (string)null);
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>
                 {
                     b.Property<int>("Id")
@@ -1037,6 +1149,13 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<int?>("InstitutionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InstitutionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<DateTime>("LentAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1062,6 +1181,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InstitutionId")
+                        .HasDatabaseName("IX_ToolLoans_InstitutionId");
 
                     b.HasIndex("LentAt")
                         .HasDatabaseName("IX_ToolLoans_LentAt");
@@ -1287,6 +1409,17 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InstitutionSystem", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Institution", "Institution")
+                        .WithMany("Systems")
+                        .HasForeignKey("InstitutionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Institution");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventorySerialCode", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
@@ -1317,6 +1450,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Institution");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.ManualUnreturnedItem", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
+                        .WithMany()
+                        .HasForeignKey("InventoryDefinitionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("InventoryDefinition");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>
@@ -1371,6 +1514,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.ToolLoan", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Institution", "Institution")
+                        .WithMany("ToolLoans")
+                        .HasForeignKey("InstitutionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Institution");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.ToolLoanItem", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.ToolLoan", "ToolLoan")
@@ -1421,6 +1574,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Institution", b =>
                 {
                     b.Navigation("Orders");
+
+                    b.Navigation("Systems");
+
+                    b.Navigation("ToolLoans");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventoryDefinition", b =>

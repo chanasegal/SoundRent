@@ -13,8 +13,10 @@ public class CustomerDebtConfiguration : IEntityTypeConfiguration<CustomerDebt>
 
         builder.Property(e => e.CustomerName).HasMaxLength(200);
         builder.Property(e => e.Phone).HasMaxLength(20).IsRequired();
+        builder.Property(e => e.Address).HasMaxLength(300);
         builder.Property(e => e.Amount).HasPrecision(18, 2);
         builder.Property(e => e.ItemDescription).HasMaxLength(300);
+        builder.Property(e => e.Deposit).HasMaxLength(500);
         builder.Property(e => e.SessionKey).HasMaxLength(80);
         builder.Property(e => e.Category).HasConversion<int>();
 

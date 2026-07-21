@@ -139,7 +139,8 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
             Phone2 = location.Phone2,
             Address = location.Address,
             Deposit = location.Deposit,
-            Notes = location.Notes
+            Notes = location.Notes,
+            LoanDate = location.LoanDate
         };
     }
 

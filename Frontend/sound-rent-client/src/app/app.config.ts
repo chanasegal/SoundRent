@@ -91,7 +91,12 @@ export const appConfig: ApplicationConfig = {
         firstDayOfWeek: 0,
         dateFormat: 'dd/mm/yy',
         emptyMessage: 'לא נמצאו תוצאות',
-        emptyFilterMessage: 'לא נמצאו תוצאות'
+        emptyFilterMessage: 'לא נמצאו תוצאות',
+        selectionMessage: '{0} פריטים נבחרו',
+        emptySelectionMessage: 'לא נבחרו פריטים',
+        emptySearchMessage: 'לא נמצאו תוצאות',
+        choose: 'בחרו',
+        searchMessage: '{0} תוצאות זמינות'
       }
     }),
     {

@@ -38,6 +38,7 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 interface QuickLoanAccessoryRow {
@@ -70,7 +71,8 @@ interface ReturnModalRow {
     ReactiveFormsModule,
     RouterLink,
     HebrewCalendarPickerComponent,
-    IntegerOnlyDirective
+    IntegerOnlyDirective,
+    IsraeliPhoneInputDirective
   ],
   templateUrl: './quick-loan.component.html',
   styleUrl: './quick-loan.component.scss'
@@ -257,6 +259,104 @@ export class QuickLoanComponent implements OnInit {
     this.accessoryTypeQuery.set('');
   }
 
+  private applyMixerDefaultAccessories(mixerSerialCode: string): void {
+    const parentSerial = mixerSerialCode.trim();
+    if (!parentSerial) {
+      return;
+    }
+
+    this.data
+      .getEquipmentDefaultAccessories(LoanedEquipmentType.Mixer, parentSerial)
+      .subscribe((defaults) => {
+        if (!defaults?.length) {
+          return;
+        }
+
+        const byType = new Map<LoanedEquipmentType, string[]>();
+        for (const row of defaults) {
+          const type = row.accessoryEquipmentType;
+          const code = (row.accessorySerialCode ?? '').trim();
+          if (!type || !code || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+            continue;
+          }
+          const list = byType.get(type) ?? [];
+          if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+            list.push(code);
+          }
+          byType.set(type, list);
+        }
+
+        let addedAny = false;
+        this.accessoryRows.update((rows) => {
+          let next = [...rows];
+          for (const [type, codes] of byType) {
+            const result = this.mergeDefaultAccessoryCodesIntoRows(next, type, codes);
+            next = result.rows;
+            if (result.changed) {
+              addedAny = true;
+            }
+          }
+          return next;
+        });
+
+        if (addedAny) {
+          this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
+        }
+      });
+  }
+
+  private mergeDefaultAccessoryCodesIntoRows(
+    rows: QuickLoanAccessoryRow[],
+    type: LoanedEquipmentType,
+    codes: string[]
+  ): { rows: QuickLoanAccessoryRow[]; changed: boolean } {
+    if (codes.length === 0) {
+      return { rows, changed: false };
+    }
+
+    const index = rows.findIndex((r) => r.type === type);
+    if (index < 0) {
+      const def = this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type);
+      if (!def) {
+        return { rows, changed: false };
+      }
+      return {
+        rows: [
+          ...rows,
+          {
+            inventoryDefinitionId: def.id,
+            type,
+            label: def.displayName,
+            quantity: codes.length,
+            selectedCodes: [...codes]
+          }
+        ],
+        changed: true
+      };
+    }
+
+    const existing = rows[index];
+    const merged = [...existing.selectedCodes];
+    let changed = false;
+    for (const code of codes) {
+      if (!merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        merged.push(code);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return { rows, changed: false };
+    }
+
+    const next = [...rows];
+    next[index] = {
+      ...existing,
+      selectedCodes: merged,
+      quantity: Math.max(merged.length, 1)
+    };
+    return { rows: next, changed: true };
+  }
+
   protected removeAccessoryRow(row: QuickLoanAccessoryRow): void {
     this.accessoryRows.update((rows) =>
       rows.filter((r) => r.inventoryDefinitionId !== row.inventoryDefinitionId)
@@ -348,6 +448,10 @@ export class QuickLoanComponent implements OnInit {
         return { ...r, selectedCodes: next, quantity };
       })
     );
+
+    if (checked && row.type === LoanedEquipmentType.Mixer) {
+      this.applyMixerDefaultAccessories(code);
+    }
   }
 
   protected onSerialQuickEnter(row: QuickLoanAccessoryRow, event: Event): void {

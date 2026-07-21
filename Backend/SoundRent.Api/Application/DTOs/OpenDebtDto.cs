@@ -11,6 +11,7 @@ public class OpenDebtGroupDto
     public string CategoryLabel { get; set; } = string.Empty;
     public decimal TotalAmount { get; set; }
     public string EquipmentSummary { get; set; } = string.Empty;
+    public string? Deposit { get; set; }
     public DateTime SessionDate { get; set; }
     public List<int> DebtIds { get; set; } = new();
     public List<int> OrderIds { get; set; } = new();
@@ -20,4 +21,10 @@ public class MarkOpenDebtGroupPaidDto
 {
     public List<int> DebtIds { get; set; } = new();
     public List<int> OrderIds { get; set; } = new();
+}
+
+public class CreatedOpenDebtDto
+{
+    public int DebtId { get; set; }
+    public OpenDebtGroupDto Group { get; set; } = new();
 }

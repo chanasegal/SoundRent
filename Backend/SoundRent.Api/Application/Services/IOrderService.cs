@@ -64,5 +64,20 @@ public interface IOrderService
         OrderReturnRequestDto request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Marks loaned lines as partially/not returned, updating ReturnedQuantity / IsReturned
+    /// so the order and unreturned-items report stay synchronized.
+    /// </summary>
+    Task<OrderDto> MarkUnreturnedAsync(
+        int id,
+        MarkUnreturnedRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+
+    Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
+        CreateManualUnreturnedItemDto dto,
+        CancellationToken cancellationToken = default);
+
+    Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 }

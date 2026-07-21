@@ -4,9 +4,11 @@ import { Observable, catchError, map, of } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
-import { SystemType, TimeSlot } from '../models/enums';
+import { SystemType, TimeSlot, LoanedEquipmentType } from '../models/enums';
 import {
   OrderReturnRequestDto,
+  MarkUnreturnedRequestDto,
+  CreateManualUnreturnedItemDto,
   UnreturnedItemDto
 } from '../models/equipment-return.model';
 import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto } from '../models/order.model';
@@ -17,6 +19,8 @@ import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
 import { InstitutionCreateUpdateDto, InstitutionDto } from '../models/institution.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
 import {
+  CreateOpenDebtDto,
+  CreatedOpenDebtDto,
   MarkOpenDebtGroupPaidDto,
   OpenDebtGroupDto
 } from '../models/open-debt.model';
@@ -38,6 +42,12 @@ import {
   AccessorySerialAvailabilityRequestDto,
   AccessorySerialLocationDto
 } from '../models/accessory-inventory.model';
+import {
+  CreateEquipmentDefaultAccessoriesBatchDto,
+  CreateEquipmentDefaultAccessoryDto,
+  EquipmentDefaultAccessoryCountDto,
+  EquipmentDefaultAccessoryDto
+} from '../models/equipment-default-accessory.model';
 import {
   InventoryDefinitionBatchUpdateDto,
   InventoryDefinitionCreateDto,
@@ -73,7 +83,6 @@ import {
   BookLoanReturnDto,
   BookUpdateDto
 } from '../models/library-workspace.model';
-import { LoanedEquipmentType } from '../models/enums';
 import { ToastService } from './toast.service';
 import { SystemContextService } from './system-context.service';
 
@@ -97,6 +106,7 @@ export class DataService {
   private readonly lostEquipmentBase = `${environment.apiBaseUrl}/lost-equipment`;
   private readonly blockedDatesBase = `${environment.apiBaseUrl}/blocked-dates`;
   private readonly accessoryInventoryBase = `${environment.apiBaseUrl}/accessoryinventory`;
+  private readonly equipmentDefaultAccessoriesBase = `${environment.apiBaseUrl}/equipment-default-accessories`;
   private readonly inventoryDefinitionsBase = `${environment.apiBaseUrl}/inventory-definitions`;
   private readonly toolsInventoryBase = `${environment.apiBaseUrl}/tools-inventory`;
   private readonly toolsLoansBase = `${environment.apiBaseUrl}/tools-loans`;
@@ -279,6 +289,15 @@ export class DataService {
     );
   }
 
+  markOrderUnreturned(id: number, request: MarkUnreturnedRequestDto): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.ordersBase}/${id}/mark-unreturned`, request).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
     return this.http.get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`).pipe(
       catchError((err) => {
@@ -286,6 +305,29 @@ export class DataService {
         return of([]);
       })
     );
+  }
+
+  createManualUnreturnedItem(
+    payload: CreateManualUnreturnedItemDto
+  ): Observable<UnreturnedItemDto | null> {
+    return this.http.post<UnreturnedItemDto>(`${this.ordersBase}/unreturned/manual`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  resolveManualUnreturnedItem(manualItemId: number): Observable<boolean> {
+    return this.http
+      .post<void>(`${this.ordersBase}/unreturned/manual/${manualItemId}/resolve`, {})
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
   }
 
   getCancelledOrdersReport(): Observable<OrderDto[]> {
@@ -311,6 +353,15 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
+      })
+    );
+  }
+
+  createOpenDebt(payload: CreateOpenDebtDto): Observable<CreatedOpenDebtDto | null> {
+    return this.http.post<CreatedOpenDebtDto>(`${this.reportsBase}/open-debts`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
       })
     );
   }
@@ -394,7 +445,7 @@ export class DataService {
   }
 
   searchInstitutions(query?: string): Observable<InstitutionDto[]> {
-    let params = new HttpParams();
+    let params = this.withSystemType();
     if (query != null && query.trim().length > 0) {
       params = params.set('query', query.trim());
     }
@@ -407,21 +458,31 @@ export class DataService {
   }
 
   createInstitution(payload: InstitutionCreateUpdateDto): Observable<InstitutionDto | null> {
-    return this.http.post<InstitutionDto>(this.institutionsBase, payload).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of(null);
+    return this.http
+      .post<InstitutionDto>(this.institutionsBase, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
       })
-    );
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   updateInstitution(id: number, payload: InstitutionCreateUpdateDto): Observable<InstitutionDto | null> {
-    return this.http.put<InstitutionDto>(`${this.institutionsBase}/${id}`, payload).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of(null);
+    return this.http
+      .put<InstitutionDto>(`${this.institutionsBase}/${id}`, {
+        ...payload,
+        systemType: payload.systemType ?? this.activeSystemType()
       })
-    );
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   deleteInstitution(id: number): Observable<boolean> {
@@ -436,7 +497,11 @@ export class DataService {
 
   exportInstitutionsExcel(): Observable<HttpResponse<Blob> | null> {
     return this.http
-      .get(`${this.institutionsBase}/export-excel`, { observe: 'response', responseType: 'blob' })
+      .get(`${this.institutionsBase}/export-excel`, {
+        params: this.withSystemType(),
+        observe: 'response',
+        responseType: 'blob'
+      })
       .pipe(
         catchError((err) => {
           this.notifyHttpError(err);
@@ -862,6 +927,78 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
+      })
+    );
+  }
+
+  getEquipmentDefaultAccessories(
+    parentEquipmentType: LoanedEquipmentType,
+    parentSerialCode: string
+  ): Observable<EquipmentDefaultAccessoryDto[]> {
+    const params = new HttpParams()
+      .set('parentEquipmentType', parentEquipmentType)
+      .set('parentSerialCode', parentSerialCode.trim());
+    return this.http
+      .get<EquipmentDefaultAccessoryDto[]>(this.equipmentDefaultAccessoriesBase, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
+  getEquipmentDefaultAccessoryCounts(
+    parentEquipmentType?: LoanedEquipmentType
+  ): Observable<EquipmentDefaultAccessoryCountDto[]> {
+    let params = new HttpParams();
+    if (parentEquipmentType) {
+      params = params.set('parentEquipmentType', parentEquipmentType);
+    }
+    return this.http
+      .get<EquipmentDefaultAccessoryCountDto[]>(`${this.equipmentDefaultAccessoriesBase}/counts`, {
+        params
+      })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
+  createEquipmentDefaultAccessory(
+    payload: CreateEquipmentDefaultAccessoryDto
+  ): Observable<EquipmentDefaultAccessoryDto | null> {
+    return this.http
+      .post<EquipmentDefaultAccessoryDto>(this.equipmentDefaultAccessoriesBase, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  createEquipmentDefaultAccessoriesBatch(
+    payload: CreateEquipmentDefaultAccessoriesBatchDto
+  ): Observable<EquipmentDefaultAccessoryDto[] | null> {
+    return this.http
+      .post<EquipmentDefaultAccessoryDto[]>(`${this.equipmentDefaultAccessoriesBase}/batch`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  deleteEquipmentDefaultAccessory(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.equipmentDefaultAccessoriesBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
       })
     );
   }

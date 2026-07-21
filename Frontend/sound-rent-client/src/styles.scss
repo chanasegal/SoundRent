@@ -52,3 +52,20 @@ body {
   max-width: min(24rem, 92vw);
   box-sizing: border-box;
 }
+
+/* Mixer default-accessories multi-select panel (appendTo body). */
+.p-multiselect-overlay.default-acc-multiselect-panel,
+.default-acc-multiselect-panel.p-multiselect-overlay {
+  z-index: 1300 !important;
+  min-width: 14rem;
+  max-width: min(22rem, 92vw);
+  direction: rtl;
+}
+
+.default-acc-multiselect-panel .p-multiselect-option,
+.default-acc-multiselect-panel .p-multiselect-list {
+  direction: ltr;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+}

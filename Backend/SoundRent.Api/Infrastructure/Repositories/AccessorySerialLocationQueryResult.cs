@@ -23,4 +23,7 @@ public sealed class AccessorySerialLocationQueryResult
     public string? Deposit { get; init; }
 
     public string? Notes { get; init; }
+
+    /// <summary>Earliest shift date on the active order, when loaned out.</summary>
+    public DateOnly? LoanDate { get; init; }
 }

@@ -62,10 +62,15 @@ import { InventoryDefinitionsStore } from '../../core/services/inventory-definit
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService, HebrewDateParts, HebrewMonthOption } from '../../core/services/hebrew-date.service';
+import {
+  OrderDraftService,
+  SoundOrderDraftPayload
+} from '../../core/services/order-draft.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
   israeliPhoneValidator,
@@ -101,7 +106,14 @@ interface BookingUiState {
 @Component({
   selector: 'app-order-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, IntegerOnlyDirective, HebrewCalendarPickerComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    IntegerOnlyDirective,
+    IsraeliPhoneInputDirective,
+    HebrewCalendarPickerComponent
+  ],
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
 })
@@ -121,6 +133,7 @@ export class OrderFormComponent implements OnInit {
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly calendarView = inject(CalendarViewStateService);
   private readonly systemContext = inject(SystemContextService);
+  private readonly orderDraft = inject(OrderDraftService);
 
   /** Preserves the board week when using "חזרה ללוח". */
   protected readonly boardQueryParams = computed(() => {
@@ -556,6 +569,107 @@ export class OrderFormComponent implements OnInit {
     this.refreshAccessorySerialAvailability();
   }
 
+  /**
+   * When a specific Mixer unit code is selected, attach only that unit's
+   * configured default accessory codes.
+   */
+  private applyMixerDefaultAccessories(mixerSerialCode: string): void {
+    const parentSerial = mixerSerialCode.trim();
+    if (!parentSerial) {
+      return;
+    }
+
+    this.data
+      .getEquipmentDefaultAccessories(LoanedEquipmentType.Mixer, parentSerial)
+      .subscribe((defaults) => {
+        if (!defaults?.length) {
+          return;
+        }
+
+        const byType = new Map<LoanedEquipmentType, string[]>();
+        for (const row of defaults) {
+          const type = row.accessoryEquipmentType;
+          const code = (row.accessorySerialCode ?? '').trim();
+          if (!type || !code || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+            continue;
+          }
+          const list = byType.get(type) ?? [];
+          if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+            list.push(code);
+          }
+          byType.set(type, list);
+        }
+
+        let addedAny = false;
+        for (const [type, codes] of byType) {
+          if (this.mergeDefaultAccessoryCodes(type, codes)) {
+            addedAny = true;
+          }
+        }
+
+        if (addedAny) {
+          this.refreshAccessorySerialAvailability();
+          this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
+        }
+      });
+  }
+
+  /** Ensures a loaned-equipment row exists for `type` and merges serial codes into it. */
+  private mergeDefaultAccessoryCodes(type: LoanedEquipmentType, codes: string[]): boolean {
+    if (codes.length === 0) {
+      return false;
+    }
+
+    let rowIndex = this.equipmentList.controls.findIndex(
+      (c) => (c as FormGroup).get('loanedEquipmentType')?.value === type
+    );
+
+    if (rowIndex < 0) {
+      const def =
+        this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type) ?? null;
+      if (!def) {
+        return false;
+      }
+      this.equipmentList.push(
+        this.buildDynamicEquipmentRow({
+          inventoryDefinitionId: def.id,
+          loanedEquipmentType: type,
+          label: def.displayName,
+          quantity: codes.length,
+          selectedCodes: [...codes],
+          lineId: null,
+          isCustomItem: false
+        })
+      );
+      return true;
+    }
+
+    if (this.isAccessoryRowReadOnly(rowIndex)) {
+      return false;
+    }
+
+    const ctrl = this.selectedCodesControl(rowIndex);
+    const current = [...(ctrl.value ?? [])];
+    let changed = false;
+    for (const code of codes) {
+      if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        current.push(code);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return false;
+    }
+
+    ctrl.setValue(current);
+    ctrl.markAsDirty();
+    this.getRowGroup(rowIndex).patchValue(
+      { quantity: Math.max(current.length, 1) },
+      { emitEvent: false }
+    );
+    return true;
+  }
+
   protected removeAccessoryRow(index: number): void {
     if (index < 0 || index >= this.equipmentList.length) {
       return;
@@ -674,6 +788,45 @@ export class OrderFormComponent implements OnInit {
     return this.isReturnedSerialCode(type, code);
   }
 
+  /** True when a return was recorded and this serial was not marked returned. */
+  protected isAccessorySerialNotReturned(rowIndex: number, code: string): boolean {
+    if (!this.hasRecordedReturns()) {
+      return false;
+    }
+    if (!this.isAccessorySerialSelected(rowIndex, code)) {
+      return false;
+    }
+    return !this.isAccessorySerialLocked(rowIndex, code);
+  }
+
+  /** Missing quantity for a loaned row after a return was saved. */
+  protected accessoryMissingQuantity(rowIndex: number): number {
+    if (!this.hasRecordedReturns()) {
+      return 0;
+    }
+    const order = this.loadedOrder();
+    const group = this.getRowGroup(rowIndex);
+    const lineId = Number(group.get('lineId')?.value ?? 0);
+    const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+    const isCustom = group.get('isCustomItem')?.value === true;
+    const label = String(group.get('label')?.value ?? '').trim();
+
+    const line = (order?.loanedEquipments ?? []).find((le) => {
+      if (lineId > 0 && le.id === lineId) {
+        return true;
+      }
+      if (isCustom) {
+        return le.isCustomItem && (le.customItemName ?? '').trim() === label;
+      }
+      return !le.isCustomItem && le.loanedEquipmentType === type;
+    });
+
+    if (!line) {
+      return 0;
+    }
+    return Math.max(0, line.quantity - (line.returnedQuantity ?? 0));
+  }
+
   protected isReturnedSerialCode(type: LoanedEquipmentType, code: string): boolean {
     const returned = this.returnedSerialCodesByType().get(type);
     if (returned) {
@@ -727,6 +880,15 @@ export class OrderFormComponent implements OnInit {
     ctrl.markAsDirty();
     const quantity = unique.length > 0 ? unique.length : Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
     this.getRowGroup(rowIndex).patchValue({ quantity }, { emitEvent: false });
+
+    if (checked) {
+      const type = this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value as
+        | LoanedEquipmentType
+        | null;
+      if (type === LoanedEquipmentType.Mixer) {
+        this.applyMixerDefaultAccessories(code);
+      }
+    }
   }
 
   protected selectedAccessorySerialSummary(rowIndex: number): string {
@@ -808,8 +970,6 @@ export class OrderFormComponent implements OnInit {
     this.equipmentSlots.load({ force: true }).subscribe();
     this.inventoryStore.load().subscribe();
 
-    this.ensureBookingUi(0);
-    this.wireBookingGroup(0);
     this.wireEquipmentAvailability();
     this.wireAccessorySerialAvailability();
     this.wireCustomerPhoneLookup();
@@ -836,6 +996,15 @@ export class OrderFormComponent implements OnInit {
       }
     });
 
+    const restored = this.orderDraft.takePendingRestore<SoundOrderDraftPayload>('sound-order');
+    if (restored) {
+      this.applySoundOrderDraft(restored);
+      return;
+    }
+
+    this.ensureBookingUi(0);
+    this.wireBookingGroup(0);
+
     const idParam = this.route.snapshot.paramMap.get('id');
     if (idParam && /^\d+$/.test(idParam)) {
       const id = Number(idParam);
@@ -851,6 +1020,39 @@ export class OrderFormComponent implements OnInit {
     }
 
     this.applyCreateModeFromQueryParams();
+  }
+
+  /** Backup form state and return to the board without discarding the draft. */
+  protected minimizeDraft(): void {
+    const customerName = String(this.form.controls['customerName'].value ?? '').trim();
+    const editingId = this.editingId();
+    const boardDate =
+      this.boardQueryParams().date ??
+      this.calendarView.selectedDateIso() ??
+      null;
+    const returnUrl = this.safeReturnUrlFromRoute();
+
+    this.orderDraft.minimize({
+      kind: 'sound-order',
+      customerLabel: customerName,
+      resumePath: editingId !== null ? `/orders/${editingId}` : '/orders/new',
+      payload: {
+        formValue: this.form.getRawValue() as Record<string, unknown>,
+        bookingUi: this.bookingUi().map((ui) => ({ ...ui, occupiedById: { ...ui.occupiedById } })),
+        editingId,
+        orderCancelled: this.orderCancelled(),
+        phone1Digits: this.phone1DigitsSig(),
+        returnUrl,
+        boardDate
+      }
+    });
+
+    if (boardDate) {
+      this.calendarView.setSelectedDate(boardDate);
+    }
+    void this.router.navigate(['/dashboard'], {
+      queryParams: boardDate ? { date: boardDate } : this.calendarView.dashboardQueryParams()
+    });
   }
 
   /**
@@ -1273,6 +1475,8 @@ export class OrderFormComponent implements OnInit {
           for (const order of saved) {
             this.ordersSync.notifyOrderUpdated(order);
           }
+
+          this.orderDraft.clearIfKind('sound-order');
 
           const navigateDate =
             saved[0]?.shifts?.[0]?.orderDate ?? firstPayload.shifts?.[0]?.orderDate ?? null;
@@ -2845,6 +3049,162 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
   // Load (edit mode)
   // -----------------------------------------------------------------
+
+  /** Rebuild the reactive form from a minimized draft snapshot. */
+  private applySoundOrderDraft(draft: SoundOrderDraftPayload): void {
+    this.editingId.set(draft.editingId);
+    this.orderCancelled.set(draft.orderCancelled);
+    this.phone1DigitsSig.set(draft.phone1Digits ?? '');
+    this.existingCustomerMatch.set(null);
+    this.customerSuggestions.set([]);
+    this.customerSuggestOpen.set(false);
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+    this.accessorySerialDropdownRow.set(null);
+
+    if (draft.boardDate) {
+      this.calendarView.setSelectedDate(draft.boardDate);
+    }
+
+    const raw = draft.formValue ?? {};
+    const bookingsRaw = Array.isArray(raw['bookings']) ? (raw['bookings'] as Record<string, unknown>[]) : [];
+    const equipmentRaw = Array.isArray(raw['loanedEquipments'])
+      ? (raw['loanedEquipments'] as Record<string, unknown>[])
+      : [];
+
+    while (this.bookings.length > 0) {
+      this.bookings.removeAt(0);
+    }
+    this.bookingUi.set([]);
+
+    const sources = bookingsRaw.length > 0 ? bookingsRaw : [{}];
+    for (let i = 0; i < sources.length; i++) {
+      const src = sources[i] ?? {};
+      const group = this.buildBookingGroup();
+      this.bookings.push(group);
+      this.ensureBookingUi(i);
+
+      const uiSnap = draft.bookingUi[i];
+      if (uiSnap) {
+        this.patchBookingUi(i, {
+          occupiedById: { ...(uiSnap.occupiedById ?? {}) },
+          slotTaken: !!uiSnap.slotTaken,
+          equipmentDropdownOpen: false,
+          startHebrewYear: Number(uiSnap.startHebrewYear) || 0,
+          startHebrewMonth: Number(uiSnap.startHebrewMonth) || 0,
+          startHebrewDay: Number(uiSnap.startHebrewDay) || 0,
+          endHebrewYear: Number(uiSnap.endHebrewYear) || 0,
+          endHebrewMonth: Number(uiSnap.endHebrewMonth) || 0,
+          endHebrewDay: Number(uiSnap.endHebrewDay) || 0
+        });
+      }
+
+      this.runWithoutRangeSync(() => {
+        group.patchValue(
+          {
+            equipmentDefinitionIds: Array.isArray(src['equipmentDefinitionIds'])
+              ? (src['equipmentDefinitionIds'] as string[])
+              : [],
+            startDate: typeof src['startDate'] === 'string' ? src['startDate'] : group.controls['startDate'].value,
+            startShift: (src['startShift'] as TimeSlot) ?? group.controls['startShift'].value,
+            endDate: typeof src['endDate'] === 'string' ? src['endDate'] : group.controls['endDate'].value,
+            endShift: (src['endShift'] as TimeSlot) ?? group.controls['endShift'].value,
+            orderDate: typeof src['orderDate'] === 'string' ? src['orderDate'] : group.controls['orderDate'].value,
+            startHebrewYear:
+              typeof src['startHebrewYear'] === 'number'
+                ? src['startHebrewYear']
+                : group.controls['startHebrewYear'].value,
+            startHebrewMonth:
+              typeof src['startHebrewMonth'] === 'number'
+                ? src['startHebrewMonth']
+                : group.controls['startHebrewMonth'].value,
+            startHebrewDay:
+              typeof src['startHebrewDay'] === 'number'
+                ? src['startHebrewDay']
+                : group.controls['startHebrewDay'].value,
+            endHebrewYear:
+              typeof src['endHebrewYear'] === 'number'
+                ? src['endHebrewYear']
+                : group.controls['endHebrewYear'].value,
+            endHebrewMonth:
+              typeof src['endHebrewMonth'] === 'number'
+                ? src['endHebrewMonth']
+                : group.controls['endHebrewMonth'].value,
+            endHebrewDay:
+              typeof src['endHebrewDay'] === 'number'
+                ? src['endHebrewDay']
+                : group.controls['endHebrewDay'].value,
+            returnTimeType: (src['returnTimeType'] as ReturnTimeType) ?? ReturnTimeType.LateNight,
+            customReturnTime: typeof src['customReturnTime'] === 'string' ? src['customReturnTime'] : ''
+          },
+          { emitEvent: false }
+        );
+      });
+
+      this.wireBookingGroup(i);
+      this.syncEndpointHebrewSignals(i, 'start');
+      this.syncEndpointHebrewSignals(i, 'end');
+      this.syncShiftsFromRange(i);
+    }
+
+    this.form.patchValue(
+      {
+        customerName: typeof raw['customerName'] === 'string' ? raw['customerName'] : '',
+        phone: typeof raw['phone'] === 'string' ? raw['phone'] : '',
+        phone2: typeof raw['phone2'] === 'string' ? raw['phone2'] : '',
+        address: typeof raw['address'] === 'string' ? raw['address'] : '',
+        institutionName: typeof raw['institutionName'] === 'string' ? raw['institutionName'] : '',
+        institutionId: typeof raw['institutionId'] === 'number' ? raw['institutionId'] : null,
+        depositType: (raw['depositType'] as DepositType | null) ?? null,
+        depositOnName: typeof raw['depositOnName'] === 'string' ? raw['depositOnName'] : '',
+        paymentAmount: typeof raw['paymentAmount'] === 'number' ? raw['paymentAmount'] : null,
+        isUnpaid: raw['isUnpaid'] === true,
+        notes: typeof raw['notes'] === 'string' ? raw['notes'] : ''
+      },
+      { emitEvent: false }
+    );
+
+    while (this.equipmentList.length > 0) {
+      this.equipmentList.removeAt(0);
+    }
+    for (const row of equipmentRaw) {
+      this.equipmentList.push(
+        this.buildDynamicEquipmentRow({
+          inventoryDefinitionId:
+            typeof row['inventoryDefinitionId'] === 'number' ? row['inventoryDefinitionId'] : null,
+          loanedEquipmentType: (row['loanedEquipmentType'] as LoanedEquipmentType | null) ?? null,
+          label: typeof row['label'] === 'string' ? row['label'] : '',
+          quantity: typeof row['quantity'] === 'number' ? row['quantity'] : 1,
+          selectedCodes: Array.isArray(row['selectedCodes'])
+            ? (row['selectedCodes'] as string[]).filter((c) => typeof c === 'string')
+            : [],
+          lineId: typeof row['lineId'] === 'number' ? row['lineId'] : null,
+          isCustomItem: row['isCustomItem'] === true
+        })
+      );
+    }
+
+    this.form.markAsDirty();
+    this.form.updateValueAndValidity({ emitEvent: false });
+    for (let i = 0; i < this.bookings.length; i++) {
+      this.bookingGroup(i).updateValueAndValidity({ emitEvent: false });
+      this.refreshSlotTakenWarning(i);
+    }
+    this.refreshAccessorySerialAvailability();
+    this.refreshLostEquipmentAlert();
+    this.institutionConflictTrigger$.next();
+    queueMicrotask(() => this.resetScrollForOrderForm());
+
+    // Soft-load server order metadata for return UI without overwriting the draft form.
+    if (draft.editingId !== null) {
+      this.data.getOrderById(draft.editingId).subscribe((order) => {
+        if (order) {
+          this.loadedOrder.set(order);
+          this.syncReturnedSerialState(order);
+        }
+      });
+    }
+  }
 
   private loadOrder(id: number): void {
     this.inventoryStore

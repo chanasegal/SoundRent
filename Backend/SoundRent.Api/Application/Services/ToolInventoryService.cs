@@ -262,7 +262,9 @@ public class ToolInventoryService : IToolInventoryService
             Phone2 = active.ToolLoan.Phone2,
             Address = active.ToolLoan.Address,
             Deposit = active.ToolLoan.Deposit,
-            Notes = active.ToolLoan.Notes
+            Notes = active.ToolLoan.Notes,
+            HebrewLentDisplay = active.ToolLoan.HebrewLentDisplay,
+            LoanDate = DateOnly.FromDateTime(active.ToolLoan.LentAt)
         };
     }
 

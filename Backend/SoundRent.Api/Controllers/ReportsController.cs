@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
+using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
 
 namespace SoundRent.Api.Controllers;
@@ -38,6 +39,23 @@ public class ReportsController : ControllerBase
     public async Task<ActionResult<List<OpenDebtGroupDto>>> GetOpenDebts(CancellationToken cancellationToken)
     {
         return Ok(await _openDebts.GetOpenDebtGroupsAsync(cancellationToken));
+    }
+
+    /// <summary>Manually record an open debt (customer + category + equipment + amount).</summary>
+    [HttpPost("open-debts")]
+    public async Task<ActionResult<CreatedOpenDebtDto>> CreateOpenDebt(
+        [FromBody] CreateOpenDebtDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var created = await _openDebts.CreateDebtAsync(dto, cancellationToken);
+            return Ok(created);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("open-debts/mark-paid")]

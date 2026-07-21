@@ -25,6 +25,13 @@ public class ToolLoan
     [MaxLength(500)]
     public string? Address { get; set; }
 
+    [MaxLength(200)]
+    public string? InstitutionName { get; set; }
+
+    public int? InstitutionId { get; set; }
+
+    public Institution? Institution { get; set; }
+
     [MaxLength(500)]
     public string? Deposit { get; set; }
 

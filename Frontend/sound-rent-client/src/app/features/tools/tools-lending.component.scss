@@ -218,14 +218,21 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
 
-  &__address {
+  &__address-row {
     grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
   }
 }
 
 @media (max-width: 560px) {
   .client-grid {
     grid-template-columns: 1fr;
+
+    &__address-row {
+      grid-template-columns: 1fr;
+    }
   }
 }
 
@@ -404,7 +411,8 @@
     cursor: pointer;
     text-align: right;
 
-    &:hover {
+    &:hover,
+    &.suggest-item--active {
       background: #f0f9ff;
     }
   }

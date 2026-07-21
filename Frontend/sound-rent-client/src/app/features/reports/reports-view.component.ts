@@ -2,24 +2,40 @@ import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   signal
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
+import { debounceTime, EMPTY, finalize, map, merge, switchMap } from 'rxjs';
 
+import { CustomerDto } from '../../core/models/customer.model';
+import {
+  CreateOpenDebtDto,
+  DEBT_CATEGORY_OPTIONS,
+  DebtCategory,
+  OpenDebtGroupDto
+} from '../../core/models/open-debt.model';
 import { OrderDto } from '../../core/models/order.model';
-import { OpenDebtGroupDto } from '../../core/models/open-debt.model';
 import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
+import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import {
+  ISRAELI_PHONE_INVALID_MESSAGE,
+  israeliPhoneValidator
+} from '../../core/validators/israeli-phone.validator';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 
 type ReportsTab = 'cancelled' | 'unpaid';
 type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספריה';
@@ -27,7 +43,7 @@ type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספרי
 @Component({
   selector: 'app-reports-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, FormsModule],
+  imports: [CommonModule, RouterLink, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective],
   templateUrl: './reports-view.component.html',
   styleUrl: './reports-view.component.scss'
 })
@@ -38,6 +54,10 @@ export class ReportsViewComponent implements OnInit {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly toast = inject(ToastService);
   private readonly calendarView = inject(CalendarViewStateService);
+  private readonly ordersSync = inject(OrdersSyncService);
+  private readonly customers = inject(CustomersStore);
+  private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('דוחות');
 
   protected readonly boardQueryParams = computed(() => this.calendarView.dashboardQueryParams());
@@ -52,6 +72,31 @@ export class ReportsViewComponent implements OnInit {
   protected readonly markingPaidKey = signal<string | null>(null);
   protected readonly deletingOrderId = signal<number | null>(null);
 
+  protected readonly addDebtOpen = signal(false);
+  protected readonly savingDebt = signal(false);
+  protected readonly debtCategoryOptions = DEBT_CATEGORY_OPTIONS;
+  protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
+  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestOpen = signal(false);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
+  protected readonly customerSuggestIndex = signal(-1);
+
+  protected readonly addCancelledOpen = signal(false);
+  protected readonly lookingUpOrder = signal(false);
+  protected readonly cancellingOrder = signal(false);
+  protected readonly cancelLookupOrder = signal<OrderDto | null>(null);
+  protected readonly cancelOrderIdInput = signal('');
+
+  protected readonly debtForm = this.fb.group({
+    customerName: ['', [Validators.maxLength(200)]],
+    phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+    address: ['', [Validators.maxLength(300)]],
+    category: ['Amplification' as DebtCategory],
+    itemDescription: ['', [Validators.maxLength(300)]],
+    deposit: ['', [Validators.maxLength(500)]],
+    amount: [null as number | null, [Validators.required, Validators.min(0.01)]]
+  });
+
   protected readonly filteredOpenDebts = computed(() => {
     const filter = this.debtCategoryFilter();
     const rows = this.openDebtGroups();
@@ -63,6 +108,7 @@ export class ReportsViewComponent implements OnInit {
 
   ngOnInit(): void {
     this.equipmentSlots.load().subscribe();
+    this.wireCustomerAutocomplete();
     this.loadCancelled();
     this.loadUnpaid();
   }
@@ -106,6 +152,206 @@ export class ReportsViewComponent implements OnInit {
     );
   }
 
+  protected openAddDebt(): void {
+    this.debtForm.reset({
+      customerName: '',
+      phone: '',
+      address: '',
+      category: 'Amplification',
+      itemDescription: '',
+      deposit: '',
+      amount: null
+    });
+    this.closeCustomerSuggestions();
+    this.addDebtOpen.set(true);
+  }
+
+  protected closeAddDebt(): void {
+    this.addDebtOpen.set(false);
+    this.closeCustomerSuggestions();
+  }
+
+  protected submitAddDebt(): void {
+    if (this.debtForm.invalid) {
+      this.debtForm.markAllAsTouched();
+      this.toast.error('אנא מלאו את השדות הנדרשים');
+      return;
+    }
+    if (this.savingDebt()) {
+      return;
+    }
+
+    const v = this.debtForm.getRawValue();
+    const payload: CreateOpenDebtDto = {
+      customerName: (v.customerName ?? '').trim() || null,
+      phone: (v.phone ?? '').trim(),
+      address: (v.address ?? '').trim() || null,
+      category: (v.category ?? 'Amplification') as DebtCategory,
+      itemDescription: (v.itemDescription ?? '').trim() || null,
+      deposit: (v.deposit ?? '').trim() || null,
+      amount: Number(v.amount)
+    };
+
+    this.savingDebt.set(true);
+    this.data
+      .createOpenDebt(payload)
+      .pipe(finalize(() => this.savingDebt.set(false)))
+      .subscribe({
+        next: (created) => {
+          if (!created) {
+            return;
+          }
+          this.openDebtGroups.update((list) => {
+            const without = list.filter((g) => g.groupKey !== created.group.groupKey);
+            return [created.group, ...without];
+          });
+          this.closeAddDebt();
+          this.toast.success('החוב נוסף בהצלחה');
+        }
+      });
+  }
+
+  protected openAddCancelled(): void {
+    this.cancelOrderIdInput.set('');
+    this.cancelLookupOrder.set(null);
+    this.addCancelledOpen.set(true);
+  }
+
+  protected closeAddCancelled(): void {
+    this.addCancelledOpen.set(false);
+    this.cancelLookupOrder.set(null);
+    this.cancelOrderIdInput.set('');
+  }
+
+  protected lookupCancelOrder(): void {
+    const raw = this.cancelOrderIdInput().trim();
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) {
+      this.toast.error('יש להזין מספר הזמנה תקין');
+      return;
+    }
+    if (this.lookingUpOrder()) {
+      return;
+    }
+
+    this.lookingUpOrder.set(true);
+    this.data
+      .getOrderById(id)
+      .pipe(finalize(() => this.lookingUpOrder.set(false)))
+      .subscribe({
+        next: (order) => {
+          if (!order) {
+            this.cancelLookupOrder.set(null);
+            return;
+          }
+          if (order.isCancelled) {
+            this.cancelLookupOrder.set(null);
+            this.toast.show('ההזמנה כבר מבוטלת', 'info');
+            return;
+          }
+          this.cancelLookupOrder.set(order);
+        }
+      });
+  }
+
+  protected submitCancelOrder(): void {
+    const order = this.cancelLookupOrder();
+    if (!order || this.cancellingOrder()) {
+      return;
+    }
+
+    this.cancellingOrder.set(true);
+    this.data
+      .cancelOrder(order.id)
+      .pipe(finalize(() => this.cancellingOrder.set(false)))
+      .subscribe({
+        next: (updated) => {
+          if (!updated) {
+            return;
+          }
+          this.ordersSync.notifyOrderUpdated(updated);
+          this.cancelledOrders.update((list) => {
+            if (list.some((o) => o.id === updated.id)) {
+              return list.map((o) => (o.id === updated.id ? updated : o));
+            }
+            return [updated, ...list];
+          });
+          this.closeAddCancelled();
+          this.toast.success('ההזמנה סומנה כמבוטלת');
+        }
+      });
+  }
+
+  protected customerSuggestLabel(c: CustomerDto): string {
+    const name = (c.fullName ?? '').trim() || 'ללא שם';
+    return `${name} - ${c.phone1}`;
+  }
+
+  protected onCustomerSuggestFocus(field: 'name' | 'phone'): void {
+    this.customerSuggestField.set(field);
+    if (this.customerSuggestions().length > 0) {
+      this.customerSuggestOpen.set(true);
+    }
+  }
+
+  protected onCustomerSuggestBlur(): void {
+    setTimeout(() => this.closeCustomerSuggestions(), 150);
+  }
+
+  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone'): void {
+    if (!this.customerSuggestOpen() || this.customerSuggestField() !== field) {
+      if (event.key === 'ArrowDown' && this.customerSuggestions().length > 0) {
+        this.customerSuggestField.set(field);
+        this.customerSuggestOpen.set(true);
+        this.customerSuggestIndex.set(0);
+        event.preventDefault();
+      }
+      return;
+    }
+
+    const list = this.customerSuggestions();
+    if (list.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i + 1) % list.length);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.customerSuggestIndex.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      const idx = this.customerSuggestIndex();
+      const pick = idx >= 0 ? list[idx] : null;
+      if (pick) {
+        event.preventDefault();
+        this.selectCustomerSuggestion(pick);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeCustomerSuggestions();
+    }
+  }
+
+  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+    event?.preventDefault();
+    this.debtForm.patchValue(
+      {
+        customerName: c.fullName ?? '',
+        phone: c.phone1 ?? '',
+        address: c.address ?? ''
+      },
+      { emitEvent: false }
+    );
+    this.closeCustomerSuggestions();
+  }
+
   protected exportCancelledToExcel(): void {
     const rows = this.cancelledOrders();
     if (rows.length === 0) {
@@ -142,6 +388,7 @@ export class ReportsViewComponent implements OnInit {
           טלפון: g.phone,
           קטגוריה: g.categoryLabel,
           ציוד: g.equipmentSummary,
+          פיקדון: g.deposit ?? '',
           'תאריך חיוב': this.sessionHebrewDate(g),
           'סכום כולל': g.totalAmount
         })),
@@ -250,6 +497,39 @@ export class ReportsViewComponent implements OnInit {
 
   protected orderStatusLabel(order: OrderDto): string {
     return order.isCancelled ? 'מבוטלת' : 'פעילה';
+  }
+
+  private wireCustomerAutocomplete(): void {
+    const name$ = this.debtForm.controls.customerName.valueChanges.pipe(map((v) => ({ field: 'name' as const, q: (v ?? '').trim() })));
+    const phone$ = this.debtForm.controls.phone.valueChanges.pipe(map((v) => ({ field: 'phone' as const, q: (v ?? '').trim() })));
+
+    merge(name$, phone$)
+      .pipe(
+        debounceTime(200),
+        switchMap(({ field, q }) => {
+          if (q.length < 2) {
+            this.customerSuggestions.set([]);
+            this.customerSuggestOpen.set(false);
+            return EMPTY;
+          }
+          this.customerSuggestField.set(field);
+          return this.customers.searchGlobal(q).pipe(
+            map((list) => list.slice(0, 8))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((list) => {
+        this.customerSuggestions.set(list);
+        this.customerSuggestOpen.set(list.length > 0);
+        this.customerSuggestIndex.set(list.length > 0 ? 0 : -1);
+      });
+  }
+
+  private closeCustomerSuggestions(): void {
+    this.customerSuggestOpen.set(false);
+    this.customerSuggestField.set(null);
+    this.customerSuggestIndex.set(-1);
   }
 
   private toCancelledExcelRow(order: OrderDto): Record<string, unknown> {

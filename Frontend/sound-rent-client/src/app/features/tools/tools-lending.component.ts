@@ -6,8 +6,10 @@ import {
   HostListener,
   OnInit,
   computed,
+  effect,
   inject,
-  signal
+  signal,
+  untracked
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -17,6 +19,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { CustomerDto } from '../../core/models/customer.model';
 import { SystemType } from '../../core/models/enums';
+import { InstitutionDto } from '../../core/models/institution.model';
 import {
   ToolDefinitionDto,
   ToolLoanCreateDto,
@@ -26,6 +29,10 @@ import {
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import {
+  OrderDraftService,
+  WorkspaceLendingDraftPayload
+} from '../../core/services/order-draft.service';
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -34,6 +41,8 @@ import {
   toBillableParts
 } from '../../core/utils/tools-billable-duration';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { clampIsraeliPhoneDigits } from '../../core/validators/israeli-phone.validator';
 
 interface ToolLineItem {
   id: string;
@@ -53,6 +62,8 @@ interface LendingDraftForm {
   phone: string;
   phone2: string;
   address: string;
+  institutionName: string;
+  institutionId: number | null;
   deposit: string;
   notes: string;
   clientAlertNotes: string | null;
@@ -75,7 +86,13 @@ interface ActiveLoanRowView {
 @Component({
   selector: 'app-tools-lending',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, FormsModule, ToolTypeSelectComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    FormsModule,
+    ToolTypeSelectComponent,
+    IsraeliPhoneInputDirective
+  ],
   templateUrl: './tools-lending.component.html',
   styleUrl: './tools-lending.component.scss'
 })
@@ -89,6 +106,7 @@ export class ToolsLendingComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly orderDraft = inject(OrderDraftService);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
   private pendingRenew: {
@@ -114,6 +132,12 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | 'address' | null>(null);
   protected readonly customerSuggestFormId = signal<string | null>(null);
+
+  protected readonly institutionSuggestions = signal<InstitutionDto[]>([]);
+  protected readonly institutionSuggestOpen = signal(false);
+  protected readonly institutionSuggestFormId = signal<string | null>(null);
+  protected readonly institutionSuggestIndex = signal(-1);
+  private institutionSuggestBlurTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Quick return by code — local page state only. */
   protected readonly quickReturnToolId = signal<number | null>(null);
@@ -141,6 +165,13 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
 
   protected readonly showDeadline = computed(() => this.timeLimitEnabled());
+
+  constructor() {
+    effect(() => {
+      this.orderDraft.resumeTick();
+      untracked(() => this.tryRestoreMinimizedDraft());
+    });
+  }
 
   /** Local filter for the active-loans table — never triggers HTTP. */
   protected readonly activeSearchInput = this.fb.nonNullable.control('');
@@ -192,6 +223,7 @@ export class ToolsLendingComponent implements OnInit {
     this.wireTimeLimitHours();
     this.wireActiveLoansSearch();
     this.refreshActiveLoans();
+    this.tryRestoreMinimizedDraft();
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.nowTick.set(Date.now()));
@@ -203,12 +235,14 @@ export class ToolsLendingComponent implements OnInit {
     if (
       target?.closest('[data-tool-suggest]') ||
       target?.closest('[data-codes-dropdown]') ||
-      target?.closest('[data-customer-suggest]')
+      target?.closest('[data-customer-suggest]') ||
+      target?.closest('[data-institution-suggest]')
     ) {
       return;
     }
     this.closeToolUi();
     this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
   }
 
   protected addForm(): void {
@@ -227,6 +261,69 @@ export class ToolsLendingComponent implements OnInit {
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
+  }
+
+  /** Keep the in-progress loan and return to the main lending board. */
+  protected minimizeDraft(): void {
+    const current = this.forms();
+    const clientName = current[0]?.clientName?.trim() ?? '';
+    this.orderDraft.minimize({
+      kind: 'tools-loan',
+      customerLabel: clientName,
+      resumePath: '/tools/lending',
+      payload: {
+        formsJson: JSON.stringify(current, (_key, value) =>
+          value instanceof Date ? value.toISOString() : value
+        ),
+        timeLimitEnabled: this.timeLimitEnabled(),
+        timeLimitValue: Number(this.timeLimitForm.controls.hours.value) || 2
+      }
+    });
+    this.formOpen.set(false);
+    this.forms.set([this.createDraftForm()]);
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
+  }
+
+  private tryRestoreMinimizedDraft(): void {
+    const payload = this.orderDraft.takePendingRestore<WorkspaceLendingDraftPayload>('tools-loan');
+    if (!payload) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(payload.formsJson) as Array<Record<string, unknown>>;
+      const revived: LendingDraftForm[] = parsed.map((raw) => ({
+        id: String(raw['id'] ?? `draft-${Date.now()}`),
+        createdAt: new Date(String(raw['createdAt'] ?? Date.now())),
+        hebrewDateTime: String(raw['hebrewDateTime'] ?? ''),
+        toolLines: Array.isArray(raw['toolLines'])
+          ? (raw['toolLines'] as ToolLineItem[]).map((line) => ({
+              ...line,
+              toolSuggestOpen: false,
+              codesOpen: false
+            }))
+          : [this.createToolLine()],
+        clientName: String(raw['clientName'] ?? ''),
+        phone: String(raw['phone'] ?? ''),
+        phone2: String(raw['phone2'] ?? ''),
+        address: String(raw['address'] ?? ''),
+        institutionName: String(raw['institutionName'] ?? ''),
+        institutionId: typeof raw['institutionId'] === 'number' ? raw['institutionId'] : null,
+        deposit: String(raw['deposit'] ?? ''),
+        notes: String(raw['notes'] ?? ''),
+        clientAlertNotes:
+          typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
+        deadlineAt: raw['deadlineAt'] ? new Date(String(raw['deadlineAt'])) : null
+      }));
+      this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
+      this.timeLimitForm.controls.hours.setValue(payload.timeLimitValue || 2, { emitEvent: false });
+      this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+      this.formOpen.set(true);
+    } catch {
+      this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
+    }
   }
 
   protected onQuickReturnToolChange(toolId: number | null): void {
@@ -554,7 +651,15 @@ export class ToolsLendingComponent implements OnInit {
     patch: Partial<
       Pick<
         LendingDraftForm,
-        'clientName' | 'phone' | 'phone2' | 'address' | 'deposit' | 'notes' | 'clientAlertNotes'
+        | 'clientName'
+        | 'phone'
+        | 'phone2'
+        | 'address'
+        | 'institutionName'
+        | 'institutionId'
+        | 'deposit'
+        | 'notes'
+        | 'clientAlertNotes'
       >
     >
   ): void {
@@ -567,7 +672,7 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onPhoneInput(formId: string, value: string): void {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
+    const digits = clampIsraeliPhoneDigits(value);
     this.patchForm(formId, { phone: digits, clientAlertNotes: null });
     this.openCustomerSuggest(formId, 'phone', digits);
     if (digits.length >= 9) {
@@ -576,13 +681,106 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onPhone2Input(formId: string, value: string): void {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
+    const digits = clampIsraeliPhoneDigits(value);
     this.patchForm(formId, { phone2: digits });
   }
 
   protected onAddressInput(formId: string, value: string): void {
     this.patchForm(formId, { address: value });
     this.openCustomerSuggest(formId, 'address', value);
+  }
+
+  protected onInstitutionInput(formId: string, value: string): void {
+    const form = this.forms().find((f) => f.id === formId);
+    const currentId = form?.institutionId ?? null;
+    let nextId: number | null = currentId;
+    if (currentId != null) {
+      const selected = this.institutionSuggestions().find((i) => i.id === currentId);
+      if (!selected || selected.name !== value.trim()) {
+        nextId = null;
+      }
+    }
+    this.patchForm(formId, { institutionName: value, institutionId: nextId });
+    this.closeCustomerSuggest();
+    this.institutionSuggestFormId.set(formId);
+    const q = value.trim();
+    if (q.length === 0) {
+      this.institutionSuggestions.set([]);
+      this.institutionSuggestOpen.set(false);
+      this.institutionSuggestIndex.set(-1);
+      return;
+    }
+    this.data.searchInstitutions(q).subscribe((list) => {
+      if (this.institutionSuggestFormId() !== formId) {
+        return;
+      }
+      this.institutionSuggestions.set(list);
+      this.institutionSuggestIndex.set(list.length > 0 ? 0 : -1);
+      this.institutionSuggestOpen.set(list.length > 0);
+    });
+  }
+
+  protected onInstitutionFocus(formId: string): void {
+    if (this.institutionSuggestBlurTimer) {
+      clearTimeout(this.institutionSuggestBlurTimer);
+      this.institutionSuggestBlurTimer = null;
+    }
+    this.institutionSuggestFormId.set(formId);
+    const form = this.forms().find((f) => f.id === formId);
+    const q = (form?.institutionName ?? '').trim();
+    if (q.length > 0 && this.institutionSuggestions().length > 0) {
+      this.institutionSuggestOpen.set(true);
+    } else if (q.length > 0) {
+      this.onInstitutionInput(formId, form?.institutionName ?? '');
+    }
+  }
+
+  protected onInstitutionBlur(): void {
+    this.institutionSuggestBlurTimer = setTimeout(() => {
+      this.closeInstitutionSuggest();
+    }, 150);
+  }
+
+  protected onInstitutionKeydown(formId: string, event: KeyboardEvent): void {
+    if (!this.institutionSuggestOpen() || this.institutionSuggestions().length === 0) {
+      return;
+    }
+    const list = this.institutionSuggestions();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.institutionSuggestIndex.update((i) => (i + 1) % list.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.institutionSuggestIndex.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+    } else if (event.key === 'Enter') {
+      const idx = this.institutionSuggestIndex();
+      const pick = idx >= 0 ? list[idx] : null;
+      if (pick) {
+        event.preventDefault();
+        this.selectInstitutionSuggestion(formId, pick);
+      }
+    } else if (event.key === 'Escape') {
+      this.closeInstitutionSuggest();
+    }
+  }
+
+  protected selectInstitutionSuggestion(
+    formId: string,
+    inst: InstitutionDto,
+    event?: Event
+  ): void {
+    event?.preventDefault();
+    this.patchForm(formId, {
+      institutionName: inst.name,
+      institutionId: inst.id
+    });
+    this.closeInstitutionSuggest();
+  }
+
+  protected closeInstitutionSuggest(): void {
+    this.institutionSuggestOpen.set(false);
+    this.institutionSuggestFormId.set(null);
+    this.institutionSuggestIndex.set(-1);
   }
 
   protected selectCustomerSuggestion(formId: string, customer: CustomerDto): void {
@@ -630,6 +828,8 @@ export class ToolsLendingComponent implements OnInit {
       phone: form.phone.trim(),
       phone2: form.phone2.trim() || null,
       address: form.address.trim() || null,
+      institutionName: form.institutionName.trim() || null,
+      institutionId: form.institutionId,
       deposit: form.deposit.trim() || null,
       notes: form.notes.trim() || null,
       hebrewLentDisplay: form.hebrewDateTime,
@@ -668,6 +868,7 @@ export class ToolsLendingComponent implements OnInit {
             }
           });
         this.toast.success('ההשאלה נשמרה');
+        this.orderDraft.clearIfKind('tools-loan');
         this.formOpen.set(false);
         this.forms.set([this.createDraftForm()]);
         this.refreshAvailability();
@@ -739,6 +940,7 @@ export class ToolsLendingComponent implements OnInit {
     field: 'name' | 'phone' | 'address',
     q: string
   ): void {
+    this.closeInstitutionSuggest();
     this.customerSuggestFormId.set(formId);
     this.customerSuggestField.set(field);
     this.closeToolUi();
@@ -889,6 +1091,8 @@ export class ToolsLendingComponent implements OnInit {
       phone: '',
       phone2: '',
       address: '',
+      institutionName: '',
+      institutionId: null,
       deposit: '',
       notes: '',
       clientAlertNotes: null,

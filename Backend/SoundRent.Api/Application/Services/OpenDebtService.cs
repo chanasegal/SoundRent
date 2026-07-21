@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
+using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -11,6 +12,7 @@ namespace SoundRent.Api.Application.Services;
 public interface IOpenDebtService
 {
     Task<List<OpenDebtGroupDto>> GetOpenDebtGroupsAsync(CancellationToken cancellationToken = default);
+    Task<CreatedOpenDebtDto> CreateDebtAsync(CreateOpenDebtDto dto, CancellationToken cancellationToken = default);
     Task MarkGroupPaidAsync(MarkOpenDebtGroupPaidDto dto, CancellationToken cancellationToken = default);
     Task MarkDebtPaidAsync(int debtId, CancellationToken cancellationToken = default);
 }
@@ -38,6 +40,7 @@ public class OpenDebtService : IOpenDebtService
             DebtCategory Category,
             decimal Amount,
             string ItemDescription,
+            string? Deposit,
             DateTime SessionDate,
             int? DebtId,
             int? OrderId)>();
@@ -58,6 +61,7 @@ public class OpenDebtService : IOpenDebtService
                 d.Category,
                 d.Amount,
                 d.ItemDescription,
+                d.Deposit,
                 d.ChargedAt.Date,
                 d.Id,
                 null));
@@ -75,6 +79,7 @@ public class OpenDebtService : IOpenDebtService
                 category,
                 order.PaymentAmount ?? 0m,
                 BuildOrderEquipmentSummary(order),
+                FormatOrderDeposit(order),
                 order.CreatedAt.Date,
                 null,
                 order.Id));
@@ -90,6 +95,11 @@ public class OpenDebtService : IOpenDebtService
                     .Where(s => s.Length > 0)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
+                var deposits = g
+                    .Select(x => (x.Deposit ?? string.Empty).Trim())
+                    .Where(s => s.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
                 return new OpenDebtGroupDto
                 {
                     GroupKey = g.Key,
@@ -100,6 +110,7 @@ public class OpenDebtService : IOpenDebtService
                     CategoryLabel = CategoryLabel(first.Category),
                     TotalAmount = g.Sum(x => x.Amount),
                     EquipmentSummary = string.Join(", ", names),
+                    Deposit = deposits.Count == 0 ? null : string.Join(", ", deposits),
                     SessionDate = g.Max(x => x.SessionDate),
                     DebtIds = g.Where(x => x.DebtId.HasValue).Select(x => x.DebtId!.Value).Distinct().ToList(),
                     OrderIds = g.Where(x => x.OrderId.HasValue).Select(x => x.OrderId!.Value).Distinct().ToList()
@@ -108,6 +119,73 @@ public class OpenDebtService : IOpenDebtService
             .OrderByDescending(g => g.SessionDate)
             .ThenBy(g => g.CustomerName)
             .ToList();
+    }
+
+    public async Task<CreatedOpenDebtDto> CreateDebtAsync(
+        CreateOpenDebtDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            throw new ValidationException("יש להזין מספר טלפון תקין");
+        }
+
+        var customerName = (dto.CustomerName ?? string.Empty).Trim();
+        var address = (dto.Address ?? string.Empty).Trim();
+        var itemDescription = (dto.ItemDescription ?? string.Empty).Trim();
+        var deposit = (dto.Deposit ?? string.Empty).Trim();
+
+        if (dto.Amount <= 0)
+        {
+            throw new ValidationException("סכום החוב חייב להיות גדול מאפס");
+        }
+
+        if (!Enum.IsDefined(typeof(DebtCategory), dto.Category))
+        {
+            throw new ValidationException("קטגוריית חוב לא תקינה");
+        }
+
+        var chargedAt = DateTime.UtcNow;
+        var debt = new CustomerDebt
+        {
+            CustomerName = customerName,
+            Phone = phone,
+            Address = address.Length == 0 ? null : address,
+            Amount = dto.Amount,
+            IsPaid = false,
+            Category = dto.Category,
+            ItemDescription = itemDescription,
+            Deposit = deposit.Length == 0 ? null : deposit,
+            ChargedAt = chargedAt,
+            SessionKey = BuildSessionKey(phone, chargedAt, dto.Category)
+        };
+
+        _db.CustomerDebts.Add(debt);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var groups = await GetOpenDebtGroupsAsync(cancellationToken);
+        var group = groups.FirstOrDefault(g => g.DebtIds.Contains(debt.Id))
+            ?? new OpenDebtGroupDto
+            {
+                GroupKey = debt.SessionKey,
+                CustomerName = debt.CustomerName,
+                Phone = debt.Phone,
+                Category = debt.Category,
+                CategoryLabel = CategoryLabel(debt.Category),
+                TotalAmount = debt.Amount,
+                EquipmentSummary = debt.ItemDescription,
+                Deposit = debt.Deposit,
+                SessionDate = debt.ChargedAt.Date,
+                DebtIds = [debt.Id],
+                OrderIds = []
+            };
+
+        return new CreatedOpenDebtDto
+        {
+            DebtId = debt.Id,
+            Group = group
+        };
     }
 
     public async Task MarkGroupPaidAsync(
@@ -211,5 +289,28 @@ public class OpenDebtService : IOpenDebtService
         }
 
         return string.Join(", ", parts.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static string? FormatOrderDeposit(Order order)
+    {
+        var typeLabel = order.DepositType switch
+        {
+            DepositType.Check => "צ׳ק",
+            DepositType.CreditCard => "כרטיס אשראי",
+            DepositType.Cash => "מזומן",
+            _ => null
+        };
+        var onName = string.IsNullOrWhiteSpace(order.DepositOnName) ? null : order.DepositOnName.Trim();
+        if (typeLabel is null && onName is null)
+        {
+            return null;
+        }
+
+        if (typeLabel is null)
+        {
+            return onName;
+        }
+
+        return onName is null ? typeLabel : $"{typeLabel} — {onName}";
     }
 }

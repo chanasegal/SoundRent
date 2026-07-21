@@ -1029,6 +1029,131 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefaultAccessoriesController",
+    "Method": "GetByParentUnit",
+    "RelativePath": "api/equipment-default-accessories",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "parentEquipmentType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "parentSerialCode",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.EquipmentDefaultAccessoryDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefaultAccessoriesController",
+    "Method": "Create",
+    "RelativePath": "api/equipment-default-accessories",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.CreateEquipmentDefaultAccessoryDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.EquipmentDefaultAccessoryDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefaultAccessoriesController",
+    "Method": "Delete",
+    "RelativePath": "api/equipment-default-accessories/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefaultAccessoriesController",
+    "Method": "CreateBatch",
+    "RelativePath": "api/equipment-default-accessories/batch",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.CreateEquipmentDefaultAccessoriesBatchDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.EquipmentDefaultAccessoryDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.EquipmentDefaultAccessoriesController",
+    "Method": "GetCounts",
+    "RelativePath": "api/equipment-default-accessories/counts",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "parentEquipmentType",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.EquipmentDefaultAccessoryCountDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.EquipmentController",
     "Method": "SetMaintenanceMode",
     "RelativePath": "api/Equipment/{equipmentType}/maintenance",
@@ -1258,6 +1383,16 @@
         "Name": "q",
         "Type": "System.String",
         "IsRequired": false
+      },
+      {
+        "Name": "systemType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "global",
+        "Type": "System.Boolean",
+        "IsRequired": false
       }
     ],
     "ReturnTypes": [
@@ -1404,7 +1539,13 @@
     "HttpMethod": "GET",
     "IsController": true,
     "Order": 0,
-    "Parameters": [],
+    "Parameters": [
+      {
+        "Name": "systemType",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
     "ReturnTypes": []
   },
   {
@@ -1423,6 +1564,16 @@
       {
         "Name": "q",
         "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "systemType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "global",
+        "Type": "System.Boolean",
         "IsRequired": false
       }
     ],
@@ -1880,6 +2031,37 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "MarkUnreturned",
+    "RelativePath": "api/Orders/{id}/mark-unreturned",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "SoundRent.Api.Application.DTOs.MarkUnreturnedRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.OrderDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "RecordReturn",
     "RelativePath": "api/Orders/{id}/return",
     "HttpMethod": "POST",
@@ -2084,6 +2266,48 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "CreateManualUnreturned",
+    "RelativePath": "api/Orders/unreturned/manual",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.CreateManualUnreturnedItemDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.UnreturnedItemDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "ResolveManualUnreturned",
+    "RelativePath": "api/Orders/unreturned/manual/{id}/resolve",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "GetWeekly",
     "RelativePath": "api/Orders/weekly",
     "HttpMethod": "GET",
@@ -2149,6 +2373,32 @@
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OpenDebtGroupDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ReportsController",
+    "Method": "CreateOpenDebt",
+    "RelativePath": "api/reports/open-debts",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.CreateOpenDebtDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.CreatedOpenDebtDto",
         "MediaTypes": [
           "text/plain",
           "application/json",

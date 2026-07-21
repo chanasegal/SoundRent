@@ -24,6 +24,7 @@ import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-d
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
@@ -33,7 +34,13 @@ import {
 @Component({
   selector: 'app-lost-equipment-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, HebrewCalendarPickerComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    IntegerOnlyDirective,
+    IsraeliPhoneInputDirective,
+    HebrewCalendarPickerComponent
+  ],
   templateUrl: './lost-equipment-admin.component.html',
   styleUrl: './lost-equipment-admin.component.scss'
 })

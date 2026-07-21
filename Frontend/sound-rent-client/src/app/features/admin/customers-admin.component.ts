@@ -18,10 +18,12 @@ import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import {
+  clampIsraeliPhoneDigits,
   israeliPhoneValidator,
   ISRAELI_PHONE_INVALID_MESSAGE,
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 
 type AdminListMode = 'customers' | 'institutions';
 type LoanHistoryRow = {
@@ -43,7 +45,7 @@ type LoanHistoryRow = {
 @Component({
   selector: 'app-customers-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, IsraeliPhoneInputDirective],
   templateUrl: './customers-admin.component.html',
   styleUrl: './customers-admin.component.scss'
 })
@@ -82,6 +84,12 @@ export class CustomersAdminComponent implements OnInit {
   protected readonly historyKind = signal<'customer' | 'institution'>('customer');
   protected readonly isLibrarySystem = computed(() => this.systemContext.currentSystemType() === SystemType.Library);
   protected readonly isToolsSystem = computed(() => this.systemContext.currentSystemType() === SystemType.Tools);
+  protected readonly pageTitle = computed(() =>
+    workspacePageTitle('לקוחות', this.systemContext.currentSystemType())
+  );
+  protected readonly institutionsListTitle = computed(() =>
+    workspacePageTitle('רשימת מוסדות', this.systemContext.currentSystemType())
+  );
   protected readonly isLoanHistorySystem = computed(() => this.isLibrarySystem() || this.isToolsSystem());
   protected readonly libraryHistoryRows = computed<LoanHistoryRow[]>(() =>
     this.historyBookLoans().flatMap((loan) =>
@@ -125,10 +133,6 @@ export class CustomersAdminComponent implements OnInit {
       }))
     )
   );
-  protected readonly pageTitle = computed(() =>
-    workspacePageTitle('לקוחות', this.systemContext.currentSystemType())
-  );
-
   protected readonly searchInput = this.fb.nonNullable.control('');
 
   protected readonly editForm = this.fb.group({
@@ -155,6 +159,9 @@ export class CustomersAdminComponent implements OnInit {
       const system = this.systemContext.currentSystemType();
       untracked(() => {
         void system;
+        if (system === SystemType.Library && this.listMode() === 'institutions') {
+          this.listMode.set('customers');
+        }
         this.customers.invalidate();
         this.runSearch(this.searchInput.value.trim());
       });
@@ -242,8 +249,8 @@ export class CustomersAdminComponent implements OnInit {
     }
 
     const raw = this.editForm.getRawValue();
-    const phone1 = String(raw.phone1 ?? '').replace(/\D/g, '');
-    const phone2Raw = String(raw.phone2 ?? '').replace(/\D/g, '');
+    const phone1 = clampIsraeliPhoneDigits(String(raw.phone1 ?? ''));
+    const phone2Raw = clampIsraeliPhoneDigits(String(raw.phone2 ?? ''));
     const payload: CustomerUpsertDto = {
       phone1,
       phone2: phone2Raw.length > 0 ? phone2Raw : null,

@@ -55,6 +55,13 @@
             </svg>
             {{ exportCancelledInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
           </button>
+          <button
+            type="button"
+            class="reports-add-btn"
+            (click)="openAddCancelled()"
+          >
+            הוסף הזמנה מבוטלת
+          </button>
         </div>
         <button
           type="button"
@@ -138,6 +145,13 @@
             </svg>
             {{ exportUnpaidInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
           </button>
+          <button
+            type="button"
+            class="reports-add-btn"
+            (click)="openAddDebt()"
+          >
+            הוסף חוב חדש
+          </button>
         </div>
         <div class="reports-panel__filters">
           <label class="reports-category-filter">
@@ -177,6 +191,7 @@
                 <th>טלפון</th>
                 <th>קטגוריה</th>
                 <th>ציוד</th>
+                <th>פיקדון</th>
                 <th>תאריך חיוב</th>
                 <th>סכום כולל</th>
                 <th class="text-center">פעולה</th>
@@ -189,6 +204,7 @@
                   <td class="font-mono text-xs" dir="ltr">{{ group.phone }}</td>
                   <td>{{ group.categoryLabel }}</td>
                   <td>{{ group.equipmentSummary || '—' }}</td>
+                  <td>{{ group.deposit || '—' }}</td>
                   <td>{{ sessionHebrewDate(group) }}</td>
                   <td class="font-semibold text-[#002244]">{{ formatGroupAmount(group) }}</td>
                   <td class="text-center">
@@ -214,3 +230,237 @@
     </section>
   }
 </div>
+
+@if (addDebtOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="הוסף חוב חדש"
+    (click)="closeAddDebt()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש</h2>
+      <form [formGroup]="debtForm" (ngSubmit)="submitAddDebt()" class="space-y-4">
+        <div class="relative">
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
+          <input
+            formControlName="customerName"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+            (focus)="onCustomerSuggestFocus('name')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'name')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+            <ul class="reports-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="reports-suggest-item"
+                    [class.reports-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div class="relative">
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            טלפון <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            formControlName="phone"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="10"
+            appIsraeliPhoneInput
+            autocomplete="off"
+            (focus)="onCustomerSuggestFocus('phone')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+            <ul class="reports-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="reports-suggest-item"
+                    [class.reports-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          @if (debtForm.controls.phone.touched && debtForm.controls.phone.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (debtForm.controls.phone.touched && debtForm.controls.phone.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <input
+            formControlName="address"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="300"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">קטגוריה</label>
+          <select formControlName="category" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            @for (opt of debtCategoryOptions; track opt.value) {
+              <option [value]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">ציוד / תיאור פריט</label>
+          <input
+            formControlName="itemDescription"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="300"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון</label>
+          <input
+            formControlName="deposit"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="500"
+            placeholder="פרטי פיקדון"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            סכום (₪) <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="number"
+            formControlName="amount"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            min="0.01"
+            step="1"
+            inputmode="decimal"
+          />
+          @if (debtForm.controls.amount.touched && debtForm.controls.amount.errors) {
+            <p class="mt-1 text-xs text-rose-600">יש להזין סכום גדול מאפס</p>
+          }
+        </div>
+
+        <div class="flex flex-wrap justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeAddDebt()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="savingDebt()"
+          >
+            {{ savingDebt() ? 'שומר…' : 'שמירה' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (addCancelledOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="הוסף הזמנה מבוטלת"
+    (click)="closeAddCancelled()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף הזמנה מבוטלת</h2>
+      <p class="mb-4 text-sm text-slate-600">
+        הזינו מספר הזמנה קיימת לסימון כמבוטלת. הרשימה תתעדכן מיד לאחר השמירה.
+      </p>
+
+      <div class="mb-4 flex flex-wrap gap-2">
+        <label class="min-w-[10rem] flex-1">
+          <span class="mb-1 block text-sm font-medium text-slate-700">מספר הזמנה</span>
+          <input
+            type="number"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            min="1"
+            step="1"
+            inputmode="numeric"
+            [ngModel]="cancelOrderIdInput()"
+            (ngModelChange)="cancelOrderIdInput.set($event)"
+            (keydown.enter)="lookupCancelOrder()"
+          />
+        </label>
+        <div class="flex items-end">
+          <button
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            [disabled]="lookingUpOrder()"
+            (click)="lookupCancelOrder()"
+          >
+            {{ lookingUpOrder() ? 'בודק…' : 'בדיקה' }}
+          </button>
+        </div>
+      </div>
+
+      @if (cancelLookupOrder(); as order) {
+        <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p><span class="font-semibold text-slate-600">הזמנה #</span>{{ order.id }}</p>
+          <p><span class="font-semibold text-slate-600">לקוח:</span> {{ order.customerName || '—' }}</p>
+          <p><span class="font-semibold text-slate-600">טלפון:</span> <span class="font-mono" dir="ltr">{{ order.phone }}</span></p>
+          <p><span class="font-semibold text-slate-600">ציוד:</span> {{ equipmentLabel(order) || '—' }}</p>
+          <p><span class="font-semibold text-slate-600">תאריכים:</span> {{ startHebrewDate(order) }} – {{ endHebrewDate(order) }}</p>
+        </div>
+      }
+
+      <div class="flex flex-wrap justify-end gap-2 pt-2">
+        <button
+          type="button"
+          class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+          (click)="closeAddCancelled()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="!cancelLookupOrder() || cancellingOrder()"
+          (click)="submitCancelOrder()"
+        >
+          {{ cancellingOrder() ? 'מבטל…' : 'סמן כמבוטלת' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

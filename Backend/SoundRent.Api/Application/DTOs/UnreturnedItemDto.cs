@@ -4,6 +4,9 @@ namespace SoundRent.Api.Application.DTOs;
 
 public class UnreturnedItemDto
 {
+    /// <summary>When set, this row is a manual entry not linked to an order.</summary>
+    public int? ManualItemId { get; set; }
+
     public int OrderId { get; set; }
     public string? CustomerName { get; set; }
     public string Phone { get; set; } = string.Empty;

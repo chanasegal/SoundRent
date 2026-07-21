@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
@@ -262,10 +263,14 @@ public class OrderService : IOrderService
 
     private async Task ResolveInstitutionAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken)
     {
+        var systemType = dto.SystemType;
+
         if (dto.InstitutionId is int institutionId)
         {
             var institution = await _institutions.GetByIdAsync(institutionId, cancellationToken)
                 ?? throw new ValidationException("המוסד שנבחר לא נמצא");
+            await _institutions.EnsureSystemLinkAsync(institution.Id, systemType, cancellationToken);
+            await _institutions.SaveChangesAsync(cancellationToken);
             dto.InstitutionId = institution.Id;
             dto.InstitutionName = institution.Name;
             return;
@@ -273,16 +278,39 @@ public class OrderService : IOrderService
 
         if (!string.IsNullOrWhiteSpace(dto.InstitutionName))
         {
-            var match = await _institutions.FindByNameAsync(dto.InstitutionName, cancellationToken);
+            var name = dto.InstitutionName.Trim();
+            var match = await _institutions.FindByNameAsync(name, systemType, cancellationToken)
+                ?? await _institutions.FindByNameAsync(name, systemType: null, cancellationToken);
             if (match is not null)
             {
+                await _institutions.EnsureSystemLinkAsync(match.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
                 dto.InstitutionId = match.Id;
                 dto.InstitutionName = match.Name;
                 return;
             }
 
-            dto.InstitutionId = null;
-            dto.InstitutionName = dto.InstitutionName.Trim();
+            // Auto-persist new institution names so they appear in future typeaheads.
+            var created = new Institution { Name = name };
+            try
+            {
+                await _institutions.AddAsync(created, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                await _institutions.EnsureSystemLinkAsync(created.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                dto.InstitutionId = created.Id;
+                dto.InstitutionName = created.Name;
+            }
+            catch (DbUpdateException)
+            {
+                // Concurrent create of the same name — link to the row that won.
+                var raced = await _institutions.FindByNameAsync(name, systemType: null, cancellationToken)
+                    ?? throw new ValidationException("לא ניתן לשמור את שם המוסד");
+                await _institutions.EnsureSystemLinkAsync(raced.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                dto.InstitutionId = raced.Id;
+                dto.InstitutionName = raced.Name;
+            }
             return;
         }
 
@@ -427,9 +455,158 @@ public class OrderService : IOrderService
         return OrderMapper.ToDto(existing);
     }
 
+    public async Task<OrderDto> MarkUnreturnedAsync(
+        int id,
+        MarkUnreturnedRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var items = request.Items ?? [];
+        if (items.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות פריט אחד שלא חזר");
+        }
+
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("לא ניתן לסמן פריטים שלא חזרו בהזמנה מבוטלת");
+        }
+
+        var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
+        var returnItems = new List<OrderReturnItemDto>();
+
+        foreach (var item in items)
+        {
+            if (!byLineId.TryGetValue(item.LoanedEquipmentId, out var line))
+            {
+                throw new ValidationException("פריט מושאל לא נמצא בהזמנה");
+            }
+
+            var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
+            if (item.MissingQuantity < 1 || item.MissingQuantity > line.Quantity)
+            {
+                throw new ValidationException(
+                    $"כמות שלא חזרה עבור {label} חייבת להיות בין 1 ל-{line.Quantity}");
+            }
+
+            var assignedCodes = GetAssignedSerialCodes(line);
+            if (assignedCodes.Count > 0)
+            {
+                var missingCodes = NormalizeReturnedSerialCodes(item.MissingSerialCodes, assignedCodes);
+                if (missingCodes.Count == 0)
+                {
+                    // No explicit codes — take the last N assigned codes as missing.
+                    missingCodes = assignedCodes
+                        .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                        .TakeLast(item.MissingQuantity)
+                        .ToList();
+                }
+
+                if (missingCodes.Count != item.MissingQuantity)
+                {
+                    throw new ValidationException(
+                        $"יש לבחור {item.MissingQuantity} קודי פריט שלא חזרו עבור {label}");
+                }
+
+                var missingSet = missingCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var returnedCodes = assignedCodes
+                    .Where(c => !missingSet.Contains(c))
+                    .ToList();
+
+                returnItems.Add(new OrderReturnItemDto
+                {
+                    LoanedEquipmentId = line.Id,
+                    QuantityReturned = returnedCodes.Count,
+                    ReturnedSerialCodes = returnedCodes
+                });
+                continue;
+            }
+
+            returnItems.Add(new OrderReturnItemDto
+            {
+                LoanedEquipmentId = line.Id,
+                QuantityReturned = line.Quantity - item.MissingQuantity
+            });
+        }
+
+        // Include other lines that already have return state so we don't wipe them,
+        // and seed full-return for untouched lines when first processing a return.
+        var touchedIds = returnItems.Select(i => i.LoanedEquipmentId).ToHashSet();
+        foreach (var line in existing.LoanedEquipments)
+        {
+            if (touchedIds.Contains(line.Id))
+            {
+                continue;
+            }
+
+            if (!existing.IsReturnProcessed)
+            {
+                var assigned = GetAssignedSerialCodes(line);
+                if (assigned.Count > 0)
+                {
+                    returnItems.Add(new OrderReturnItemDto
+                    {
+                        LoanedEquipmentId = line.Id,
+                        QuantityReturned = assigned.Count,
+                        ReturnedSerialCodes = assigned.ToList()
+                    });
+                }
+                else
+                {
+                    returnItems.Add(new OrderReturnItemDto
+                    {
+                        LoanedEquipmentId = line.Id,
+                        QuantityReturned = line.Quantity
+                    });
+                }
+            }
+            else
+            {
+                var assigned = GetAssignedSerialCodes(line);
+                if (assigned.Count > 0)
+                {
+                    var alreadyReturned = GetReturnedSerialCodes(line).ToList();
+                    returnItems.Add(new OrderReturnItemDto
+                    {
+                        LoanedEquipmentId = line.Id,
+                        QuantityReturned = alreadyReturned.Count,
+                        ReturnedSerialCodes = alreadyReturned
+                    });
+                }
+                else
+                {
+                    returnItems.Add(new OrderReturnItemDto
+                    {
+                        LoanedEquipmentId = line.Id,
+                        QuantityReturned = line.ReturnedQuantity
+                    });
+                }
+            }
+        }
+
+        return await RecordReturnAsync(
+            id,
+            new OrderReturnRequestDto { Items = returnItems },
+            cancellationToken);
+    }
+
     public Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
     {
         return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
+    }
+
+    public Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
+        CreateManualUnreturnedItemDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.CreateManualUnreturnedItemAsync(dto, cancellationToken);
+    }
+
+    public Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.ResolveManualUnreturnedItemAsync(manualItemId, cancellationToken);
     }
 
     private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractAssignedSerialCodesByType(Order order)

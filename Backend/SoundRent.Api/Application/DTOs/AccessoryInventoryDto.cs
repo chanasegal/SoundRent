@@ -82,4 +82,7 @@ public class AccessorySerialLocationDto
     public string? Deposit { get; set; }
 
     public string? Notes { get; set; }
+
+    /// <summary>Earliest order shift date (yyyy-MM-dd) when the serial is loaned out.</summary>
+    public DateOnly? LoanDate { get; set; }
 }

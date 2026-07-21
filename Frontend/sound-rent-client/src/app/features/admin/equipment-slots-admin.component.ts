@@ -13,36 +13,58 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  AbstractControl,
   FormArray,
   FormBuilder,
   FormControl,
   FormGroup,
   ReactiveFormsModule,
+  ValidationErrors,
+  ValidatorFn,
   Validators
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { MultiSelect } from 'primeng/multiselect';
 import { finalize } from 'rxjs';
 import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
 
 import { AccessorySerialLocationDto } from '../../core/models/accessory-inventory.model';
 import {
+  EquipmentDefaultAccessoryDto
+} from '../../core/models/equipment-default-accessory.model';
+import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
-import { LOANED_EQUIPMENT_ORDER, LoanedEquipmentType } from '../../core/models/enums';
+import {
+  LOANED_EQUIPMENT_LABELS,
+  LOANED_EQUIPMENT_ORDER,
+  LoanedEquipmentType
+} from '../../core/models/enums';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
+import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
+const nonEmptyStringArrayValidator: ValidatorFn = (
+  control: AbstractControl
+): ValidationErrors | null => {
+  const value = control.value;
+  if (!Array.isArray(value) || value.length === 0) {
+    return { required: true };
+  }
+  return null;
+};
+
 @Component({
   selector: 'app-equipment-slots-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, RouterLink, MultiSelect],
   templateUrl: './equipment-slots-admin.component.html',
   styleUrl: './equipment-slots-admin.component.scss'
 })
@@ -52,6 +74,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly toast = inject(ToastService);
+  private readonly hebrew = inject(HebrewDateService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ציוד');
@@ -116,6 +139,50 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly editInventoryOpen = signal(false);
   protected readonly editInventorySaving = signal(false);
   protected readonly editingInventoryId = signal<number | null>(null);
+
+  /** Default accessories bound to a specific Mixer unit code. */
+  protected readonly defaultAccessoriesOpen = signal(false);
+  protected readonly defaultAccessoriesLoading = signal(false);
+  protected readonly defaultAccessoriesSaving = signal(false);
+  protected readonly defaultAccessoriesDeletingId = signal<number | null>(null);
+  protected readonly defaultAccessoriesParentType = signal<LoanedEquipmentType | null>(null);
+  protected readonly defaultAccessoriesParentSerial = signal('');
+  protected readonly defaultAccessoriesParentLabel = signal('');
+  protected readonly defaultAccessoriesList = signal<EquipmentDefaultAccessoryDto[]>([]);
+  /** Key: `${type}|${serialCode}` (case-insensitive serial). */
+  protected readonly defaultAccessoryCounts = signal<Map<string, number>>(new Map());
+
+  protected readonly defaultAccessoryForm = this.fb.group({
+    accessoryEquipmentType: this.fb.control<LoanedEquipmentType | null>(null, Validators.required),
+    accessorySerialCodes: this.fb.nonNullable.control<string[]>([], nonEmptyStringArrayValidator)
+  });
+
+  /** Mirrors the type dropdown so code options recompute reactively. */
+  protected readonly defaultAccessorySelectedType = signal<LoanedEquipmentType | null>(null);
+
+  /** Accessory types eligible for Mixer defaults (excludes Mixer itself). */
+  protected readonly defaultAccessoryTypeOptions = computed(() =>
+    this.inventoryStore
+      .linkedTypeOptions()
+      .filter((o) => o.type !== LoanedEquipmentType.Mixer)
+  );
+
+  protected readonly defaultAccessoryCodeOptions = computed(() => {
+    const type = this.defaultAccessorySelectedType();
+    if (!type) {
+      return [] as string[];
+    }
+    const def = this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type);
+    const assigned = new Set(
+      this.defaultAccessoriesList()
+        .filter((a) => a.accessoryEquipmentType === type)
+        .map((a) => a.accessorySerialCode.trim().toLowerCase())
+    );
+    return (def?.serialCodes ?? [])
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0 && !assigned.has(c.toLowerCase()));
+  });
+
   protected readonly deletingInventoryId = signal<number | null>(null);
   protected readonly editingId = signal<string | null>(null);
   protected readonly deletingId = signal<string | null>(null);
@@ -278,6 +345,16 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     return phone ?? '';
   }
 
+  /** Hebrew calendar date for a loaned-item locator card (from order shift date). */
+  protected formatLocatorHebrewDate(loanDate: string | null | undefined): string {
+    const iso = (loanDate ?? '').trim();
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : '—';
+  }
+
   protected accessoryRows(): FormArray {
     return this.accessoryForm.get('rows') as FormArray;
   }
@@ -325,6 +402,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.store.invalidate();
     this.store.load().subscribe();
     this.loadAccessoryInventory();
+    this.loadDefaultAccessoryCounts();
   }
 
   protected loadAccessoryInventory(): void {
@@ -338,6 +416,204 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         this.customInventoryDefinitions.set(list);
         this.rebuildCustomInventoryRows(list);
         this.ensureSerialSearchSelection(list);
+      });
+  }
+
+  protected loadDefaultAccessoryCounts(): void {
+    this.data.getEquipmentDefaultAccessoryCounts(LoanedEquipmentType.Mixer).subscribe((rows) => {
+      const map = new Map<string, number>();
+      for (const row of rows ?? []) {
+        map.set(
+          this.defaultAccessoryCountKey(row.parentEquipmentType, row.parentSerialCode),
+          row.count
+        );
+      }
+      this.defaultAccessoryCounts.set(map);
+    });
+  }
+
+  private defaultAccessoryCountKey(
+    type: LoanedEquipmentType,
+    serialCode: string
+  ): string {
+    return `${type}|${serialCode.trim().toLowerCase()}`;
+  }
+
+  protected supportsDefaultAccessories(def: InventoryDefinitionDto): boolean {
+    return def.linkedEquipmentType === LoanedEquipmentType.Mixer;
+  }
+
+  protected defaultAccessoryCountForUnit(
+    type: LoanedEquipmentType | string | null | undefined,
+    serialCode: string
+  ): number {
+    if (!type || typeof type !== 'string') {
+      return 0;
+    }
+    const code = serialCode.trim();
+    if (!code) {
+      return 0;
+    }
+    return this.defaultAccessoryCounts().get(
+      this.defaultAccessoryCountKey(type as LoanedEquipmentType, code)
+    ) ?? 0;
+  }
+
+  protected inventoryRowHasDefaultAccessories(def: InventoryDefinitionDto, rowIndex: number): boolean {
+    if (!this.supportsDefaultAccessories(def) || !def.linkedEquipmentType) {
+      return false;
+    }
+    const type = def.linkedEquipmentType as LoanedEquipmentType;
+    const codes = this.customInventoryCodesArray(rowIndex).controls
+      .map((c) => String(c.value ?? '').trim())
+      .filter((c) => c.length > 0);
+    return codes.some((code) => this.defaultAccessoryCountForUnit(type, code) > 0);
+  }
+
+  protected customInventoryCodeValue(rowIndex: number, codeIndex: number): string {
+    return String(this.customInventoryCodesArray(rowIndex).at(codeIndex)?.value ?? '').trim();
+  }
+
+  protected openDefaultAccessoriesForUnit(
+    def: InventoryDefinitionDto,
+    rowIndex: number,
+    codeIndex: number
+  ): void {
+    if (!this.supportsDefaultAccessories(def) || !def.linkedEquipmentType) {
+      return;
+    }
+    const parentSerial = this.customInventoryCodeValue(rowIndex, codeIndex);
+    if (!parentSerial) {
+      this.toast.warning('יש להזין קוד יחידה לפני ניהול ציוד נלווה');
+      return;
+    }
+
+    const parent = def.linkedEquipmentType as LoanedEquipmentType;
+    const label = def.displayName || LOANED_EQUIPMENT_LABELS[parent];
+    this.defaultAccessoriesParentType.set(parent);
+    this.defaultAccessoriesParentSerial.set(parentSerial);
+    this.defaultAccessoriesParentLabel.set(`${label} #${parentSerial}`);
+    this.defaultAccessorySelectedType.set(null);
+    this.defaultAccessoryForm.reset({
+      accessoryEquipmentType: null,
+      accessorySerialCodes: []
+    });
+    this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
+    this.defaultAccessoriesOpen.set(true);
+    this.reloadDefaultAccessoriesList(parent, parentSerial);
+  }
+
+  protected closeDefaultAccessories(): void {
+    this.defaultAccessoriesOpen.set(false);
+    this.defaultAccessoriesParentType.set(null);
+    this.defaultAccessoriesParentSerial.set('');
+    this.defaultAccessoriesList.set([]);
+    this.defaultAccessorySelectedType.set(null);
+    this.defaultAccessoryForm.reset({
+      accessoryEquipmentType: null,
+      accessorySerialCodes: []
+    });
+  }
+
+  private reloadDefaultAccessoriesList(
+    parent: LoanedEquipmentType,
+    parentSerial: string
+  ): void {
+    this.defaultAccessoriesLoading.set(true);
+    this.data
+      .getEquipmentDefaultAccessories(parent, parentSerial)
+      .pipe(finalize(() => this.defaultAccessoriesLoading.set(false)))
+      .subscribe((list) => {
+        this.defaultAccessoriesList.set(list ?? []);
+        this.defaultAccessoryCounts.update((map) => {
+          const next = new Map(map);
+          next.set(this.defaultAccessoryCountKey(parent, parentSerial), (list ?? []).length);
+          return next;
+        });
+      });
+  }
+
+  protected onDefaultAccessoryTypeChange(): void {
+    const type = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
+    this.defaultAccessorySelectedType.set(type);
+    const codesCtrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
+    codesCtrl.setValue([]);
+    if (type) {
+      codesCtrl.enable({ emitEvent: false });
+    } else {
+      codesCtrl.disable({ emitEvent: false });
+    }
+  }
+
+  protected addDefaultAccessory(): void {
+    const parent = this.defaultAccessoriesParentType();
+    const parentSerial = this.defaultAccessoriesParentSerial().trim();
+    if (!parent || !parentSerial) {
+      return;
+    }
+    if (this.defaultAccessoryForm.invalid) {
+      this.defaultAccessoryForm.markAllAsTouched();
+      this.toast.error('יש לבחור סוג אביזר ולפחות קוד פריט אחד');
+      return;
+    }
+
+    const accessoryEquipmentType = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
+    const accessorySerialCodes = (
+      this.defaultAccessoryForm.controls.accessorySerialCodes.value ?? []
+    )
+      .map((c) => String(c).trim())
+      .filter((c) => c.length > 0);
+
+    if (!accessoryEquipmentType || accessorySerialCodes.length === 0) {
+      this.toast.error('יש לבחור סוג אביזר ולפחות קוד פריט אחד');
+      return;
+    }
+
+    this.defaultAccessoriesSaving.set(true);
+    this.data
+      .createEquipmentDefaultAccessoriesBatch({
+        parentEquipmentType: parent,
+        parentSerialCode: parentSerial,
+        accessoryEquipmentType,
+        accessorySerialCodes
+      })
+      .pipe(finalize(() => this.defaultAccessoriesSaving.set(false)))
+      .subscribe({
+        next: (created) => {
+          if (created === null) {
+            return;
+          }
+          const n = created.length;
+          this.toast.success(n === 1 ? 'האביזר הנלווה נוסף' : `${n} אביזרים נלווים נוספו`);
+          this.defaultAccessorySelectedType.set(null);
+          this.defaultAccessoryForm.reset({
+            accessoryEquipmentType: null,
+            accessorySerialCodes: []
+          });
+          this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
+          this.reloadDefaultAccessoriesList(parent, parentSerial);
+        }
+      });
+  }
+
+  protected removeDefaultAccessory(row: EquipmentDefaultAccessoryDto): void {
+    const parent = this.defaultAccessoriesParentType();
+    const parentSerial = this.defaultAccessoriesParentSerial().trim();
+    if (!parent || !parentSerial) {
+      return;
+    }
+    this.defaultAccessoriesDeletingId.set(row.id);
+    this.data
+      .deleteEquipmentDefaultAccessory(row.id)
+      .pipe(finalize(() => this.defaultAccessoriesDeletingId.set(null)))
+      .subscribe({
+        next: (ok) => {
+          if (!ok) {
+            return;
+          }
+          this.toast.success('השיוך הוסר');
+          this.reloadDefaultAccessoriesList(parent, parentSerial);
+        }
       });
   }
 

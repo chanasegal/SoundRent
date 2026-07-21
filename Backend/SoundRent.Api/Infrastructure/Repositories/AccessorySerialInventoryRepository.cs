@@ -264,7 +264,12 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
                 order.Address,
                 order.DepositType,
                 order.DepositOnName,
-                order.Notes
+                order.Notes,
+                LoanDate = _db.OrderShifts
+                    .Where(s => s.OrderId == order.Id)
+                    .OrderBy(s => s.OrderDate)
+                    .Select(s => (DateOnly?)s.OrderDate)
+                    .FirstOrDefault()
             }).ToListAsync(cancellationToken);
 
         var match = activeAssignment.FirstOrDefault(row =>
@@ -281,7 +286,8 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
             Phone2 = match?.Phone2,
             Address = match?.Address,
             Deposit = FormatDeposit(match?.DepositType, match?.DepositOnName),
-            Notes = match?.Notes
+            Notes = match?.Notes,
+            LoanDate = match?.LoanDate
         };
     }
 

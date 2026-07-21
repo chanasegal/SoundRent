@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Controllers;
 
@@ -18,30 +19,51 @@ public class InstitutionsController : ControllerBase
         _institutions = institutions;
     }
 
+    /// <summary>
+    /// Search by institution name.
+    /// Pass <paramref name="systemType"/> to limit to institutions linked to that system.
+    /// Omit it (or set <paramref name="global"/>) for the unified directory.
+    /// </summary>
     [HttpGet("search")]
     public async Task<ActionResult<List<InstitutionDto>>> Search(
         [FromQuery] string? query,
         [FromQuery] string? q,
-        CancellationToken cancellationToken)
+        [FromQuery] SystemType? systemType,
+        [FromQuery] bool global = false,
+        CancellationToken cancellationToken = default)
     {
         var term = query ?? q;
-        var list = await _institutions.SearchAsync(term, cancellationToken);
+        var filter = global ? null : systemType;
+        var list = await _institutions.SearchAsync(term, filter, cancellationToken);
         return Ok(list);
     }
 
+    /// <summary>
+    /// Institutions for the active system when <paramref name="systemType"/> is provided;
+    /// otherwise same as search.
+    /// </summary>
     [HttpGet]
-    public Task<ActionResult<List<InstitutionDto>>> List(
+    public async Task<ActionResult<List<InstitutionDto>>> List(
         [FromQuery] string? query,
         [FromQuery] string? q,
-        CancellationToken cancellationToken)
+        [FromQuery] SystemType? systemType,
+        [FromQuery] bool global = false,
+        CancellationToken cancellationToken = default)
     {
-        return Search(query, q, cancellationToken);
+        var term = query ?? q;
+        SystemType? filter = global ? null : (systemType ?? SystemType.Tools);
+        var list = await _institutions.SearchAsync(term, filter, cancellationToken);
+        return Ok(list);
     }
 
     [HttpGet("export-excel")]
-    public async Task<FileResult> ExportExcel(CancellationToken cancellationToken)
+    public async Task<FileResult> ExportExcel(
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
     {
-        var export = await _institutions.ExportToExcelAsync(cancellationToken);
+        var export = await _institutions.ExportToExcelAsync(
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return File(export.Content, IInstitutionService.ExcelContentType, export.FileName);
     }
 
@@ -67,6 +89,7 @@ public class InstitutionsController : ControllerBase
     {
         try
         {
+            dto.SystemType ??= SystemType.Tools;
             var created = await _institutions.CreateAsync(dto, cancellationToken);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
@@ -84,6 +107,7 @@ public class InstitutionsController : ControllerBase
     {
         try
         {
+            dto.SystemType ??= SystemType.Tools;
             var updated = await _institutions.UpdateAsync(id, dto, cancellationToken);
             return Ok(updated);
         }

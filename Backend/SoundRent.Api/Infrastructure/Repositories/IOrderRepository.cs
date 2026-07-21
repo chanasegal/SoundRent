@@ -91,4 +91,10 @@ public interface IOrderRepository
     Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
 
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+
+    Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
+        CreateManualUnreturnedItemDto dto,
+        CancellationToken cancellationToken = default);
+
+    Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 }

@@ -51,6 +51,12 @@ public class ToolSerialLocationDto
     public string? Address { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
+
+    /// <summary>Stored Hebrew lent display from the active loan (may include time).</summary>
+    public string? HebrewLentDisplay { get; set; }
+
+    /// <summary>Gregorian loan date (yyyy-MM-dd) for Hebrew calendar conversion.</summary>
+    public DateOnly? LoanDate { get; set; }
 }
 
 /// <summary>Available (unborrowed) serials for one tool definition — bulk availability payload.</summary>
@@ -82,6 +88,8 @@ public class ToolLoanDto
     public string Phone { get; set; } = string.Empty;
     public string? Phone2 { get; set; }
     public string? Address { get; set; }
+    public string? InstitutionName { get; set; }
+    public int? InstitutionId { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
     public DateTime? DeadlineAt { get; set; }
@@ -102,6 +110,8 @@ public class ToolLoanCreateDto
     public string Phone { get; set; } = string.Empty;
     public string? Phone2 { get; set; }
     public string? Address { get; set; }
+    public string? InstitutionName { get; set; }
+    public int? InstitutionId { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;

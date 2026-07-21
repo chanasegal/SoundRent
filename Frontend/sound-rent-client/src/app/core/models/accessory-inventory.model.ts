@@ -51,4 +51,6 @@ export interface AccessorySerialLocationDto {
   address?: string | null;
   deposit?: string | null;
   notes?: string | null;
+  /** Earliest order shift date (yyyy-MM-dd) when loaned out. */
+  loanDate?: string | null;
 }

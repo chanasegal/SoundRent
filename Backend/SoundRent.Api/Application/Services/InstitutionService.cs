@@ -3,6 +3,7 @@ using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Application.Services;
@@ -18,9 +19,12 @@ public class InstitutionService : IInstitutionService
         _orders = orders;
     }
 
-    public async Task<List<InstitutionDto>> SearchAsync(string? query, CancellationToken cancellationToken = default)
+    public async Task<List<InstitutionDto>> SearchAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var rows = await _institutions.SearchAsync(query, cancellationToken);
+        var rows = await _institutions.SearchAsync(query, systemType, cancellationToken);
         return rows.Select(ToDto).ToList();
     }
 
@@ -35,10 +39,30 @@ public class InstitutionService : IInstitutionService
         CancellationToken cancellationToken = default)
     {
         var name = RequireName(dto.Name);
-        var existing = await _institutions.FindByNameAsync(name, cancellationToken);
-        if (existing is not null)
+        var systemType = dto.SystemType ?? SystemType.Tools;
+
+        var inSystem = await _institutions.FindByNameAsync(name, systemType, cancellationToken);
+        if (inSystem is not null)
         {
             throw new ValidationException("מוסד עם שם זה כבר קיים במערכת");
+        }
+
+        // Same directory row can be shared across systems (customer-style).
+        var existing = await _institutions.FindByNameAsync(name, systemType: null, cancellationToken);
+        if (existing is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(dto.DefaultNote))
+            {
+                var tracked = await _institutions.GetByIdTrackedAsync(existing.Id, cancellationToken)
+                    ?? existing;
+                tracked.DefaultNote = NullIfWhiteSpace(dto.DefaultNote);
+            }
+
+            await _institutions.EnsureSystemLinkAsync(existing.Id, systemType, cancellationToken);
+            await _institutions.SaveChangesAsync(cancellationToken);
+            var linked = await _institutions.GetByIdAsync(existing.Id, cancellationToken)
+                ?? throw new NotFoundException("המוסד לא נמצא");
+            return ToDto(linked);
         }
 
         var entity = new Institution
@@ -49,7 +73,12 @@ public class InstitutionService : IInstitutionService
 
         await _institutions.AddAsync(entity, cancellationToken);
         await _institutions.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        await _institutions.EnsureSystemLinkAsync(entity.Id, systemType, cancellationToken);
+        await _institutions.SaveChangesAsync(cancellationToken);
+
+        var created = await _institutions.GetByIdAsync(entity.Id, cancellationToken)
+            ?? throw new NotFoundException("המוסד לא נמצא");
+        return ToDto(created);
     }
 
     public async Task<InstitutionDto> UpdateAsync(
@@ -61,7 +90,7 @@ public class InstitutionService : IInstitutionService
             ?? throw new NotFoundException("המוסד לא נמצא");
 
         var name = RequireName(dto.Name);
-        var duplicate = await _institutions.FindByNameAsync(name, cancellationToken);
+        var duplicate = await _institutions.FindByNameAsync(name, systemType: null, cancellationToken);
         if (duplicate is not null && duplicate.Id != id)
         {
             throw new ValidationException("מוסד עם שם זה כבר קיים במערכת");
@@ -70,11 +99,18 @@ public class InstitutionService : IInstitutionService
         entity.Name = name;
         entity.DefaultNote = NullIfWhiteSpace(dto.DefaultNote);
 
-        // Keep denormalized name on orders in sync for display/legacy conflict probes.
+        if (dto.SystemType.HasValue)
+        {
+            await _institutions.EnsureSystemLinkAsync(id, dto.SystemType.Value, cancellationToken);
+        }
+
+        // Keep denormalized name on orders/loans in sync for display/legacy conflict probes.
         await _orders.SyncInstitutionNameAsync(id, name, cancellationToken);
 
         await _institutions.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        var refreshed = await _institutions.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("המוסד לא נמצא");
+        return ToDto(refreshed);
     }
 
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
@@ -96,9 +132,10 @@ public class InstitutionService : IInstitutionService
     }
 
     public async Task<(byte[] Content, string FileName)> ExportToExcelAsync(
+        SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
-        var institutions = await _institutions.GetAllAsync(cancellationToken);
+        var institutions = await _institutions.GetAllAsync(systemType, cancellationToken);
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("מוסדות");
@@ -143,7 +180,12 @@ public class InstitutionService : IInstitutionService
     {
         Id = i.Id,
         Name = i.Name,
-        DefaultNote = i.DefaultNote
+        DefaultNote = i.DefaultNote,
+        SystemTypes = i.Systems
+            .Select(s => s.SystemType)
+            .Distinct()
+            .OrderBy(s => s)
+            .ToList()
     };
 
     private static string RequireName(string? name)

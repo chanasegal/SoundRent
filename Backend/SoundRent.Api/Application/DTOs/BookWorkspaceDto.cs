@@ -57,6 +57,12 @@ public class BookCopyLocationDto
     public string? Address { get; set; }
     public string? Deposit { get; set; }
     public string? Notes { get; set; }
+
+    /// <summary>Stored Hebrew lent display from the active loan (may include time).</summary>
+    public string? HebrewLentDisplay { get; set; }
+
+    /// <summary>Gregorian loan date (yyyy-MM-dd) for Hebrew calendar conversion.</summary>
+    public DateOnly? LoanDate { get; set; }
 }
 
 /// <summary>Available (unborrowed) copies for one tool definition — bulk availability payload.</summary>

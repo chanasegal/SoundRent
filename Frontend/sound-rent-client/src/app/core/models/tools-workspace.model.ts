@@ -42,6 +42,10 @@ export interface ToolSerialLocationDto {
   address?: string | null;
   deposit?: string | null;
   notes?: string | null;
+  /** Stored Hebrew lent display from the active loan (may include time). */
+  hebrewLentDisplay?: string | null;
+  /** Gregorian loan date (yyyy-MM-dd) for Hebrew calendar conversion. */
+  loanDate?: string | null;
 }
 
 export interface ToolAvailableSerialsGroupDto {
@@ -69,6 +73,8 @@ export interface ToolLoanDto {
   phone: string;
   phone2?: string | null;
   address?: string | null;
+  institutionName?: string | null;
+  institutionId?: number | null;
   deposit?: string | null;
   notes?: string | null;
   deadlineAt?: string | null;
@@ -87,6 +93,8 @@ export interface ToolLoanCreateDto {
   phone: string;
   phone2?: string | null;
   address?: string | null;
+  institutionName?: string | null;
+  institutionId?: number | null;
   deposit?: string | null;
   notes?: string | null;
   hebrewLentDisplay: string;

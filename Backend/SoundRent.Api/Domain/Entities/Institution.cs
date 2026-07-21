@@ -13,5 +13,9 @@ public class Institution
     [MaxLength(2000)]
     public string? DefaultNote { get; set; }
 
+    public ICollection<InstitutionSystem> Systems { get; set; } = new List<InstitutionSystem>();
+
     public ICollection<Order> Orders { get; set; } = new List<Order>();
+
+    public ICollection<ToolLoan> ToolLoans { get; set; } = new List<ToolLoan>();
 }

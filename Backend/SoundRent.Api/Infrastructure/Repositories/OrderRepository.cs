@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
+using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
@@ -134,6 +135,12 @@ public class OrderRepository : IOrderRepository
             .Where(o => o.InstitutionId == institutionId)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(o => o.InstitutionName, name),
+                cancellationToken);
+
+        await _db.ToolLoans
+            .Where(l => l.InstitutionId == institutionId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(l => l.InstitutionName, name),
                 cancellationToken);
     }
 
@@ -399,7 +406,7 @@ public class OrderRepository : IOrderRepository
             .ThenBy(r => r.Line.Id)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(r =>
+        var fromOrders = rows.Select(r =>
         {
             var assignedSerialCodes = r.Notes
                 .Select(n => (n.Content ?? string.Empty).Trim())
@@ -418,6 +425,7 @@ public class OrderRepository : IOrderRepository
 
             return new UnreturnedItemDto
             {
+                ManualItemId = null,
                 OrderId = r.Order.Id,
                 CustomerName = r.Order.CustomerName,
                 Phone = r.Order.Phone,
@@ -432,6 +440,119 @@ public class OrderRepository : IOrderRepository
                 AssignedSerialCodes = assignedSerialCodes
             };
         }).ToList();
+
+        var manual = await _db.ManualUnreturnedItems
+            .AsNoTracking()
+            .Where(m => !m.IsResolved)
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenBy(m => m.Id)
+            .ToListAsync(cancellationToken);
+
+        var fromManual = manual.Select(ToManualUnreturnedDto).ToList();
+        return fromManual.Concat(fromOrders).ToList();
+    }
+
+    public async Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
+        CreateManualUnreturnedItemDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var code = (dto.ItemCode ?? string.Empty).Trim();
+        if (code.Length == 0)
+        {
+            throw new ValidationException("יש להזין קוד פריט");
+        }
+
+        string itemName = (dto.ItemName ?? string.Empty).Trim();
+        LoanedEquipmentType? linkedType = dto.LoanedEquipmentType;
+        int? inventoryDefinitionId = dto.InventoryDefinitionId is > 0 ? dto.InventoryDefinitionId : null;
+
+        if (inventoryDefinitionId.HasValue)
+        {
+            var def = await _db.InventoryDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == inventoryDefinitionId.Value, cancellationToken)
+                ?? throw new ValidationException("סוג הפריט לא נמצא");
+
+            if (itemName.Length == 0)
+            {
+                itemName = def.DisplayName.Trim();
+            }
+
+            linkedType ??= def.LinkedEquipmentType;
+        }
+
+        if (itemName.Length == 0 && linkedType.HasValue)
+        {
+            itemName = LoanedEquipmentTypeLabels.GetLabel(linkedType.Value);
+        }
+
+        if (itemName.Length == 0)
+        {
+            throw new ValidationException("יש לבחור פריט");
+        }
+
+        var duplicate = await _db.ManualUnreturnedItems.AnyAsync(
+            m => !m.IsResolved && m.ItemCode == code,
+            cancellationToken);
+        if (duplicate)
+        {
+            throw new ValidationException("קוד פריט זה כבר רשום כפריט שלא חזר");
+        }
+
+        var entity = new ManualUnreturnedItem
+        {
+            InventoryDefinitionId = inventoryDefinitionId,
+            LoanedEquipmentType = linkedType,
+            ItemName = itemName,
+            ItemCode = code,
+            IsResolved = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.ManualUnreturnedItems.Add(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+        return ToManualUnreturnedDto(entity);
+    }
+
+    public async Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    {
+        if (manualItemId <= 0)
+        {
+            throw new ValidationException("מזהה פריט לא תקין");
+        }
+
+        var entity = await _db.ManualUnreturnedItems
+            .FirstOrDefaultAsync(m => m.Id == manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        if (entity.IsResolved)
+        {
+            return;
+        }
+
+        entity.IsResolved = true;
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static UnreturnedItemDto ToManualUnreturnedDto(ManualUnreturnedItem m)
+    {
+        var code = (m.ItemCode ?? string.Empty).Trim();
+        return new UnreturnedItemDto
+        {
+            ManualItemId = m.Id,
+            OrderId = 0,
+            CustomerName = null,
+            Phone = string.Empty,
+            LoanedEquipmentId = 0,
+            IsCustomItem = true,
+            LoanedEquipmentType = m.LoanedEquipmentType,
+            EquipmentName = m.ItemName,
+            ReturnDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
+            QuantityLoaned = 1,
+            MissingQuantity = 1,
+            MissingSerialCodes = code.Length > 0 ? [code] : [],
+            AssignedSerialCodes = code.Length > 0 ? [code] : []
+        };
     }
 
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)

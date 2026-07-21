@@ -1,7 +1,7 @@
 <div class="mx-auto max-w-7xl px-4 py-6">
   <!-- Page header -->
   <div class="mb-5 flex items-center justify-between gap-4">
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3">
       <a
         routerLink="/dashboard"
         [queryParams]="boardQueryParams()"
@@ -9,6 +9,14 @@
       >
         ▶ חזרה ללוח
       </a>
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
+        title="מזער את הטופס וחזור ללוח — הטיוטה נשמרת"
+        (click)="minimizeDraft()"
+      >
+        מזער
+      </button>
       <h1 class="text-2xl font-bold text-[#002244]">{{ title() }}</h1>
     </div>
     @if (isEdit()) {
@@ -128,6 +136,7 @@
               pattern="[0-9]*"
               maxlength="10"
               appIntegerOnly
+              appIsraeliPhoneInput
               formControlName="phone"
               class="form-input ltr-field"
               autocomplete="off"
@@ -192,6 +201,7 @@
             pattern="[0-9]*"
             maxlength="10"
             appIntegerOnly
+            appIsraeliPhoneInput
             formControlName="phone2"
             class="form-input ltr-field"
           />
@@ -579,7 +589,12 @@
                   (input)="updateAccessoryQuantity(i, $any($event.target).value)"
                 />
               </label>
-              <span class="accessory-row__label">{{ $any(ctrl).get('label')?.value }}</span>
+              <span class="accessory-row__label">
+                {{ $any(ctrl).get('label')?.value }}
+                @if (accessoryMissingQuantity(i) > 0) {
+                  <span class="not-returned-badge" title="פריטים שלא הוחזרו">לא הוחזר ×{{ accessoryMissingQuantity(i) }}</span>
+                }
+              </span>
 
               <span class="accessory-row__serial">
                 <span class="accessory-row__serial-sep">:</span>
@@ -589,8 +604,12 @@
                       <span
                         class="accessory-row__serial-chip"
                         [class.loaned-serial-readonly__chip--returned]="isAccessorySerialLocked(i, code)"
+                        [class.loaned-serial-readonly__chip--not-returned]="isAccessorySerialNotReturned(i, code)"
                       >
                         <span class="ltr-field">{{ code }}</span>
+                        @if (isAccessorySerialNotReturned(i, code)) {
+                          <span class="not-returned-serial-badge">לא הוחזר</span>
+                        }
                       </span>
                     }
                   </span>
@@ -604,8 +623,16 @@
                     >
                       <span class="accessory-row__serial-chip-list">
                         @for (code of selectedCodesControl(i).value; track code) {
-                          <span class="accessory-row__serial-chip">
+                          <span
+                            class="accessory-row__serial-chip"
+                            [class.loaned-serial-readonly__chip--not-returned]="isAccessorySerialNotReturned(i, code)"
+                          >
                             <span class="ltr-field">{{ code }}</span>
+                            @if (isAccessorySerialNotReturned(i, code)) {
+                              <span class="not-returned-serial-badge">לא הוחזר</span>
+                            } @else if (isAccessorySerialLocked(i, code)) {
+                              <span class="returned-serial-badge">הוחזר</span>
+                            }
                           </span>
                         }
                       </span>
@@ -671,6 +698,8 @@
                           <span class="ltr-field">{{ opt.serialCode }}</span>
                           @if (isAccessorySerialLocked(i, opt.serialCode)) {
                             <span class="returned-serial-badge">הוחזר</span>
+                          } @else if (isAccessorySerialNotReturned(i, opt.serialCode)) {
+                            <span class="not-returned-serial-badge">לא הוחזר</span>
                           } @else if (!opt.isAvailable && !isAccessorySerialSelected(i, opt.serialCode)) {
                             <span class="equipment-occupied-badge">תפוס</span>
                           }

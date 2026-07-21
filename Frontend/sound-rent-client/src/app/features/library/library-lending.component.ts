@@ -7,8 +7,10 @@ import {
   HostListener,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -29,6 +31,10 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import {
+  OrderDraftService,
+  WorkspaceLendingDraftPayload
+} from '../../core/services/order-draft.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
@@ -39,6 +45,8 @@ import {
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { clampIsraeliPhoneDigits } from '../../core/validators/israeli-phone.validator';
 import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
 
 interface BookLineItem {
@@ -86,7 +94,8 @@ interface ActiveLoanRowView {
     ReactiveFormsModule,
     FormsModule,
     BookTitleSelectComponent,
-    AutoFocusDirective
+    AutoFocusDirective,
+    IsraeliPhoneInputDirective
   ],
   templateUrl: './library-lending.component.html',
   styleUrl: './library-lending.component.scss'
@@ -101,6 +110,7 @@ export class LibraryLendingComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly orderDraft = inject(OrderDraftService);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
   private pendingRenew: {
@@ -161,6 +171,13 @@ export class LibraryLendingComponent implements OnInit {
 
   protected readonly showDeadline = computed(() => this.timeLimitEnabled());
 
+  constructor() {
+    effect(() => {
+      this.orderDraft.resumeTick();
+      untracked(() => this.tryRestoreMinimizedDraft());
+    });
+  }
+
   /** Local filter for the active-loans table — never triggers HTTP. */
   protected readonly activeSearchInput = this.fb.nonNullable.control('');
   protected readonly activeSearchQuery = signal('');
@@ -211,6 +228,7 @@ export class LibraryLendingComponent implements OnInit {
     this.wireTimeLimitDays();
     this.wireActiveLoansSearch();
     this.refreshActiveLoans();
+    this.tryRestoreMinimizedDraft();
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.nowTick.set(Date.now()));
@@ -266,6 +284,69 @@ export class LibraryLendingComponent implements OnInit {
     this.closeToolUi();
     this.closeCustomerSuggest();
     queueMicrotask(() => this.focusBarcodeField());
+  }
+
+  /** Keep the in-progress loan and return to the main lending board. */
+  protected minimizeDraft(): void {
+    const current = this.forms();
+    const clientName = current[0]?.clientName?.trim() ?? '';
+    this.orderDraft.minimize({
+      kind: 'library-loan',
+      customerLabel: clientName,
+      resumePath: '/library/lending',
+      payload: {
+        formsJson: JSON.stringify(current, (_key, value) =>
+          value instanceof Date ? value.toISOString() : value
+        ),
+        timeLimitEnabled: this.timeLimitEnabled(),
+        timeLimitValue: Number(this.timeLimitForm.controls.days.value) || 7
+      }
+    });
+    this.formOpen.set(false);
+    this.loanScanCode.set('');
+    this.forms.set([this.createDraftForm()]);
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+    queueMicrotask(() => this.focusBarcodeField());
+  }
+
+  private tryRestoreMinimizedDraft(): void {
+    const payload = this.orderDraft.takePendingRestore<WorkspaceLendingDraftPayload>('library-loan');
+    if (!payload) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(payload.formsJson) as Array<Record<string, unknown>>;
+      const revived: LendingDraftForm[] = parsed.map((raw) => ({
+        id: String(raw['id'] ?? `draft-${Date.now()}`),
+        createdAt: new Date(String(raw['createdAt'] ?? Date.now())),
+        hebrewDateTime: String(raw['hebrewDateTime'] ?? ''),
+        bookLines: Array.isArray(raw['bookLines'])
+          ? (raw['bookLines'] as BookLineItem[]).map((line) => ({
+              ...line,
+              bookSuggestOpen: false,
+              copiesOpen: false
+            }))
+          : [this.createToolLine()],
+        clientName: String(raw['clientName'] ?? ''),
+        phone: String(raw['phone'] ?? ''),
+        phone2: String(raw['phone2'] ?? ''),
+        address: String(raw['address'] ?? ''),
+        deposit: String(raw['deposit'] ?? ''),
+        notes: String(raw['notes'] ?? ''),
+        clientAlertNotes:
+          typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
+        deadlineAt: raw['deadlineAt'] ? new Date(String(raw['deadlineAt'])) : null
+      }));
+      this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
+      this.timeLimitForm.controls.days.setValue(payload.timeLimitValue || 7, { emitEvent: false });
+      this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+      this.formOpen.set(true);
+      this.loanScanCode.set('');
+      queueMicrotask(() => this.focusLoanBarcodeField());
+    } catch {
+      this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
+    }
   }
 
   protected onQuickReturnToolChange(bookId: number | null): void {
@@ -805,7 +886,7 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected onPhoneInput(formId: string, value: string): void {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
+    const digits = clampIsraeliPhoneDigits(value);
     this.patchForm(formId, { phone: digits, clientAlertNotes: null });
     this.openCustomerSuggest(formId, 'phone', digits);
     if (digits.length >= 9) {
@@ -814,7 +895,7 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected onPhone2Input(formId: string, value: string): void {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
+    const digits = clampIsraeliPhoneDigits(value);
     this.patchForm(formId, { phone2: digits });
   }
 
@@ -904,6 +985,7 @@ export class LibraryLendingComponent implements OnInit {
             }
           });
         this.toast.success('ההשאלה נשמרה');
+        this.orderDraft.clearIfKind('library-loan');
         this.formOpen.set(false);
         this.loanScanCode.set('');
         this.forms.set([this.createDraftForm()]);

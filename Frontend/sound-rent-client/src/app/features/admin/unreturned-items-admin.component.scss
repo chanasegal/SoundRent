@@ -49,3 +49,19 @@
   opacity: 0;
   pointer-events: none;
 }
+
+@media (max-width: 900px) {
+  .unreturned-table {
+    font-size: 0.8rem;
+  }
+
+  .unreturned-table th,
+  .unreturned-table td {
+    padding: 0.45rem 0.5rem;
+    white-space: normal;
+  }
+
+  .missing-serial-list {
+    max-width: 10rem;
+  }
+}

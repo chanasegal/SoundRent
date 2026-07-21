@@ -58,6 +58,7 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
+import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 
 interface WeeklyGridColumnDef {
   id: string;
@@ -235,7 +236,7 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 @Component({
   selector: 'app-weekly-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective, IsraeliPhoneInputDirective],
   templateUrl: './weekly-grid.component.html',
   styleUrl: './weekly-grid.component.scss'
 })

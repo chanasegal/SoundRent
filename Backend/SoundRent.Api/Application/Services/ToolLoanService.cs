@@ -4,6 +4,7 @@ using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
+using SoundRent.Api.Infrastructure.Repositories;
 
 namespace SoundRent.Api.Application.Services;
 
@@ -40,10 +41,12 @@ public class ToolLoanService : IToolLoanService
     public const int DefaultLoanHours = 2;
 
     private readonly AppDbContext _db;
+    private readonly IInstitutionRepository _institutions;
 
-    public ToolLoanService(AppDbContext db)
+    public ToolLoanService(AppDbContext db, IInstitutionRepository institutions)
     {
         _db = db;
+        _institutions = institutions;
     }
 
     public Task<List<ToolLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default)
@@ -181,6 +184,8 @@ public class ToolLoanService : IToolLoanService
             normalizedItems.Add((definition.Id, serial, definition.DisplayName));
         }
 
+        var (institutionId, institutionName) = await ResolveInstitutionAsync(dto, cancellationToken);
+
         var entity = new ToolLoan
         {
             LentAt = DateTime.UtcNow,
@@ -189,6 +194,8 @@ public class ToolLoanService : IToolLoanService
             Phone = phone,
             Phone2 = string.IsNullOrWhiteSpace(dto.Phone2) ? null : dto.Phone2.Trim(),
             Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
+            InstitutionId = institutionId,
+            InstitutionName = institutionName,
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
@@ -207,6 +214,55 @@ public class ToolLoanService : IToolLoanService
         _db.ToolLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
+    }
+
+    private async Task<(int? InstitutionId, string? InstitutionName)> ResolveInstitutionAsync(
+        ToolLoanCreateDto dto,
+        CancellationToken cancellationToken)
+    {
+        const SystemType systemType = SystemType.Tools;
+
+        if (dto.InstitutionId is int institutionId)
+        {
+            var institution = await _institutions.GetByIdAsync(institutionId, cancellationToken)
+                ?? throw new ValidationException("המוסד שנבחר לא נמצא");
+            await _institutions.EnsureSystemLinkAsync(institution.Id, systemType, cancellationToken);
+            await _institutions.SaveChangesAsync(cancellationToken);
+            return (institution.Id, institution.Name);
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.InstitutionName))
+        {
+            var name = dto.InstitutionName.Trim();
+            var match = await _institutions.FindByNameAsync(name, systemType, cancellationToken)
+                ?? await _institutions.FindByNameAsync(name, systemType: null, cancellationToken);
+            if (match is not null)
+            {
+                await _institutions.EnsureSystemLinkAsync(match.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                return (match.Id, match.Name);
+            }
+
+            var created = new Institution { Name = name };
+            try
+            {
+                await _institutions.AddAsync(created, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                await _institutions.EnsureSystemLinkAsync(created.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                return (created.Id, created.Name);
+            }
+            catch (DbUpdateException)
+            {
+                var raced = await _institutions.FindByNameAsync(name, systemType: null, cancellationToken)
+                    ?? throw new ValidationException("לא ניתן לשמור את שם המוסד");
+                await _institutions.EnsureSystemLinkAsync(raced.Id, systemType, cancellationToken);
+                await _institutions.SaveChangesAsync(cancellationToken);
+                return (raced.Id, raced.Name);
+            }
+        }
+
+        return (null, null);
     }
 
     public async Task<ToolLoanDto> MarkReturnedAsync(
@@ -506,6 +562,8 @@ public class ToolLoanService : IToolLoanService
             Phone = entity.Phone,
             Phone2 = entity.Phone2,
             Address = entity.Address,
+            InstitutionName = entity.InstitutionName,
+            InstitutionId = entity.InstitutionId,
             Deposit = entity.Deposit,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,

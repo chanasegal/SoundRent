@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Domain.Entities;
+using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
 
 namespace SoundRent.Api.Infrastructure.Repositories;
@@ -15,18 +16,33 @@ public class InstitutionRepository : IInstitutionRepository
         _db = db;
     }
 
-    public Task<List<Institution>> GetAllAsync(CancellationToken cancellationToken = default)
+    public Task<List<Institution>> GetAllAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return _db.Institutions
-            .AsNoTracking()
+        var query = WithSystems(_db.Institutions.AsNoTracking());
+        if (systemType.HasValue)
+        {
+            query = query.Where(i => i.Systems.Any(s => s.SystemType == systemType.Value));
+        }
+
+        return query
             .OrderBy(i => i.Name)
             .ToListAsync(cancellationToken);
     }
 
-    public Task<List<Institution>> SearchAsync(string? query, CancellationToken cancellationToken = default)
+    public Task<List<Institution>> SearchAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
         var q = (query ?? string.Empty).Trim();
-        IQueryable<Institution> rows = _db.Institutions.AsNoTracking();
+        var rows = WithSystems(_db.Institutions.AsNoTracking());
+
+        if (systemType.HasValue)
+        {
+            rows = rows.Where(i => i.Systems.Any(s => s.SystemType == systemType.Value));
+        }
 
         if (q.Length > 0)
         {
@@ -42,15 +58,20 @@ public class InstitutionRepository : IInstitutionRepository
 
     public Task<Institution?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        return _db.Institutions.AsNoTracking().FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+        return WithSystems(_db.Institutions.AsNoTracking())
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
     }
 
     public Task<Institution?> GetByIdTrackedAsync(int id, CancellationToken cancellationToken = default)
     {
-        return _db.Institutions.FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+        return WithSystems(_db.Institutions)
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
     }
 
-    public Task<Institution?> FindByNameAsync(string name, CancellationToken cancellationToken = default)
+    public Task<Institution?> FindByNameAsync(
+        string name,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
         var normalized = name.Trim().ToLowerInvariant();
         if (normalized.Length == 0)
@@ -58,9 +79,38 @@ public class InstitutionRepository : IInstitutionRepository
             return Task.FromResult<Institution?>(null);
         }
 
-        return _db.Institutions
-            .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.Name.ToLower() == normalized, cancellationToken);
+        var query = WithSystems(_db.Institutions.AsNoTracking())
+            .Where(i => i.Name.ToLower() == normalized);
+
+        if (systemType.HasValue)
+        {
+            query = query.Where(i => i.Systems.Any(s => s.SystemType == systemType.Value));
+        }
+
+        return query.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task EnsureSystemLinkAsync(
+        int institutionId,
+        SystemType systemType,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await _db.InstitutionSystems.AnyAsync(
+            s => s.InstitutionId == institutionId && s.SystemType == systemType,
+            cancellationToken);
+        if (exists)
+        {
+            return;
+        }
+
+        await _db.InstitutionSystems.AddAsync(
+            new InstitutionSystem
+            {
+                InstitutionId = institutionId,
+                SystemType = systemType,
+                LinkedAt = DateTime.UtcNow
+            },
+            cancellationToken);
     }
 
     public async Task AddAsync(Institution institution, CancellationToken cancellationToken = default)
@@ -73,15 +123,24 @@ public class InstitutionRepository : IInstitutionRepository
         _db.Institutions.Remove(institution);
     }
 
-    public Task<bool> HasActiveOrFutureOrdersAsync(
+    public async Task<bool> HasActiveOrFutureOrdersAsync(
         int institutionId,
         DateOnly todayInclusive,
         CancellationToken cancellationToken = default)
     {
-        return _db.Orders.AsNoTracking().AnyAsync(
+        var hasOrders = await _db.Orders.AsNoTracking().AnyAsync(
             o => o.InstitutionId == institutionId
                 && !o.IsCancelled
                 && o.Shifts.Any(s => s.OrderDate >= todayInclusive),
+            cancellationToken);
+        if (hasOrders)
+        {
+            return true;
+        }
+
+        return await _db.ToolLoans.AsNoTracking().AnyAsync(
+            l => l.InstitutionId == institutionId
+                && l.Items.Any(i => i.ReturnedAt == null),
             cancellationToken);
     }
 
@@ -89,4 +148,7 @@ public class InstitutionRepository : IInstitutionRepository
     {
         return _db.SaveChangesAsync(cancellationToken);
     }
+
+    private static IQueryable<Institution> WithSystems(IQueryable<Institution> query)
+        => query.Include(i => i.Systems);
 }

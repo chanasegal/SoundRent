@@ -266,7 +266,9 @@ public class BookInventoryService : IBookInventoryService
             Phone2 = active.BookLoan.Phone2,
             Address = active.BookLoan.Address,
             Deposit = active.BookLoan.Deposit,
-            Notes = active.BookLoan.Notes
+            Notes = active.BookLoan.Notes,
+            HebrewLentDisplay = active.BookLoan.HebrewLentDisplay,
+            LoanDate = DateOnly.FromDateTime(active.BookLoan.LentAt)
         };
     }
 

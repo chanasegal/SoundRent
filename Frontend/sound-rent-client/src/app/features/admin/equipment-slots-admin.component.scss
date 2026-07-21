@@ -371,3 +371,227 @@ tr.row-in-maintenance:hover {
 .add-item-modal .note-input {
   width: 5.75rem;
 }
+
+.default-acc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #002244;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  .pi-paperclip {
+    font-size: 0.8rem;
+    color: #002244;
+  }
+
+  &:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+  }
+}
+
+.unit-code-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: middle;
+}
+
+.default-acc-unit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  min-height: 1.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  background: #fff;
+  padding: 0.15rem 0.35rem;
+  color: #002244;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+
+  .pi-paperclip {
+    font-size: 0.75rem;
+  }
+
+  &:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #94a3b8;
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+
+.default-acc-unit-btn__count {
+  display: inline-flex;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #002244;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0 0.22rem;
+  line-height: 1;
+}
+
+.inventory-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.default-acc-clip {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: #002244;
+  transform: rotate(-35deg);
+}
+
+.default-acc-btn__count {
+  display: inline-flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #002244;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0 0.3rem;
+}
+
+.default-acc-modal {
+  max-height: min(88vh, 36rem);
+}
+
+.default-acc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.default-acc-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.65rem;
+  background: #f8fafc;
+}
+
+.default-acc-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  min-width: 0;
+}
+
+.default-acc-list__type {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #002244;
+}
+
+.default-acc-list__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: #334155;
+}
+
+.default-acc-list__remove {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+
+  &:hover:not(:disabled) {
+    color: #7f1d1d;
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.default-acc-add-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.default-acc-select {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+
+  &:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: #002244;
+    box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+  }
+}
+
+:host ::ng-deep .default-acc-multiselect.p-multiselect,
+:host ::ng-deep .p-multiselect.default-acc-multiselect {
+  width: 100%;
+  min-height: 2.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  font-size: 0.875rem;
+}
+
+:host ::ng-deep .default-acc-multiselect.p-multiselect:not(.p-disabled):hover {
+  border-color: #94a3b8;
+}
+
+:host ::ng-deep .default-acc-multiselect.p-multiselect.p-focus {
+  border-color: #002244;
+  box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+}
+
+:host ::ng-deep .default-acc-multiselect .p-multiselect-label {
+  padding: 0.4rem 0.55rem;
+}
+
+:host ::ng-deep .default-acc-multiselect .p-multiselect-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+}

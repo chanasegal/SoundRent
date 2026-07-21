@@ -1,13 +1,22 @@
 <div class="mx-auto max-w-7xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
-    <button
-      type="button"
-      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      (click)="refresh()"
-    >
-      רענון
-    </button>
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        (click)="refresh()"
+      >
+        רענון
+      </button>
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366]"
+        (click)="openAddMissing()"
+      >
+        הוסף פריט שלא חזר
+      </button>
+    </div>
   </div>
 
   <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -64,12 +73,16 @@
                   </div>
                 </td>
                 <td class="px-3 py-2.5 text-center">
-                  <a
-                    [routerLink]="['/orders', row.orderId]"
-                    class="font-semibold text-sky-700 hover:text-sky-900 hover:underline"
-                  >
-                    {{ row.orderId }}
-                  </a>
+                  @if (isManualRow(row) || !row.orderId) {
+                    <span class="text-slate-400">—</span>
+                  } @else {
+                    <a
+                      [routerLink]="['/orders', row.orderId]"
+                      class="font-semibold text-sky-700 hover:text-sky-900 hover:underline"
+                    >
+                      {{ row.orderId }}
+                    </a>
+                  }
                 </td>
                 <td class="px-3 py-2.5 text-center">
                   <button
@@ -89,3 +102,76 @@
     }
   </section>
 </div>
+
+@if (addOpen()) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="הוסף פריט שלא חזר"
+    (click)="closeAddMissing()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-2 text-lg font-bold text-[#002244]">הוסף פריט שלא חזר</h2>
+      <p class="mb-4 text-sm text-slate-600">
+        הוסיפו פריט ישירות לרשימה לפי סוג וקוד פריט — ללא שיוך להזמנה.
+      </p>
+
+      <form [formGroup]="addForm" (ngSubmit)="submitAddMissing()" class="space-y-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            פריט <span class="text-rose-500">*</span>
+          </label>
+          <select
+            formControlName="inventoryDefinitionId"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option [ngValue]="null">בחרו פריט…</option>
+            @for (def of itemOptions(); track def.id) {
+              <option [ngValue]="def.id">{{ itemOptionLabel(def) }}</option>
+            }
+          </select>
+          @if (addForm.controls.inventoryDefinitionId.touched && addForm.controls.inventoryDefinitionId.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            קוד פריט <span class="text-rose-500">*</span>
+          </label>
+          <input
+            formControlName="itemCode"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="100"
+            autocomplete="off"
+          />
+          @if (addForm.controls.itemCode.touched && addForm.controls.itemCode.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div class="flex flex-wrap justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeAddMissing()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="savingMissing()"
+          >
+            {{ savingMissing() ? 'שומר…' : 'שמירה' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

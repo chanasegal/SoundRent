@@ -22,6 +22,7 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 import { BookDto, BookCopyLocationDto } from '../../core/models/library-workspace.model';
 import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
+import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
@@ -38,6 +39,7 @@ export class LibraryInventoryComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly booksStore = inject(BooksStore);
   private readonly toast = inject(ToastService);
+  private readonly hebrew = inject(HebrewDateService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ספרים');
@@ -159,6 +161,26 @@ export class LibraryInventoryComponent implements OnInit {
       return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
     }
     return phone ?? '';
+  }
+
+  /** Hebrew calendar date for a loaned-item locator card. */
+  protected formatLocatorHebrewDate(
+    hebrewLentDisplay: string | null | undefined,
+    loanDate: string | null | undefined
+  ): string {
+    const stored = (hebrewLentDisplay ?? '').trim();
+    if (stored) {
+      const withoutTime = stored.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*$/, '').trim();
+      if (withoutTime) {
+        return withoutTime;
+      }
+    }
+    const iso = (loanDate ?? '').trim();
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : '—';
   }
 
   protected openAddInventoryItem(): void {

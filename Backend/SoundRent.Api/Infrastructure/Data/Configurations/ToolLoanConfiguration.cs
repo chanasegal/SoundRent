@@ -17,6 +17,7 @@ public class ToolLoanConfiguration : IEntityTypeConfiguration<ToolLoan>
         builder.Property(e => e.Phone).HasMaxLength(20).IsRequired();
         builder.Property(e => e.Phone2).HasMaxLength(20);
         builder.Property(e => e.Address).HasMaxLength(500);
+        builder.Property(e => e.InstitutionName).HasMaxLength(200);
         builder.Property(e => e.Deposit).HasMaxLength(500);
         builder.Property(e => e.Notes).HasMaxLength(2000);
         builder.Property(e => e.HebrewReturnedDisplay).HasMaxLength(120);
@@ -24,6 +25,12 @@ public class ToolLoanConfiguration : IEntityTypeConfiguration<ToolLoan>
         builder.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
         builder.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        builder.HasOne(e => e.Institution)
+            .WithMany(i => i.ToolLoans)
+            .HasForeignKey(e => e.InstitutionId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(e => e.InstitutionId).HasDatabaseName("IX_ToolLoans_InstitutionId");
         builder.HasIndex(e => e.ReturnedAt).HasDatabaseName("IX_ToolLoans_ReturnedAt");
         builder.HasIndex(e => e.LentAt).HasDatabaseName("IX_ToolLoans_LentAt");
         builder.HasIndex(e => e.Phone).HasDatabaseName("IX_ToolLoans_Phone");

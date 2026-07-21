@@ -21,6 +21,7 @@
         </label>
       }
       @if (formOpen()) {
+        <button type="button" class="add-row-btn" (click)="minimizeDraft()">מזער</button>
         <button type="button" class="add-row-btn" (click)="closeFormPanel()">סגור טופס</button>
       } @else {
         <button type="button" class="add-row-btn add-row-btn--primary" (click)="addForm()">הוסף השאלת ספר</button>
@@ -260,12 +261,14 @@
 
                 <div class="relative">
                   <input
-                    type="text"
+                    type="tel"
                     class="field-input phone-input"
                     [class.phone-input--filled]="!!form.phone"
                     placeholder="טלפון"
                     maxlength="10"
                     inputmode="numeric"
+                    pattern="[0-9]*"
+                    appIsraeliPhoneInput
                     [value]="form.phone"
                     (input)="onPhoneInput(form.id, $any($event.target).value)"
                     (focus)="onPhoneInput(form.id, form.phone)"
@@ -296,12 +299,14 @@
 
                 <div class="relative">
                   <input
-                    type="text"
+                    type="tel"
                     class="field-input phone-input"
                     [class.phone-input--filled]="!!form.phone2"
                     placeholder="טלפון 2"
                     maxlength="10"
                     inputmode="numeric"
+                    pattern="[0-9]*"
+                    appIsraeliPhoneInput
                     [value]="form.phone2"
                     (input)="onPhone2Input(form.id, $any($event.target).value)"
                     autocomplete="off"

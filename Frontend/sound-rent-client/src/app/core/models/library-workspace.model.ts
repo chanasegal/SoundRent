@@ -48,6 +48,10 @@ export interface BookCopyLocationDto {
   address?: string | null;
   deposit?: string | null;
   notes?: string | null;
+  /** Stored Hebrew lent display from the active loan (may include time). */
+  hebrewLentDisplay?: string | null;
+  /** Gregorian loan date (yyyy-MM-dd) for Hebrew calendar conversion. */
+  loanDate?: string | null;
 }
 
 export interface BookAvailableCopiesGroupDto {

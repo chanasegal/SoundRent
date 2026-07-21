@@ -21,6 +21,7 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 
 import { ToolDefinitionDto, ToolSerialLocationDto } from '../../core/models/tools-workspace.model';
 import { DataService } from '../../core/services/data.service';
+import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -38,6 +39,7 @@ export class ToolsInventoryComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly toast = inject(ToastService);
+  private readonly hebrew = inject(HebrewDateService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול מלאי');
@@ -159,6 +161,26 @@ export class ToolsInventoryComponent implements OnInit {
       return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
     }
     return phone ?? '';
+  }
+
+  /** Hebrew calendar date for a loaned-item locator card. */
+  protected formatLocatorHebrewDate(
+    hebrewLentDisplay: string | null | undefined,
+    loanDate: string | null | undefined
+  ): string {
+    const stored = (hebrewLentDisplay ?? '').trim();
+    if (stored) {
+      const withoutTime = stored.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*$/, '').trim();
+      if (withoutTime) {
+        return withoutTime;
+      }
+    }
+    const iso = (loanDate ?? '').trim();
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : '—';
   }
 
   protected openAddInventoryItem(): void {
