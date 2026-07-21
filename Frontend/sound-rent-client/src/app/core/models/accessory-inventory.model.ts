@@ -44,6 +44,8 @@ export interface AccessorySerialLocationDto {
   serialCode: string;
   isRegistered: boolean;
   isInWarehouse: boolean;
+  /** True when marked missing / unreturned (חסר / לא הוחזר). */
+  isMissing?: boolean;
   orderId?: number | null;
   customerName?: string | null;
   phone?: string | null;
@@ -51,6 +53,6 @@ export interface AccessorySerialLocationDto {
   address?: string | null;
   deposit?: string | null;
   notes?: string | null;
-  /** Earliest order shift date (yyyy-MM-dd) when loaned out. */
+  /** Earliest order shift date (yyyy-MM-dd) when loaned out / missing. */
   loanDate?: string | null;
 }

@@ -42,6 +42,12 @@ public interface IAccessorySerialInventoryService
 
     Task ReleaseAllOrderSerialsAsync(int orderId, CancellationToken cancellationToken = default);
 
+    Task SetPhysicalStatusAsync(
+        Domain.Enums.LoanedEquipmentType equipmentType,
+        string serialCode,
+        Domain.Enums.AccessorySerialPhysicalStatus status,
+        CancellationToken cancellationToken = default);
+
     Task ValidateReturnedSerialGuardrailsAsync(
         int orderId,
         bool isReturnProcessed,

@@ -252,12 +252,23 @@ tr.row-in-maintenance:hover {
   text-align: right;
 }
 
+.customer-details-grid--inline-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  column-gap: 0.75rem;
+  row-gap: 0.65rem;
+}
+
 .customer-details-grid__item {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.25rem;
   min-width: 0;
+}
+
+.customer-details-grid__item--full {
+  grid-column: 1 / -1;
 }
 
 .customer-details-grid__label {
@@ -287,13 +298,23 @@ tr.row-in-maintenance:hover {
 }
 
 @media (min-width: 720px) {
-  .customer-details-grid {
+  .customer-details-grid:not(.customer-details-grid--inline-4) {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .customer-details-grid--inline-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 420px) {
   .customer-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-details-grid--inline-4 {
     grid-template-columns: 1fr;
   }
 }
@@ -361,6 +382,155 @@ tr.row-in-maintenance:hover {
     border-color: #0ea5e9;
     box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.18);
   }
+
+  &--missing {
+    border-color: #fb7185;
+    background: #fff1f2;
+    color: #9f1239;
+  }
+}
+
+.inventory-row-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.inventory-row-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid transparent;
+
+  &--available {
+    color: #166534;
+    background: #dcfce7;
+    border-color: #86efac;
+  }
+
+  &--loaned {
+    color: #9a3412;
+    background: #ffedd5;
+    border-color: #fdba74;
+  }
+
+  &--missing {
+    color: #9f1239;
+    background: #ffe4e6;
+    border-color: #fda4af;
+  }
+}
+
+.inventory-holders-btn {
+  border: 0;
+  background: transparent;
+  color: #0369a1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: #0c4a6e;
+  }
+
+  &--inline {
+    display: block;
+    margin-top: 0.25rem;
+  }
+}
+
+.inventory-table-search {
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__input {
+    flex: 1 1 14rem;
+    min-width: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    background: #fff;
+
+    &:focus {
+      outline: 2px solid #00224455;
+      border-color: #002244;
+    }
+  }
+
+  &__clear {
+    border: 0;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    cursor: pointer;
+
+    &:hover {
+      background: #cbd5e1;
+    }
+  }
+}
+
+.inventory-one-time-row {
+  cursor: pointer;
+
+  &:hover {
+    background: #fff7ed;
+  }
+}
+
+.inventory-one-time-qty {
+  display: inline-block;
+  min-width: 2.5rem;
+  font-weight: 700;
+  color: #002244;
+}
+
+.inventory-one-time-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #0f766e;
+  background: #ccfbf1;
+  border: 1px solid #5eead4;
+
+  &--inline {
+    margin-inline-start: 0.4rem;
+    vertical-align: middle;
+  }
+}
+
+.inventory-one-time-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.serial-locator__result--unreturned {
+  border-color: #fda4af;
+  background: #fff1f2;
 }
 
 .add-item-modal {
@@ -545,6 +715,31 @@ tr.row-in-maintenance:hover {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+
+  &--loading {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+}
+
+.default-acc-options-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+
+  .pi-spinner {
+    font-size: 0.9rem;
+    color: #002244;
+  }
+}
+
+.default-acc-options-error {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: #b91c1c;
 }
 
 .default-acc-select {

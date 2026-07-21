@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -378,13 +379,77 @@ public class OrderRepository : IOrderRepository
             .AsSplitQuery()
             .Where(o =>
                 !o.IsCancelled
-                && o.IsUnpaid
-                && !o.Equipments.Any()
-                && o.LoanedEquipments.Any(le => le.Quantity > 0))
+                && !o.IsReturnProcessed
+                && o.LoanedEquipments.Any(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity))
             .OrderByDescending(o => o.CreatedAt)
             .ThenByDescending(o => o.Id)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.Orders
+            .AsNoTracking()
+            .Where(o => !o.IsCancelled && !o.IsReturnProcessed)
+            .SelectMany(o => o.LoanedEquipments
+                .Where(le =>
+                    le.IsCustomItem
+                    && le.Quantity > 0
+                    && le.ReturnedQuantity < le.Quantity)
+                .Select(le => new
+                {
+                    Order = o,
+                    Line = le,
+                    LoanDate = o.Shifts.Min(s => (DateOnly?)s.OrderDate),
+                    Notes = le.Notes
+                        .Select(n => new { n.Content, n.IsReturned })
+                        .ToList()
+                }))
+            .OrderByDescending(r => r.LoanDate ?? DateOnly.MinValue)
+            .ThenByDescending(r => r.Order.Id)
+            .ToListAsync(cancellationToken);
+
+        var catalogNameList = await _db.InventoryDefinitions
+            .AsNoTracking()
+            .Select(d => d.DisplayName)
+            .ToListAsync(cancellationToken);
+        var catalogNames = new HashSet<string>(
+            catalogNameList
+                .Select(n => (n ?? string.Empty).Trim())
+                .Where(n => n.Length > 0),
+            StringComparer.OrdinalIgnoreCase);
+
+        return rows.Select(r =>
+        {
+            var codes = r.Notes
+                .Where(n => !n.IsReturned)
+                .Select(n => (n.Content ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new ActiveOneTimeAccessoryLoanDto
+            {
+                OrderId = r.Order.Id,
+                LoanedEquipmentId = r.Line.Id,
+                ItemName = string.IsNullOrWhiteSpace(r.Line.CustomItemName)
+                    ? "פריט נוסף"
+                    : r.Line.CustomItemName.Trim(),
+                Quantity = r.Line.Quantity,
+                OutstandingQuantity = Math.Max(0, r.Line.Quantity - r.Line.ReturnedQuantity),
+                CustomerName = r.Order.CustomerName,
+                Phone = r.Order.Phone,
+                Address = r.Order.Address,
+                LoanDate = r.LoanDate,
+                SerialCodes = codes
+            };
+        })
+        // Names that exist in the permanent inventory catalog are not one-time items.
+        .Where(dto => !catalogNames.Contains(dto.ItemName))
+        .ToList();
     }
 
     public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
@@ -456,11 +521,13 @@ public class OrderRepository : IOrderRepository
         CreateManualUnreturnedItemDto dto,
         CancellationToken cancellationToken = default)
     {
-        var code = (dto.ItemCode ?? string.Empty).Trim();
-        if (code.Length == 0)
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone, out var phone))
         {
-            throw new ValidationException("יש להזין קוד פריט");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
+
+        var code = (dto.ItemCode ?? string.Empty).Trim();
+        var normalizedCode = code.Length == 0 ? null : code;
 
         string itemName = (dto.ItemName ?? string.Empty).Trim();
         LoanedEquipmentType? linkedType = dto.LoanedEquipmentType;
@@ -488,23 +555,29 @@ public class OrderRepository : IOrderRepository
 
         if (itemName.Length == 0)
         {
-            throw new ValidationException("יש לבחור פריט");
+            throw new ValidationException("יש לבחור פריט מהרשימה או להזין תיאור פריט מותאם");
         }
 
-        var duplicate = await _db.ManualUnreturnedItems.AnyAsync(
-            m => !m.IsResolved && m.ItemCode == code,
-            cancellationToken);
-        if (duplicate)
+        if (normalizedCode != null)
         {
-            throw new ValidationException("קוד פריט זה כבר רשום כפריט שלא חזר");
+            var duplicate = await _db.ManualUnreturnedItems.AnyAsync(
+                m => !m.IsResolved && m.ItemCode == normalizedCode,
+                cancellationToken);
+            if (duplicate)
+            {
+                throw new ValidationException("קוד פריט זה כבר רשום כפריט שלא חזר");
+            }
         }
 
         var entity = new ManualUnreturnedItem
         {
             InventoryDefinitionId = inventoryDefinitionId,
             LoanedEquipmentType = linkedType,
+            CustomerName = TrimOrNull(dto.CustomerName),
+            Phone = phone,
+            Address = TrimOrNull(dto.Address),
             ItemName = itemName,
-            ItemCode = code,
+            ItemCode = normalizedCode,
             IsResolved = false,
             CreatedAt = DateTime.UtcNow
         };
@@ -540,11 +613,12 @@ public class OrderRepository : IOrderRepository
         return new UnreturnedItemDto
         {
             ManualItemId = m.Id,
+            InventoryDefinitionId = m.InventoryDefinitionId,
             OrderId = 0,
-            CustomerName = null,
-            Phone = string.Empty,
+            CustomerName = m.CustomerName,
+            Phone = m.Phone ?? string.Empty,
             LoanedEquipmentId = 0,
-            IsCustomItem = true,
+            IsCustomItem = !m.InventoryDefinitionId.HasValue || !m.LoanedEquipmentType.HasValue,
             LoanedEquipmentType = m.LoanedEquipmentType,
             EquipmentName = m.ItemName,
             ReturnDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
@@ -553,6 +627,12 @@ public class OrderRepository : IOrderRepository
             MissingSerialCodes = code.Length > 0 ? [code] : [],
             AssignedSerialCodes = code.Length > 0 ? [code] : []
         };
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length == 0 ? null : trimmed;
     }
 
     private static IQueryable<Order> WithOrderGraph(IQueryable<Order> query)

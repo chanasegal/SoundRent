@@ -73,6 +73,17 @@ export interface OrderCreateUpdateDto {
   systemType?: SystemType;
 }
 
+export interface CreateManualCancelledOrderDto {
+  customerName?: string | null;
+  phone: string;
+  address?: string | null;
+  equipmentDefinitionIds: string[];
+  startDate: string;
+  endDate: string;
+  totalAmount?: number | null;
+  systemType?: SystemType;
+}
+
 /** Response of `GET /api/orders/check-institution-conflict`. */
 export interface InstitutionConflictDto {
   hasConflict: boolean;

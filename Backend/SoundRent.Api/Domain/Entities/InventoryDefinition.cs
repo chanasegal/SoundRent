@@ -20,6 +20,12 @@ public class InventoryDefinition
     public int SortOrder { get; set; }
 
     /// <summary>
+    /// Tracked stock quantity. For custom (unlinked) rows this can be set without serial codes.
+    /// For linked system types this mirrors the serial-code count.
+    /// </summary>
+    public int Quantity { get; set; }
+
+    /// <summary>
     /// When set, this row is the editable catalog entry for a system <see cref="LoanedEquipmentType"/>.
     /// </summary>
     public LoanedEquipmentType? LinkedEquipmentType { get; set; }

@@ -792,6 +792,32 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.BooksInventoryController",
+    "Method": "Import",
+    "RelativePath": "api/books-inventory/import",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.BookImportResultDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.BooksInventoryController",
     "Method": "Locate",
     "RelativePath": "api/books-inventory/location",
     "HttpMethod": "GET",
@@ -1740,6 +1766,32 @@
     ]
   },
   {
+    "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
+    "Method": "Ensure",
+    "RelativePath": "api/inventory-definitions/ensure",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionEnsureDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
     "ContainingType": "SoundRent.Api.Controllers.LostEquipmentController",
     "Method": "GetAll",
     "RelativePath": "api/lost-equipment",
@@ -2124,6 +2176,26 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "GetActiveOneTimeAccessories",
+    "RelativePath": "api/Orders/active-one-time-accessories",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ActiveOneTimeAccessoryLoanDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "CheckInstitutionConflict",
     "RelativePath": "api/Orders/check-institution-conflict",
     "HttpMethod": "GET",
@@ -2353,6 +2425,32 @@
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.ReportsController",
+    "Method": "CreateManualCancelledOrder",
+    "RelativePath": "api/reports/cancelled-orders",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.CreateManualCancelledOrderDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.OrderDto",
         "MediaTypes": [
           "text/plain",
           "application/json",

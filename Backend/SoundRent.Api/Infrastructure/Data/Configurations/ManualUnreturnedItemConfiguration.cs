@@ -11,8 +11,11 @@ public class ManualUnreturnedItemConfiguration : IEntityTypeConfiguration<Manual
         builder.ToTable("ManualUnreturnedItems");
         builder.HasKey(e => e.Id);
 
+        builder.Property(e => e.CustomerName).HasMaxLength(200);
+        builder.Property(e => e.Phone).HasMaxLength(20);
+        builder.Property(e => e.Address).HasMaxLength(200);
         builder.Property(e => e.ItemName).HasMaxLength(200).IsRequired();
-        builder.Property(e => e.ItemCode).HasMaxLength(100).IsRequired();
+        builder.Property(e => e.ItemCode).HasMaxLength(100);
         builder.Property(e => e.LoanedEquipmentType).HasConversion<int?>();
 
         builder.HasIndex(e => e.IsResolved).HasDatabaseName("IX_ManualUnreturnedItems_IsResolved");

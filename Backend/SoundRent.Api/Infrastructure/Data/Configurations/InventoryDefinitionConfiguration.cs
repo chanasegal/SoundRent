@@ -19,6 +19,9 @@ public class InventoryDefinitionConfiguration : IEntityTypeConfiguration<Invento
         builder.Property(e => e.CreatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        builder.Property(e => e.Quantity)
+            .HasDefaultValue(0);
+
         builder.Property(e => e.UpdatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 

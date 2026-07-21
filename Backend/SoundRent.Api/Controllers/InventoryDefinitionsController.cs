@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
+using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
 
 namespace SoundRent.Api.Controllers;
@@ -34,6 +35,23 @@ public class InventoryDefinitionsController : ControllerBase
     {
         var created = await _service.CreateAsync(dto, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, created);
+    }
+
+    /// <summary>Find or create a catalog row by display name (used for free-text accessory lending).</summary>
+    [HttpPost("ensure")]
+    public async Task<ActionResult<InventoryDefinitionDto>> Ensure(
+        [FromBody] InventoryDefinitionEnsureDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var ensured = await _service.EnsureByDisplayNameAsync(dto.DisplayName, cancellationToken);
+            return Ok(ensured);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]

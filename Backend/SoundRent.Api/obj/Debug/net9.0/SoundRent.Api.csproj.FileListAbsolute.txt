@@ -143,4 +143,3 @@ c:\SoundRent\Backend\_build_check\SoundRent.Api.deps.json
 c:\SoundRent\Backend\_build_check\SoundRent.Api.runtimeconfig.json
 c:\SoundRent\Backend\_build_check\SoundRent.Api.dll
 c:\SoundRent\Backend\_build_check\SoundRent.Api.pdb
-C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

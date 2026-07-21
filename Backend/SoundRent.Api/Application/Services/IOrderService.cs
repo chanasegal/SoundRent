@@ -50,7 +50,14 @@ public interface IOrderService
 
     Task<List<OrderDto>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
 
+    Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
+        CancellationToken cancellationToken = default);
+
     Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default);
+
+    Task<OrderDto> CreateManualCancelledOrderAsync(
+        CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken = default);
 
     Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default);
 

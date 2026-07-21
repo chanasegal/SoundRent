@@ -16,13 +16,21 @@ public class ManualUnreturnedItem
 
     public LoanedEquipmentType? LoanedEquipmentType { get; set; }
 
+    [MaxLength(200)]
+    public string? CustomerName { get; set; }
+
+    [MaxLength(20)]
+    public string? Phone { get; set; }
+
+    [MaxLength(200)]
+    public string? Address { get; set; }
+
     [Required]
     [MaxLength(200)]
     public string ItemName { get; set; } = string.Empty;
 
-    [Required]
     [MaxLength(100)]
-    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemCode { get; set; }
 
     public bool IsResolved { get; set; }
 

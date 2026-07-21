@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
-using SoundRent.Api.Application.PhoneNumbers;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -22,12 +22,18 @@ public class OpenDebtService : IOpenDebtService
     private readonly AppDbContext _db;
     private readonly IOrderRepository _orders;
     private readonly IOrderService _orderService;
+    private readonly ICustomerService _customers;
 
-    public OpenDebtService(AppDbContext db, IOrderRepository orders, IOrderService orderService)
+    public OpenDebtService(
+        AppDbContext db,
+        IOrderRepository orders,
+        IOrderService orderService,
+        ICustomerService customers)
     {
         _db = db;
         _orders = orders;
         _orderService = orderService;
+        _customers = customers;
     }
 
     public async Task<List<OpenDebtGroupDto>> GetOpenDebtGroupsAsync(
@@ -125,10 +131,9 @@ public class OpenDebtService : IOpenDebtService
         CreateOpenDebtDto dto,
         CancellationToken cancellationToken = default)
     {
-        var phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone);
-        if (string.IsNullOrWhiteSpace(phone))
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
         {
-            throw new ValidationException("יש להזין מספר טלפון תקין");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
 
         var customerName = (dto.CustomerName ?? string.Empty).Trim();
@@ -163,6 +168,13 @@ public class OpenDebtService : IOpenDebtService
 
         _db.CustomerDebts.Add(debt);
         await _db.SaveChangesAsync(cancellationToken);
+
+        await _customers.SyncFromWaitlistAsync(
+            phone,
+            customerName.Length == 0 ? null : customerName,
+            address.Length == 0 ? null : address,
+            ToSystemType(dto.Category),
+            cancellationToken);
 
         var groups = await GetOpenDebtGroupsAsync(cancellationToken);
         var group = groups.FirstOrDefault(g => g.DebtIds.Contains(debt.Id))
@@ -258,6 +270,13 @@ public class OpenDebtService : IOpenDebtService
         SystemType.Tools => DebtCategory.Tools,
         SystemType.Library => DebtCategory.Library,
         _ => DebtCategory.Amplification
+    };
+
+    private static SystemType ToSystemType(DebtCategory category) => category switch
+    {
+        DebtCategory.Tools => SystemType.Tools,
+        DebtCategory.Library => SystemType.Library,
+        _ => SystemType.Sound
     };
 
     private static string BuildOrderEquipmentSummary(Order order)

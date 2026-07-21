@@ -25,6 +25,7 @@ import {
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MultiSelect } from 'primeng/multiselect';
+import { forkJoin } from 'rxjs';
 import { finalize } from 'rxjs';
 import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
 
@@ -36,7 +37,13 @@ import {
   EquipmentDefinitionDeleteFutureOrder,
   EquipmentDefinitionDto
 } from '../../core/models/equipment-definition.model';
-import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
+import {
+  InventoryDefinitionDto,
+  InventoryHolderDto
+} from '../../core/models/inventory-definition.model';
+import {
+  ActiveOneTimeAccessoryLoanDto
+} from '../../core/models/equipment-return.model';
 import {
   LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
@@ -46,7 +53,10 @@ import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
-import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
+import {
+  InventoryDefinitionsStore,
+  LinkedAccessoryTypeOption
+} from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
@@ -92,13 +102,36 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly accessorySaving = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialLocationResult = signal<AccessorySerialLocationDto | null>(null);
+  /** Type-only locator result (no item code). */
+  protected readonly typeLocatorResult = signal<{
+    kind: 'catalog' | 'oneTime';
+    label: string;
+    quantity: number;
+    statusLabel: string;
+    holders: InventoryHolderDto[];
+    loans: ActiveOneTimeAccessoryLoanDto[];
+  } | null>(null);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialTypeQuery = signal('');
   protected readonly serialTypePickerOpen = signal(false);
+  protected readonly missingUnitDetails = signal<{
+    itemName: string;
+    holders: InventoryHolderDto[];
+    statusLabel: string;
+  } | null>(null);
+
+  /**
+   * Active free-text loans with no matching permanent inventory catalog row.
+   * Used by locator search only — not shown as separate grid rows.
+   */
+  protected readonly oneTimeAccessoryLoans = signal<ActiveOneTimeAccessoryLoanDto[]>([]);
+  protected readonly inventorySearchQuery = signal('');
+  protected readonly oneTimeLoanDetails = signal<ActiveOneTimeAccessoryLoanDto | null>(null);
+  protected readonly returningOneTimeKey = signal<string | null>(null);
 
   protected readonly serialSearchForm = this.fb.group({
-    inventoryDefinitionId: this.fb.control<number | null>(null, Validators.required),
-    serialCode: ['', Validators.required]
+    inventoryDefinitionId: this.fb.control<number | null>(null),
+    serialCode: ['']
   });
 
   /** Catalog options for איתור קוד פריט, filtered by typed query (catalog already A–Z). */
@@ -109,6 +142,46 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return all;
     }
     return all.filter((d) => d.displayName.toLowerCase().includes(query));
+  });
+
+  /** One-time loan names (not in catalog) offered in the type picker when typing. */
+  protected readonly filteredOneTimeTypeNames = computed(() => {
+    const query = this.serialTypeQuery().trim().toLowerCase();
+    const catalogNames = new Set(
+      this.inventoryCatalog().map((d) => d.displayName.trim().toLowerCase())
+    );
+    const names = [
+      ...new Set(
+        this.oneTimeAccessoryLoans()
+          .map((l) => (l.itemName ?? '').trim())
+          .filter((n) => n.length > 0 && !catalogNames.has(n.toLowerCase()))
+      )
+    ].sort((a, b) => a.localeCompare(b, 'he'));
+    if (!query) {
+      return names;
+    }
+    return names.filter((n) => n.toLowerCase().includes(query));
+  });
+
+  /** Permanent inventory catalog rows only, filtered by the shared search box. */
+  protected readonly filteredInventoryTableRows = computed(() => {
+    const query = this.inventorySearchQuery().trim().toLowerCase();
+    const digitsQuery = query.replace(/\D/g, '');
+    const defs = this.customInventoryDefinitions();
+
+    const catalogRows = defs.map((def, formIndex) => ({
+      kind: 'catalog' as const,
+      def,
+      formIndex
+    }));
+
+    if (!query) {
+      return catalogRows;
+    }
+
+    return catalogRows.filter(({ def }) =>
+      this.catalogRowMatchesSearch(def, query, digitsQuery)
+    );
   });
 
   protected readonly accessoryForm = this.fb.group({
@@ -152,6 +225,11 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   /** Key: `${type}|${serialCode}` (case-insensitive serial). */
   protected readonly defaultAccessoryCounts = signal<Map<string, number>>(new Map());
 
+  /** Fresh inventory catalog loaded from API whenever the modal opens. */
+  protected readonly defaultAccessoryCatalogLoading = signal(false);
+  protected readonly defaultAccessoryCatalogLoadFailed = signal(false);
+  protected readonly defaultAccessoryCatalog = signal<InventoryDefinitionDto[]>([]);
+
   protected readonly defaultAccessoryForm = this.fb.group({
     accessoryEquipmentType: this.fb.control<LoanedEquipmentType | null>(null, Validators.required),
     accessorySerialCodes: this.fb.nonNullable.control<string[]>([], nonEmptyStringArrayValidator)
@@ -160,11 +238,9 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   /** Mirrors the type dropdown so code options recompute reactively. */
   protected readonly defaultAccessorySelectedType = signal<LoanedEquipmentType | null>(null);
 
-  /** Accessory types eligible for Mixer defaults (excludes Mixer itself). */
+  /** Accessory types from the freshly loaded catalog (excludes Mixer). */
   protected readonly defaultAccessoryTypeOptions = computed(() =>
-    this.inventoryStore
-      .linkedTypeOptions()
-      .filter((o) => o.type !== LoanedEquipmentType.Mixer)
+    this.buildDefaultAccessoryTypeOptions(this.defaultAccessoryCatalog())
   );
 
   protected readonly defaultAccessoryCodeOptions = computed(() => {
@@ -172,7 +248,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     if (!type) {
       return [] as string[];
     }
-    const def = this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type);
+    const def = this.defaultAccessoryCatalog().find((d) => d.linkedEquipmentType === type);
     const assigned = new Set(
       this.defaultAccessoriesList()
         .filter((a) => a.accessoryEquipmentType === type)
@@ -180,7 +256,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     );
     return (def?.serialCodes ?? [])
       .map((c) => c.trim())
-      .filter((c) => c.length > 0 && !assigned.has(c.toLowerCase()));
+      .filter((c) => c.length > 0 && !assigned.has(c.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   });
 
   protected readonly deletingInventoryId = signal<number | null>(null);
@@ -254,6 +331,11 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected onSerialTypeQueryInput(value: string): void {
     this.serialTypeQuery.set(value);
     this.serialTypePickerOpen.set(true);
+    // Free-text typing clears a prior catalog selection so search resolves from the query.
+    const selected = this.selectedSerialTypeLabel();
+    if (selected && value.trim() !== selected.trim()) {
+      this.serialSearchForm.patchValue({ inventoryDefinitionId: null }, { emitEvent: false });
+    }
   }
 
   protected onSerialTypeFocus(): void {
@@ -278,29 +360,74 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.serialTypePickerOpen.set(false);
   }
 
+  protected onOneTimeTypeNameChosen(name: string): void {
+    this.serialSearchForm.patchValue({ inventoryDefinitionId: null });
+    this.serialTypeQuery.set(name);
+    this.serialTypePickerOpen.set(false);
+  }
+
   private syncSerialTypeQueryFromSelection(): void {
-    this.serialTypeQuery.set(this.selectedSerialTypeLabel());
+    const selected = this.selectedSerialTypeLabel();
+    if (selected) {
+      this.serialTypeQuery.set(selected);
+    }
   }
 
   protected searchSerialLocation(): void {
-    const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
     const serialCode = (this.serialSearchForm.controls.serialCode.value ?? '').trim();
-    if (id == null) {
+    const resolved = this.resolveSerialSearchTarget();
+
+    if (!resolved) {
       this.serialSearchForm.controls.inventoryDefinitionId.markAsTouched();
-      this.toast.error('יש לבחור סוג אביזר');
-      return;
-    }
-    if (!serialCode) {
-      this.serialSearchForm.controls.serialCode.markAsTouched();
-      this.toast.error('יש לבחור קוד פריט לחיפוש');
+      this.toast.error('יש לבחור או להזין סוג אביזר לחיפוש');
       return;
     }
 
-    const def = this.inventoryStore.byId(id);
-    if (!def) {
-      this.toast.error('פריט המלאי לא נמצא');
+    this.typeLocatorResult.set(null);
+    this.serialLocationResult.set(null);
+    this.inventorySearchQuery.set(resolved.label);
+
+    if (!serialCode) {
+      this.showTypeOnlySearchResult(resolved);
       return;
     }
+
+    if (resolved.kind === 'oneTime') {
+      this.serialSearchAttempted.set(true);
+      const loan = resolved.loans.find((l) =>
+        (l.serialCodes ?? []).some(
+          (c) => c.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
+        )
+      );
+      if (!loan) {
+        this.serialLocationResult.set({
+          equipmentType: LoanedEquipmentType.Connectors,
+          label: resolved.label,
+          serialCode,
+          isRegistered: false,
+          isInWarehouse: false,
+          isMissing: false
+        });
+        return;
+      }
+      this.serialLocationResult.set({
+        equipmentType: LoanedEquipmentType.Connectors,
+        label: resolved.label,
+        serialCode,
+        isRegistered: true,
+        isInWarehouse: false,
+        isMissing: false,
+        orderId: loan.orderId,
+        customerName: loan.customerName ?? null,
+        phone: loan.phone ?? null,
+        address: loan.address ?? null,
+        loanDate: loan.loanDate ?? null
+      });
+      return;
+    }
+
+    const def = resolved.def;
+    this.serialSearchForm.patchValue({ inventoryDefinitionId: def.id }, { emitEvent: false });
 
     const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
     if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
@@ -317,24 +444,123 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
-    // Custom (unlinked) inventory rows — location is derived from the catalog serials.
+    // Custom (unlinked) inventory rows — location is derived from catalog serial units.
     this.serialSearchAttempted.set(true);
-    const registered = (def.serialCodes ?? []).some(
-      (c) => c.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
+    const unit = (def.serialUnits ?? []).find(
+      (u) => u.serialCode.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
     );
+    const registered =
+      !!unit ||
+      (def.serialCodes ?? []).some(
+        (c) => c.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
+      );
+    const isMissing = unit?.physicalStatus === 'Missing';
+    const isLoaned = unit?.physicalStatus === 'LoanedOut';
     this.serialLocationResult.set({
       equipmentType: LoanedEquipmentType.Connectors,
       label: def.displayName,
       serialCode,
       isRegistered: registered,
-      isInWarehouse: registered
+      isInWarehouse: registered && !isMissing && !isLoaned,
+      isMissing,
+      customerName: unit?.holderCustomerName ?? null,
+      phone: unit?.holderPhone ?? null,
+      address: unit?.holderAddress ?? null,
+      loanDate: unit?.markedMissingAt ?? null,
+      notes: isMissing ? 'חסר / לא הוחזר' : null
+    });
+  }
+
+  private resolveSerialSearchTarget():
+    | { kind: 'catalog'; def: InventoryDefinitionDto; label: string }
+    | { kind: 'oneTime'; label: string; loans: ActiveOneTimeAccessoryLoanDto[] }
+    | null {
+    const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
+    if (id != null) {
+      const def = this.inventoryStore.byId(id);
+      if (def) {
+        return { kind: 'catalog', def, label: def.displayName };
+      }
+    }
+
+    const query = this.serialTypeQuery().trim();
+    if (!query) {
+      return null;
+    }
+
+    const lower = query.toLowerCase();
+    const catalog = this.inventoryCatalog();
+    const exact = catalog.find((d) => d.displayName.trim().toLowerCase() === lower);
+    if (exact) {
+      return { kind: 'catalog', def: exact, label: exact.displayName };
+    }
+
+    const partial = catalog.filter((d) => d.displayName.toLowerCase().includes(lower));
+    if (partial.length === 1) {
+      return { kind: 'catalog', def: partial[0], label: partial[0].displayName };
+    }
+    if (partial.length > 1) {
+      // Prefer exact-ish shortest name match when multiple partials exist.
+      const best = [...partial].sort(
+        (a, b) => a.displayName.length - b.displayName.length
+      )[0];
+      return { kind: 'catalog', def: best, label: best.displayName };
+    }
+
+    const loans = this.oneTimeAccessoryLoans().filter((l) =>
+      (l.itemName ?? '').toLowerCase().includes(lower)
+    );
+    if (loans.length > 0) {
+      const label =
+        loans.find((l) => (l.itemName ?? '').trim().toLowerCase() === lower)?.itemName?.trim() ||
+        loans[0].itemName.trim() ||
+        query;
+      return { kind: 'oneTime', label, loans };
+    }
+
+    return null;
+  }
+
+  private showTypeOnlySearchResult(
+    resolved:
+      | { kind: 'catalog'; def: InventoryDefinitionDto; label: string }
+      | { kind: 'oneTime'; label: string; loans: ActiveOneTimeAccessoryLoanDto[] }
+  ): void {
+    this.serialSearchAttempted.set(true);
+
+    if (resolved.kind === 'catalog') {
+      const def = resolved.def;
+      this.serialSearchForm.patchValue({ inventoryDefinitionId: def.id }, { emitEvent: false });
+      this.serialTypeQuery.set(def.displayName);
+      this.typeLocatorResult.set({
+        kind: 'catalog',
+        label: def.displayName,
+        quantity: def.totalQuantity ?? 0,
+        statusLabel: this.inventoryRowStatusLabel(def),
+        holders: def.activeHolders ?? [],
+        loans: []
+      });
+      return;
+    }
+
+    const outstanding = resolved.loans.reduce((sum, l) => sum + (l.outstandingQuantity || 0), 0);
+    this.typeLocatorResult.set({
+      kind: 'oneTime',
+      label: resolved.label,
+      quantity: outstanding,
+      statusLabel: 'בהשאלה',
+      holders: [],
+      loans: resolved.loans
     });
   }
 
   protected clearSerialSearch(): void {
     this.serialSearchAttempted.set(false);
     this.serialLocationResult.set(null);
-    this.serialSearchForm.patchValue({ serialCode: '' });
+    this.typeLocatorResult.set(null);
+    this.serialSearchForm.patchValue({ serialCode: '', inventoryDefinitionId: null });
+    this.serialTypeQuery.set('');
+    this.inventorySearchQuery.set('');
   }
 
   protected formatLocatorPhone(phone: string | null | undefined): string {
@@ -408,14 +634,138 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected loadAccessoryInventory(): void {
     this.accessoryLoading.set(true);
     this.inventoryStore.invalidate();
-    this.inventoryStore
-      .load({ force: true })
+    forkJoin({
+      inventory: this.inventoryStore.load({ force: true }),
+      oneTime: this.data.getActiveOneTimeAccessories()
+    })
       .pipe(finalize(() => this.accessoryLoading.set(false)))
-      .subscribe(() => {
+      .subscribe(({ oneTime }) => {
         const list = this.inventoryStore.definitions();
         this.customInventoryDefinitions.set(list);
         this.rebuildCustomInventoryRows(list);
         this.ensureSerialSearchSelection(list);
+        const catalogNames = new Set(
+          list.map((d) => d.displayName.trim().toLowerCase()).filter((n) => n.length > 0)
+        );
+        // Permanent catalog names are never treated as one-time rows.
+        this.oneTimeAccessoryLoans.set(
+          (oneTime ?? []).filter(
+            (l) => !catalogNames.has((l.itemName ?? '').trim().toLowerCase())
+          )
+        );
+      });
+  }
+
+  protected onInventorySearchInput(value: string): void {
+    this.inventorySearchQuery.set(value);
+  }
+
+  protected clearInventorySearch(): void {
+    this.inventorySearchQuery.set('');
+  }
+
+  private catalogRowMatchesSearch(
+    def: InventoryDefinitionDto,
+    query: string,
+    digitsQuery: string
+  ): boolean {
+    if (def.displayName.toLowerCase().includes(query)) {
+      return true;
+    }
+    const codes = [
+      ...(def.serialCodes ?? []),
+      ...(def.serialUnits ?? []).map((u) => u.serialCode)
+    ];
+    if (codes.some((c) => (c ?? '').toLowerCase().includes(query))) {
+      return true;
+    }
+    for (const holder of def.activeHolders ?? []) {
+      if ((holder.customerName ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      if ((holder.address ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      const phoneDigits = (holder.phone ?? '').replace(/\D/g, '');
+      if (digitsQuery && phoneDigits.includes(digitsQuery)) {
+        return true;
+      }
+      if ((holder.phone ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private oneTimeLoanMatchesSearch(
+    loan: ActiveOneTimeAccessoryLoanDto,
+    query: string,
+    digitsQuery: string
+  ): boolean {
+    if ((loan.itemName ?? '').toLowerCase().includes(query)) {
+      return true;
+    }
+    if ((loan.customerName ?? '').toLowerCase().includes(query)) {
+      return true;
+    }
+    if ((loan.address ?? '').toLowerCase().includes(query)) {
+      return true;
+    }
+    const phoneDigits = (loan.phone ?? '').replace(/\D/g, '');
+    if (digitsQuery && phoneDigits.includes(digitsQuery)) {
+      return true;
+    }
+    if ((loan.phone ?? '').toLowerCase().includes(query)) {
+      return true;
+    }
+    return (loan.serialCodes ?? []).some((c) => (c ?? '').toLowerCase().includes(query));
+  }
+
+  protected oneTimeLoanKey(loan: ActiveOneTimeAccessoryLoanDto): string {
+    return `${loan.orderId}:${loan.loanedEquipmentId}`;
+  }
+
+  protected openOneTimeLoanDetails(loan: ActiveOneTimeAccessoryLoanDto): void {
+    this.oneTimeLoanDetails.set(loan);
+  }
+
+  protected closeOneTimeLoanDetails(): void {
+    this.oneTimeLoanDetails.set(null);
+  }
+
+  protected markOneTimeLoanReturned(loan: ActiveOneTimeAccessoryLoanDto): void {
+    if (this.returningOneTimeKey() !== null) {
+      return;
+    }
+
+    const assignedCodes = (loan.serialCodes ?? [])
+      .map((c) => (c ?? '').trim())
+      .filter((c) => c.length > 0);
+    const hasSerializedLine = assignedCodes.length > 0;
+    const quantityReturned = hasSerializedLine
+      ? assignedCodes.length
+      : Math.max(loan.quantity, loan.outstandingQuantity);
+
+    const key = this.oneTimeLoanKey(loan);
+    this.returningOneTimeKey.set(key);
+    this.data
+      .recordOrderReturn(loan.orderId, {
+        items: [
+          {
+            loanedEquipmentId: loan.loanedEquipmentId,
+            quantityReturned,
+            ...(hasSerializedLine ? { returnedSerialCodes: [...assignedCodes] } : {})
+          }
+        ]
+      })
+      .pipe(finalize(() => this.returningOneTimeKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.toast.success('הפריט סומן כהוחזר');
+        this.closeOneTimeLoanDetails();
+        this.loadAccessoryInventory();
       });
   }
 
@@ -474,6 +824,57 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     return String(this.customInventoryCodesArray(rowIndex).at(codeIndex)?.value ?? '').trim();
   }
 
+  protected inventoryRowStatusLabel(def: InventoryDefinitionDto): string {
+    return (def.aggregateStatusLabel ?? '').trim() || 'זמין';
+  }
+
+  protected inventoryRowStatusClass(def: InventoryDefinitionDto): string {
+    const status = def.aggregateStatus ?? 'InWarehouse';
+    if (status === 'Missing') {
+      return 'inventory-row-status inventory-row-status--missing';
+    }
+    if (status === 'LoanedOut') {
+      return 'inventory-row-status inventory-row-status--loaned';
+    }
+    return 'inventory-row-status inventory-row-status--available';
+  }
+
+  protected inventoryRowHasHolders(def: InventoryDefinitionDto): boolean {
+    return (def.activeHolders ?? []).length > 0;
+  }
+
+  protected openInventoryHolders(def: InventoryDefinitionDto): void {
+    const holders = def.activeHolders ?? [];
+    if (holders.length === 0) {
+      this.toast.show('אין פרטי השאלה או חוסר לפריט זה', 'info');
+      return;
+    }
+    this.missingUnitDetails.set({
+      itemName: def.displayName,
+      holders,
+      statusLabel: this.inventoryRowStatusLabel(def)
+    });
+  }
+
+  protected closeMissingUnitDetails(): void {
+    this.missingUnitDetails.set(null);
+  }
+
+  protected formatMissingMarkedAt(iso: string | null | undefined): string {
+    const value = (iso ?? '').trim();
+    if (!value) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(value);
+    if (!date) {
+      return value;
+    }
+    const heb = this.hebrew.toHebrew(date);
+    return heb
+      ? `${this.hebrew.formatGregorianWithDayName(date)} · ${heb}`
+      : this.hebrew.formatGregorianWithDayName(date);
+  }
+
   protected openDefaultAccessoriesForUnit(
     def: InventoryDefinitionDto,
     rowIndex: number,
@@ -500,7 +901,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     });
     this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
     this.defaultAccessoriesOpen.set(true);
-    this.reloadDefaultAccessoriesList(parent, parentSerial);
+    this.loadDefaultAccessoriesModalData(parent, parentSerial);
   }
 
   protected closeDefaultAccessories(): void {
@@ -509,10 +910,75 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.defaultAccessoriesParentSerial.set('');
     this.defaultAccessoriesList.set([]);
     this.defaultAccessorySelectedType.set(null);
+    this.defaultAccessoryCatalog.set([]);
+    this.defaultAccessoryCatalogLoadFailed.set(false);
     this.defaultAccessoryForm.reset({
       accessoryEquipmentType: null,
       accessorySerialCodes: []
     });
+  }
+
+  /** Loads assigned defaults + fresh inventory catalog from the server on every open. */
+  private loadDefaultAccessoriesModalData(
+    parent: LoanedEquipmentType,
+    parentSerial: string
+  ): void {
+    this.defaultAccessoriesLoading.set(true);
+    this.defaultAccessoryCatalogLoading.set(true);
+    this.defaultAccessoryCatalogLoadFailed.set(false);
+    this.defaultAccessoryCatalog.set([]);
+
+    forkJoin({
+      catalog: this.data.fetchInventoryDefinitionsCatalog(),
+      assigned: this.data.getEquipmentDefaultAccessories(parent, parentSerial)
+    })
+      .pipe(
+        finalize(() => {
+          this.defaultAccessoriesLoading.set(false);
+          this.defaultAccessoryCatalogLoading.set(false);
+        })
+      )
+      .subscribe({
+        next: ({ catalog, assigned }) => {
+          this.defaultAccessoryCatalog.set(catalog ?? []);
+          this.defaultAccessoriesList.set(assigned ?? []);
+          this.defaultAccessoryCounts.update((map) => {
+            const next = new Map(map);
+            next.set(this.defaultAccessoryCountKey(parent, parentSerial), (assigned ?? []).length);
+            return next;
+          });
+
+          const selectedType = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
+          if (
+            selectedType &&
+            !this.defaultAccessoryTypeOptions().some((o) => o.type === selectedType)
+          ) {
+            this.onDefaultAccessoryTypeChange();
+          }
+        },
+        error: () => {
+          this.defaultAccessoryCatalogLoadFailed.set(true);
+          this.toast.error('טעינת מלאי האביזרים נכשלה');
+        }
+      });
+  }
+
+  private buildDefaultAccessoryTypeOptions(
+    defs: InventoryDefinitionDto[]
+  ): LinkedAccessoryTypeOption[] {
+    const options: LinkedAccessoryTypeOption[] = [];
+    for (const def of defs) {
+      const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
+      if (!linked || !LOANED_EQUIPMENT_ORDER.includes(linked) || linked === LoanedEquipmentType.Mixer) {
+        continue;
+      }
+      options.push({
+        type: linked,
+        label: def.displayName?.trim() || LOANED_EQUIPMENT_LABELS[linked],
+        inventoryDefinitionId: def.id
+      });
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label, 'he'));
   }
 
   private reloadDefaultAccessoriesList(
@@ -623,11 +1089,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       this.syncSerialTypeQueryFromSelection();
       return;
     }
-    this.serialSearchForm.patchValue(
-      { inventoryDefinitionId: list[0]?.id ?? null },
-      { emitEvent: false }
-    );
-    this.syncSerialTypeQueryFromSelection();
+    // Do not auto-select a type — search starts empty so type-only / free-text lookup works.
+    this.serialSearchForm.patchValue({ inventoryDefinitionId: null }, { emitEvent: false });
   }
 
   private rebuildCustomInventoryRows(defs: InventoryDefinitionDto[]): void {
@@ -768,14 +1231,20 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   private buildCustomInventoryRow(def: InventoryDefinitionDto): FormGroup {
     const codes = (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
-    const codesFa = this.fb.array<FormControl<string>>(
-      codes.map((code) => this.fb.nonNullable.control(code, [Validators.maxLength(100)]))
-    );
+    const linked = def.linkedEquipmentType ?? null;
+    const quantity = Math.max(def.totalQuantity ?? 0, codes.length);
+    // Linked types keep one code input per unit; custom/unlinked rows only show codes that exist.
+    const codeControls = linked
+      ? Array.from({ length: quantity }, (_, i) =>
+          this.fb.nonNullable.control(codes[i] ?? '', [Validators.maxLength(100)])
+        )
+      : codes.map((code) => this.fb.nonNullable.control(code, [Validators.maxLength(100)]));
+    const codesFa = this.fb.array<FormControl<string>>(codeControls);
     return this.fb.group({
       id: this.fb.nonNullable.control(def.id),
       displayName: this.fb.nonNullable.control(def.displayName),
-      linkedEquipmentType: this.fb.control<string | null>(def.linkedEquipmentType ?? null),
-      quantity: this.fb.control(codes.length, [Validators.min(0)]),
+      linkedEquipmentType: this.fb.control<string | null>(linked),
+      quantity: this.fb.control(quantity, [Validators.min(0)]),
       codes: codesFa
     });
   }
@@ -810,6 +1279,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     if (!codes) {
       return;
     }
+
+    const linked = group.get('linkedEquipmentType')?.value;
+    // Custom / unlinked rows track quantity without forcing empty serial inputs.
+    if (!linked) {
+      return;
+    }
+
     while (codes.length < length) {
       codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
     }
@@ -824,26 +1300,38 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .subscribe(() => {
         this.serialSearchForm.patchValue({ serialCode: '' }, { emitEvent: false });
         this.serialLocationResult.set(null);
+        this.typeLocatorResult.set(null);
         this.serialSearchAttempted.set(false);
       });
   }
 
   protected saveAccessoryInventory(): void {
-    const payloads: { id: number; codes: string[]; label: string; linked: string | null }[] = [];
+    const payloads: {
+      id: number;
+      codes: string[];
+      quantity: number;
+      label: string;
+      linked: string | null;
+    }[] = [];
 
     for (let i = 0; i < this.customInventoryRows().length; i++) {
       const group = this.customInventoryRowGroup(i);
       const id = Number(group.get('id')?.value);
       const label = String(group.get('displayName')?.value ?? '');
       const linked = (group.get('linkedEquipmentType')?.value as string | null) ?? null;
+      const quantity = this.toNonNegativeInteger(group.get('quantity')?.value);
       const codesFa = this.customInventoryCodesArray(i);
       const serialCodes: string[] = [];
 
       for (let c = 0; c < codesFa.length; c++) {
         const raw = String(codesFa.at(c).value ?? '').trim();
         if (raw.length === 0) {
-          this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
-          return;
+          // Linked types still require a code per unit; custom rows allow blank/omitted codes.
+          if (linked) {
+            this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
+            return;
+          }
+          continue;
         }
         if (linked && !this.isValidAccessorySerialCode(linked as LoanedEquipmentType, raw)) {
           this.toast.error(
@@ -860,13 +1348,17 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         serialCodes.push(raw);
       }
 
-      payloads.push({ id, codes: serialCodes, label, linked });
+      payloads.push({ id, codes: serialCodes, quantity, label, linked });
     }
 
     this.accessorySaving.set(true);
     this.data
       .updateInventoryDefinitionsBatch({
-        items: payloads.map((p) => ({ id: p.id, serialCodes: p.codes }))
+        items: payloads.map((p) => ({
+          id: p.id,
+          serialCodes: p.codes,
+          quantity: p.linked ? p.codes.length : p.quantity
+        }))
       })
       .pipe(finalize(() => this.accessorySaving.set(false)))
       .subscribe({
@@ -1088,13 +1580,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     const quantity = this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value);
     const rawCodes =
       quantity > 0
-        ? this.addInventoryCodes().controls.map((c) => String(c.value ?? '').trim())
+        ? this.addInventoryCodes()
+            .controls.map((c) => String(c.value ?? '').trim())
+            .filter((c) => c.length > 0)
         : [];
 
-    // Duplicates among filled codes only — blanks are filled by the API.
-    const filled = rawCodes.filter((c) => c.length > 0);
-    const unique = new Set(filled.map((c) => c.toLowerCase()));
-    if (unique.size !== filled.length) {
+    const unique = new Set(rawCodes.map((c) => c.toLowerCase()));
+    if (unique.size !== rawCodes.length) {
       this.toast.error('קיימים קודי פריט כפולים בטופס');
       return;
     }
@@ -1104,6 +1596,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .createInventoryDefinition({
         displayName,
         quantity,
+        // Only send filled codes — blanks are not auto-generated for custom items.
         serialCodes: rawCodes
       })
       .pipe(finalize(() => this.inventorySaving.set(false)))

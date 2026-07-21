@@ -1,4 +1,7 @@
-﻿namespace SoundRent.Api.Application.DTOs;
+﻿using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Application.Validation;
+
+namespace SoundRent.Api.Application.DTOs;
 
 public class BookDto
 {
@@ -18,6 +21,13 @@ public class BookCreateDto
     public string? Category { get; set; }
     public int? Quantity { get; set; }
     public List<string>? Copies { get; set; }
+}
+
+public class BookImportResultDto
+{
+    public int ImportedCount { get; set; }
+    public int SkippedCount { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class BookUpdateDto
@@ -108,7 +118,7 @@ public class BookLoanItemCreateDto
     public string CopyNumber { get; set; } = string.Empty;
 }
 
-public class BookLoanCreateDto
+public class BookLoanCreateDto : IValidatableObject
 {
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
@@ -119,6 +129,23 @@ public class BookLoanCreateDto
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public DateTime? DeadlineAt { get; set; }
     public List<BookLoanItemCreateDto> Items { get; set; } = new();
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone) });
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(Phone2, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone2) });
+        }
+    }
 }
 
 public class BookLoanReturnDto

@@ -89,6 +89,15 @@ public class OrdersController : ControllerBase
         return Ok(orders);
     }
 
+    /// <summary>Active free-text (one-time) accessory loans with no inventory catalog row.</summary>
+    [HttpGet("active-one-time-accessories")]
+    public async Task<ActionResult<List<ActiveOneTimeAccessoryLoanDto>>> GetActiveOneTimeAccessories(
+        CancellationToken cancellationToken)
+    {
+        var items = await _orderService.GetActiveOneTimeAccessoryLoansAsync(cancellationToken);
+        return Ok(items);
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<OrderDto>> GetById(int id, CancellationToken cancellationToken)
     {

@@ -63,18 +63,16 @@ public static class OrderMapper
         Quantity = le.Quantity,
         ReturnedQuantity = le.ReturnedQuantity,
         ExpectedNoteCount = le.ExpectedNoteCount,
-        Notes = le.IsCustomItem
-            ? new List<LoanedEquipmentNoteDto>()
-            : le.Notes
-                .OrderBy(n => n.Ordinal)
-                .Select(n => new LoanedEquipmentNoteDto
-                {
-                    Id = n.Id,
-                    Ordinal = n.Ordinal,
-                    Content = n.Content,
-                    IsReturned = n.IsReturned
-                })
-                .ToList()
+        Notes = le.Notes
+            .OrderBy(n => n.Ordinal)
+            .Select(n => new LoanedEquipmentNoteDto
+            {
+                Id = n.Id,
+                Ordinal = n.Ordinal,
+                Content = n.Content,
+                IsReturned = n.IsReturned
+            })
+            .ToList()
     };
 
     public static Order ToEntity(OrderCreateUpdateDto dto) => new()
@@ -117,15 +115,24 @@ public static class OrderMapper
     {
         if (dto.IsCustomItem)
         {
-            return new OrderLoanedEquipment
+            var customExpected = Math.Max(0, dto.ExpectedNoteCount);
+            if (customExpected == 0 && dto.Notes is { Count: > 0 })
+            {
+                customExpected = dto.Notes.Count;
+            }
+
+            var customEntity = new OrderLoanedEquipment
             {
                 IsCustomItem = true,
                 CustomItemName = NullIfBlank(dto.CustomItemName),
                 Quantity = Math.Max(0, dto.Quantity),
                 ReturnedQuantity = 0,
-                ExpectedNoteCount = 0,
+                ExpectedNoteCount = customExpected,
                 Notes = new List<LoanedEquipmentNote>()
             };
+
+            AddLoanedEquipmentNotesFromDto(customEntity.Notes, dto, customExpected);
+            return customEntity;
         }
 
         var expected = Math.Max(0, dto.ExpectedNoteCount);
@@ -140,20 +147,7 @@ public static class OrderMapper
             Notes = new List<LoanedEquipmentNote>()
         };
 
-        var byOrdinal = (dto.Notes ?? [])
-            .GroupBy(n => n.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        for (var i = 0; i < expected; i++)
-        {
-            byOrdinal.TryGetValue(i, out var noteDto);
-            entity.Notes.Add(new LoanedEquipmentNote
-            {
-                Ordinal = i,
-                Content = NullIfBlank(noteDto?.Content)
-            });
-        }
-
+        AddLoanedEquipmentNotesFromDto(entity.Notes, dto, expected);
         return entity;
     }
 
@@ -218,5 +212,26 @@ public static class OrderMapper
         return dto.ReturnTimeType == ReturnTimeType.SpecificTime
             ? NullIfBlank(dto.CustomReturnTime)
             : null;
+    }
+
+    private static void AddLoanedEquipmentNotesFromDto(
+        ICollection<LoanedEquipmentNote> target,
+        OrderLoanedEquipmentDto dto,
+        int expected)
+    {
+        var byOrdinal = (dto.Notes ?? [])
+            .GroupBy(n => n.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        for (var i = 0; i < expected; i++)
+        {
+            byOrdinal.TryGetValue(i, out var noteDto);
+            target.Add(new LoanedEquipmentNote
+            {
+                Ordinal = i,
+                Content = NullIfBlank(noteDto?.Content),
+                IsReturned = noteDto?.IsReturned ?? false
+            });
+        }
     }
 }

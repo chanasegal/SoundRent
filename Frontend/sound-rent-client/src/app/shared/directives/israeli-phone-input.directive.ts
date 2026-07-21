@@ -9,8 +9,8 @@ import {
 /**
  * Real-time Israeli phone input mask:
  * - Digits only
- * - Landline prefixes (`02`/`03`/`04`/`07`/`08`/`09`) → max 9 digits
- * - Mobile prefix (`05`) → max 10 digits
+ * - Regional landline prefixes (`02`/`03`/`04`/`08`/`09`) → max 9 digits
+ * - Cellular / VoIP prefixes (`05`/`07`) → max 10 digits
  * - Truncates on paste / fast input; blocks further digit keypresses at the limit
  *
  * @example

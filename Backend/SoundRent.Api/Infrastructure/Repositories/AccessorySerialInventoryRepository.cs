@@ -121,7 +121,9 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
         CancellationToken cancellationToken = default)
     {
         var query = _db.AccessorySerialInventory.AsNoTracking()
-            .Where(r => r.PhysicalStatus == AccessorySerialPhysicalStatus.LoanedOut);
+            .Where(r =>
+                r.PhysicalStatus == AccessorySerialPhysicalStatus.LoanedOut
+                || r.PhysicalStatus == AccessorySerialPhysicalStatus.Missing);
 
         if (typesFilter is { Count: > 0 })
         {
@@ -244,6 +246,33 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
             };
         }
 
+        if (inventory.PhysicalStatus == AccessorySerialPhysicalStatus.Missing)
+        {
+            var missingRows = await _db.ManualUnreturnedItems
+                .AsNoTracking()
+                .Where(m => !m.IsResolved && m.ItemCode != null && m.ItemCode != "")
+                .OrderByDescending(m => m.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            var missingMatch = missingRows.FirstOrDefault(m =>
+                string.Equals(m.ItemCode!.Trim(), code, StringComparison.OrdinalIgnoreCase)
+                && (m.LoanedEquipmentType == null || m.LoanedEquipmentType == equipmentType));
+
+            return new AccessorySerialLocationQueryResult
+            {
+                EquipmentType = equipmentType,
+                SerialCode = inventory.SerialCode,
+                PhysicalStatus = inventory.PhysicalStatus,
+                CustomerName = missingMatch?.CustomerName,
+                Phone = missingMatch?.Phone,
+                Address = missingMatch?.Address,
+                Notes = "חסר / לא הוחזר",
+                LoanDate = missingMatch is null
+                    ? null
+                    : DateOnly.FromDateTime(missingMatch.CreatedAt.ToUniversalTime())
+            };
+        }
+
         var activeAssignment = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
@@ -341,6 +370,17 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
 
         if (row is null)
         {
+            if (status == AccessorySerialPhysicalStatus.InWarehouse)
+            {
+                return;
+            }
+
+            _db.AccessorySerialInventory.Add(new AccessorySerialInventory
+            {
+                EquipmentType = equipmentType,
+                SerialCode = code,
+                PhysicalStatus = status
+            });
             return;
         }
 

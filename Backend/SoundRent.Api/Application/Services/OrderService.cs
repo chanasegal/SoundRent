@@ -14,6 +14,7 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IEquipmentDefinitionRepository _equipmentDefinitions;
+    private readonly IInventoryDefinitionService _inventoryDefinitions;
     private readonly ICustomerService _customerService;
     private readonly IBlockedDateRepository _blockedDates;
     private readonly IAccessorySerialInventoryService _accessorySerialInventory;
@@ -22,6 +23,7 @@ public class OrderService : IOrderService
     public OrderService(
         IOrderRepository orderRepository,
         IEquipmentDefinitionRepository equipmentDefinitions,
+        IInventoryDefinitionService inventoryDefinitions,
         ICustomerService customerService,
         IBlockedDateRepository blockedDates,
         IAccessorySerialInventoryService accessorySerialInventory,
@@ -29,6 +31,7 @@ public class OrderService : IOrderService
     {
         _orderRepository = orderRepository;
         _equipmentDefinitions = equipmentDefinitions;
+        _inventoryDefinitions = inventoryDefinitions;
         _customerService = customerService;
         _blockedDates = blockedDates;
         _accessorySerialInventory = accessorySerialInventory;
@@ -336,6 +339,12 @@ public class OrderService : IOrderService
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
+    public Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.GetActiveOneTimeAccessoryLoansAsync(cancellationToken);
+    }
+
     public async Task<OrderDto> CancelOrderAsync(int id, CancellationToken cancellationToken = default)
     {
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
@@ -350,6 +359,73 @@ public class OrderService : IOrderService
         await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
+    }
+
+    public async Task<OrderDto> CreateManualCancelledOrderAsync(
+        CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
+        if (equipmentIds.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות ציוד אחד");
+        }
+
+        foreach (var equipmentId in equipmentIds)
+        {
+            if (!await _equipmentDefinitions.ExistsAsync(equipmentId, cancellationToken))
+            {
+                throw new ValidationException($"ציוד '{equipmentId}' לא נמצא");
+            }
+        }
+
+        if (dto.EndDate < dto.StartDate)
+        {
+            throw new ValidationException("תאריך הסיום חייב להיות אחרי או שווה לתאריך ההתחלה");
+        }
+
+        var shifts = GenerateContinuousShifts(
+            dto.StartDate,
+            TimeSlot.Morning,
+            dto.EndDate,
+            dto.EndDate == dto.StartDate ? TimeSlot.Morning : TimeSlot.Evening);
+
+        var entity = new Order
+        {
+            CustomerName = TrimOrNull(dto.CustomerName),
+            Phone = phone,
+            Address = TrimOrNull(dto.Address),
+            PaymentAmount = dto.TotalAmount,
+            IsUnpaid = false,
+            IsCancelled = true,
+            ReturnTimeType = ReturnTimeType.LateNight,
+            SystemType = dto.SystemType,
+            Equipments = equipmentIds.Select(OrderMapper.ToEntity).ToList(),
+            Shifts = shifts.Select(OrderMapper.ToEntity).ToList()
+        };
+
+        await _orderRepository.AddAsync(entity, cancellationToken);
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+
+        var syncDto = new OrderCreateUpdateDto
+        {
+            CustomerName = entity.CustomerName,
+            Phone = entity.Phone,
+            Address = entity.Address,
+            EquipmentDefinitionIds = equipmentIds.ToList(),
+            Shifts = shifts,
+            PaymentAmount = entity.PaymentAmount,
+            IsUnpaid = false,
+            SystemType = entity.SystemType
+        };
+        await _customerService.SyncFromOrderAsync(syncDto, cancellationToken);
+
+        return OrderMapper.ToDto(entity);
     }
 
     public async Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default)
@@ -417,15 +493,23 @@ public class OrderService : IOrderService
                         $"כמות הקודים שהוחזרו עבור {label} חייבת להתאים לכמות שהוחזרה");
                 }
 
-                if (returnedCodes.Count > line.Quantity)
+                var previouslyReturned = GetReturnedSerialCodes(line);
+
+                // Partial returns are additive: newly returned codes merge with codes already marked returned.
+                // This keeps sibling codes (e.g. 12) active when only code 13 is returned in this request.
+                var mergedReturned = previouslyReturned
+                    .Concat(returnedCodes)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (mergedReturned.Count > line.Quantity)
                 {
                     throw new ValidationException(
                         $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
                 }
 
-                var previouslyReturned = GetReturnedSerialCodes(line);
-                ApplyReturnedSerialCodes(line, assignedCodes, returnedCodes);
-                line.ReturnedQuantity = returnedCodes.Count;
+                ApplyReturnedSerialCodes(line, assignedCodes, mergedReturned);
+                line.ReturnedQuantity = mergedReturned.Count;
                 if (line.LoanedEquipmentType is LoanedEquipmentType equipmentType)
                 {
                     foreach (var code in returnedCodes)
@@ -449,7 +533,8 @@ public class OrderService : IOrderService
             line.ReturnedQuantity = item.QuantityReturned;
         }
 
-        existing.IsReturnProcessed = true;
+        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
+            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
         await _accessorySerialInventory.ReleaseReturnedSerialsAsync(returnedSerials, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
@@ -597,16 +682,93 @@ public class OrderService : IOrderService
         return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
     }
 
-    public Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
+    public async Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
         CreateManualUnreturnedItemDto dto,
         CancellationToken cancellationToken = default)
     {
-        return _orderRepository.CreateManualUnreturnedItemAsync(dto, cancellationToken);
+        // Ensure custom catalog items exist in inventory before the manual row is saved.
+        if (dto.InventoryDefinitionId is not > 0 && !string.IsNullOrWhiteSpace(dto.ItemName))
+        {
+            var ensured = await _inventoryDefinitions.EnsureByDisplayNameAsync(
+                dto.ItemName.Trim(),
+                cancellationToken);
+            dto.InventoryDefinitionId = ensured.Id;
+            dto.ItemName = ensured.DisplayName;
+            dto.LoanedEquipmentType ??= ensured.LinkedEquipmentType;
+        }
+
+        var created = await _orderRepository.CreateManualUnreturnedItemAsync(dto, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(dto.Phone))
+        {
+            await _customerService.SyncFromWaitlistAsync(
+                dto.Phone,
+                dto.CustomerName,
+                dto.Address,
+                SystemType.Sound,
+                cancellationToken);
+        }
+
+        var code = (dto.ItemCode ?? string.Empty).Trim();
+        if (code.Length > 0)
+        {
+            if (dto.LoanedEquipmentType is LoanedEquipmentType linked)
+            {
+                await _accessorySerialInventory.SetPhysicalStatusAsync(
+                    linked,
+                    code,
+                    AccessorySerialPhysicalStatus.Missing,
+                    cancellationToken);
+            }
+            else if (dto.InventoryDefinitionId is > 0)
+            {
+                await _inventoryDefinitions.MarkSerialMissingAsync(
+                    dto.InventoryDefinitionId.Value,
+                    code,
+                    cancellationToken);
+            }
+        }
+
+        return created;
     }
 
-    public Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    public async Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
     {
-        return _orderRepository.ResolveManualUnreturnedItemAsync(manualItemId, cancellationToken);
+        var items = await _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
+        var match = items.FirstOrDefault(i => i.ManualItemId == manualItemId);
+
+        await _orderRepository.ResolveManualUnreturnedItemAsync(manualItemId, cancellationToken);
+
+        if (match is null)
+        {
+            return;
+        }
+
+        var code = (match.MissingSerialCodes?.FirstOrDefault()
+                    ?? match.AssignedSerialCodes?.FirstOrDefault()
+                    ?? string.Empty).Trim();
+        if (code.Length == 0)
+        {
+            return;
+        }
+
+        if (match.LoanedEquipmentType is LoanedEquipmentType linked)
+        {
+            await _accessorySerialInventory.SetPhysicalStatusAsync(
+                linked,
+                code,
+                AccessorySerialPhysicalStatus.InWarehouse,
+                cancellationToken);
+            return;
+        }
+
+        if (match.InventoryDefinitionId is > 0)
+        {
+            await _inventoryDefinitions.RestoreSerialAsync(
+                match.InventoryDefinitionId.Value,
+                code,
+                cancellationToken);
+        }
     }
 
     private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractAssignedSerialCodesByType(Order order)
@@ -869,6 +1031,14 @@ public class OrderService : IOrderService
                 line = order.LoanedEquipments.FirstOrDefault(l => !l.IsCustomItem && l.LoanedEquipmentType == type);
             }
 
+            if (line is null && dto.IsCustomItem && !string.IsNullOrWhiteSpace(dto.CustomItemName))
+            {
+                var customName = dto.CustomItemName.Trim();
+                line = order.LoanedEquipments.FirstOrDefault(l =>
+                    l.IsCustomItem
+                    && string.Equals(l.CustomItemName?.Trim(), customName, StringComparison.OrdinalIgnoreCase));
+            }
+
             if (line is not null)
             {
                 var returned = line.ReturnedQuantity;
@@ -904,7 +1074,12 @@ public class OrderService : IOrderService
             line.CustomItemName = dto.CustomItemName?.Trim();
             line.LoanedEquipmentType = null;
             line.Quantity = dto.Quantity;
-            line.ExpectedNoteCount = 0;
+            line.ExpectedNoteCount = Math.Max(0, dto.ExpectedNoteCount);
+            if (line.ExpectedNoteCount == 0 && dto.Notes is { Count: > 0 })
+            {
+                line.ExpectedNoteCount = dto.Notes.Count;
+            }
+
             return;
         }
 
@@ -917,12 +1092,6 @@ public class OrderService : IOrderService
 
     private static void ApplyLoanedEquipmentNotesToLine(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
     {
-        if (dto.IsCustomItem)
-        {
-            line.Notes.Clear();
-            return;
-        }
-
         var replacementNotes = BuildLoanedEquipmentNotes(dto);
         line.Notes.Clear();
         foreach (var note in replacementNotes)
@@ -934,6 +1103,11 @@ public class OrderService : IOrderService
     private static List<LoanedEquipmentNote> BuildLoanedEquipmentNotes(OrderLoanedEquipmentDto dto)
     {
         var expected = Math.Max(0, dto.ExpectedNoteCount);
+        if (expected == 0 && dto.Notes is { Count: > 0 })
+        {
+            expected = dto.Notes.Count;
+        }
+
         var byOrdinal = (dto.Notes ?? [])
             .GroupBy(n => n.Ordinal)
             .ToDictionary(g => g.Key, g => g.First());
@@ -1199,5 +1373,11 @@ public class OrderService : IOrderService
     private static int ShiftOrder(TimeSlot shift)
     {
         return shift == TimeSlot.Morning ? 1 : 2;
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return trimmed.Length == 0 ? null : trimmed;
     }
 }

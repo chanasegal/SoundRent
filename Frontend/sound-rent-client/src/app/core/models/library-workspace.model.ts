@@ -16,6 +16,12 @@ export interface BookCreateDto {
   copies?: string[];
 }
 
+export interface BookImportResultDto {
+  importedCount: number;
+  skippedCount: number;
+  message: string;
+}
+
 export interface BookUpdateDto {
   title: string;
   author?: string | null;

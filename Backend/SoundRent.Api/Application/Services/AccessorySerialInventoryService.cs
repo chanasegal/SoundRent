@@ -133,6 +133,7 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
             SerialCode = location.SerialCode,
             IsRegistered = true,
             IsInWarehouse = location.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
+            IsMissing = location.PhysicalStatus == AccessorySerialPhysicalStatus.Missing,
             OrderId = location.ActiveOrderId,
             CustomerName = location.CustomerName,
             Phone = location.Phone,
@@ -299,6 +300,16 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
                     cancellationToken);
             }
         }
+    }
+
+    public async Task SetPhysicalStatusAsync(
+        LoanedEquipmentType equipmentType,
+        string serialCode,
+        AccessorySerialPhysicalStatus status,
+        CancellationToken cancellationToken = default)
+    {
+        await _repository.SetPhysicalStatusAsync(equipmentType, serialCode, status, cancellationToken);
+        await _repository.SaveChangesAsync(cancellationToken);
     }
 
     public async Task ValidateReturnedSerialGuardrailsAsync(

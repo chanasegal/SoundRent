@@ -650,6 +650,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int?>("LinkedEquipmentType")
                         .HasColumnType("integer");
 
+                    b.Property<int>("Quantity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -916,8 +921,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int?>("InventoryDefinitionId")
                         .HasColumnType("integer");
@@ -926,7 +939,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("ItemCode")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -937,6 +949,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.Property<int?>("LoanedEquipmentType")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 

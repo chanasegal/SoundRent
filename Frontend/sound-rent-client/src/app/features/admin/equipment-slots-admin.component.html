@@ -124,7 +124,7 @@
               (blur)="onSerialTypeBlur()"
             />
             @if (serialTypePickerOpen()) {
-              @if (filteredSerialTypes().length > 0) {
+              @if (filteredSerialTypes().length > 0 || filteredOneTimeTypeNames().length > 0) {
                 <ul id="serial-search-type-options" class="serial-locator__options" role="listbox">
                   @for (def of filteredSerialTypes(); track def.id) {
                     <li role="option">
@@ -141,8 +141,20 @@
                       </button>
                     </li>
                   }
+                  @for (name of filteredOneTimeTypeNames(); track name) {
+                    <li role="option">
+                      <button
+                        type="button"
+                        class="serial-locator__option"
+                        (mousedown)="$event.preventDefault()"
+                        (click)="onOneTimeTypeNameChosen(name)"
+                      >
+                        {{ name }}
+                      </button>
+                    </li>
+                  }
                 </ul>
-              } @else if (inventoryCatalog().length === 0) {
+              } @else if (inventoryCatalog().length === 0 && oneTimeAccessoryLoans().length === 0) {
                 <p class="serial-locator__hint">אין סוגי אביזרים במלאי</p>
               } @else {
                 <p class="serial-locator__hint">לא נמצא סוג אביזר תואם</p>
@@ -151,7 +163,9 @@
           </div>
         </div>
         <div class="serial-locator__field serial-locator__field--code">
-          <label class="serial-locator__label" for="serial-search-code">קוד פריט</label>
+          <label class="serial-locator__label" for="serial-search-code">
+            קוד פריט <span class="text-slate-400 font-normal">(אופציונלי)</span>
+          </label>
           <input
             id="serial-search-code"
             type="text"
@@ -160,7 +174,7 @@
             list="serial-code-options"
             dir="ltr"
             autocomplete="off"
-            placeholder="בחרו או הקלידו קוד פריט"
+            placeholder="אופציונלי — השאירו ריק לחיפוש לפי סוג"
           />
           <datalist id="serial-code-options">
             @for (code of serialCodesForSearchType(); track code) {
@@ -187,12 +201,38 @@
       @if (serialSearchAttempted() && serialLocationResult(); as result) {
         <div
           class="serial-locator__result"
-          [class.serial-locator__result--warehouse]="result.isRegistered && result.isInWarehouse"
-          [class.serial-locator__result--loaned]="result.isRegistered && !result.isInWarehouse"
+          [class.serial-locator__result--warehouse]="result.isRegistered && result.isInWarehouse && !result.isMissing"
+          [class.serial-locator__result--loaned]="result.isRegistered && !result.isInWarehouse && !result.isMissing"
+          [class.serial-locator__result--unreturned]="result.isRegistered && result.isMissing"
           [class.serial-locator__result--missing]="!result.isRegistered"
         >
           @if (!result.isRegistered) {
             <p class="serial-locator__status">קוד פריט <span class="ltr-field">{{ result.serialCode }}</span> אינו רשום במלאי עבור {{ result.label }}</p>
+          } @else if (result.isMissing) {
+            <p class="serial-locator__status">חסר / לא הוחזר ⚠️</p>
+            <p class="serial-locator__meta">
+              <span>{{ result.label }}</span>
+              <span class="serial-locator__sep">·</span>
+              <span class="ltr-field">{{ result.serialCode }}</span>
+            </p>
+            <div class="customer-details-grid">
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">שם לקוח</span>
+                <span class="customer-details-grid__value">{{ result.customerName || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">תאריך סימון</span>
+                <span class="customer-details-grid__value">{{ formatLocatorHebrewDate(result.loanDate) || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">טלפון</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">כתובת</span>
+                <span class="customer-details-grid__value">{{ result.address || '—' }}</span>
+              </div>
+            </div>
           } @else if (result.isInWarehouse) {
             <p class="serial-locator__status">במלאי 🟢</p>
             <p class="serial-locator__meta">
@@ -250,11 +290,128 @@
           }
         </div>
       }
+
+      @if (serialSearchAttempted() && typeLocatorResult(); as typeResult) {
+        <div
+          class="serial-locator__result"
+          [class.serial-locator__result--warehouse]="typeResult.kind === 'catalog' && typeResult.holders.length === 0"
+          [class.serial-locator__result--loaned]="typeResult.holders.length > 0 || typeResult.kind === 'oneTime'"
+        >
+          <p class="serial-locator__status">נמצא: {{ typeResult.label }}</p>
+          @if (typeResult.holders.length === 0 && typeResult.loans.length === 0) {
+            <p class="serial-locator__meta">
+              <span>כמות {{ typeResult.quantity }}</span>
+              <span class="serial-locator__sep">·</span>
+              <span>{{ typeResult.statusLabel }}</span>
+            </p>
+          } @else {
+            <p class="serial-locator__meta">{{ typeResult.statusLabel }}</p>
+          }
+
+          @if (typeResult.holders.length > 0) {
+            <div class="mt-3 space-y-2">
+              @for (holder of typeResult.holders; track $index) {
+                <div class="rounded-lg border border-slate-200 bg-white/70 p-2 text-sm">
+                  <div class="customer-details-grid customer-details-grid--inline-4">
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">שם לקוח</span>
+                      <span class="customer-details-grid__value">{{ holder.customerName || '—' }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">טלפון</span>
+                      <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+                        formatLocatorPhone(holder.phone) || '—'
+                      }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">תאריך</span>
+                      <span class="customer-details-grid__value">{{ formatMissingMarkedAt(holder.eventDate) }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">כמות</span>
+                      <span class="customer-details-grid__value">1</span>
+                    </div>
+                    @if (holder.orderId) {
+                      <div class="customer-details-grid__item customer-details-grid__item--full">
+                        <span class="customer-details-grid__label">הזמנה</span>
+                        <span class="customer-details-grid__value">
+                          <a [routerLink]="['/orders', holder.orderId]" class="serial-locator__order-link"
+                            >#{{ holder.orderId }}</a
+                          >
+                        </span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          @if (typeResult.loans.length > 0) {
+            <div class="mt-3 space-y-2">
+              @for (loan of typeResult.loans; track oneTimeLoanKey(loan)) {
+                <div class="rounded-lg border border-slate-200 bg-white/70 p-2 text-sm">
+                  <div class="customer-details-grid customer-details-grid--inline-4">
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">שם לקוח</span>
+                      <span class="customer-details-grid__value">{{ loan.customerName || '—' }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">טלפון</span>
+                      <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+                        formatLocatorPhone(loan.phone) || '—'
+                      }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">תאריך</span>
+                      <span class="customer-details-grid__value">{{ formatMissingMarkedAt(loan.loanDate) }}</span>
+                    </div>
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">כמות</span>
+                      <span class="customer-details-grid__value">{{ loan.outstandingQuantity }}</span>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      class="inventory-holders-btn"
+                      (click)="openOneTimeLoanDetails(loan)"
+                    >
+                      פרטי השאלה / החזרה
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
     </div>
 
     @if (accessoryLoading()) {
       <p class="text-sm text-slate-500">טוען מלאי אביזרים…</p>
     } @else {
+      <div class="inventory-table-search mb-4">
+        <label class="mb-1 block text-sm font-medium text-slate-700" for="inventory-table-search">
+          חיפוש במלאי
+        </label>
+        <div class="inventory-table-search__row">
+          <input
+            id="inventory-table-search"
+            type="search"
+            class="inventory-table-search__input"
+            placeholder="שם פריט, קוד, לקוח או טלפון…"
+            [value]="inventorySearchQuery()"
+            (input)="onInventorySearchInput($any($event.target).value)"
+          />
+          @if (inventorySearchQuery().trim()) {
+            <button type="button" class="inventory-table-search__clear" (click)="clearInventorySearch()">
+              נקה
+            </button>
+          }
+        </div>
+      </div>
+
       <div class="overflow-x-auto" [formGroup]="customInventoryForm">
         <table class="accessory-inventory-table w-full border-collapse text-right text-sm">
           <thead>
@@ -266,19 +423,28 @@
             </tr>
           </thead>
           <tbody formArrayName="rows">
-            @for (def of customInventoryDefinitions(); track def.id; let i = $index) {
-              <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="i">
+            @for (row of filteredInventoryTableRows(); track row.def.id) {
+              <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="row.formIndex">
                 <td class="px-3 py-2 align-middle font-semibold text-[#002244]">
                   <span class="inventory-item-label">
-                    @if (inventoryRowHasDefaultAccessories(def, i)) {
+                    @if (inventoryRowHasDefaultAccessories(row.def, row.formIndex)) {
                       <i
                         class="pi pi-paperclip default-acc-clip"
                         title="יש יחידות עם ציוד נלווה קבוע"
                         aria-label="יש יחידות עם ציוד נלווה קבוע"
                       ></i>
                     }
-                    <span>{{ def.displayName }}</span>
+                    <span>{{ row.def.displayName }}</span>
                   </span>
+                  @if (inventoryRowHasHolders(row.def)) {
+                    <button
+                      type="button"
+                      class="inventory-holders-btn inventory-holders-btn--inline"
+                      (click)="openInventoryHolders(row.def)"
+                    >
+                      פרטי השאלה/חסר
+                    </button>
+                  }
                 </td>
                 <td class="px-3 py-2 align-middle text-center">
                   <input
@@ -294,13 +460,13 @@
                   />
                 </td>
                 <td class="px-3 py-2 align-middle">
-                  @if (codeIndicesForCustomInventoryRow(i).length === 0) {
+                  @if (codeIndicesForCustomInventoryRow(row.formIndex).length === 0) {
                     <span class="text-xs text-slate-400">—</span>
                   } @else {
                     <div class="note-row" formArrayName="codes">
-                      @for (idx of codeIndicesForCustomInventoryRow(i); track idx) {
+                      @for (idx of codeIndicesForCustomInventoryRow(row.formIndex); track idx) {
                         <div class="unit-code-cell">
-                          @if (isMicrophoneInventoryRow(i) || !isLinkedInventoryRow(i)) {
+                          @if (isMicrophoneInventoryRow(row.formIndex) || !isLinkedInventoryRow(row.formIndex)) {
                             <input
                               type="text"
                               maxlength="100"
@@ -324,21 +490,21 @@
                               (keydown.enter)="focusNextSerialInput($event)"
                             />
                           }
-                          @if (supportsDefaultAccessories(def) && def.linkedEquipmentType) {
+                          @if (supportsDefaultAccessories(row.def) && row.def.linkedEquipmentType) {
                             <button
                               type="button"
                               class="default-acc-unit-btn"
-                              [disabled]="!customInventoryCodeValue(i, idx)"
-                              (click)="openDefaultAccessoriesForUnit(def, i, idx)"
+                              [disabled]="!customInventoryCodeValue(row.formIndex, idx)"
+                              (click)="openDefaultAccessoriesForUnit(row.def, row.formIndex, idx)"
                               [attr.aria-label]="
                                 'ניהול נלווים עבור ' +
-                                def.displayName +
+                                row.def.displayName +
                                 ' #' +
-                                (customInventoryCodeValue(i, idx) || idx + 1)
+                                (customInventoryCodeValue(row.formIndex, idx) || idx + 1)
                               "
                               [attr.title]="
-                                customInventoryCodeValue(i, idx)
-                                  ? 'ניהול נלווים ליחידה #' + customInventoryCodeValue(i, idx)
+                                customInventoryCodeValue(row.formIndex, idx)
+                                  ? 'ניהול נלווים ליחידה #' + customInventoryCodeValue(row.formIndex, idx)
                                   : 'יש להזין קוד יחידה'
                               "
                             >
@@ -346,8 +512,8 @@
                               <span class="default-acc-unit-btn__count">
                                 {{
                                   defaultAccessoryCountForUnit(
-                                    def.linkedEquipmentType,
-                                    customInventoryCodeValue(i, idx)
+                                    row.def.linkedEquipmentType,
+                                    customInventoryCodeValue(row.formIndex, idx)
                                   )
                                 }}
                               </span>
@@ -363,24 +529,30 @@
                     <button
                       type="button"
                       class="slot-action-btn slot-action-btn--edit"
-                      (click)="openEditInventoryItem(def)"
+                      (click)="openEditInventoryItem(row.def)"
                     >
                       עריכה
                     </button>
                     <button
                       type="button"
                       class="slot-action-btn slot-action-btn--delete"
-                      [disabled]="deletingInventoryId() === def.id"
-                      (click)="deleteInventoryItem(def, i)"
+                      [disabled]="deletingInventoryId() === row.def.id"
+                      (click)="deleteInventoryItem(row.def, row.formIndex)"
                     >
-                      {{ deletingInventoryId() === def.id ? 'מוחק…' : 'מחק' }}
+                      {{ deletingInventoryId() === row.def.id ? 'מוחק…' : 'מחק' }}
                     </button>
                   </div>
                 </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="4" class="px-3 py-6 text-center text-slate-500">אין פריטי מלאי</td>
+                <td colspan="4" class="px-3 py-6 text-center text-slate-500">
+                  {{
+                    inventorySearchQuery().trim()
+                      ? 'לא נמצאו פריטים תואמים לחיפוש'
+                      : 'אין פריטי מלאי'
+                  }}
+                </td>
               </tr>
             }
           </tbody>
@@ -525,7 +697,7 @@
             class="qty-input"
             placeholder="0"
           />
-          <p class="mt-1 text-xs text-slate-500">השאירו 0 אם עדיין אין יחידות. מעל 0 — יוצגו שדות קוד לכל יחידה.</p>
+          <p class="mt-1 text-xs text-slate-500">ניתן לעקוב לפי כמות בלבד — קודי פריט אופציונליים.</p>
         </div>
 
         @if (showAddInventoryCodes()) {
@@ -559,7 +731,7 @@
               }
             </div>
             <p class="mt-1 text-xs text-slate-500">
-              ניתן להשאיר ריק — המערכת תמלא מספור רציף בעת השמירה.
+              ניתן להשאיר ריק ולשמור לפי כמות בלבד, או למלא קודים ידנית / במילוי אוטומטי.
             </p>
           </div>
         }
@@ -819,7 +991,18 @@
         class="space-y-3 border-t border-slate-200 px-4 py-3"
         (ngSubmit)="addDefaultAccessory()"
       >
-        <div class="default-acc-add-stack">
+        @if (defaultAccessoryCatalogLoading()) {
+          <p class="default-acc-options-loading" aria-live="polite">
+            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <span>טוען אפשרויות מלאי…</span>
+          </p>
+        } @else if (defaultAccessoryCatalogLoadFailed()) {
+          <p class="default-acc-options-error" role="alert">
+            לא ניתן לטעון את רשימת האביזרים. נסו לסגור ולפתוח שוב.
+          </p>
+        }
+
+        <div class="default-acc-add-stack" [class.default-acc-add-stack--loading]="defaultAccessoryCatalogLoading()">
           <div>
             <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-type">
               סוג אביזר <span class="text-rose-500">*</span>
@@ -828,6 +1011,7 @@
               id="default-acc-type"
               formControlName="accessoryEquipmentType"
               class="default-acc-select"
+              [disabled]="defaultAccessoryCatalogLoading() || defaultAccessoryCatalogLoadFailed()"
               (change)="onDefaultAccessoryTypeChange()"
             >
               <option [ngValue]="null">בחרו סוג…</option>
@@ -835,6 +1019,13 @@
                 <option [ngValue]="opt.type">{{ opt.label }}</option>
               }
             </select>
+            @if (
+              !defaultAccessoryCatalogLoading() &&
+              !defaultAccessoryCatalogLoadFailed() &&
+              defaultAccessoryTypeOptions().length === 0
+            ) {
+              <p class="mt-1 text-xs text-slate-500">אין סוגי אביזרים במלאי</p>
+            }
             @if (
               defaultAccessoryForm.controls.accessoryEquipmentType.touched &&
               defaultAccessoryForm.controls.accessoryEquipmentType.errors?.['required']
@@ -860,6 +1051,12 @@
               [resetFilterOnHide]="true"
               [appendTo]="'body'"
               [fluid]="true"
+              [loading]="defaultAccessoryCatalogLoading()"
+              [disabled]="
+                defaultAccessoryCatalogLoading() ||
+                defaultAccessoryCatalogLoadFailed() ||
+                !defaultAccessorySelectedType()
+              "
               selectedItemsLabel="{0} קודים נבחרו"
               emptyMessage="אין קודי פריט"
               emptyFilterMessage="לא נמצאו קודים"
@@ -871,7 +1068,11 @@
             ) {
               <p class="mt-1 text-xs text-rose-600">יש לבחור לפחות קוד אחד</p>
             }
-            @if (defaultAccessorySelectedType() && defaultAccessoryCodeOptions().length === 0) {
+            @if (
+              !defaultAccessoryCatalogLoading() &&
+              defaultAccessorySelectedType() &&
+              defaultAccessoryCodeOptions().length === 0
+            ) {
               <p class="mt-1 text-xs text-slate-500">אין קודי פריט זמינים לסוג זה</p>
             }
           </div>
@@ -887,12 +1088,170 @@
           <button
             type="submit"
             class="rounded-lg bg-[#002244] px-3 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
-            [disabled]="defaultAccessoriesSaving() || defaultAccessoryForm.invalid"
+            [disabled]="
+              defaultAccessoriesSaving() ||
+              defaultAccessoryCatalogLoading() ||
+              defaultAccessoryCatalogLoadFailed() ||
+              defaultAccessoryForm.invalid
+            "
           >
             {{ defaultAccessoriesSaving() ? 'מוסיף…' : 'הוסף אביזר' }}
           </button>
         </div>
       </form>
+    </div>
+  </div>
+}
+
+@if (missingUnitDetails(); as details) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="פרטי השאלה או חוסר"
+    (click)="closeMissingUnitDetails()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-1 text-lg font-bold text-[#002244]">פרטי השאלה / חסר</h2>
+      <p class="mb-4 text-sm text-slate-600">
+        {{ details.itemName }}
+        <span class="text-slate-400"> · {{ details.statusLabel }}</span>
+      </p>
+
+      <div class="space-y-3">
+        @for (holder of details.holders; track $index) {
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div class="mb-2 flex flex-wrap items-center gap-2">
+              <span
+                class="inventory-row-status"
+                [class.inventory-row-status--missing]="holder.status === 'Missing'"
+                [class.inventory-row-status--loaned]="holder.status === 'LoanedOut'"
+              >
+                {{ holder.statusLabel }}
+              </span>
+              @if (holder.serialCode) {
+                <span class="ltr-field font-mono text-xs text-slate-600">#{{ holder.serialCode }}</span>
+              }
+            </div>
+            <div class="customer-details-grid">
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">שם לקוח</span>
+                <span class="customer-details-grid__value">{{ holder.customerName || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">טלפון</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+                  formatLocatorPhone(holder.phone) || '—'
+                }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">כתובת</span>
+                <span class="customer-details-grid__value">{{ holder.address || '—' }}</span>
+              </div>
+              <div class="customer-details-grid__item">
+                <span class="customer-details-grid__label">תאריך</span>
+                <span class="customer-details-grid__value">{{ formatMissingMarkedAt(holder.eventDate) }}</span>
+              </div>
+              @if (holder.orderId) {
+                <div class="customer-details-grid__item">
+                  <span class="customer-details-grid__label">הזמנה</span>
+                  <span class="customer-details-grid__value">
+                    <a [routerLink]="['/orders', holder.orderId]" class="serial-locator__order-link"
+                      >#{{ holder.orderId }}</a
+                    >
+                  </span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button
+          type="button"
+          class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+          (click)="closeMissingUnitDetails()"
+        >
+          סגירה
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (oneTimeLoanDetails(); as loan) {
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="פרטי השאלה חד-פעמית"
+    (click)="closeOneTimeLoanDetails()"
+  >
+    <div
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-1 text-lg font-bold text-[#002244]">פרטי השאלה</h2>
+      <p class="mb-4 text-sm text-slate-600">{{ loan.itemName }}</p>
+
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div class="customer-details-grid">
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">שם לקוח</span>
+            <span class="customer-details-grid__value">{{ loan.customerName || '—' }}</span>
+          </div>
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">טלפון</span>
+            <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+              formatLocatorPhone(loan.phone) || '—'
+            }}</span>
+          </div>
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">כתובת</span>
+            <span class="customer-details-grid__value">{{ loan.address || '—' }}</span>
+          </div>
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">תאריך</span>
+            <span class="customer-details-grid__value">{{ formatMissingMarkedAt(loan.loanDate) }}</span>
+          </div>
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">כמות בהשאלה</span>
+            <span class="customer-details-grid__value">{{ loan.outstandingQuantity }}</span>
+          </div>
+          <div class="customer-details-grid__item">
+            <span class="customer-details-grid__label">הזמנה</span>
+            <span class="customer-details-grid__value">
+              <a [routerLink]="['/orders', loan.orderId]" class="serial-locator__order-link"
+                >#{{ loan.orderId }}</a
+              >
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+          (click)="closeOneTimeLoanDetails()"
+        >
+          סגירה
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+          [disabled]="returningOneTimeKey() === oneTimeLoanKey(loan)"
+          (click)="markOneTimeLoanReturned(loan)"
+        >
+          {{
+            returningOneTimeKey() === oneTimeLoanKey(loan) ? 'מסמן החזרה…' : 'סמן כהוחזר'
+          }}
+        </button>
+      </div>
     </div>
   </div>
 }

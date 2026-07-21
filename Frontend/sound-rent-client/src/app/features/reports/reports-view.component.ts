@@ -21,14 +21,13 @@ import {
   DebtCategory,
   OpenDebtGroupDto
 } from '../../core/models/open-debt.model';
-import { OrderDto } from '../../core/models/order.model';
+import { CreateManualCancelledOrderDto, OrderDto } from '../../core/models/order.model';
 import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
-import { HebrewDateService } from '../../core/services/hebrew-date.service';
-import { OrdersSyncService } from '../../core/services/orders-sync.service';
+import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
@@ -36,6 +35,7 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 type ReportsTab = 'cancelled' | 'unpaid';
 type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספריה';
@@ -43,7 +43,7 @@ type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספרי
 @Component({
   selector: 'app-reports-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective],
+  imports: [CommonModule, RouterLink, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective, HebrewCalendarPickerComponent],
   templateUrl: './reports-view.component.html',
   styleUrl: './reports-view.component.scss'
 })
@@ -54,7 +54,6 @@ export class ReportsViewComponent implements OnInit {
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly toast = inject(ToastService);
   private readonly calendarView = inject(CalendarViewStateService);
-  private readonly ordersSync = inject(OrdersSyncService);
   private readonly customers = inject(CustomersStore);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
@@ -82,10 +81,31 @@ export class ReportsViewComponent implements OnInit {
   protected readonly customerSuggestIndex = signal(-1);
 
   protected readonly addCancelledOpen = signal(false);
-  protected readonly lookingUpOrder = signal(false);
-  protected readonly cancellingOrder = signal(false);
-  protected readonly cancelLookupOrder = signal<OrderDto | null>(null);
-  protected readonly cancelOrderIdInput = signal('');
+  protected readonly savingCancelled = signal(false);
+  protected readonly cancelledEquipmentDropdownOpen = signal(false);
+  protected readonly cancelledCustomerSuggestField = signal<'name' | 'phone' | null>(null);
+
+  private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
+
+  protected readonly startHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly startHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly startHebrewDaySig = signal(this.initialHebrew.day);
+  protected readonly endHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly endHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly endHebrewDaySig = signal(this.initialHebrew.day);
+
+  protected readonly startYearOptions = signal(this.buildYearOptions());
+  protected readonly endYearOptions = signal(this.buildYearOptions());
+  protected readonly startMonthOptions = signal(this.hebrew.monthsForYear(this.initialHebrew.year));
+  protected readonly endMonthOptions = signal(this.hebrew.monthsForYear(this.initialHebrew.year));
+  protected readonly startDayOptions = signal(this.buildDayOptions(this.initialHebrew.month, this.initialHebrew.year));
+  protected readonly endDayOptions = signal(this.buildDayOptions(this.initialHebrew.month, this.initialHebrew.year));
+
+  protected readonly activeEquipmentOptions = computed(() =>
+    this.equipmentSlots
+      .boardSlotDefinitions()
+      .filter((d) => d.isUnderMaintenance !== true)
+  );
 
   protected readonly debtForm = this.fb.group({
     customerName: ['', [Validators.maxLength(200)]],
@@ -95,6 +115,20 @@ export class ReportsViewComponent implements OnInit {
     itemDescription: ['', [Validators.maxLength(300)]],
     deposit: ['', [Validators.maxLength(500)]],
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]]
+  });
+
+  protected readonly cancelledForm = this.fb.group({
+    customerName: ['', [Validators.maxLength(100)]],
+    phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+    address: ['', [Validators.maxLength(200)]],
+    equipmentDefinitionIds: [[] as string[], [Validators.required, Validators.minLength(1)]],
+    startHebrewYear: [this.initialHebrew.year, Validators.required],
+    startHebrewMonth: [this.initialHebrew.month, Validators.required],
+    startHebrewDay: [this.initialHebrew.day, Validators.required],
+    endHebrewYear: [this.initialHebrew.year, Validators.required],
+    endHebrewMonth: [this.initialHebrew.month, Validators.required],
+    endHebrewDay: [this.initialHebrew.day, Validators.required],
+    totalAmount: [null as number | null, [Validators.min(0)]]
   });
 
   protected readonly filteredOpenDebts = computed(() => {
@@ -109,6 +143,8 @@ export class ReportsViewComponent implements OnInit {
   ngOnInit(): void {
     this.equipmentSlots.load().subscribe();
     this.wireCustomerAutocomplete();
+    this.wireCancelledCustomerAutocomplete();
+    this.wireCancelledDateForm();
     this.loadCancelled();
     this.loadUnpaid();
   }
@@ -212,74 +248,184 @@ export class ReportsViewComponent implements OnInit {
   }
 
   protected openAddCancelled(): void {
-    this.cancelOrderIdInput.set('');
-    this.cancelLookupOrder.set(null);
+    const parts = this.hebrew.toHebrewParts(new Date());
+    this.cancelledForm.reset({
+      customerName: '',
+      phone: '',
+      address: '',
+      equipmentDefinitionIds: [],
+      startHebrewYear: parts.year,
+      startHebrewMonth: parts.month,
+      startHebrewDay: parts.day,
+      endHebrewYear: parts.year,
+      endHebrewMonth: parts.month,
+      endHebrewDay: parts.day,
+      totalAmount: null
+    });
+    this.startHebrewYearSig.set(parts.year);
+    this.startHebrewMonthSig.set(parts.month);
+    this.startHebrewDaySig.set(parts.day);
+    this.endHebrewYearSig.set(parts.year);
+    this.endHebrewMonthSig.set(parts.month);
+    this.endHebrewDaySig.set(parts.day);
+    this.syncStartDayOptions();
+    this.syncEndDayOptions();
+    this.cancelledEquipmentDropdownOpen.set(false);
+    this.closeCustomerSuggestions();
     this.addCancelledOpen.set(true);
   }
 
   protected closeAddCancelled(): void {
     this.addCancelledOpen.set(false);
-    this.cancelLookupOrder.set(null);
-    this.cancelOrderIdInput.set('');
+    this.cancelledEquipmentDropdownOpen.set(false);
+    this.closeCustomerSuggestions();
   }
 
-  protected lookupCancelOrder(): void {
-    const raw = this.cancelOrderIdInput().trim();
-    const id = Number(raw);
-    if (!Number.isInteger(id) || id <= 0) {
-      this.toast.error('יש להזין מספר הזמנה תקין');
+  protected submitAddCancelled(): void {
+    if (this.cancelledForm.invalid) {
+      this.cancelledForm.markAllAsTouched();
+      this.toast.error('אנא מלאו את השדות הנדרשים');
       return;
     }
-    if (this.lookingUpOrder()) {
+    if (this.savingCancelled()) {
       return;
     }
 
-    this.lookingUpOrder.set(true);
+    const startIso = this.hebrewPartsToIso(
+      this.startHebrewYearSig(),
+      this.startHebrewMonthSig(),
+      this.startHebrewDaySig()
+    );
+    const endIso = this.hebrewPartsToIso(
+      this.endHebrewYearSig(),
+      this.endHebrewMonthSig(),
+      this.endHebrewDaySig()
+    );
+    if (!startIso || !endIso) {
+      this.toast.error('תאריכים לא תקינים');
+      return;
+    }
+    if (endIso < startIso) {
+      this.toast.error('תאריך הסיום חייב להיות אחרי או שווה לתאריך ההתחלה');
+      return;
+    }
+
+    const v = this.cancelledForm.getRawValue();
+    const rawTotal = v.totalAmount;
+    const totalAmount =
+      rawTotal === null || rawTotal === undefined || String(rawTotal).trim() === ''
+        ? null
+        : Number(rawTotal);
+    const payload: CreateManualCancelledOrderDto = {
+      customerName: (v.customerName ?? '').trim() || null,
+      phone: (v.phone ?? '').trim(),
+      address: (v.address ?? '').trim() || null,
+      equipmentDefinitionIds: [...(v.equipmentDefinitionIds ?? [])],
+      startDate: startIso,
+      endDate: endIso,
+      totalAmount: totalAmount != null && Number.isFinite(totalAmount) ? totalAmount : null
+    };
+
+    this.savingCancelled.set(true);
     this.data
-      .getOrderById(id)
-      .pipe(finalize(() => this.lookingUpOrder.set(false)))
+      .createManualCancelledOrder(payload)
+      .pipe(finalize(() => this.savingCancelled.set(false)))
       .subscribe({
-        next: (order) => {
-          if (!order) {
-            this.cancelLookupOrder.set(null);
+        next: (created) => {
+          if (!created) {
             return;
           }
-          if (order.isCancelled) {
-            this.cancelLookupOrder.set(null);
-            this.toast.show('ההזמנה כבר מבוטלת', 'info');
-            return;
-          }
-          this.cancelLookupOrder.set(order);
-        }
-      });
-  }
-
-  protected submitCancelOrder(): void {
-    const order = this.cancelLookupOrder();
-    if (!order || this.cancellingOrder()) {
-      return;
-    }
-
-    this.cancellingOrder.set(true);
-    this.data
-      .cancelOrder(order.id)
-      .pipe(finalize(() => this.cancellingOrder.set(false)))
-      .subscribe({
-        next: (updated) => {
-          if (!updated) {
-            return;
-          }
-          this.ordersSync.notifyOrderUpdated(updated);
           this.cancelledOrders.update((list) => {
-            if (list.some((o) => o.id === updated.id)) {
-              return list.map((o) => (o.id === updated.id ? updated : o));
+            if (list.some((o) => o.id === created.id)) {
+              return list.map((o) => (o.id === created.id ? created : o));
             }
-            return [updated, ...list];
+            return [created, ...list];
           });
           this.closeAddCancelled();
-          this.toast.success('ההזמנה סומנה כמבוטלת');
+          this.toast.success('ההזמנה המבוטלת נוספה בהצלחה');
         }
       });
+  }
+
+  protected toggleCancelledEquipmentDropdown(): void {
+    this.cancelledEquipmentDropdownOpen.update((open) => !open);
+  }
+
+  protected selectedCancelledEquipmentSummary(): string {
+    const ids = this.cancelledForm.controls.equipmentDefinitionIds.value ?? [];
+    if (ids.length === 0) {
+      return 'בחרו ציוד…';
+    }
+    return ids.map((id) => this.equipmentSlots.displayLabel(id)).join(', ');
+  }
+
+  protected isCancelledEquipmentSelected(id: string): boolean {
+    return (this.cancelledForm.controls.equipmentDefinitionIds.value ?? []).includes(id);
+  }
+
+  protected toggleCancelledEquipmentSelection(id: string, checked: boolean): void {
+    const current = [...(this.cancelledForm.controls.equipmentDefinitionIds.value ?? [])];
+    const next = checked
+      ? current.includes(id)
+        ? current
+        : [...current, id]
+      : current.filter((x) => x !== id);
+    this.cancelledForm.controls.equipmentDefinitionIds.setValue(next);
+    this.cancelledForm.controls.equipmentDefinitionIds.markAsTouched();
+  }
+
+  protected dayLabel(day: number): string {
+    return this.hebrew.dayGematriya(day);
+  }
+
+  protected yearLabel(year: number): string {
+    return this.hebrew.yearGematriya(year);
+  }
+
+  protected patchStartHebrewFromCalendar(
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const patch: Record<string, number> = {};
+    if (part.year !== undefined) {
+      patch['startHebrewYear'] = part.year;
+      this.ensureYearInStartOptions(part.year);
+    }
+    if (part.month !== undefined) {
+      patch['startHebrewMonth'] = part.month;
+    }
+    if (part.day !== undefined) {
+      patch['startHebrewDay'] = part.day;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.cancelledForm.patchValue(patch);
+    }
+  }
+
+  protected patchEndHebrewFromCalendar(
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const patch: Record<string, number> = {};
+    if (part.year !== undefined) {
+      patch['endHebrewYear'] = part.year;
+      this.ensureYearInEndOptions(part.year);
+    }
+    if (part.month !== undefined) {
+      patch['endHebrewMonth'] = part.month;
+    }
+    if (part.day !== undefined) {
+      patch['endHebrewDay'] = part.day;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.cancelledForm.patchValue(patch);
+    }
+  }
+
+  protected onCancelledCustomerSuggestFocus(field: 'name' | 'phone'): void {
+    this.cancelledCustomerSuggestField.set(field);
+    this.customerSuggestField.set(field);
+    if (this.customerSuggestions().length > 0) {
+      this.customerSuggestOpen.set(true);
+    }
   }
 
   protected customerSuggestLabel(c: CustomerDto): string {
@@ -341,14 +487,16 @@ export class ReportsViewComponent implements OnInit {
 
   protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
     event?.preventDefault();
-    this.debtForm.patchValue(
-      {
-        customerName: c.fullName ?? '',
-        phone: c.phone1 ?? '',
-        address: c.address ?? ''
-      },
-      { emitEvent: false }
-    );
+    const patch = {
+      customerName: c.fullName ?? '',
+      phone: c.phone1 ?? '',
+      address: c.address ?? ''
+    };
+    if (this.addCancelledOpen()) {
+      this.cancelledForm.patchValue(patch, { emitEvent: false });
+    } else {
+      this.debtForm.patchValue(patch, { emitEvent: false });
+    }
     this.closeCustomerSuggestions();
   }
 
@@ -500,8 +648,8 @@ export class ReportsViewComponent implements OnInit {
   }
 
   private wireCustomerAutocomplete(): void {
-    const name$ = this.debtForm.controls.customerName.valueChanges.pipe(map((v) => ({ field: 'name' as const, q: (v ?? '').trim() })));
-    const phone$ = this.debtForm.controls.phone.valueChanges.pipe(map((v) => ({ field: 'phone' as const, q: (v ?? '').trim() })));
+    const name$ = this.debtForm.controls.customerName.valueChanges.pipe(map((v) => ({ source: 'debt' as const, field: 'name' as const, q: (v ?? '').trim() })));
+    const phone$ = this.debtForm.controls.phone.valueChanges.pipe(map((v) => ({ source: 'debt' as const, field: 'phone' as const, q: (v ?? '').trim() })));
 
     merge(name$, phone$)
       .pipe(
@@ -524,6 +672,145 @@ export class ReportsViewComponent implements OnInit {
         this.customerSuggestOpen.set(list.length > 0);
         this.customerSuggestIndex.set(list.length > 0 ? 0 : -1);
       });
+  }
+
+  private wireCancelledCustomerAutocomplete(): void {
+    const name$ = this.cancelledForm.controls.customerName.valueChanges.pipe(
+      map((v) => ({ field: 'name' as const, q: (v ?? '').trim() }))
+    );
+    const phone$ = this.cancelledForm.controls.phone.valueChanges.pipe(
+      map((v) => ({ field: 'phone' as const, q: (v ?? '').trim() }))
+    );
+
+    merge(name$, phone$)
+      .pipe(
+        debounceTime(200),
+        switchMap(({ field, q }) => {
+          if (!this.addCancelledOpen() || q.length < 2) {
+            return EMPTY;
+          }
+          this.cancelledCustomerSuggestField.set(field);
+          this.customerSuggestField.set(field);
+          return this.customers.searchGlobal(q).pipe(map((list) => list.slice(0, 8)));
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((list) => {
+        if (!this.addCancelledOpen()) {
+          return;
+        }
+        this.customerSuggestions.set(list);
+        this.customerSuggestOpen.set(list.length > 0);
+        this.customerSuggestIndex.set(list.length > 0 ? 0 : -1);
+      });
+  }
+
+  private wireCancelledDateForm(): void {
+    const startYearCtrl = this.cancelledForm.controls.startHebrewYear;
+    const startMonthCtrl = this.cancelledForm.controls.startHebrewMonth;
+    const startDayCtrl = this.cancelledForm.controls.startHebrewDay;
+    const endYearCtrl = this.cancelledForm.controls.endHebrewYear;
+    const endMonthCtrl = this.cancelledForm.controls.endHebrewMonth;
+    const endDayCtrl = this.cancelledForm.controls.endHebrewDay;
+
+    startYearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((year) => {
+      if (typeof year !== 'number') {
+        return;
+      }
+      this.startHebrewYearSig.set(year);
+      this.startMonthOptions.set(this.hebrew.monthsForYear(year));
+      const months = this.hebrew.monthsForYear(year);
+      if (!months.some((m) => m.value === startMonthCtrl.value)) {
+        startMonthCtrl.setValue(months[0]?.value ?? 1, { emitEvent: true });
+      }
+      this.syncStartDayOptions();
+    });
+
+    startMonthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((month) => {
+      if (typeof month === 'number') {
+        this.startHebrewMonthSig.set(month);
+        this.syncStartDayOptions();
+      }
+    });
+
+    startDayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((day) => {
+      if (typeof day === 'number') {
+        this.startHebrewDaySig.set(day);
+      }
+    });
+
+    endYearCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((year) => {
+      if (typeof year !== 'number') {
+        return;
+      }
+      this.endHebrewYearSig.set(year);
+      this.endMonthOptions.set(this.hebrew.monthsForYear(year));
+      const months = this.hebrew.monthsForYear(year);
+      if (!months.some((m) => m.value === endMonthCtrl.value)) {
+        endMonthCtrl.setValue(months[0]?.value ?? 1, { emitEvent: true });
+      }
+      this.syncEndDayOptions();
+    });
+
+    endMonthCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((month) => {
+      if (typeof month === 'number') {
+        this.endHebrewMonthSig.set(month);
+        this.syncEndDayOptions();
+      }
+    });
+
+    endDayCtrl.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((day) => {
+      if (typeof day === 'number') {
+        this.endHebrewDaySig.set(day);
+      }
+    });
+  }
+
+  private buildYearOptions(): number[] {
+    const current = this.hebrew.toHebrewParts(new Date()).year;
+    return Array.from({ length: 11 }, (_, i) => current - 5 + i);
+  }
+
+  private buildDayOptions(month: number, year: number): number[] {
+    return Array.from({ length: this.hebrew.daysInMonth(month, year) }, (_, i) => i + 1);
+  }
+
+  private syncStartDayOptions(): void {
+    const year = this.startHebrewYearSig();
+    const month = this.startHebrewMonthSig();
+    const days = this.buildDayOptions(month, year);
+    this.startDayOptions.set(days);
+    const dayCtrl = this.cancelledForm.controls.startHebrewDay;
+    if (typeof dayCtrl.value === 'number' && dayCtrl.value > days.length) {
+      dayCtrl.setValue(days.length, { emitEvent: true });
+    }
+  }
+
+  private syncEndDayOptions(): void {
+    const year = this.endHebrewYearSig();
+    const month = this.endHebrewMonthSig();
+    const days = this.buildDayOptions(month, year);
+    this.endDayOptions.set(days);
+    const dayCtrl = this.cancelledForm.controls.endHebrewDay;
+    if (typeof dayCtrl.value === 'number' && dayCtrl.value > days.length) {
+      dayCtrl.setValue(days.length, { emitEvent: true });
+    }
+  }
+
+  private ensureYearInStartOptions(year: number): void {
+    this.startYearOptions.update((years) => (years.includes(year) ? years : [...years, year].sort((a, b) => a - b)));
+  }
+
+  private ensureYearInEndOptions(year: number): void {
+    this.endYearOptions.update((years) => (years.includes(year) ? years : [...years, year].sort((a, b) => a - b)));
+  }
+
+  private hebrewPartsToIso(year: number, month: number, day: number): string | null {
+    try {
+      return this.hebrew.toIso(this.hebrew.toGregorian(year, month, day));
+    } catch {
+      return null;
+    }
   }
 
   private closeCustomerSuggestions(): void {

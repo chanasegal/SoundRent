@@ -1,8 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using ClosedXML.Excel;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Infrastructure.Data;
+using System.Globalization;
+using System.Text;
 
 namespace SoundRent.Api.Application.Services;
 
@@ -14,6 +18,7 @@ public interface IBookInventoryService
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
     Task<BookDto> ReplaceSerialsAsync(int id, BookCopiesUpdateDto dto, CancellationToken cancellationToken = default);
     Task<List<BookDto>> ReplaceSerialsBatchAsync(BookBatchUpdateDto dto, CancellationToken cancellationToken = default);
+    Task<BookImportResultDto> ImportFromFileAsync(IFormFile file, CancellationToken cancellationToken = default);
     Task<BookCopyLocationDto> LocateSerialAsync(
         string copyNumber,
         int? bookId = null,
@@ -85,6 +90,134 @@ public class BookInventoryService : IBookInventoryService
         _db.Books.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
+    }
+
+    public async Task<BookImportResultDto> ImportFromFileAsync(
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file == null || file.Length == 0)
+        {
+            throw new ValidationException("יש לבחור קובץ לייבוא");
+        }
+
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (extension is not (".xlsx" or ".xlsm" or ".csv"))
+        {
+            throw new ValidationException("ניתן לייבא קבצי Excel (.xlsx) או CSV בלבד");
+        }
+
+        List<ImportRow> rows;
+        await using (var stream = file.OpenReadStream())
+        {
+            rows = extension == ".csv"
+                ? ParseCsvRows(stream)
+                : ParseExcelRows(stream);
+        }
+
+        if (rows.Count == 0)
+        {
+            return new BookImportResultDto
+            {
+                ImportedCount = 0,
+                SkippedCount = 0,
+                Message = "לא נמצאו שורות תקינות לייבוא"
+            };
+        }
+
+        var grouped = new Dictionary<string, ImportRow>(StringComparer.OrdinalIgnoreCase);
+        var skipped = 0;
+        foreach (var row in rows)
+        {
+            var title = row.Title.Trim();
+            if (title.Length == 0 || title.Length > 200)
+            {
+                skipped++;
+                continue;
+            }
+
+            if (grouped.TryGetValue(title, out var existing))
+            {
+                foreach (var code in row.Copies)
+                {
+                    if (!existing.Copies.Contains(code, StringComparer.OrdinalIgnoreCase))
+                    {
+                        existing.Copies.Add(code);
+                    }
+                }
+
+                if (row.Quantity is int q && q > (existing.Quantity ?? 0))
+                {
+                    existing.Quantity = q;
+                }
+            }
+            else
+            {
+                grouped[title] = new ImportRow
+                {
+                    Title = title,
+                    Quantity = row.Quantity,
+                    Copies = new List<string>(row.Copies)
+                };
+            }
+        }
+
+        var existingTitles = await _db.Books
+            .AsNoTracking()
+            .Select(b => b.Title)
+            .ToListAsync(cancellationToken);
+        var existingSet = new HashSet<string>(existingTitles, StringComparer.OrdinalIgnoreCase);
+
+        var toCreate = new List<Book>();
+        var maxSort = await _db.Books.MaxAsync(t => (int?)t.SortOrder, cancellationToken) ?? 0;
+        var now = DateTime.UtcNow;
+
+        foreach (var row in grouped.Values)
+        {
+            if (existingSet.Contains(row.Title))
+            {
+                skipped++;
+                continue;
+            }
+
+            var quantity = row.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
+            List<string> codes;
+            try
+            {
+                codes = BuildCopies(quantity, row.Copies);
+            }
+            catch (ValidationException)
+            {
+                skipped++;
+                continue;
+            }
+
+            maxSort++;
+            toCreate.Add(new Book
+            {
+                Title = row.Title,
+                SortOrder = maxSort,
+                CreatedAt = now,
+                UpdatedAt = now,
+                Copies = codes.Select(code => new BookCopy { CopyNumber = code }).ToList()
+            });
+            existingSet.Add(row.Title);
+        }
+
+        if (toCreate.Count > 0)
+        {
+            await _db.Books.AddRangeAsync(toCreate, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return new BookImportResultDto
+        {
+            ImportedCount = toCreate.Count,
+            SkippedCount = skipped,
+            Message = toCreate.Count == 0
+                ? "לא יובאו ספרים חדשים"
+                : $"ייבוא הושלם בהצלחה! הוכנסו {toCreate.Count} ספרים"
+        };
     }
 
     public async Task<BookDto> UpdateAsync(
@@ -431,5 +564,253 @@ public class BookInventoryService : IBookInventoryService
             TotalQuantity = codes.Count,
             Copies = codes
         };
+    }
+
+    private static List<ImportRow> ParseExcelRows(Stream stream)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var worksheet = workbook.Worksheets.FirstOrDefault()
+            ?? throw new ValidationException("הקובץ אינו מכיל גיליון נתונים");
+
+        var used = worksheet.RangeUsed();
+        if (used == null)
+        {
+            return [];
+        }
+
+        var firstRow = used.FirstRow().RowNumber();
+        var lastRow = used.LastRow().RowNumber();
+        var firstCol = used.FirstColumn().ColumnNumber();
+        var lastCol = used.LastColumn().ColumnNumber();
+
+        var headers = new Dictionary<int, string>();
+        for (var col = firstCol; col <= lastCol; col++)
+        {
+            var header = worksheet.Cell(firstRow, col).GetString().Trim();
+            if (header.Length > 0)
+            {
+                headers[col] = header;
+            }
+        }
+
+        if (headers.Count == 0)
+        {
+            throw new ValidationException("חסרה שורת כותרות בקובץ");
+        }
+
+        var map = ResolveColumnMapByIndex(headers);
+        if (map.TitleCol == null)
+        {
+            throw new ValidationException("חסרה עמודת ספר / שם ספר בקובץ");
+        }
+
+        var rows = new List<ImportRow>();
+        for (var r = firstRow + 1; r <= lastRow; r++)
+        {
+            string Cell(int? col) =>
+                col is int c ? worksheet.Cell(r, c).GetFormattedString().Trim() : string.Empty;
+
+            var title = Cell(map.TitleCol);
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
+
+            rows.Add(BuildImportRow(title, Cell(map.QuantityCol), Cell(map.BarcodeCol)));
+        }
+
+        return rows;
+    }
+
+    private static List<ImportRow> ParseCsvRows(Stream stream)
+    {
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
+
+        if (lines.Count == 0)
+        {
+            return [];
+        }
+
+        var delimiter = DetectCsvDelimiter(lines[0]);
+        var headerCells = SplitCsvLine(lines[0], delimiter);
+        var headers = new Dictionary<int, string>();
+        for (var i = 0; i < headerCells.Count; i++)
+        {
+            var header = headerCells[i].Trim().Trim('"');
+            if (header.Length > 0)
+            {
+                headers[i + 1] = header;
+            }
+        }
+
+        var map = ResolveColumnMapByIndex(headers);
+        if (map.TitleCol == null)
+        {
+            throw new ValidationException("חסרה עמודת ספר / שם ספר בקובץ");
+        }
+
+        var rows = new List<ImportRow>();
+        for (var i = 1; i < lines.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i]))
+            {
+                continue;
+            }
+
+            var cells = SplitCsvLine(lines[i], delimiter);
+            string Cell(int? col)
+            {
+                if (col is not int c || c < 1 || c > cells.Count)
+                {
+                    return string.Empty;
+                }
+
+                return cells[c - 1].Trim().Trim('"');
+            }
+
+            var title = Cell(map.TitleCol);
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
+
+            rows.Add(BuildImportRow(title, Cell(map.QuantityCol), Cell(map.BarcodeCol)));
+        }
+
+        return rows;
+    }
+
+    private static ImportRow BuildImportRow(string title, string quantityRaw, string barcodeRaw)
+    {
+        int? quantity = null;
+        if (!string.IsNullOrWhiteSpace(quantityRaw)
+            && int.TryParse(quantityRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var q)
+            && q > 0)
+        {
+            quantity = Math.Min(q, 200);
+        }
+
+        var copies = new List<string>();
+        if (!string.IsNullOrWhiteSpace(barcodeRaw))
+        {
+            foreach (var part in barcodeRaw.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (part.Length > 0 && part.Length <= 100)
+                {
+                    copies.Add(part);
+                }
+            }
+        }
+
+        return new ImportRow
+        {
+            Title = title.Trim(),
+            Quantity = quantity,
+            Copies = copies
+        };
+    }
+
+    private static ColumnMap ResolveColumnMapByIndex(Dictionary<int, string> headers)
+    {
+        var map = new ColumnMap();
+        foreach (var (col, rawHeader) in headers)
+        {
+            var header = NormalizeHeader(rawHeader);
+            if (IsTitleHeader(header))
+            {
+                map.TitleCol ??= col;
+            }
+            else if (IsQuantityHeader(header))
+            {
+                map.QuantityCol ??= col;
+            }
+            else if (IsBarcodeHeader(header))
+            {
+                map.BarcodeCol ??= col;
+            }
+        }
+
+        return map;
+    }
+
+    private static string NormalizeHeader(string header) =>
+        header.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("_", string.Empty);
+
+    private static bool IsTitleHeader(string h) =>
+        h is "ספר" or "שםספר" or "title" or "book" or "booktitle";
+
+    private static bool IsQuantityHeader(string h) =>
+        h is "כמות" or "quantity" or "qty";
+
+    private static bool IsBarcodeHeader(string h) =>
+        h is "ברקוד" or "barcode" or "barcodes";
+
+    private static char DetectCsvDelimiter(string headerLine)
+    {
+        var commas = headerLine.Count(c => c == ',');
+        var semis = headerLine.Count(c => c == ';');
+        var tabs = headerLine.Count(c => c == '\t');
+        if (tabs >= commas && tabs >= semis && tabs > 0)
+        {
+            return '\t';
+        }
+
+        return semis > commas ? ';' : ',';
+    }
+
+    private static List<string> SplitCsvLine(string line, char delimiter)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (ch == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+
+                continue;
+            }
+
+            if (ch == delimiter && !inQuotes)
+            {
+                result.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+
+            current.Append(ch);
+        }
+
+        result.Add(current.ToString());
+        return result;
+    }
+
+    private sealed class ImportRow
+    {
+        public string Title { get; set; } = string.Empty;
+        public int? Quantity { get; set; }
+        public List<string> Copies { get; set; } = new();
+    }
+
+    private sealed class ColumnMap
+    {
+        public int? TitleCol { get; set; }
+        public int? QuantityCol { get; set; }
+        public int? BarcodeCol { get; set; }
     }
 }

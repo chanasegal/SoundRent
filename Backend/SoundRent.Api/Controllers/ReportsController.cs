@@ -27,6 +27,23 @@ public class ReportsController : ControllerBase
         return Ok(orders);
     }
 
+    /// <summary>Manually record a cancelled order without an existing booking.</summary>
+    [HttpPost("cancelled-orders")]
+    public async Task<ActionResult<OrderDto>> CreateManualCancelledOrder(
+        [FromBody] CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var created = await _orderService.CreateManualCancelledOrderAsync(dto, cancellationToken);
+            return Ok(created);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("unpaid-orders")]
     public async Task<ActionResult<List<OrderDto>>> GetUnpaidOrders(CancellationToken cancellationToken)
     {

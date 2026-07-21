@@ -46,7 +46,7 @@ import {
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
-import { clampIsraeliPhoneDigits } from '../../core/validators/israeli-phone.validator';
+import { clampIsraeliPhoneDigits, ISRAELI_PHONE_INVALID_MESSAGE, isValidIsraeliPhone } from '../../core/validators/israeli-phone.validator';
 import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
 
 interface BookLineItem {
@@ -939,6 +939,14 @@ export class LibraryLendingComponent implements OnInit {
     }
     if (!form.phone.trim()) {
       this.toast.error('יש להזין מספר טלפון');
+      return;
+    }
+    if (!isValidIsraeliPhone(form.phone.trim())) {
+      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
+      return;
+    }
+    if (form.phone2.trim() && !isValidIsraeliPhone(form.phone2.trim())) {
+      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
       return;
     }
 

@@ -90,6 +90,9 @@ public interface IOrderRepository
     /// </summary>
     Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
 
+    Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
+        CancellationToken cancellationToken = default);
+
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
 
     Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(

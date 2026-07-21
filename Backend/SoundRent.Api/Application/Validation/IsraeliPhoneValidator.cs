@@ -4,7 +4,7 @@ namespace SoundRent.Api.Application.Validation;
 
 public static class IsraeliPhoneValidator
 {
-    public const string InvalidPhoneMessage = "מספר טלפון לא תקין";
+    public const string InvalidPhoneMessage = "מספר טלפון אינו תקין";
 
     public const string Phone1AlreadyTakenMessage =
         "לא ניתן לעדכן את מספר הטלפון, מכיוון שקיים כבר לקוח אחר במערכת עם מספר זה.";

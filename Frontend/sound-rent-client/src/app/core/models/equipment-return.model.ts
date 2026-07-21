@@ -23,6 +23,8 @@ export interface MarkUnreturnedRequestDto {
 export interface UnreturnedItemDto {
   /** When set, this row is a standalone manual entry (no order). */
   manualItemId?: number | null;
+  /** Catalog row id when the manual entry is tied to inventory. */
+  inventoryDefinitionId?: number | null;
   orderId: number;
   customerName?: string | null;
   phone: string;
@@ -38,8 +40,26 @@ export interface UnreturnedItemDto {
 }
 
 export interface CreateManualUnreturnedItemDto {
+  customerName?: string | null;
+  phone?: string | null;
+  address?: string | null;
   inventoryDefinitionId?: number | null;
   loanedEquipmentType?: LoanedEquipmentType | null;
   itemName?: string | null;
-  itemCode: string;
+  itemCode?: string | null;
+}
+
+/** Active free-text (one-time) accessory loan with no inventory catalog row. */
+export interface ActiveOneTimeAccessoryLoanDto {
+  orderId: number;
+  loanedEquipmentId: number;
+  itemName: string;
+  quantity: number;
+  outstandingQuantity: number;
+  customerName?: string | null;
+  phone: string;
+  address?: string | null;
+  /** yyyy-MM-dd */
+  loanDate?: string | null;
+  serialCodes: string[];
 }

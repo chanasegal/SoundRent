@@ -13,6 +13,10 @@ public interface IInventoryDefinitionRepository
         int? excludeId = null,
         CancellationToken cancellationToken = default);
 
+    Task<InventoryDefinition?> FindByDisplayNameAsync(
+        string displayName,
+        CancellationToken cancellationToken = default);
+
     Task<int> GetNextSortOrderAsync(CancellationToken cancellationToken = default);
 
     Task AddAsync(InventoryDefinition entity, CancellationToken cancellationToken = default);

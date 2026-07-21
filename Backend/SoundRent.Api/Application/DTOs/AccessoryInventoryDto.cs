@@ -69,6 +69,9 @@ public class AccessorySerialLocationDto
 
     public bool IsInWarehouse { get; set; }
 
+    /// <summary>True when the unit is marked missing / unreturned (חסר / לא הוחזר).</summary>
+    public bool IsMissing { get; set; }
+
     public int? OrderId { get; set; }
 
     public string? CustomerName { get; set; }

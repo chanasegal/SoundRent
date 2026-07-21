@@ -7,6 +7,9 @@ public class UnreturnedItemDto
     /// <summary>When set, this row is a manual entry not linked to an order.</summary>
     public int? ManualItemId { get; set; }
 
+    /// <summary>Catalog row id when the manual entry is tied to inventory.</summary>
+    public int? InventoryDefinitionId { get; set; }
+
     public int OrderId { get; set; }
     public string? CustomerName { get; set; }
     public string Phone { get; set; } = string.Empty;

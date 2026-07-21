@@ -47,6 +47,7 @@ export class LibraryInventoryComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly inventorySaving = signal(false);
+  protected readonly importing = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialLocationResult = signal<BookCopyLocationDto | null>(null);
@@ -267,6 +268,40 @@ export class LibraryInventoryComponent implements OnInit {
         this.toast.success('הספר נוסף למלאי');
         this.closeAddInventoryItem();
         this.refresh();
+      });
+  }
+
+  protected onExcelImportSelected(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (input) {
+      input.value = '';
+    }
+    if (!file) {
+      return;
+    }
+
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xlsm') && !name.endsWith('.csv')) {
+      this.toast.error('יש לבחור קובץ Excel (.xlsx) או CSV');
+      return;
+    }
+
+    this.importing.set(true);
+    this.data
+      .importBooksFromExcel(file)
+      .pipe(finalize(() => this.importing.set(false)))
+      .subscribe((result) => {
+        if (!result) {
+          return;
+        }
+        const count = result.importedCount ?? 0;
+        this.toast.success(
+          result.message?.trim() || `ייבוא הושלם בהצלחה! הוכנסו ${count} ספרים`
+        );
+        if (count > 0) {
+          this.refresh();
+        }
       });
   }
 

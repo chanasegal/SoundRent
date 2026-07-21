@@ -27,4 +27,23 @@ public interface IInventoryDefinitionService
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 
     Task EnsureSystemTypesSeededAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns an existing catalog row by display name (case-insensitive), or creates a custom row with quantity 0.
+    /// </summary>
+    Task<InventoryDefinitionDto> EnsureByDisplayNameAsync(
+        string displayName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Ensures a serial exists on the catalog row and marks it Missing.</summary>
+    Task MarkSerialMissingAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Restores a catalog serial to InWarehouse when present.</summary>
+    Task RestoreSerialAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        CancellationToken cancellationToken = default);
 }

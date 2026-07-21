@@ -42,7 +42,7 @@ import {
 } from '../../core/utils/tools-billable-duration';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
-import { clampIsraeliPhoneDigits } from '../../core/validators/israeli-phone.validator';
+import { clampIsraeliPhoneDigits, ISRAELI_PHONE_INVALID_MESSAGE, isValidIsraeliPhone } from '../../core/validators/israeli-phone.validator';
 
 interface ToolLineItem {
   id: string;
@@ -820,6 +820,14 @@ export class ToolsLendingComponent implements OnInit {
     }
     if (!form.phone.trim()) {
       this.toast.error('יש להזין מספר טלפון');
+      return;
+    }
+    if (!isValidIsraeliPhone(form.phone.trim())) {
+      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
+      return;
+    }
+    if (form.phone2.trim() && !isValidIsraeliPhone(form.phone2.trim())) {
+      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
       return;
     }
 

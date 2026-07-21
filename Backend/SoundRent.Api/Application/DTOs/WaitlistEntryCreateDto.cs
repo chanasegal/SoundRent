@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
-public class WaitlistEntryCreateDto
+public class WaitlistEntryCreateDto : IValidatableObject
 {
     [MaxLength(100, ErrorMessage = "השם לא יכול לחרוג מ-100 תווים")]
     public string? CustomerName { get; set; }
@@ -26,4 +27,14 @@ public class WaitlistEntryCreateDto
     public string? Address { get; set; }
 
     public SystemType SystemType { get; set; } = SystemType.Tools;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone) });
+        }
+    }
 }

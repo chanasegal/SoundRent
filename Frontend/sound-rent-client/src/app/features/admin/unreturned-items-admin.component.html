@@ -117,42 +117,144 @@
     >
       <h2 class="mb-2 text-lg font-bold text-[#002244]">הוסף פריט שלא חזר</h2>
       <p class="mb-4 text-sm text-slate-600">
-        הוסיפו פריט ישירות לרשימה לפי סוג וקוד פריט — ללא שיוך להזמנה.
+        הוסיפו פריט ישירות לרשימה — עם פרטי לקוח, ציוד מהרשימה או תיאור מותאם, וקוד פריט אופציונלי.
       </p>
 
       <form [formGroup]="addForm" (ngSubmit)="submitAddMissing()" class="space-y-4">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700">
-            פריט <span class="text-rose-500">*</span>
-          </label>
-          <select
-            formControlName="inventoryDefinitionId"
+        <div class="relative">
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
+          <input
+            formControlName="customerName"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option [ngValue]="null">בחרו פריט…</option>
-            @for (def of itemOptions(); track def.id) {
-              <option [ngValue]="def.id">{{ itemOptionLabel(def) }}</option>
-            }
-          </select>
-          @if (addForm.controls.inventoryDefinitionId.touched && addForm.controls.inventoryDefinitionId.errors?.['required']) {
-            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+            maxlength="200"
+            autocomplete="off"
+            placeholder="חיפוש לפי שם…"
+            (focus)="onCustomerSuggestFocus('name')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'name')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+            <ul class="customer-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="customer-suggest-item"
+                    [class.customer-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div class="relative">
+          <label class="mb-1 block text-sm font-medium text-slate-700">טלפון</label>
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            formControlName="phone"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="10"
+            appIsraeliPhoneInput
+            autocomplete="off"
+            placeholder="חיפוש לפי טלפון…"
+            (focus)="onCustomerSuggestFocus('phone')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+            <ul class="customer-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="customer-suggest-item"
+                    [class.customer-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          @if (addForm.controls.phone.touched && addForm.controls.phone.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
           }
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700">
-            קוד פריט <span class="text-rose-500">*</span>
-          </label>
+          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <input
+            formControlName="address"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="200"
+            autocomplete="off"
+          />
+        </div>
+
+        <label class="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            formControlName="isCustomItem"
+            class="h-4 w-4 accent-[#002244]"
+            (change)="onCustomItemToggle()"
+          />
+          <span>פריט מותאם אישית (לא ברשימה)</span>
+        </label>
+
+        @if (addForm.controls.isCustomItem.value) {
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">
+              תיאור ציוד <span class="text-rose-500">*</span>
+            </label>
+            <input
+              formControlName="customItemName"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              maxlength="200"
+              placeholder="לדוגמה: מיקרופון אלחוטי, כבל XLR"
+              autocomplete="off"
+            />
+            @if (addForm.controls.customItemName.touched && addForm.controls.customItemName.errors?.['required']) {
+              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+            }
+          </div>
+        } @else {
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">
+              פריט <span class="text-rose-500">*</span>
+            </label>
+            <select
+              formControlName="inventoryDefinitionId"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option [ngValue]="null">בחרו פריט…</option>
+              @for (def of itemOptions(); track def.id) {
+                <option [ngValue]="def.id">{{ itemOptionLabel(def) }}</option>
+              }
+            </select>
+            @if (addForm.controls.inventoryDefinitionId.touched && addForm.controls.inventoryDefinitionId.errors?.['required']) {
+              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+            }
+          </div>
+        }
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">קוד פריט</label>
           <input
             formControlName="itemCode"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
             dir="ltr"
             maxlength="100"
             autocomplete="off"
+            placeholder="אופציונלי"
           />
-          @if (addForm.controls.itemCode.touched && addForm.controls.itemCode.errors?.['required']) {
-            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-          }
         </div>
 
         <div class="flex flex-wrap justify-end gap-2 pt-2">

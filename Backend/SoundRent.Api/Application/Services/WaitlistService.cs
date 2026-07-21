@@ -1,5 +1,6 @@
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Repositories;
@@ -40,10 +41,15 @@ public class WaitlistService : IWaitlistService
 
     public async Task<WaitlistEntryDto> CreateAsync(WaitlistEntryCreateDto dto, CancellationToken cancellationToken = default)
     {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
         var entity = new WaitlistEntry
         {
             CustomerName = string.IsNullOrWhiteSpace(dto.CustomerName) ? null : dto.CustomerName.Trim(),
-            Phone = dto.Phone.Trim(),
+            Phone = phone,
             EquipmentType = dto.EquipmentType,
             WaitlistDate = dto.Date,
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
@@ -53,7 +59,7 @@ public class WaitlistService : IWaitlistService
         await _repository.AddAsync(entity, cancellationToken);
         await _repository.SaveChangesAsync(cancellationToken);
         await _customerService.SyncFromWaitlistAsync(
-            dto.Phone,
+            phone,
             dto.CustomerName,
             dto.Address,
             dto.SystemType,

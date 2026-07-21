@@ -4,5 +4,7 @@ namespace SoundRent.Api.Domain.Enums;
 public enum AccessorySerialPhysicalStatus
 {
     InWarehouse = 0,
-    LoanedOut = 1
+    LoanedOut = 1,
+    /// <summary>Marked missing / not returned (חסר / לא הוחזר).</summary>
+    Missing = 2
 }

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
+using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
 using SoundRent.Api.Infrastructure.Data;
@@ -135,10 +136,14 @@ public class ToolLoanService : IToolLoanService
         ToolLoanCreateDto dto,
         CancellationToken cancellationToken = default)
     {
-        var phone = (dto.Phone ?? string.Empty).Trim();
-        if (string.IsNullOrEmpty(phone))
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
         {
-            throw new ValidationException("יש להזין מספר טלפון");
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var phone2))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
         }
 
         var items = dto.Items ?? [];
@@ -192,7 +197,7 @@ public class ToolLoanService : IToolLoanService
             HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
             ClientName = (dto.ClientName ?? string.Empty).Trim(),
             Phone = phone,
-            Phone2 = string.IsNullOrWhiteSpace(dto.Phone2) ? null : dto.Phone2.Trim(),
+            Phone2 = phone2,
             Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
             InstitutionId = institutionId,
             InstitutionName = institutionName,

@@ -10,6 +10,8 @@ public sealed class AccessorySerialLocationQueryResult
 
     public AccessorySerialPhysicalStatus PhysicalStatus { get; init; }
 
+    public bool IsMissing => PhysicalStatus == AccessorySerialPhysicalStatus.Missing;
+
     public int? ActiveOrderId { get; init; }
 
     public string? CustomerName { get; init; }

@@ -1,17 +1,18 @@
 import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { Observable, catchError, map, of } from 'rxjs';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { getApiErrorMessage } from '../utils/http-api-error';
 import { SystemType, TimeSlot, LoanedEquipmentType } from '../models/enums';
 import {
+  ActiveOneTimeAccessoryLoanDto,
   OrderReturnRequestDto,
   MarkUnreturnedRequestDto,
   CreateManualUnreturnedItemDto,
   UnreturnedItemDto
 } from '../models/equipment-return.model';
-import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto } from '../models/order.model';
+import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto, CreateManualCancelledOrderDto } from '../models/order.model';
 import { EquipmentDefinitionBatchCreateDto, EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
 import { OrderShiftDto } from '../models/order.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
@@ -51,6 +52,7 @@ import {
 import {
   InventoryDefinitionBatchUpdateDto,
   InventoryDefinitionCreateDto,
+  InventoryDefinitionEnsureDto,
   InventoryDefinitionDto,
   InventoryDefinitionSerialsUpdateDto,
   InventoryDefinitionUpdateDto
@@ -76,6 +78,7 @@ import {
   BookCreateDto,
   BookCopyLocationDto,
   BookDto,
+  BookImportResultDto,
   BookItemBorrowHistoryDto,
   BookLoanCreateDto,
   BookLoanDto,
@@ -212,6 +215,17 @@ export class DataService {
     );
   }
 
+  getActiveOneTimeAccessories(): Observable<ActiveOneTimeAccessoryLoanDto[]> {
+    return this.http
+      .get<ActiveOneTimeAccessoryLoanDto[]>(`${this.ordersBase}/active-one-time-accessories`)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
   createOrder(payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
     return this.http
       .post<OrderDto>(this.ordersBase, {
@@ -335,6 +349,18 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
+      })
+    );
+  }
+
+  createManualCancelledOrder(payload: CreateManualCancelledOrderDto): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.reportsBase}/cancelled-orders`, {
+      ...payload,
+      systemType: payload.systemType ?? this.activeSystemType()
+    }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
       })
     );
   }
@@ -873,6 +899,16 @@ export class DataService {
     );
   }
 
+  /** Fresh catalog for admin modals — surfaces HTTP errors to the caller. */
+  fetchInventoryDefinitionsCatalog(): Observable<InventoryDefinitionDto[]> {
+    return this.http.get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return throwError(() => err);
+      })
+    );
+  }
+
   createInventoryDefinition(
     payload: InventoryDefinitionCreateDto
   ): Observable<InventoryDefinitionDto | null> {
@@ -882,6 +918,19 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  ensureInventoryDefinition(
+    payload: InventoryDefinitionEnsureDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http
+      .post<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/ensure`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   updateInventoryDefinition(
@@ -1245,6 +1294,17 @@ export class DataService {
 
   createBook(payload: BookCreateDto): Observable<BookDto | null> {
     return this.http.post<BookDto>(this.booksInventoryBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  importBooksFromExcel(file: File): Observable<BookImportResultDto | null> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<BookImportResultDto>(`${this.booksInventoryBase}/import`, formData).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);

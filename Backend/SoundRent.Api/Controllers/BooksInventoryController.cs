@@ -33,6 +33,17 @@ public class BooksInventoryController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, created);
     }
 
+    /// <summary>Bulk-import books from an Excel (.xlsx) or CSV file.</summary>
+    [HttpPost("import")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<ActionResult<BookImportResultDto>> Import(
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.ImportFromFileAsync(file, cancellationToken);
+        return Ok(result);
+    }
+
     [HttpPut("{id:int}")]
     public async Task<ActionResult<BookDto>> Update(
         int id,

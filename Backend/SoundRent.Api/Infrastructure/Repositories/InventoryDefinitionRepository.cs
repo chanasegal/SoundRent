@@ -37,6 +37,19 @@ public class InventoryDefinitionRepository : IInventoryDefinitionRepository
             cancellationToken);
     }
 
+    public Task<InventoryDefinition?> FindByDisplayNameAsync(
+        string displayName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = displayName.Trim().ToLower();
+        return _db.InventoryDefinitions
+            .AsNoTracking()
+            .Include(d => d.SerialCodes)
+            .FirstOrDefaultAsync(
+                d => d.DisplayName.ToLower() == normalized,
+                cancellationToken);
+    }
+
     public async Task<int> GetNextSortOrderAsync(CancellationToken cancellationToken = default)
     {
         if (!await _db.InventoryDefinitions.AnyAsync(cancellationToken))

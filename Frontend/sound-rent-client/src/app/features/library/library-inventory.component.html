@@ -6,13 +6,36 @@
         הגדירו כמות לכל ספר והזינו ברקוד ייחודי לכל עותק.
       </p>
     </div>
-    <button
-      type="button"
-      class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
-      (click)="openAddInventoryItem()"
-    >
-      הוסף ספר חדש
-    </button>
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        #excelImportInput
+        type="file"
+        class="file-input-hidden"
+        accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+        (change)="onExcelImportSelected($event)"
+      />
+      <button
+        type="button"
+        class="inventory-import-btn"
+        [disabled]="importing() || loading()"
+        (click)="excelImportInput.click()"
+        title="ייבוא ספרים מקובץ Excel/CSV (עמודות: ספר, כמות, ברקוד)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 16V5"></path>
+          <path d="m8 9 4-4 4 4"></path>
+          <path d="M5 19h14"></path>
+        </svg>
+        {{ importing() ? 'מייבא…' : 'ייבוא מאקסל' }}
+      </button>
+      <button
+        type="button"
+        class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
+        (click)="openAddInventoryItem()"
+      >
+        הוסף ספר חדש
+      </button>
+    </div>
   </div>
 
   <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

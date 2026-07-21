@@ -1,3 +1,6 @@
+using System.ComponentModel.DataAnnotations;
+using SoundRent.Api.Application.Validation;
+
 namespace SoundRent.Api.Application.DTOs;
 
 public class ToolDefinitionDto
@@ -104,7 +107,7 @@ public class ToolLoanItemCreateDto
     public string SerialCode { get; set; } = string.Empty;
 }
 
-public class ToolLoanCreateDto
+public class ToolLoanCreateDto : IValidatableObject
 {
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
@@ -117,6 +120,23 @@ public class ToolLoanCreateDto
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public DateTime? DeadlineAt { get; set; }
     public List<ToolLoanItemCreateDto> Items { get; set; } = new();
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(Phone, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone) });
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(Phone2, out _))
+        {
+            yield return new ValidationResult(
+                IsraeliPhoneValidator.InvalidPhoneMessage,
+                new[] { nameof(Phone2) });
+        }
+    }
 }
 
 public class ToolLoanReturnDto
