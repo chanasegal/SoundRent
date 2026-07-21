@@ -114,12 +114,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialTypeQuery = signal('');
   protected readonly serialTypePickerOpen = signal(false);
-  protected readonly missingUnitDetails = signal<{
-    itemName: string;
-    holders: InventoryHolderDto[];
-    statusLabel: string;
-  } | null>(null);
-
   /**
    * Active free-text loans with no matching permanent inventory catalog row.
    * Used by locator search only — not shown as separate grid rows.
@@ -837,27 +831,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return 'inventory-row-status inventory-row-status--loaned';
     }
     return 'inventory-row-status inventory-row-status--available';
-  }
-
-  protected inventoryRowHasHolders(def: InventoryDefinitionDto): boolean {
-    return (def.activeHolders ?? []).length > 0;
-  }
-
-  protected openInventoryHolders(def: InventoryDefinitionDto): void {
-    const holders = def.activeHolders ?? [];
-    if (holders.length === 0) {
-      this.toast.show('אין פרטי השאלה או חוסר לפריט זה', 'info');
-      return;
-    }
-    this.missingUnitDetails.set({
-      itemName: def.displayName,
-      holders,
-      statusLabel: this.inventoryRowStatusLabel(def)
-    });
-  }
-
-  protected closeMissingUnitDetails(): void {
-    this.missingUnitDetails.set(null);
   }
 
   protected formatMissingMarkedAt(iso: string | null | undefined): string {

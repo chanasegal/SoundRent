@@ -436,15 +436,6 @@
                     }
                     <span>{{ row.def.displayName }}</span>
                   </span>
-                  @if (inventoryRowHasHolders(row.def)) {
-                    <button
-                      type="button"
-                      class="inventory-holders-btn inventory-holders-btn--inline"
-                      (click)="openInventoryHolders(row.def)"
-                    >
-                      פרטי השאלה/חסר
-                    </button>
-                  }
                 </td>
                 <td class="px-3 py-2 align-middle text-center">
                   <input
@@ -1099,86 +1090,6 @@
           </button>
         </div>
       </form>
-    </div>
-  </div>
-}
-
-@if (missingUnitDetails(); as details) {
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-    role="dialog"
-    aria-modal="true"
-    aria-label="פרטי השאלה או חוסר"
-    (click)="closeMissingUnitDetails()"
-  >
-    <div
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
-      (click)="$event.stopPropagation()"
-    >
-      <h2 class="mb-1 text-lg font-bold text-[#002244]">פרטי השאלה / חסר</h2>
-      <p class="mb-4 text-sm text-slate-600">
-        {{ details.itemName }}
-        <span class="text-slate-400"> · {{ details.statusLabel }}</span>
-      </p>
-
-      <div class="space-y-3">
-        @for (holder of details.holders; track $index) {
-          <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div class="mb-2 flex flex-wrap items-center gap-2">
-              <span
-                class="inventory-row-status"
-                [class.inventory-row-status--missing]="holder.status === 'Missing'"
-                [class.inventory-row-status--loaned]="holder.status === 'LoanedOut'"
-              >
-                {{ holder.statusLabel }}
-              </span>
-              @if (holder.serialCode) {
-                <span class="ltr-field font-mono text-xs text-slate-600">#{{ holder.serialCode }}</span>
-              }
-            </div>
-            <div class="customer-details-grid">
-              <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">שם לקוח</span>
-                <span class="customer-details-grid__value">{{ holder.customerName || '—' }}</span>
-              </div>
-              <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">טלפון</span>
-                <span class="customer-details-grid__value ltr-field" dir="ltr">{{
-                  formatLocatorPhone(holder.phone) || '—'
-                }}</span>
-              </div>
-              <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">כתובת</span>
-                <span class="customer-details-grid__value">{{ holder.address || '—' }}</span>
-              </div>
-              <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">תאריך</span>
-                <span class="customer-details-grid__value">{{ formatMissingMarkedAt(holder.eventDate) }}</span>
-              </div>
-              @if (holder.orderId) {
-                <div class="customer-details-grid__item">
-                  <span class="customer-details-grid__label">הזמנה</span>
-                  <span class="customer-details-grid__value">
-                    <a [routerLink]="['/orders', holder.orderId]" class="serial-locator__order-link"
-                      >#{{ holder.orderId }}</a
-                    >
-                  </span>
-                </div>
-              }
-            </div>
-          </div>
-        }
-      </div>
-
-      <div class="mt-5 flex justify-end">
-        <button
-          type="button"
-          class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
-          (click)="closeMissingUnitDetails()"
-        >
-          סגירה
-        </button>
-      </div>
     </div>
   </div>
 }
