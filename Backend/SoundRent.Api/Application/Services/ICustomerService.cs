@@ -12,6 +12,11 @@ public interface ICustomerService
         SystemType? systemType = null,
         CancellationToken cancellationToken = default);
 
+    Task<List<CustomerSuggestDto>> SearchSuggestAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
+
     Task<(byte[] Content, string FileName)> ExportToExcelAsync(
         SystemType? systemType = null,
         CancellationToken cancellationToken = default);

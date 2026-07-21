@@ -11,7 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { debounceTime, EMPTY, finalize, map, merge, switchMap } from 'rxjs';
 
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import {
   LOST_EQUIPMENT_STATUS_LABELS,
   LostEquipmentDto,
@@ -67,7 +67,7 @@ export class LostEquipmentAdminComponent implements OnInit {
   protected readonly statusUpdatingId = signal<number | null>(null);
   protected readonly exportInProgress = signal(false);
 
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
@@ -101,7 +101,7 @@ export class LostEquipmentAdminComponent implements OnInit {
       });
   }
 
-  protected customerSuggestLabel(c: CustomerDto): string {
+  protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
@@ -174,7 +174,7 @@ export class LostEquipmentAdminComponent implements OnInit {
     }
   }
 
-  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     this.addForm.patchValue(
       {
@@ -337,11 +337,11 @@ export class LostEquipmentAdminComponent implements OnInit {
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
-          if (q.length < 1) {
+          if (q.length < 2) {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => ({
               field,
               q,

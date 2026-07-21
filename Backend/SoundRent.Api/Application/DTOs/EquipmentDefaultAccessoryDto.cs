@@ -12,7 +12,9 @@ public class EquipmentDefaultAccessoryDto
 
     public string ParentLabel { get; set; } = string.Empty;
 
-    public LoanedEquipmentType AccessoryEquipmentType { get; set; }
+    public int? InventoryDefinitionId { get; set; }
+
+    public LoanedEquipmentType? AccessoryEquipmentType { get; set; }
 
     public string AccessoryLabel { get; set; } = string.Empty;
 
@@ -25,7 +27,11 @@ public class CreateEquipmentDefaultAccessoryDto
 
     public string ParentSerialCode { get; set; } = string.Empty;
 
-    public LoanedEquipmentType AccessoryEquipmentType { get; set; }
+    /// <summary>Preferred: catalog row id from inventory master table.</summary>
+    public int? InventoryDefinitionId { get; set; }
+
+    /// <summary>Legacy: system type when InventoryDefinitionId is omitted.</summary>
+    public LoanedEquipmentType? AccessoryEquipmentType { get; set; }
 
     public string AccessorySerialCode { get; set; } = string.Empty;
 }
@@ -36,7 +42,11 @@ public class CreateEquipmentDefaultAccessoriesBatchDto
 
     public string ParentSerialCode { get; set; } = string.Empty;
 
-    public LoanedEquipmentType AccessoryEquipmentType { get; set; }
+    /// <summary>Preferred: catalog row id from inventory master table.</summary>
+    public int? InventoryDefinitionId { get; set; }
+
+    /// <summary>Legacy: system type when InventoryDefinitionId is omitted.</summary>
+    public LoanedEquipmentType? AccessoryEquipmentType { get; set; }
 
     public List<string> AccessorySerialCodes { get; set; } = [];
 }

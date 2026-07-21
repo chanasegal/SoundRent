@@ -13,7 +13,7 @@ import { RouterLink } from '@angular/router';
 import { EMPTY, finalize, merge } from 'rxjs';
 import { debounceTime, map, switchMap } from 'rxjs/operators';
 
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import { LoanedEquipmentType } from '../../core/models/enums';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
@@ -60,7 +60,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   protected readonly itemOptions = this.inventory.definitions;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
@@ -121,7 +121,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     }
   }
 
-  protected customerSuggestLabel(c: CustomerDto): string {
+  protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
@@ -178,7 +178,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     }
   }
 
-  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     this.addForm.patchValue(
       {
@@ -397,11 +397,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
-          if (q.length < 1) {
+          if (q.length < 2) {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => ({
               field,
               q,

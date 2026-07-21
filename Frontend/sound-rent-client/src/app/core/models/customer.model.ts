@@ -11,6 +11,14 @@ export interface CustomerDto {
   systemTypes?: SystemType[];
 }
 
+/** Lean autocomplete projection — no notes / systemTypes. */
+export interface CustomerSuggestDto {
+  phone1: string;
+  phone2: string | null;
+  fullName: string | null;
+  address: string | null;
+}
+
 export interface CustomerUpsertDto {
   phone1: string;
   phone2?: string | null;

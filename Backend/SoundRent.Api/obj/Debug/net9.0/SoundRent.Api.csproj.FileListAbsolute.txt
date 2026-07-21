@@ -143,3 +143,12 @@ c:\SoundRent\Backend\_build_check\SoundRent.Api.deps.json
 c:\SoundRent\Backend\_build_check\SoundRent.Api.runtimeconfig.json
 c:\SoundRent\Backend\_build_check\SoundRent.Api.dll
 c:\SoundRent\Backend\_build_check\SoundRent.Api.pdb
+c:\SoundRent\Backend\_build_verify\appsettings.Development.json
+c:\SoundRent\Backend\_build_verify\appsettings.json
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.staticwebassets.endpoints.json
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.exe
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.deps.json
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.runtimeconfig.json
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.dll
+c:\SoundRent\Backend\_build_verify\SoundRent.Api.pdb
+C:\SoundRent\Backend\SoundRent.Api\obj\Debug\net9.0\staticwebassets.upToDateCheck.txt

@@ -35,7 +35,7 @@ import {
   bookingSlotToBaseEquipment,
   defaultBookingSlotForEquipmentType
 } from '../../core/models/booking-slots';
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { EquipmentDefinitionDto } from '../../core/models/equipment-definition.model';
 import { WaitlistEntryDto } from '../../core/models/waitlist.model';
 import {
@@ -281,7 +281,7 @@ export class WeeklyGridComponent {
     workspacePageTitle('לוח הזמנות שבועי', this.systemContext.currentSystemType())
   );
 
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
@@ -887,7 +887,7 @@ export class WeeklyGridComponent {
     this.waitlistModalContext.set(null);
   }
 
-  protected waitlistCustomerSuggestLabel(c: CustomerDto): string {
+  protected waitlistCustomerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
@@ -944,7 +944,7 @@ export class WeeklyGridComponent {
     }
   }
 
-  protected selectWaitlistCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectWaitlistCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     this.waitlistModalForm.patchValue(
       {
@@ -977,11 +977,11 @@ export class WeeklyGridComponent {
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
-          if (q.length < 1 || !this.waitlistModalContext()) {
+          if (q.length < 2 || !this.waitlistModalContext()) {
             this.closeWaitlistCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => ({
               field,
               q,

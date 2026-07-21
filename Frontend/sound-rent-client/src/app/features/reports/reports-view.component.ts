@@ -14,7 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { debounceTime, EMPTY, finalize, map, merge, switchMap } from 'rxjs';
 
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import {
   CreateOpenDebtDto,
   DEBT_CATEGORY_OPTIONS,
@@ -75,7 +75,7 @@ export class ReportsViewComponent implements OnInit {
   protected readonly savingDebt = signal(false);
   protected readonly debtCategoryOptions = DEBT_CATEGORY_OPTIONS;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
@@ -428,7 +428,7 @@ export class ReportsViewComponent implements OnInit {
     }
   }
 
-  protected customerSuggestLabel(c: CustomerDto): string {
+  protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
@@ -485,7 +485,7 @@ export class ReportsViewComponent implements OnInit {
     }
   }
 
-  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     const patch = {
       customerName: c.fullName ?? '',
@@ -653,7 +653,7 @@ export class ReportsViewComponent implements OnInit {
 
     merge(name$, phone$)
       .pipe(
-        debounceTime(200),
+        debounceTime(300),
         switchMap(({ field, q }) => {
           if (q.length < 2) {
             this.customerSuggestions.set([]);
@@ -661,7 +661,7 @@ export class ReportsViewComponent implements OnInit {
             return EMPTY;
           }
           this.customerSuggestField.set(field);
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => list.slice(0, 8))
           );
         }),
@@ -684,14 +684,14 @@ export class ReportsViewComponent implements OnInit {
 
     merge(name$, phone$)
       .pipe(
-        debounceTime(200),
+        debounceTime(300),
         switchMap(({ field, q }) => {
           if (!this.addCancelledOpen() || q.length < 2) {
             return EMPTY;
           }
           this.cancelledCustomerSuggestField.set(field);
           this.customerSuggestField.set(field);
-          return this.customers.searchGlobal(q).pipe(map((list) => list.slice(0, 8)));
+          return this.customers.searchSuggest(q).pipe(map((list) => list.slice(0, 8)));
         }),
         takeUntilDestroyed(this.destroyRef)
       )

@@ -1020,19 +1020,14 @@
         "Name": "global",
         "Type": "System.Boolean",
         "IsRequired": false
+      },
+      {
+        "Name": "suggest",
+        "Type": "System.Boolean",
+        "IsRequired": false
       }
     ],
-    "ReturnTypes": [
-      {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.CustomerDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
+    "ReturnTypes": []
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.EquipmentController",

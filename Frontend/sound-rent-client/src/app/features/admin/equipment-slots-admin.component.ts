@@ -54,8 +54,7 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import {
-  InventoryDefinitionsStore,
-  LinkedAccessoryTypeOption
+  InventoryDefinitionsStore
 } from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -225,33 +224,45 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly defaultAccessoryCatalog = signal<InventoryDefinitionDto[]>([]);
 
   protected readonly defaultAccessoryForm = this.fb.group({
-    accessoryEquipmentType: this.fb.control<LoanedEquipmentType | null>(null, Validators.required),
+    inventoryDefinitionId: this.fb.control<number | null>(null, Validators.required),
     accessorySerialCodes: this.fb.nonNullable.control<string[]>([], nonEmptyStringArrayValidator)
   });
 
-  /** Mirrors the type dropdown so code options recompute reactively. */
-  protected readonly defaultAccessorySelectedType = signal<LoanedEquipmentType | null>(null);
+  /** Selected catalog row id — drives code options reactively. */
+  protected readonly defaultAccessorySelectedDefinitionId = signal<number | null>(null);
 
-  /** Accessory types from the freshly loaded catalog (excludes Mixer). */
+  /**
+   * Full inventory master-table list for the type dropdown.
+   * Bound to a fresh catalog fetch (no hardcoded / cached type subsets).
+   */
   protected readonly defaultAccessoryTypeOptions = computed(() =>
     this.buildDefaultAccessoryTypeOptions(this.defaultAccessoryCatalog())
   );
 
   protected readonly defaultAccessoryCodeOptions = computed(() => {
-    const type = this.defaultAccessorySelectedType();
-    if (!type) {
+    const defId = this.defaultAccessorySelectedDefinitionId();
+    if (defId == null) {
       return [] as string[];
     }
-    const def = this.defaultAccessoryCatalog().find((d) => d.linkedEquipmentType === type);
+    const fromCatalog = this.serialCodesForDefinitionId(defId, this.defaultAccessoryCatalog());
+    const fromLiveForm = this.liveFormSerialCodesForDefinitionId(defId);
     const assigned = new Set(
       this.defaultAccessoriesList()
-        .filter((a) => a.accessoryEquipmentType === type)
+        .filter((a) => a.inventoryDefinitionId === defId)
         .map((a) => a.accessorySerialCode.trim().toLowerCase())
     );
-    return (def?.serialCodes ?? [])
-      .map((c) => c.trim())
-      .filter((c) => c.length > 0 && !assigned.has(c.toLowerCase()))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const merged = new Map<string, string>();
+    for (const code of [...fromCatalog, ...fromLiveForm]) {
+      const trimmed = code.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const key = trimmed.toLowerCase();
+      if (!assigned.has(key) && !merged.has(key)) {
+        merged.set(key, trimmed);
+      }
+    }
+    return [...merged.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   });
 
   protected readonly deletingInventoryId = signal<number | null>(null);
@@ -867,12 +878,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.defaultAccessoriesParentType.set(parent);
     this.defaultAccessoriesParentSerial.set(parentSerial);
     this.defaultAccessoriesParentLabel.set(`${label} #${parentSerial}`);
-    this.defaultAccessorySelectedType.set(null);
+    this.defaultAccessorySelectedDefinitionId.set(null);
     this.defaultAccessoryForm.reset({
-      accessoryEquipmentType: null,
+      inventoryDefinitionId: null,
       accessorySerialCodes: []
     });
     this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
+    this.defaultAccessoriesList.set([]);
+    this.defaultAccessoryCatalog.set([]);
     this.defaultAccessoriesOpen.set(true);
     this.loadDefaultAccessoriesModalData(parent, parentSerial);
   }
@@ -882,11 +895,11 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.defaultAccessoriesParentType.set(null);
     this.defaultAccessoriesParentSerial.set('');
     this.defaultAccessoriesList.set([]);
-    this.defaultAccessorySelectedType.set(null);
+    this.defaultAccessorySelectedDefinitionId.set(null);
     this.defaultAccessoryCatalog.set([]);
     this.defaultAccessoryCatalogLoadFailed.set(false);
     this.defaultAccessoryForm.reset({
-      accessoryEquipmentType: null,
+      inventoryDefinitionId: null,
       accessorySerialCodes: []
     });
   }
@@ -899,11 +912,12 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.defaultAccessoriesLoading.set(true);
     this.defaultAccessoryCatalogLoading.set(true);
     this.defaultAccessoryCatalogLoadFailed.set(false);
+    this.defaultAccessoriesList.set([]);
     this.defaultAccessoryCatalog.set([]);
 
     forkJoin({
       catalog: this.data.fetchInventoryDefinitionsCatalog(),
-      assigned: this.data.getEquipmentDefaultAccessories(parent, parentSerial)
+      assigned: this.data.fetchEquipmentDefaultAccessories(parent, parentSerial)
     })
       .pipe(
         finalize(() => {
@@ -913,7 +927,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       )
       .subscribe({
         next: ({ catalog, assigned }) => {
-          this.defaultAccessoryCatalog.set(catalog ?? []);
+          this.defaultAccessoryCatalog.set(this.mergeLiveFormSerialsIntoCatalog(catalog ?? []));
           this.defaultAccessoriesList.set(assigned ?? []);
           this.defaultAccessoryCounts.update((map) => {
             const next = new Map(map);
@@ -921,63 +935,103 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             return next;
           });
 
-          const selectedType = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
+          const selectedId = this.defaultAccessoryForm.controls.inventoryDefinitionId.value;
           if (
-            selectedType &&
-            !this.defaultAccessoryTypeOptions().some((o) => o.type === selectedType)
+            selectedId != null &&
+            !this.defaultAccessoryTypeOptions().some((o) => o.id === selectedId)
           ) {
+            this.defaultAccessoryForm.patchValue({ inventoryDefinitionId: null });
             this.onDefaultAccessoryTypeChange();
           }
         },
         error: () => {
           this.defaultAccessoryCatalogLoadFailed.set(true);
+          this.defaultAccessoriesList.set([]);
+          this.defaultAccessoryCatalog.set([]);
           this.toast.error('טעינת מלאי האביזרים נכשלה');
         }
       });
   }
 
+  /**
+   * Full inventory master list for the type dropdown — every catalog row.
+   */
   private buildDefaultAccessoryTypeOptions(
     defs: InventoryDefinitionDto[]
-  ): LinkedAccessoryTypeOption[] {
-    const options: LinkedAccessoryTypeOption[] = [];
-    for (const def of defs) {
-      const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-      if (!linked || !LOANED_EQUIPMENT_ORDER.includes(linked) || linked === LoanedEquipmentType.Mixer) {
-        continue;
-      }
-      options.push({
-        type: linked,
-        label: def.displayName?.trim() || LOANED_EQUIPMENT_LABELS[linked],
-        inventoryDefinitionId: def.id
-      });
-    }
-    return options.sort((a, b) => a.label.localeCompare(b.label, 'he'));
+  ): { id: number; label: string }[] {
+    return defs
+      .map((def) => ({
+        id: def.id,
+        label: def.displayName?.trim() || `פריט #${def.id}`
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'he'));
   }
 
-  private reloadDefaultAccessoriesList(
-    parent: LoanedEquipmentType,
-    parentSerial: string
-  ): void {
-    this.defaultAccessoriesLoading.set(true);
-    this.data
-      .getEquipmentDefaultAccessories(parent, parentSerial)
-      .pipe(finalize(() => this.defaultAccessoriesLoading.set(false)))
-      .subscribe((list) => {
-        this.defaultAccessoriesList.set(list ?? []);
-        this.defaultAccessoryCounts.update((map) => {
-          const next = new Map(map);
-          next.set(this.defaultAccessoryCountKey(parent, parentSerial), (list ?? []).length);
-          return next;
-        });
-      });
+  private serialCodesForDefinitionId(
+    definitionId: number,
+    catalog: InventoryDefinitionDto[]
+  ): string[] {
+    const def = catalog.find((d) => d.id === definitionId);
+    return (def?.serialCodes ?? [])
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+  }
+
+  /** Serial codes currently typed in the inventory table for a catalog row. */
+  private liveFormSerialCodesForDefinitionId(definitionId: number): string[] {
+    const rows = this.customInventoryRows();
+    for (let i = 0; i < rows.length; i++) {
+      const group = rows.at(i) as FormGroup;
+      if (Number(group.get('id')?.value) !== definitionId) {
+        continue;
+      }
+      const codesFa = group.get('codes') as FormArray<FormControl<string>> | null;
+      if (!codesFa) {
+        return [];
+      }
+      return codesFa.controls
+        .map((ctrl) => String(ctrl.value ?? '').trim())
+        .filter((c) => c.length > 0);
+    }
+    return [];
+  }
+
+  /** Merge live form serials into API catalog so the modal reflects the grid immediately. */
+  private mergeLiveFormSerialsIntoCatalog(
+    catalog: InventoryDefinitionDto[]
+  ): InventoryDefinitionDto[] {
+    return catalog.map((def) => {
+      if (def.linkedEquipmentType === LoanedEquipmentType.Mixer) {
+        return def;
+      }
+      const live = this.liveFormSerialCodesForDefinitionId(def.id);
+      if (live.length === 0) {
+        return def;
+      }
+      const merged = new Map<string, string>();
+      for (const code of [...(def.serialCodes ?? []), ...live]) {
+        const trimmed = code.trim();
+        if (trimmed) {
+          merged.set(trimmed.toLowerCase(), trimmed);
+        }
+      }
+      return {
+        ...def,
+        serialCodes: [...merged.values()].sort((a, b) =>
+          a.localeCompare(b, undefined, { numeric: true })
+        )
+      };
+    });
   }
 
   protected onDefaultAccessoryTypeChange(): void {
-    const type = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
-    this.defaultAccessorySelectedType.set(type);
+    const defId = this.defaultAccessoryForm.controls.inventoryDefinitionId.value;
+    this.defaultAccessorySelectedDefinitionId.set(
+      defId != null && Number.isFinite(defId) ? Number(defId) : null
+    );
     const codesCtrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
     codesCtrl.setValue([]);
-    if (type) {
+    if (defId != null) {
       codesCtrl.enable({ emitEvent: false });
     } else {
       codesCtrl.disable({ emitEvent: false });
@@ -996,14 +1050,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
-    const accessoryEquipmentType = this.defaultAccessoryForm.controls.accessoryEquipmentType.value;
+    const inventoryDefinitionId = this.defaultAccessoryForm.controls.inventoryDefinitionId.value;
     const accessorySerialCodes = (
       this.defaultAccessoryForm.controls.accessorySerialCodes.value ?? []
     )
       .map((c) => String(c).trim())
       .filter((c) => c.length > 0);
 
-    if (!accessoryEquipmentType || accessorySerialCodes.length === 0) {
+    if (inventoryDefinitionId == null || accessorySerialCodes.length === 0) {
       this.toast.error('יש לבחור סוג אביזר ולפחות קוד פריט אחד');
       return;
     }
@@ -1013,7 +1067,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .createEquipmentDefaultAccessoriesBatch({
         parentEquipmentType: parent,
         parentSerialCode: parentSerial,
-        accessoryEquipmentType,
+        inventoryDefinitionId,
         accessorySerialCodes
       })
       .pipe(finalize(() => this.defaultAccessoriesSaving.set(false)))
@@ -1024,13 +1078,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           }
           const n = created.length;
           this.toast.success(n === 1 ? 'האביזר הנלווה נוסף' : `${n} אביזרים נלווים נוספו`);
-          this.defaultAccessorySelectedType.set(null);
+          this.defaultAccessorySelectedDefinitionId.set(null);
           this.defaultAccessoryForm.reset({
-            accessoryEquipmentType: null,
+            inventoryDefinitionId: null,
             accessorySerialCodes: []
           });
           this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
-          this.reloadDefaultAccessoriesList(parent, parentSerial);
+          this.loadDefaultAccessoriesModalData(parent, parentSerial);
         }
       });
   }
@@ -1051,7 +1105,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             return;
           }
           this.toast.success('השיוך הוסר');
-          this.reloadDefaultAccessoriesList(parent, parentSerial);
+          this.loadDefaultAccessoriesModalData(parent, parentSerial);
         }
       });
   }
@@ -1341,6 +1395,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           }
           this.toast.success('מלאי הפריטים נשמר');
           this.loadAccessoryInventory();
+          this.loadDefaultAccessoryCounts();
         }
       });
   }

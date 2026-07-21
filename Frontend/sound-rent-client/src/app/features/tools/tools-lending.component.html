@@ -300,30 +300,8 @@
                       placeholder="כתובת"
                       [value]="form.address"
                       (input)="onAddressInput(form.id, $any($event.target).value)"
-                      (focus)="onAddressInput(form.id, form.address)"
                       autocomplete="off"
                     />
-                    @if (
-                      customerSuggestOpen() &&
-                      customerSuggestFormId() === form.id &&
-                      customerSuggestField() === 'address'
-                    ) {
-                      <ul class="suggest-list">
-                        @for (c of customerSuggestions(); track c.phone1) {
-                          <li>
-                            <button type="button" (click)="selectCustomerSuggestion(form.id, c)">
-                              <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
-                              <span class="suggest-meta">
-                                <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
-                                @if (c.address) {
-                                  <span>{{ c.address }}</span>
-                                }
-                              </span>
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
                   </div>
 
                   <div class="relative" data-institution-suggest>

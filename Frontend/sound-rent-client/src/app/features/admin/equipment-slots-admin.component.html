@@ -952,7 +952,10 @@
 
       <div class="max-h-[40vh] overflow-y-auto px-4 py-3">
         @if (defaultAccessoriesLoading()) {
-          <p class="text-sm text-slate-500">טוען…</p>
+          <p class="default-acc-options-loading" aria-live="polite">
+            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <span>טוען ציוד נלווה…</span>
+          </p>
         } @else if (defaultAccessoriesList().length === 0) {
           <p class="text-sm text-slate-500">אין ציוד נלווה משויך עדיין</p>
         } @else {
@@ -1000,14 +1003,14 @@
             </label>
             <select
               id="default-acc-type"
-              formControlName="accessoryEquipmentType"
+              formControlName="inventoryDefinitionId"
               class="default-acc-select"
               [disabled]="defaultAccessoryCatalogLoading() || defaultAccessoryCatalogLoadFailed()"
               (change)="onDefaultAccessoryTypeChange()"
             >
               <option [ngValue]="null">בחרו סוג…</option>
-              @for (opt of defaultAccessoryTypeOptions(); track opt.type) {
-                <option [ngValue]="opt.type">{{ opt.label }}</option>
+              @for (opt of defaultAccessoryTypeOptions(); track opt.id) {
+                <option [ngValue]="opt.id">{{ opt.label }}</option>
               }
             </select>
             @if (
@@ -1018,8 +1021,8 @@
               <p class="mt-1 text-xs text-slate-500">אין סוגי אביזרים במלאי</p>
             }
             @if (
-              defaultAccessoryForm.controls.accessoryEquipmentType.touched &&
-              defaultAccessoryForm.controls.accessoryEquipmentType.errors?.['required']
+              defaultAccessoryForm.controls.inventoryDefinitionId.touched &&
+              defaultAccessoryForm.controls.inventoryDefinitionId.errors?.['required']
             ) {
               <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
             }
@@ -1046,7 +1049,7 @@
               [disabled]="
                 defaultAccessoryCatalogLoading() ||
                 defaultAccessoryCatalogLoadFailed() ||
-                !defaultAccessorySelectedType()
+                defaultAccessorySelectedDefinitionId() == null
               "
               selectedItemsLabel="{0} קודים נבחרו"
               emptyMessage="אין קודי פריט"
@@ -1061,7 +1064,7 @@
             }
             @if (
               !defaultAccessoryCatalogLoading() &&
-              defaultAccessorySelectedType() &&
+              defaultAccessorySelectedDefinitionId() != null &&
               defaultAccessoryCodeOptions().length === 0
             ) {
               <p class="mt-1 text-xs text-slate-500">אין קודי פריט זמינים לסוג זה</p>

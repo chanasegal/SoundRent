@@ -481,13 +481,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("AccessoryEquipmentType")
+                    b.Property<int?>("AccessoryEquipmentType")
                         .HasColumnType("integer");
 
                     b.Property<string>("AccessorySerialCode")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("InventoryDefinitionId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("ParentEquipmentType")
                         .HasColumnType("integer");
@@ -499,12 +502,15 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("InventoryDefinitionId")
+                        .HasDatabaseName("IX_EquipmentDefaultAccessories_InventoryDefinitionId");
+
                     b.HasIndex("ParentEquipmentType", "ParentSerialCode")
                         .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit");
 
-                    b.HasIndex("ParentEquipmentType", "ParentSerialCode", "AccessoryEquipmentType", "AccessorySerialCode")
+                    b.HasIndex("ParentEquipmentType", "ParentSerialCode", "InventoryDefinitionId", "AccessorySerialCode")
                         .IsUnique()
-                        .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit_Type_Code");
+                        .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit_Def_Code");
 
                     b.ToTable("EquipmentDefaultAccessories", (string)null);
                 });
@@ -1434,6 +1440,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Institution");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.EquipmentDefaultAccessory", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
+                        .WithMany()
+                        .HasForeignKey("InventoryDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("InventoryDefinition");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventorySerialCode", b =>

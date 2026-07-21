@@ -5,7 +5,8 @@ export interface EquipmentDefaultAccessoryDto {
   parentEquipmentType: LoanedEquipmentType;
   parentSerialCode: string;
   parentLabel: string;
-  accessoryEquipmentType: LoanedEquipmentType;
+  inventoryDefinitionId?: number | null;
+  accessoryEquipmentType?: LoanedEquipmentType | null;
   accessoryLabel: string;
   accessorySerialCode: string;
 }
@@ -13,14 +14,16 @@ export interface EquipmentDefaultAccessoryDto {
 export interface CreateEquipmentDefaultAccessoryDto {
   parentEquipmentType: LoanedEquipmentType;
   parentSerialCode: string;
-  accessoryEquipmentType: LoanedEquipmentType;
+  inventoryDefinitionId?: number | null;
+  accessoryEquipmentType?: LoanedEquipmentType | null;
   accessorySerialCode: string;
 }
 
 export interface CreateEquipmentDefaultAccessoriesBatchDto {
   parentEquipmentType: LoanedEquipmentType;
   parentSerialCode: string;
-  accessoryEquipmentType: LoanedEquipmentType;
+  inventoryDefinitionId?: number | null;
+  accessoryEquipmentType?: LoanedEquipmentType | null;
   accessorySerialCodes: string[];
 }
 

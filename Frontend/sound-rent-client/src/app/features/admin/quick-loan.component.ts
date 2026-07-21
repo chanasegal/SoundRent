@@ -15,7 +15,7 @@ import { forkJoin, finalize, merge, EMPTY } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
   LOANED_EQUIPMENT_LABELS,
@@ -171,9 +171,9 @@ export class QuickLoanComponent implements OnInit {
   protected readonly quickReturnSaving = signal(false);
   protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
 
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
-  protected readonly customerSuggestField = signal<'name' | 'phone' | 'address' | null>(null);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
 
   protected readonly form = this.fb.group({
@@ -430,11 +430,32 @@ export class QuickLoanComponent implements OnInit {
           return;
         }
 
+        const byDefinition = new Map<
+          number,
+          { defId: number; type: LoanedEquipmentType | null; codes: string[] }
+        >();
         const byType = new Map<LoanedEquipmentType, string[]>();
+
         for (const row of defaults) {
-          const type = row.accessoryEquipmentType;
           const code = (row.accessorySerialCode ?? '').trim();
-          if (!type || !code || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+          if (!code) {
+            continue;
+          }
+          if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
+            const key = row.inventoryDefinitionId;
+            const existing = byDefinition.get(key) ?? {
+              defId: key,
+              type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
+              codes: []
+            };
+            if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+              existing.codes.push(code);
+            }
+            byDefinition.set(key, existing);
+            continue;
+          }
+          const type = row.accessoryEquipmentType as LoanedEquipmentType | null;
+          if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
             continue;
           }
           const list = byType.get(type) ?? [];
@@ -447,6 +468,18 @@ export class QuickLoanComponent implements OnInit {
         let addedAny = false;
         this.accessoryRows.update((rows) => {
           let next = [...rows];
+          for (const group of byDefinition.values()) {
+            const result = this.mergeDefaultAccessoryCodesIntoRowsByDefinition(
+              next,
+              group.defId,
+              group.type,
+              group.codes
+            );
+            next = result.rows;
+            if (result.changed) {
+              addedAny = true;
+            }
+          }
           for (const [type, codes] of byType) {
             const result = this.mergeDefaultAccessoryCodesIntoRows(next, type, codes);
             next = result.rows;
@@ -461,6 +494,61 @@ export class QuickLoanComponent implements OnInit {
           this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
         }
       });
+  }
+
+  private mergeDefaultAccessoryCodesIntoRowsByDefinition(
+    rows: QuickLoanAccessoryRow[],
+    inventoryDefinitionId: number,
+    type: LoanedEquipmentType | null,
+    codes: string[]
+  ): { rows: QuickLoanAccessoryRow[]; changed: boolean } {
+    if (codes.length === 0) {
+      return { rows, changed: false };
+    }
+
+    const index = rows.findIndex((r) => r.inventoryDefinitionId === inventoryDefinitionId);
+    if (index < 0) {
+      const def = this.inventoryStore.byId(inventoryDefinitionId);
+      if (!def) {
+        return type
+          ? this.mergeDefaultAccessoryCodesIntoRows(rows, type, codes)
+          : { rows, changed: false };
+      }
+      return {
+        rows: [
+          ...rows,
+          {
+            inventoryDefinitionId: def.id,
+            type,
+            label: def.displayName,
+            quantity: codes.length,
+            selectedCodes: [...codes]
+          }
+        ],
+        changed: true
+      };
+    }
+
+    const existing = rows[index];
+    const merged = [...existing.selectedCodes];
+    let changed = false;
+    for (const code of codes) {
+      if (!merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        merged.push(code);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return { rows, changed: false };
+    }
+
+    const next = [...rows];
+    next[index] = {
+      ...existing,
+      selectedCodes: merged,
+      quantity: Math.max(merged.length, 1)
+    };
+    return { rows: next, changed: true };
   }
 
   private mergeDefaultAccessoryCodesIntoRows(
@@ -674,12 +762,12 @@ export class QuickLoanComponent implements OnInit {
     return slot ? TIME_SLOT_LABELS[slot] : '';
   }
 
-  protected customerSuggestLabel(c: CustomerDto): string {
+  protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
 
-  protected onCustomerSuggestFocus(field: 'name' | 'phone' | 'address'): void {
+  protected onCustomerSuggestFocus(field: 'name' | 'phone'): void {
     this.customerSuggestField.set(field);
     if (this.customerSuggestions().length > 0) {
       this.customerSuggestOpen.set(true);
@@ -690,7 +778,7 @@ export class QuickLoanComponent implements OnInit {
     setTimeout(() => this.closeCustomerSuggestions(), 150);
   }
 
-  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone' | 'address'): void {
+  protected onCustomerSuggestKeydown(event: KeyboardEvent, field: 'name' | 'phone'): void {
     if (!this.customerSuggestOpen() || this.customerSuggestField() !== field) {
       if (event.key === 'ArrowDown' && this.customerSuggestions().length > 0) {
         this.customerSuggestField.set(field);
@@ -731,7 +819,7 @@ export class QuickLoanComponent implements OnInit {
     }
   }
 
-  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     this.form.patchValue(
       {
@@ -1800,19 +1888,16 @@ export class QuickLoanComponent implements OnInit {
     const phone$ = this.form.controls.phone.valueChanges.pipe(
       map((v) => ({ field: 'phone' as const, q: String(v ?? '').trim() }))
     );
-    const address$ = this.form.controls.address.valueChanges.pipe(
-      map((v) => ({ field: 'address' as const, q: String(v ?? '').trim() }))
-    );
 
-    merge(name$, phone$, address$)
+    merge(name$, phone$)
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
-          if (q.length < 1) {
+          if (q.length < 2) {
             this.closeCustomerSuggestions();
             return EMPTY;
           }
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => ({
               field,
               q,
@@ -1826,9 +1911,7 @@ export class QuickLoanComponent implements OnInit {
         const current =
           field === 'name'
             ? String(this.form.controls.customerName.value ?? '').trim()
-            : field === 'phone'
-              ? String(this.form.controls.phone.value ?? '').trim()
-              : String(this.form.controls.address.value ?? '').trim();
+            : String(this.form.controls.phone.value ?? '').trim();
         if (current !== q) {
           return;
         }

@@ -43,7 +43,7 @@ import {
   workspacePageTitle
 } from '../../core/models/enums';
 import { normalizeOrderEquipmentQueryParam } from '../../core/models/booking-slots';
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerDto, CustomerSuggestDto } from '../../core/models/customer.model';
 import {
   LOST_EQUIPMENT_ACTIVE_STATUSES,
   LostEquipmentDto
@@ -429,10 +429,10 @@ export class OrderFormComponent implements OnInit {
   private readonly bookingUi = signal<BookingUiState[]>([]);
 
   /** Offer one-click fill when a saved customer matches the typed Phone1 (or Phone2). */
-  protected readonly existingCustomerMatch = signal<CustomerDto | null>(null);
+  protected readonly existingCustomerMatch = signal<CustomerSuggestDto | null>(null);
 
   /** Typeahead suggestions under שם / טלפון 1. */
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
@@ -451,7 +451,7 @@ export class OrderFormComponent implements OnInit {
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
   /** Customer fill CTA: new orders only, Phone1 non-empty, match found, fields not already filled. */
-  protected readonly showCustomerFillButton = computed((): CustomerDto | null => {
+  protected readonly showCustomerFillButton = computed((): CustomerSuggestDto | null => {
     if (this.isEdit()) {
       return null;
     }
@@ -586,11 +586,30 @@ export class OrderFormComponent implements OnInit {
           return;
         }
 
+        // Group by catalog definition when present; fall back to system type.
+        const byDefinition = new Map<number, { defId: number; type: LoanedEquipmentType | null; codes: string[] }>();
         const byType = new Map<LoanedEquipmentType, string[]>();
+
         for (const row of defaults) {
-          const type = row.accessoryEquipmentType;
           const code = (row.accessorySerialCode ?? '').trim();
-          if (!type || !code || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+          if (!code) {
+            continue;
+          }
+          if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
+            const key = row.inventoryDefinitionId;
+            const existing = byDefinition.get(key) ?? {
+              defId: key,
+              type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
+              codes: []
+            };
+            if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+              existing.codes.push(code);
+            }
+            byDefinition.set(key, existing);
+            continue;
+          }
+          const type = row.accessoryEquipmentType as LoanedEquipmentType | null;
+          if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
             continue;
           }
           const list = byType.get(type) ?? [];
@@ -601,6 +620,11 @@ export class OrderFormComponent implements OnInit {
         }
 
         let addedAny = false;
+        for (const group of byDefinition.values()) {
+          if (this.mergeDefaultAccessoryCodesForDefinition(group.defId, group.type, group.codes)) {
+            addedAny = true;
+          }
+        }
         for (const [type, codes] of byType) {
           if (this.mergeDefaultAccessoryCodes(type, codes)) {
             addedAny = true;
@@ -612,6 +636,64 @@ export class OrderFormComponent implements OnInit {
           this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
         }
       });
+  }
+
+  private mergeDefaultAccessoryCodesForDefinition(
+    inventoryDefinitionId: number,
+    type: LoanedEquipmentType | null,
+    codes: string[]
+  ): boolean {
+    if (codes.length === 0) {
+      return false;
+    }
+
+    let rowIndex = this.equipmentList.controls.findIndex(
+      (c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value) === inventoryDefinitionId
+    );
+
+    if (rowIndex < 0) {
+      const def = this.inventoryStore.byId(inventoryDefinitionId);
+      if (!def) {
+        return type ? this.mergeDefaultAccessoryCodes(type, codes) : false;
+      }
+      this.equipmentList.push(
+        this.buildDynamicEquipmentRow({
+          inventoryDefinitionId: def.id,
+          loanedEquipmentType: type,
+          label: def.displayName,
+          quantity: codes.length,
+          selectedCodes: [...codes],
+          lineId: null,
+          isCustomItem: type == null
+        })
+      );
+      return true;
+    }
+
+    if (this.isAccessoryRowReadOnly(rowIndex)) {
+      return false;
+    }
+
+    const ctrl = this.selectedCodesControl(rowIndex);
+    const current = [...(ctrl.value ?? [])];
+    let changed = false;
+    for (const code of codes) {
+      if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        current.push(code);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return false;
+    }
+
+    ctrl.setValue(current);
+    ctrl.markAsDirty();
+    this.getRowGroup(rowIndex).patchValue(
+      { quantity: Math.max(current.length, 1) },
+      { emitEvent: false }
+    );
+    return true;
   }
 
   /** Ensures a loaned-equipment row exists for `type` and merges serial codes into it. */
@@ -972,7 +1054,6 @@ export class OrderFormComponent implements OnInit {
 
     this.wireEquipmentAvailability();
     this.wireAccessorySerialAvailability();
-    this.wireCustomerPhoneLookup();
     this.wireCustomerAutocomplete();
     this.wireLostEquipmentAlertLookup();
     this.wireInstitutionConflictCheck();
@@ -1209,7 +1290,7 @@ export class OrderFormComponent implements OnInit {
     this.applyCustomerDetails(c, 'פרטי הלקוח עודכנו מהכרטיס לקוח');
   }
 
-  protected customerSuggestLabel(c: CustomerDto): string {
+  protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
   }
@@ -1267,12 +1348,12 @@ export class OrderFormComponent implements OnInit {
     }
   }
 
-  protected selectCustomerSuggestion(c: CustomerDto, event?: Event): void {
+  protected selectCustomerSuggestion(c: CustomerSuggestDto, event?: Event): void {
     event?.preventDefault();
     this.applyCustomerDetails(c, 'פרטי הלקוח מולאו מהרשימה');
   }
 
-  private applyCustomerDetails(c: CustomerDto, toastMessage: string): void {
+  private applyCustomerDetails(c: CustomerSuggestDto, toastMessage: string): void {
     this.form.patchValue(
       {
         customerName: c.fullName ?? '',
@@ -1286,12 +1367,24 @@ export class OrderFormComponent implements OnInit {
     this.existingCustomerMatch.set(null);
     this.closeCustomerSuggestions();
 
-    const directoryNotes = c.notes ?? '';
-    if (directoryNotes.trim().length > 0) {
-      this.showCustomerDirectoryNotesAlert(directoryNotes);
-    }
+    this.loadCustomerDirectoryNotes(c.phone1);
     this.toast.show(toastMessage, 'info');
     this.refreshLostEquipmentAlert();
+  }
+
+  /** Fetch full profile once for Notes toast after filling from lean suggest. */
+  private loadCustomerDirectoryNotes(phone1: string): void {
+    const digits = OrderFormComponent.digitsOnly(phone1);
+    if (!digits) {
+      return;
+    }
+    this.customers.searchGlobal(digits).subscribe((list) => {
+      const full = list.find((row) => row.phone1 === digits || row.phone2 === digits);
+      const directoryNotes = full?.notes ?? '';
+      if (directoryNotes.trim().length > 0) {
+        this.showCustomerDirectoryNotesAlert(directoryNotes);
+      }
+    });
   }
 
   private closeCustomerSuggestions(): void {
@@ -2473,51 +2566,17 @@ export class OrderFormComponent implements OnInit {
   }
 
   /**
-   * When Phone1 is a valid Israeli number, search the customer directory.
-   * If a row matches Phone1 or Phone2, surface a one-click fill for name/address.
-   */
-  private wireCustomerPhoneLookup(): void {
-    this.form.controls['phone'].valueChanges
-      .pipe(
-        startWith(this.form.controls['phone'].value),
-        tap((v) =>
-          this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(String(v ?? '')))
-        ),
-        debounceTime(300),
-        map(() => OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''))),
-        distinctUntilChanged(),
-        switchMap((digits) => {
-          if (!isValidIsraeliPhone(digits)) {
-            this.existingCustomerMatch.set(null);
-            return EMPTY;
-          }
-          return this.customers.searchGlobal(digits).pipe(map((list) => ({ list, digits })));
-        }),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe(({ list, digits }) => {
-        const current = OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''));
-        if (current !== digits) {
-          return;
-        }
-        const hit = list.find(
-          (c) => c.phone1 === digits || (!!c.phone2 && c.phone2 === digits)
-        );
-        this.existingCustomerMatch.set(
-          hit && !this.customerFieldsAlreadyMatch(hit) ? hit : null
-        );
-      });
-  }
-
-  /**
-   * Debounced typeahead on Name / Phone1 using the same in-memory customer directory
-   * as ניהול לקוחות. Empty / unmatched queries close the menu so new clients can type freely.
+   * Debounced typeahead on Name / Phone1 via lean suggest API.
+   * Also sets existingCustomerMatch when Phone1 is a valid Israeli number (single HTTP call).
    */
   private wireCustomerAutocomplete(): void {
     const name$ = this.form.controls['customerName'].valueChanges.pipe(
       map((v) => ({ field: 'name' as const, q: String(v ?? '').trim() }))
     );
     const phone$ = this.form.controls['phone'].valueChanges.pipe(
+      tap((v) =>
+        this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(String(v ?? '')))
+      ),
       map((v) => ({ field: 'phone' as const, q: String(v ?? '').trim() }))
     );
 
@@ -2525,11 +2584,14 @@ export class OrderFormComponent implements OnInit {
       .pipe(
         debounceTime(300),
         switchMap(({ field, q }) => {
-          if (q.length < 1) {
+          if (q.length < 2) {
             this.closeCustomerSuggestions();
+            if (field === 'phone') {
+              this.existingCustomerMatch.set(null);
+            }
             return EMPTY;
           }
-          return this.customers.searchGlobal(q).pipe(
+          return this.customers.searchSuggest(q).pipe(
             map((list) => ({
               field,
               q,
@@ -2547,6 +2609,21 @@ export class OrderFormComponent implements OnInit {
         if (current !== q) {
           return;
         }
+
+        if (field === 'phone') {
+          const digits = OrderFormComponent.digitsOnly(q);
+          if (isValidIsraeliPhone(digits)) {
+            const hit = list.find(
+              (c) => c.phone1 === digits || (!!c.phone2 && c.phone2 === digits)
+            );
+            this.existingCustomerMatch.set(
+              hit && !this.customerFieldsAlreadyMatch(hit) ? hit : null
+            );
+          } else {
+            this.existingCustomerMatch.set(null);
+          }
+        }
+
         if (list.length === 0) {
           this.closeCustomerSuggestions();
           return;
@@ -2689,7 +2766,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   /** True when name/address on the form already cover the matched directory row. */
-  private customerFieldsAlreadyMatch(c: CustomerDto): boolean {
+  private customerFieldsAlreadyMatch(c: CustomerSuggestDto): boolean {
     const formName = String(this.form.controls['customerName'].value ?? '').trim();
     if (!formName) {
       return false;

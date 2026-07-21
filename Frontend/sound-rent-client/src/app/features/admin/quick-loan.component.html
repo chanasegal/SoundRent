@@ -117,46 +117,13 @@
 
         <div class="loan-client-field loan-client-field--address">
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-address">כתובת</label>
-          <div class="customer-suggest">
-            <input
-              id="quick-loan-address"
-              type="text"
-              formControlName="address"
-              class="loan-client-input"
-              autocomplete="off"
-              role="combobox"
-              aria-autocomplete="list"
-              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'address'"
-              aria-controls="equipment-loan-suggest-address"
-              (focus)="onCustomerSuggestFocus('address')"
-              (blur)="onCustomerSuggestBlur()"
-              (keydown)="onCustomerSuggestKeydown($event, 'address')"
-            />
-            @if (customerSuggestOpen() && customerSuggestField() === 'address' && customerSuggestions().length > 0) {
-              <ul
-                id="equipment-loan-suggest-address"
-                class="customer-suggest__panel"
-                role="listbox"
-                aria-label="לקוחות תואמים"
-              >
-                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
-                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
-                    <button
-                      type="button"
-                      class="customer-suggest__item"
-                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
-                      (mousedown)="selectCustomerSuggestion(c, $event)"
-                    >
-                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
-                      @if (c.address?.trim()) {
-                        <span class="customer-suggest__address">{{ c.address }}</span>
-                      }
-                    </button>
-                  </li>
-                }
-              </ul>
-            }
-          </div>
+          <input
+            id="quick-loan-address"
+            type="text"
+            formControlName="address"
+            class="loan-client-input"
+            autocomplete="street-address"
+          />
         </div>
 
         <div class="loan-client-field loan-client-field--date">

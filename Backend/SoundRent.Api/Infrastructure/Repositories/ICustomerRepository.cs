@@ -22,6 +22,15 @@ public interface ICustomerRepository
         SystemType? systemType = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Lean autocomplete: phones-only or name-only (no OR across field groups),
+    /// no Systems include, capped at 10 rows.
+    /// </summary>
+    Task<List<CustomerSuggestRow>> SearchSuggestAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
+
     Task UpsertAsync(Customer customer, CancellationToken cancellationToken = default);
 
     Task UpdateFieldsAsync(Customer customer, CancellationToken cancellationToken = default);

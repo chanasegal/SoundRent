@@ -22,15 +22,23 @@ public class CustomersController : ControllerBase
     /// Search by digits in phone fields or by name.
     /// Pass <paramref name="systemType"/> to limit to customers linked to that system.
     /// Omit it (or set <paramref name="global"/>) for cross-context autocomplete over the unified directory.
+    /// Pass <paramref name="suggest"/> for a lean autocomplete projection (max 10, no Notes/systems).
     /// </summary>
     [HttpGet("search")]
-    public async Task<ActionResult<List<CustomerDto>>> Search(
+    public async Task<ActionResult> Search(
         [FromQuery] string? q,
         [FromQuery] SystemType? systemType,
         [FromQuery] bool global = false,
+        [FromQuery] bool suggest = false,
         CancellationToken cancellationToken = default)
     {
         var filter = global ? null : systemType;
+        if (suggest)
+        {
+            var lean = await _customerService.SearchSuggestAsync(q, filter, cancellationToken);
+            return Ok(lean);
+        }
+
         var list = await _customerService.SearchAsync(q, filter, cancellationToken);
         return Ok(list);
     }

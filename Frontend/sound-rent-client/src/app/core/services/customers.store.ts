@@ -1,7 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { finalize, map, Observable, of, shareReplay, tap } from 'rxjs';
 
-import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
+import { CustomerDto, CustomerSuggestDto, CustomerUpsertDto } from '../models/customer.model';
 import { SystemType } from '../models/enums';
 import { DataService } from './data.service';
 import { SystemContextService } from './system-context.service';
@@ -26,11 +26,17 @@ export class CustomersStore {
   }
 
   /**
-   * Cross-context autocomplete over the unified directory (all systems).
-   * Selecting a hit and saving links that profile to the current system.
+   * Full-profile global search (includes Notes). Prefer {@link searchSuggest} for typeahead.
    */
   searchGlobal(q?: string): Observable<CustomerDto[]> {
     return this.data.searchCustomers(q, { global: true });
+  }
+
+  /**
+   * Lean cross-context autocomplete (max 10, no Notes/systems).
+   */
+  searchSuggest(q?: string): Observable<CustomerSuggestDto[]> {
+    return this.data.searchCustomerSuggest(q);
   }
 
   upsert(saved: CustomerDto): void {
@@ -126,18 +132,31 @@ export class CustomersStore {
       return [...this.cache];
     }
 
-    const digits = q.replace(/\D/g, '');
-    return this.cache.filter((c) => {
-      if (digits.length >= 2) {
-        if (c.phone1.includes(digits)) {
-          return true;
-        }
-        if (c.phone2?.includes(digits)) {
-          return true;
-        }
+    if (CustomersStore.isDigitsOnlyQuery(q)) {
+      const digits = q.replace(/\D/g, '');
+      if (digits.length < 2) {
+        return [];
       }
-      const name = c.fullName ?? '';
-      return name.includes(q);
-    });
+      return this.cache.filter(
+        (c) => c.phone1.startsWith(digits) || (!!c.phone2 && c.phone2.startsWith(digits))
+      );
+    }
+
+    return this.cache.filter((c) => (c.fullName ?? '').includes(q));
+  }
+
+  private static isDigitsOnlyQuery(q: string): boolean {
+    let hasDigit = false;
+    for (const ch of q) {
+      if (/\d/.test(ch)) {
+        hasDigit = true;
+        continue;
+      }
+      if (ch === ' ' || ch === '-' || ch === '(' || ch === ')' || ch === '+') {
+        continue;
+      }
+      return false;
+    }
+    return hasDigit;
   }
 }

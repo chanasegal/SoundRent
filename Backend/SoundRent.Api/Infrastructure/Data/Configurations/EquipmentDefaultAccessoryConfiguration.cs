@@ -19,24 +19,29 @@ public class EquipmentDefaultAccessoryConfiguration : IEntityTypeConfiguration<E
             .HasMaxLength(100)
             .IsRequired();
 
-        builder.Property(e => e.AccessoryEquipmentType)
-            .IsRequired();
+        builder.Property(e => e.AccessoryEquipmentType);
 
         builder.Property(e => e.AccessorySerialCode)
             .HasMaxLength(100)
             .IsRequired();
 
+        builder.HasOne(e => e.InventoryDefinition)
+            .WithMany()
+            .HasForeignKey(e => e.InventoryDefinitionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(e => new { e.ParentEquipmentType, e.ParentSerialCode })
+            .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit");
+
+        // Unique per parent unit + catalog row + serial (covers system + custom accessories).
         builder.HasIndex(e => new
             {
                 e.ParentEquipmentType,
                 e.ParentSerialCode,
-                e.AccessoryEquipmentType,
+                e.InventoryDefinitionId,
                 e.AccessorySerialCode
             })
             .IsUnique()
-            .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit_Type_Code");
-
-        builder.HasIndex(e => new { e.ParentEquipmentType, e.ParentSerialCode })
-            .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit");
+            .HasDatabaseName("IX_EquipmentDefaultAccessories_ParentUnit_Def_Code");
     }
 }

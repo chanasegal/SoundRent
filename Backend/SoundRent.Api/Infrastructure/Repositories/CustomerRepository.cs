@@ -65,17 +65,99 @@ public class CustomerRepository : ICustomerRepository
                 .ToListAsync(cancellationToken);
         }
 
-        var digits = PhoneNumberNormalizer.DigitsOnly(q);
+        baseQuery = ApplySplitSearchFilter(baseQuery, q);
 
         return await baseQuery
-            .Where(c =>
-                (digits.Length >= 2 &&
-                 (c.Phone1.Contains(digits) || (c.Phone2 != null && c.Phone2.Contains(digits)))) ||
-                (c.FullName != null && c.FullName.Contains(q)))
             .OrderByDescending(c => c.UpdatedAt)
             .ThenBy(c => c.Phone1)
             .Take(200)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<CustomerSuggestRow>> SearchSuggestAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
+    {
+        var q = (query ?? string.Empty).Trim();
+        if (q.Length < 2)
+        {
+            return [];
+        }
+
+        // No Include(Systems) — project only fields needed for typeahead.
+        IQueryable<Customer> baseQuery = _db.Customers.AsNoTracking();
+
+        if (systemType.HasValue)
+        {
+            baseQuery = baseQuery.Where(c => c.Systems.Any(s => s.SystemType == systemType.Value));
+        }
+
+        baseQuery = ApplySplitSearchFilter(baseQuery, q);
+
+        return await baseQuery
+            .OrderByDescending(c => c.UpdatedAt)
+            .ThenBy(c => c.Phone1)
+            .Take(10)
+            .Select(c => new CustomerSuggestRow
+            {
+                Phone1 = c.Phone1,
+                Phone2 = c.Phone2,
+                FullName = c.FullName,
+                Address = c.Address
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Digits-only → phone prefix/exact (no name OR).
+    /// Otherwise → FullName substring only.
+    /// </summary>
+    private static IQueryable<Customer> ApplySplitSearchFilter(IQueryable<Customer> query, string q)
+    {
+        if (IsDigitsOnlyQuery(q))
+        {
+            var digits = PhoneNumberNormalizer.DigitsOnly(q);
+            if (digits.Length < 2)
+            {
+                return query.Where(_ => false);
+            }
+
+            // Exact PK / Phone2 match when the query looks like a full Israeli number.
+            if (PhoneNumberNormalizer.IsValidIsraeliPhone(digits))
+            {
+                return query.Where(c =>
+                    c.Phone1 == digits || (c.Phone2 != null && c.Phone2 == digits));
+            }
+
+            // Prefix match → SQL LIKE 'term%' (B-tree friendly on Phone1 PK).
+            return query.Where(c =>
+                c.Phone1.StartsWith(digits) || (c.Phone2 != null && c.Phone2.StartsWith(digits)));
+        }
+
+        return query.Where(c => c.FullName != null && c.FullName.Contains(q));
+    }
+
+    private static bool IsDigitsOnlyQuery(string q)
+    {
+        var hasDigit = false;
+        foreach (var c in q)
+        {
+            if (char.IsDigit(c))
+            {
+                hasDigit = true;
+                continue;
+            }
+
+            if (c is ' ' or '-' or '(' or ')' or '+')
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return hasDigit;
     }
 
     public async Task UpsertAsync(Customer customer, CancellationToken cancellationToken = default)

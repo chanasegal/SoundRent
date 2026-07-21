@@ -30,6 +30,23 @@ public class CustomerService : ICustomerService
         return rows.Select(ToDto).ToList();
     }
 
+    public async Task<List<CustomerSuggestDto>> SearchSuggestAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _customers.SearchSuggestAsync(query, systemType, cancellationToken);
+        return rows
+            .Select(r => new CustomerSuggestDto
+            {
+                Phone1 = r.Phone1,
+                Phone2 = r.Phone2,
+                FullName = r.FullName,
+                Address = r.Address
+            })
+            .ToList();
+    }
+
     public async Task<(byte[] Content, string FileName)> ExportToExcelAsync(
         SystemType? systemType = null,
         CancellationToken cancellationToken = default)

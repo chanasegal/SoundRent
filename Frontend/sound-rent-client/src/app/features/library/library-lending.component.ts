@@ -16,10 +16,10 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { finalize, interval } from 'rxjs';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { finalize, interval, Subject, EMPTY } from 'rxjs';
+import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
-import { CustomerDto } from '../../core/models/customer.model';
+import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { SystemType } from '../../core/models/enums';
 import {
   BookDto,
@@ -139,10 +139,15 @@ export class LibraryLendingComponent implements OnInit {
   protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
   protected readonly nowTick = signal(Date.now());
-  protected readonly customerSuggestions = signal<CustomerDto[]>([]);
+  protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
-  protected readonly customerSuggestField = signal<'name' | 'phone' | 'address' | null>(null);
+  protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestFormId = signal<string | null>(null);
+  private readonly customerSuggestQuery$ = new Subject<{
+    formId: string;
+    field: 'name' | 'phone';
+    q: string;
+  }>();
 
   /** Quick return by code — local page state only. */
   protected readonly quickReturnToolId = signal<number | null>(null);
@@ -227,6 +232,7 @@ export class LibraryLendingComponent implements OnInit {
     this.loadDefinitions();
     this.wireTimeLimitDays();
     this.wireActiveLoansSearch();
+    this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
     this.tryRestoreMinimizedDraft();
     interval(60_000)
@@ -901,18 +907,17 @@ export class LibraryLendingComponent implements OnInit {
 
   protected onAddressInput(formId: string, value: string): void {
     this.patchForm(formId, { address: value });
-    this.openCustomerSuggest(formId, 'address', value);
   }
 
-  protected selectCustomerSuggestion(formId: string, customer: CustomerDto): void {
+  protected selectCustomerSuggestion(formId: string, customer: CustomerSuggestDto): void {
     this.patchForm(formId, {
       clientName: customer.fullName ?? '',
       phone: customer.phone1,
       phone2: customer.phone2 ?? '',
       address: customer.address ?? ''
     });
-    this.applyClientNotesAlert(formId, customer.notes);
     this.closeCustomerSuggest();
+    this.lookupClientNotesByPhone(formId, customer.phone1);
   }
 
   protected dismissClientAlert(formId: string): void {
@@ -1069,18 +1074,38 @@ export class LibraryLendingComponent implements OnInit {
     return items;
   }
 
-  private openCustomerSuggest(
-    formId: string,
-    field: 'name' | 'phone' | 'address',
-    q: string
-  ): void {
+  private wireCustomerSuggestDebounce(): void {
+    this.customerSuggestQuery$
+      .pipe(
+        debounceTime(300),
+        switchMap(({ formId, field, q }) => {
+          const trimmed = q.trim();
+          if (trimmed.length < 2) {
+            this.closeCustomerSuggest();
+            this.customerSuggestions.set([]);
+            return EMPTY;
+          }
+          return this.customers.searchSuggest(trimmed).pipe(
+            map((hits) => ({ formId, field, hits }))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(({ formId, field, hits }) => {
+        if (this.customerSuggestFormId() !== formId) {
+          return;
+        }
+        this.customerSuggestField.set(field);
+        this.customerSuggestions.set(hits.slice(0, 8));
+        this.customerSuggestOpen.set(hits.length > 0);
+      });
+  }
+
+  private openCustomerSuggest(formId: string, field: 'name' | 'phone', q: string): void {
     this.customerSuggestFormId.set(formId);
     this.customerSuggestField.set(field);
     this.closeToolUi();
-    this.customers.searchGlobal(q).subscribe((hits) => {
-      this.customerSuggestions.set(hits.slice(0, 8));
-      this.customerSuggestOpen.set(hits.length > 0);
-    });
+    this.customerSuggestQuery$.next({ formId, field, q });
   }
 
   private loadDefinitions(): void {

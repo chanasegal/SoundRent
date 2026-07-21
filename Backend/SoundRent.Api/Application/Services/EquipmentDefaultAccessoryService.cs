@@ -29,15 +29,18 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             return [];
         }
 
+        var parentCodeLower = parentCode.ToLowerInvariant();
         var rows = await _db.EquipmentDefaultAccessories
             .AsNoTracking()
+            .Include(e => e.InventoryDefinition)
             .Where(e => e.ParentEquipmentType == parentEquipmentType
-                        && e.ParentSerialCode == parentCode)
-            .OrderBy(e => e.AccessoryEquipmentType)
+                        && e.ParentSerialCode.ToLower() == parentCodeLower)
+            .OrderBy(e => e.InventoryDefinition != null ? e.InventoryDefinition.DisplayName : "")
+            .ThenBy(e => e.AccessoryEquipmentType)
             .ThenBy(e => e.AccessorySerialCode)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(Map).ToList();
+        return rows.Select(e => Map(e)).ToList();
     }
 
     public async Task<List<EquipmentDefaultAccessoryCountDto>> GetCountsByParentUnitAsync(
@@ -72,6 +75,7 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             {
                 ParentEquipmentType = dto.ParentEquipmentType,
                 ParentSerialCode = dto.ParentSerialCode,
+                InventoryDefinitionId = dto.InventoryDefinitionId,
                 AccessoryEquipmentType = dto.AccessoryEquipmentType,
                 AccessorySerialCodes = [dto.AccessorySerialCode]
             },
@@ -87,16 +91,6 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         if (!Enum.IsDefined(dto.ParentEquipmentType))
         {
             throw new ValidationException("סוג ציוד ראשי אינו תקין");
-        }
-
-        if (!Enum.IsDefined(dto.AccessoryEquipmentType))
-        {
-            throw new ValidationException("סוג אביזר אינו תקין");
-        }
-
-        if (dto.AccessoryEquipmentType == dto.ParentEquipmentType)
-        {
-            throw new ValidationException("לא ניתן לשייך ציוד נלווה מאותו סוג כמו הציוד הראשי");
         }
 
         var parentCode = NormalizeCode(dto.ParentSerialCode);
@@ -123,6 +117,16 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
                 $"קוד {parentCode} אינו רשום במלאי עבור {LoanedEquipmentTypeLabels.GetLabel(dto.ParentEquipmentType)}");
         }
 
+        var definition = await ResolveInventoryDefinitionAsync(dto, cancellationToken);
+        if (definition.LinkedEquipmentType == dto.ParentEquipmentType)
+        {
+            throw new ValidationException("לא ניתן לשייך ציוד נלווה מאותו סוג כמו הציוד הראשי");
+        }
+
+        var accessoryType = definition.LinkedEquipmentType;
+        var definitionId = definition.Id;
+        var accessoryLabel = definition.DisplayName.Trim();
+
         var codes = (dto.AccessorySerialCodes ?? [])
             .Select(NormalizeCode)
             .Where(c => c.Length > 0)
@@ -134,35 +138,13 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             throw new ValidationException("יש לבחור לפחות קוד פריט אחד");
         }
 
-        foreach (var code in codes)
-        {
-            if (!AccessorySerialCodeValidator.IsValid(dto.AccessoryEquipmentType, code))
-            {
-                throw new ValidationException(
-                    AccessorySerialCodeValidator.InvalidMessageFor(dto.AccessoryEquipmentType));
-            }
-        }
-
-        var registeredCodes = await _db.AccessorySerialInventory
-            .AsNoTracking()
-            .Where(s => s.EquipmentType == dto.AccessoryEquipmentType && codes.Contains(s.SerialCode))
-            .Select(s => s.SerialCode)
-            .ToListAsync(cancellationToken);
-
-        var registeredSet = new HashSet<string>(registeredCodes, StringComparer.OrdinalIgnoreCase);
-        var missing = codes.Where(c => !registeredSet.Contains(c)).ToList();
-        if (missing.Count > 0)
-        {
-            var label = LoanedEquipmentTypeLabels.GetLabel(dto.AccessoryEquipmentType);
-            throw new ValidationException(
-                $"קוד פריט {missing[0]} אינו רשום במלאי עבור {label}");
-        }
+        await ValidateAccessoryCodesRegisteredAsync(definition, accessoryType, codes, cancellationToken);
 
         var existingCodes = await _db.EquipmentDefaultAccessories
             .AsNoTracking()
             .Where(e => e.ParentEquipmentType == dto.ParentEquipmentType
                         && e.ParentSerialCode == parentCode
-                        && e.AccessoryEquipmentType == dto.AccessoryEquipmentType
+                        && e.InventoryDefinitionId == definitionId
                         && codes.Contains(e.AccessorySerialCode))
             .Select(e => e.AccessorySerialCode)
             .ToListAsync(cancellationToken);
@@ -179,14 +161,15 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         {
             ParentEquipmentType = dto.ParentEquipmentType,
             ParentSerialCode = parentCode,
-            AccessoryEquipmentType = dto.AccessoryEquipmentType,
+            InventoryDefinitionId = definitionId,
+            AccessoryEquipmentType = accessoryType,
             AccessorySerialCode = code
         }).ToList();
 
         _db.EquipmentDefaultAccessories.AddRange(entities);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return entities.Select(Map).ToList();
+        return entities.Select(e => Map(e, accessoryLabel)).ToList();
     }
 
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
@@ -203,17 +186,105 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task<InventoryDefinition> ResolveInventoryDefinitionAsync(
+        CreateEquipmentDefaultAccessoriesBatchDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (dto.InventoryDefinitionId is int defId && defId > 0)
+        {
+            var byId = await _db.InventoryDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == defId, cancellationToken);
+
+            if (byId == null)
+            {
+                throw new ValidationException("פריט המלאי שנבחר לא נמצא");
+            }
+
+            return byId;
+        }
+
+        if (dto.AccessoryEquipmentType is LoanedEquipmentType type && Enum.IsDefined(type))
+        {
+            var byType = await _db.InventoryDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.LinkedEquipmentType == type, cancellationToken);
+
+            if (byType == null)
+            {
+                throw new ValidationException(
+                    $"לא נמצא פריט מלאי עבור {LoanedEquipmentTypeLabels.GetLabel(type)}");
+            }
+
+            return byType;
+        }
+
+        throw new ValidationException("יש לבחור סוג אביזר מהמלאי");
+    }
+
+    private async Task ValidateAccessoryCodesRegisteredAsync(
+        InventoryDefinition definition,
+        LoanedEquipmentType? accessoryType,
+        List<string> codes,
+        CancellationToken cancellationToken)
+    {
+        HashSet<string> registeredSet;
+
+        if (accessoryType is LoanedEquipmentType linked)
+        {
+            foreach (var code in codes)
+            {
+                if (!AccessorySerialCodeValidator.IsValid(linked, code))
+                {
+                    throw new ValidationException(AccessorySerialCodeValidator.InvalidMessageFor(linked));
+                }
+            }
+
+            var registeredCodes = await _db.AccessorySerialInventory
+                .AsNoTracking()
+                .Where(s => s.EquipmentType == linked && codes.Contains(s.SerialCode))
+                .Select(s => s.SerialCode)
+                .ToListAsync(cancellationToken);
+
+            registeredSet = new HashSet<string>(registeredCodes, StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            var registeredCodes = await _db.InventorySerialCodes
+                .AsNoTracking()
+                .Where(s => s.InventoryDefinitionId == definition.Id && codes.Contains(s.SerialCode))
+                .Select(s => s.SerialCode)
+                .ToListAsync(cancellationToken);
+
+            registeredSet = new HashSet<string>(registeredCodes, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var missing = codes.Where(c => !registeredSet.Contains(c)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new ValidationException(
+                $"קוד פריט {missing[0]} אינו רשום במלאי עבור {definition.DisplayName.Trim()}");
+        }
+    }
+
     private static string NormalizeCode(string? code) => (code ?? string.Empty).Trim();
 
-    private static EquipmentDefaultAccessoryDto Map(EquipmentDefaultAccessory entity) =>
+    private static EquipmentDefaultAccessoryDto Map(
+        EquipmentDefaultAccessory entity,
+        string? accessoryLabelOverride = null) =>
         new()
         {
             Id = entity.Id,
             ParentEquipmentType = entity.ParentEquipmentType,
             ParentSerialCode = entity.ParentSerialCode,
             ParentLabel = LoanedEquipmentTypeLabels.GetLabel(entity.ParentEquipmentType),
+            InventoryDefinitionId = entity.InventoryDefinitionId,
             AccessoryEquipmentType = entity.AccessoryEquipmentType,
-            AccessoryLabel = LoanedEquipmentTypeLabels.GetLabel(entity.AccessoryEquipmentType),
+            AccessoryLabel = accessoryLabelOverride
+                ?? entity.InventoryDefinition?.DisplayName?.Trim()
+                ?? (entity.AccessoryEquipmentType is LoanedEquipmentType t
+                    ? LoanedEquipmentTypeLabels.GetLabel(t)
+                    : "אביזר"),
             AccessorySerialCode = entity.AccessorySerialCode
         };
 }

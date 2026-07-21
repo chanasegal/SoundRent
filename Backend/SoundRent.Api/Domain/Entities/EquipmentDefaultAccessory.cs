@@ -19,10 +19,20 @@ public class EquipmentDefaultAccessory
     [MaxLength(100)]
     public string ParentSerialCode { get; set; } = string.Empty;
 
-    /// <summary>Accessory type bound to the parent unit (e.g. Xlr, PowerCable).</summary>
-    public LoanedEquipmentType AccessoryEquipmentType { get; set; }
+    /// <summary>
+    /// Inventory catalog row for the accessory (system-linked or custom).
+    /// Preferred key for UI selection from the master inventory table.
+    /// </summary>
+    public int? InventoryDefinitionId { get; set; }
+
+    /// <summary>
+    /// System accessory type when the catalog row is linked; null for custom inventory items.
+    /// </summary>
+    public LoanedEquipmentType? AccessoryEquipmentType { get; set; }
 
     [Required]
     [MaxLength(100)]
     public string AccessorySerialCode { get; set; } = string.Empty;
+
+    public InventoryDefinition? InventoryDefinition { get; set; }
 }

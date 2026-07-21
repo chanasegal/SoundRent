@@ -16,7 +16,7 @@ import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto, CreateManualCan
 import { EquipmentDefinitionBatchCreateDto, EquipmentDefinitionCreateDto, EquipmentDefinitionDto, EquipmentDefinitionUpdateDto, EquipmentDefinitionAvailabilityDto } from '../models/equipment-definition.model';
 import { OrderShiftDto } from '../models/order.model';
 import { WaitlistEntryCreateDto, WaitlistEntryDto } from '../models/waitlist.model';
-import { CustomerDto, CustomerUpsertDto } from '../models/customer.model';
+import { CustomerDto, CustomerSuggestDto, CustomerUpsertDto } from '../models/customer.model';
 import { InstitutionCreateUpdateDto, InstitutionDto } from '../models/institution.model';
 import { GeneralMemoDto, GeneralMemoUpdateDto } from '../models/general-memo.model';
 import {
@@ -673,6 +673,29 @@ export class DataService {
     );
   }
 
+  /**
+   * Lean global autocomplete (suggest=true): max 10 rows, no Notes/systems.
+   * Digits → phone prefix/exact; letters → FullName only.
+   */
+  searchCustomerSuggest(q?: string): Observable<CustomerSuggestDto[]> {
+    const trimmed = (q ?? '').trim();
+    if (trimmed.length < 2) {
+      return of([]);
+    }
+    const params = new HttpParams()
+      .set('q', trimmed)
+      .set('global', 'true')
+      .set('suggest', 'true');
+    return this.http
+      .get<CustomerSuggestDto[]>(`${this.customersBase}/search`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
   upsertCustomer(payload: CustomerUpsertDto): Observable<CustomerDto | null> {
     return this.http
       .post<CustomerDto>(this.customersBase, {
@@ -901,12 +924,32 @@ export class DataService {
 
   /** Fresh catalog for admin modals — surfaces HTTP errors to the caller. */
   fetchInventoryDefinitionsCatalog(): Observable<InventoryDefinitionDto[]> {
-    return this.http.get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase).pipe(
+    const params = new HttpParams().set('_', String(Date.now()));
+    return this.http.get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return throwError(() => err);
       })
     );
+  }
+
+  /** Assigned defaults for a mixer unit — surfaces HTTP errors (no silent empty list). */
+  fetchEquipmentDefaultAccessories(
+    parentEquipmentType: LoanedEquipmentType,
+    parentSerialCode: string
+  ): Observable<EquipmentDefaultAccessoryDto[]> {
+    const params = new HttpParams()
+      .set('parentEquipmentType', parentEquipmentType)
+      .set('parentSerialCode', parentSerialCode.trim())
+      .set('_', String(Date.now()));
+    return this.http
+      .get<EquipmentDefaultAccessoryDto[]>(this.equipmentDefaultAccessoriesBase, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return throwError(() => err);
+        })
+      );
   }
 
   createInventoryDefinition(
