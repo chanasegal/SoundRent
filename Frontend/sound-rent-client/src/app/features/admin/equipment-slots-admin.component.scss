@@ -641,8 +641,81 @@ tr.row-in-maintenance:hover {
   padding: 0 0.3rem;
 }
 
+.default-acc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .default-acc-modal {
-  max-height: min(88vh, 36rem);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+  max-height: min(90vh, 36rem);
+  margin: auto;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow:
+    0 20px 25px -5px rgba(15, 23, 42, 0.1),
+    0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  box-sizing: border-box;
+
+  @media (max-width: 768px) {
+    max-height: 85vh;
+  }
+}
+
+.default-acc-modal__header {
+  flex-shrink: 0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.75rem 1rem;
+}
+
+.default-acc-modal__form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.default-acc-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.default-acc-modal__assigned {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.default-acc-modal__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.default-acc-modal__footer {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .default-acc-list {

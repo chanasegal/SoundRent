@@ -930,17 +930,14 @@
 
 @if (defaultAccessoriesOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="default-acc-overlay"
     role="dialog"
     aria-modal="true"
     aria-labelledby="default-acc-modal-title"
     (click)="closeDefaultAccessories()"
   >
-    <div
-      class="default-acc-modal w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
-      (click)="$event.stopPropagation()"
-    >
-      <div class="border-b border-slate-200 px-4 py-3">
+    <div class="default-acc-modal" (click)="$event.stopPropagation()">
+      <div class="default-acc-modal__header">
         <h2 id="default-acc-modal-title" class="text-base font-bold text-[#002244]">
           ציוד נלווה קבוע — {{ defaultAccessoriesParentLabel() }}
         </h2>
@@ -950,128 +947,136 @@
         </p>
       </div>
 
-      <div class="max-h-[40vh] overflow-y-auto px-4 py-3">
-        @if (defaultAccessoriesLoading()) {
-          <p class="default-acc-options-loading" aria-live="polite">
-            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <span>טוען ציוד נלווה…</span>
-          </p>
-        } @else if (defaultAccessoriesList().length === 0) {
-          <p class="text-sm text-slate-500">אין ציוד נלווה משויך עדיין</p>
-        } @else {
-          <ul class="default-acc-list">
-            @for (row of defaultAccessoriesList(); track row.id) {
-              <li class="default-acc-list__item">
-                <div class="default-acc-list__meta">
-                  <span class="default-acc-list__type">{{ row.accessoryLabel }}</span>
-                  <span class="default-acc-list__code" dir="ltr">{{ row.accessorySerialCode }}</span>
-                </div>
-                <button
-                  type="button"
-                  class="default-acc-list__remove"
-                  [disabled]="defaultAccessoriesDeletingId() === row.id"
-                  (click)="removeDefaultAccessory(row)"
-                >
-                  {{ defaultAccessoriesDeletingId() === row.id ? '…' : 'הסר' }}
-                </button>
-              </li>
-            }
-          </ul>
-        }
-      </div>
-
       <form
         [formGroup]="defaultAccessoryForm"
-        class="space-y-3 border-t border-slate-200 px-4 py-3"
+        class="default-acc-modal__form"
         (ngSubmit)="addDefaultAccessory()"
       >
-        @if (defaultAccessoryCatalogLoading()) {
-          <p class="default-acc-options-loading" aria-live="polite">
-            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <span>טוען אפשרויות מלאי…</span>
-          </p>
-        } @else if (defaultAccessoryCatalogLoadFailed()) {
-          <p class="default-acc-options-error" role="alert">
-            לא ניתן לטעון את רשימת האביזרים. נסו לסגור ולפתוח שוב.
-          </p>
-        }
-
-        <div class="default-acc-add-stack" [class.default-acc-add-stack--loading]="defaultAccessoryCatalogLoading()">
-          <div>
-            <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-type">
-              סוג אביזר <span class="text-rose-500">*</span>
-            </label>
-            <select
-              id="default-acc-type"
-              formControlName="inventoryDefinitionId"
-              class="default-acc-select"
-              [disabled]="defaultAccessoryCatalogLoading() || defaultAccessoryCatalogLoadFailed()"
-              (change)="onDefaultAccessoryTypeChange()"
-            >
-              <option [ngValue]="null">בחרו סוג…</option>
-              @for (opt of defaultAccessoryTypeOptions(); track opt.id) {
-                <option [ngValue]="opt.id">{{ opt.label }}</option>
-              }
-            </select>
-            @if (
-              !defaultAccessoryCatalogLoading() &&
-              !defaultAccessoryCatalogLoadFailed() &&
-              defaultAccessoryTypeOptions().length === 0
-            ) {
-              <p class="mt-1 text-xs text-slate-500">אין סוגי אביזרים במלאי</p>
-            }
-            @if (
-              defaultAccessoryForm.controls.inventoryDefinitionId.touched &&
-              defaultAccessoryForm.controls.inventoryDefinitionId.errors?.['required']
-            ) {
-              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+        <div class="default-acc-modal__body">
+          <div class="default-acc-modal__assigned">
+            @if (defaultAccessoriesLoading()) {
+              <p class="default-acc-options-loading" aria-live="polite">
+                <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                <span>טוען ציוד נלווה…</span>
+              </p>
+            } @else if (defaultAccessoriesList().length === 0) {
+              <p class="text-sm text-slate-500">אין ציוד נלווה משויך עדיין</p>
+            } @else {
+              <ul class="default-acc-list">
+                @for (row of defaultAccessoriesList(); track row.id) {
+                  <li class="default-acc-list__item">
+                    <div class="default-acc-list__meta">
+                      <span class="default-acc-list__type">{{ row.accessoryLabel }}</span>
+                      <span class="default-acc-list__code" dir="ltr">{{ row.accessorySerialCode }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="default-acc-list__remove"
+                      [disabled]="defaultAccessoriesDeletingId() === row.id"
+                      (click)="removeDefaultAccessory(row)"
+                    >
+                      {{ defaultAccessoriesDeletingId() === row.id ? '…' : 'הסר' }}
+                    </button>
+                  </li>
+                }
+              </ul>
             }
           </div>
-          <div>
-            <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-codes">
-              קוד פריט <span class="text-rose-500">*</span>
-            </label>
-            <p-multiSelect
-              inputId="default-acc-codes"
-              class="default-acc-multiselect"
-              formControlName="accessorySerialCodes"
-              [options]="defaultAccessoryCodeOptions()"
-              [filter]="true"
-              filterPlaceHolder="חיפוש קוד…"
-              placeholder="בחרו קוד…"
-              [display]="'chip'"
-              [showClear]="true"
-              [showToggleAll]="true"
-              [resetFilterOnHide]="true"
-              [appendTo]="'body'"
-              [fluid]="true"
-              [loading]="defaultAccessoryCatalogLoading()"
-              [disabled]="
-                defaultAccessoryCatalogLoading() ||
-                defaultAccessoryCatalogLoadFailed() ||
-                defaultAccessorySelectedDefinitionId() == null
-              "
-              selectedItemsLabel="{0} קודים נבחרו"
-              emptyMessage="אין קודי פריט"
-              emptyFilterMessage="לא נמצאו קודים"
-              panelStyleClass="default-acc-multiselect-panel"
-            />
-            @if (
-              defaultAccessoryForm.controls.accessorySerialCodes.touched &&
-              defaultAccessoryForm.controls.accessorySerialCodes.errors?.['required']
-            ) {
-              <p class="mt-1 text-xs text-rose-600">יש לבחור לפחות קוד אחד</p>
+
+          <div class="default-acc-modal__fields">
+            @if (defaultAccessoryCatalogLoading()) {
+              <p class="default-acc-options-loading" aria-live="polite">
+                <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                <span>טוען אפשרויות מלאי…</span>
+              </p>
+            } @else if (defaultAccessoryCatalogLoadFailed()) {
+              <p class="default-acc-options-error" role="alert">
+                לא ניתן לטעון את רשימת האביזרים. נסו לסגור ולפתוח שוב.
+              </p>
             }
-            @if (
-              !defaultAccessoryCatalogLoading() &&
-              defaultAccessorySelectedDefinitionId() != null &&
-              defaultAccessoryCodeOptions().length === 0
-            ) {
-              <p class="mt-1 text-xs text-slate-500">אין קודי פריט זמינים לסוג זה</p>
-            }
+
+            <div
+              class="default-acc-add-stack"
+              [class.default-acc-add-stack--loading]="defaultAccessoryCatalogLoading()"
+            >
+              <div>
+                <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-type">
+                  סוג אביזר <span class="text-rose-500">*</span>
+                </label>
+                <select
+                  id="default-acc-type"
+                  formControlName="inventoryDefinitionId"
+                  class="default-acc-select"
+                  [disabled]="defaultAccessoryCatalogLoading() || defaultAccessoryCatalogLoadFailed()"
+                  (change)="onDefaultAccessoryTypeChange()"
+                >
+                  <option [ngValue]="null">בחרו סוג…</option>
+                  @for (opt of defaultAccessoryTypeOptions(); track opt.id) {
+                    <option [ngValue]="opt.id">{{ opt.label }}</option>
+                  }
+                </select>
+                @if (
+                  !defaultAccessoryCatalogLoading() &&
+                  !defaultAccessoryCatalogLoadFailed() &&
+                  defaultAccessoryTypeOptions().length === 0
+                ) {
+                  <p class="mt-1 text-xs text-slate-500">אין סוגי אביזרים במלאי</p>
+                }
+                @if (
+                  defaultAccessoryForm.controls.inventoryDefinitionId.touched &&
+                  defaultAccessoryForm.controls.inventoryDefinitionId.errors?.['required']
+                ) {
+                  <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+                }
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-codes">
+                  קוד פריט <span class="text-rose-500">*</span>
+                </label>
+                <p-multiSelect
+                  inputId="default-acc-codes"
+                  class="default-acc-multiselect"
+                  formControlName="accessorySerialCodes"
+                  [options]="defaultAccessoryCodeOptions()"
+                  [filter]="true"
+                  filterPlaceHolder="חיפוש קוד…"
+                  placeholder="בחרו קוד…"
+                  [display]="'chip'"
+                  [showClear]="true"
+                  [showToggleAll]="true"
+                  [resetFilterOnHide]="true"
+                  [appendTo]="'body'"
+                  [fluid]="true"
+                  [loading]="defaultAccessoryCatalogLoading()"
+                  [disabled]="
+                    defaultAccessoryCatalogLoading() ||
+                    defaultAccessoryCatalogLoadFailed() ||
+                    defaultAccessorySelectedDefinitionId() == null
+                  "
+                  selectedItemsLabel="{0} קודים נבחרו"
+                  emptyMessage="אין קודי פריט"
+                  emptyFilterMessage="לא נמצאו קודים"
+                  panelStyleClass="default-acc-multiselect-panel"
+                />
+                @if (
+                  defaultAccessoryForm.controls.accessorySerialCodes.touched &&
+                  defaultAccessoryForm.controls.accessorySerialCodes.errors?.['required']
+                ) {
+                  <p class="mt-1 text-xs text-rose-600">יש לבחור לפחות קוד אחד</p>
+                }
+                @if (
+                  !defaultAccessoryCatalogLoading() &&
+                  defaultAccessorySelectedDefinitionId() != null &&
+                  defaultAccessoryCodeOptions().length === 0
+                ) {
+                  <p class="mt-1 text-xs text-slate-500">אין קודי פריט זמינים לסוג זה</p>
+                }
+              </div>
+            </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2">
+
+        <div class="default-acc-modal__footer">
           <button
             type="button"
             class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
