@@ -6,6 +6,9 @@ namespace SoundRent.Api.Application.DTOs;
 
 public class CreateManualUnreturnedItemDto : IValidatableObject
 {
+    [Range(1, int.MaxValue)]
+    public int? OrderId { get; set; }
+
     [MaxLength(200)]
     public string? CustomerName { get; set; }
 

@@ -42,8 +42,10 @@ import {
   InventoryHolderDto
 } from '../../core/models/inventory-definition.model';
 import {
-  ActiveOneTimeAccessoryLoanDto
+  ActiveOneTimeAccessoryLoanDto,
+  UnreturnedItemDto
 } from '../../core/models/equipment-return.model';
+import { OrderDto } from '../../core/models/order.model';
 import {
   LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
@@ -101,6 +103,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly accessorySaving = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialLocationResult = signal<AccessorySerialLocationDto | null>(null);
+  /** True when the single-code locator result came from a one-time accessory loan. */
+  protected readonly serialLocationIsOneTime = signal(false);
   /** Type-only locator result (no item code). */
   protected readonly typeLocatorResult = signal<{
     kind: 'catalog' | 'oneTime';
@@ -113,12 +117,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialTypeQuery = signal('');
   protected readonly serialTypePickerOpen = signal(false);
+  /** Selected one-time item name when locator target is not a catalog definition. */
+  protected readonly selectedOneTimeTypeName = signal('');
   /**
    * Active free-text loans with no matching permanent inventory catalog row.
    * Used by locator search only — not shown as separate grid rows.
    */
   protected readonly oneTimeAccessoryLoans = signal<ActiveOneTimeAccessoryLoanDto[]>([]);
-  protected readonly inventorySearchQuery = signal('');
   protected readonly oneTimeLoanDetails = signal<ActiveOneTimeAccessoryLoanDto | null>(null);
   protected readonly returningOneTimeKey = signal<string | null>(null);
 
@@ -127,55 +132,70 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     serialCode: ['']
   });
 
-  /** Catalog options for איתור קוד פריט, filtered by typed query (catalog already A–Z). */
+  /** Catalog options for איתור פריט, filtered by typed query (catalog already A–Z). */
   protected readonly filteredSerialTypes = computed(() => {
     const query = this.serialTypeQuery().trim().toLowerCase();
+    const digitsQuery = query.replace(/\D/g, '');
     const all = this.inventoryCatalog();
     if (!query) {
       return all;
     }
-    return all.filter((d) => d.displayName.toLowerCase().includes(query));
+    return all.filter((d) => {
+      if (d.displayName.toLowerCase().includes(query)) {
+        return true;
+      }
+      const codes = [
+        ...(d.serialCodes ?? []),
+        ...(d.serialUnits ?? []).map((u) => u.serialCode)
+      ];
+      return codes.some((c) => (c ?? '').toLowerCase().includes(query) || (digitsQuery && (c ?? '').includes(digitsQuery)));
+    });
   });
 
   /** One-time loan names (not in catalog) offered in the type picker when typing. */
   protected readonly filteredOneTimeTypeNames = computed(() => {
     const query = this.serialTypeQuery().trim().toLowerCase();
+    const digitsQuery = query.replace(/\D/g, '');
     const catalogNames = new Set(
       this.inventoryCatalog().map((d) => d.displayName.trim().toLowerCase())
     );
-    const names = [
-      ...new Set(
-        this.oneTimeAccessoryLoans()
-          .map((l) => (l.itemName ?? '').trim())
-          .filter((n) => n.length > 0 && !catalogNames.has(n.toLowerCase()))
-      )
+    const matchingLoans = this.oneTimeAccessoryLoans().filter((loan) => {
+      const name = (loan.itemName ?? '').trim();
+      if (!name || catalogNames.has(name.toLowerCase())) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      if (name.toLowerCase().includes(query)) {
+        return true;
+      }
+      if ((loan.customerName ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      if (String(loan.orderId).includes(query) || String(loan.orderId).includes(digitsQuery)) {
+        return true;
+      }
+      const phoneDigits = (loan.phone ?? '').replace(/\D/g, '');
+      if (digitsQuery && phoneDigits.includes(digitsQuery)) {
+        return true;
+      }
+      return (loan.serialCodes ?? []).some((c) => (c ?? '').toLowerCase().includes(query));
+    });
+
+    return [
+      ...new Set(matchingLoans.map((l) => (l.itemName ?? '').trim()).filter((n) => n.length > 0))
     ].sort((a, b) => a.localeCompare(b, 'he'));
-    if (!query) {
-      return names;
-    }
-    return names.filter((n) => n.toLowerCase().includes(query));
   });
 
-  /** Permanent inventory catalog rows only, filtered by the shared search box. */
-  protected readonly filteredInventoryTableRows = computed(() => {
-    const query = this.inventorySearchQuery().trim().toLowerCase();
-    const digitsQuery = query.replace(/\D/g, '');
-    const defs = this.customInventoryDefinitions();
-
-    const catalogRows = defs.map((def, formIndex) => ({
+  /** Permanent inventory catalog table rows (unfiltered — search lives in איתור פריט). */
+  protected readonly inventoryTableRows = computed(() =>
+    this.customInventoryDefinitions().map((def, formIndex) => ({
       kind: 'catalog' as const,
       def,
       formIndex
-    }));
-
-    if (!query) {
-      return catalogRows;
-    }
-
-    return catalogRows.filter(({ def }) =>
-      this.catalogRowMatchesSearch(def, query, digitsQuery)
-    );
-  });
+    }))
+  );
 
   protected readonly accessoryForm = this.fb.group({
     rows: this.fb.array(LOANED_EQUIPMENT_ORDER.map((type) => this.buildAccessoryRow(type)))
@@ -316,30 +336,41 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected serialCodesForSearchType(): string[] {
     const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
-    if (id == null) {
+    if (id != null) {
+      const def = this.inventoryStore.byId(id);
+      return [...(def?.serialCodes ?? [])].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+    }
+
+    const oneTimeName = this.selectedOneTimeTypeName().trim().toLowerCase();
+    if (!oneTimeName) {
       return [];
     }
-    const def = this.inventoryStore.byId(id);
-    return [...(def?.serialCodes ?? [])].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
-    );
+    const codes = this.oneTimeAccessoryLoans()
+      .filter((l) => (l.itemName ?? '').trim().toLowerCase() === oneTimeName)
+      .flatMap((l) => l.serialCodes ?? [])
+      .map((c) => (c ?? '').trim())
+      .filter((c) => c.length > 0);
+    return [...new Set(codes)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }
 
   protected selectedSerialTypeLabel(): string {
     const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
-    if (id == null) {
-      return '';
+    if (id != null) {
+      return this.inventoryStore.byId(id)?.displayName ?? '';
     }
-    return this.inventoryStore.byId(id)?.displayName ?? '';
+    return this.selectedOneTimeTypeName();
   }
 
   protected onSerialTypeQueryInput(value: string): void {
     this.serialTypeQuery.set(value);
     this.serialTypePickerOpen.set(true);
-    // Free-text typing clears a prior catalog selection so search resolves from the query.
+    // Free-text typing clears a prior selection so search resolves from the query.
     const selected = this.selectedSerialTypeLabel();
     if (selected && value.trim() !== selected.trim()) {
       this.serialSearchForm.patchValue({ inventoryDefinitionId: null }, { emitEvent: false });
+      this.selectedOneTimeTypeName.set('');
     }
   }
 
@@ -361,12 +392,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected onSerialTypeChosen(def: InventoryDefinitionDto): void {
     this.serialSearchForm.patchValue({ inventoryDefinitionId: def.id });
+    this.selectedOneTimeTypeName.set('');
     this.serialTypeQuery.set(def.displayName);
     this.serialTypePickerOpen.set(false);
   }
 
   protected onOneTimeTypeNameChosen(name: string): void {
     this.serialSearchForm.patchValue({ inventoryDefinitionId: null });
+    this.selectedOneTimeTypeName.set(name);
     this.serialTypeQuery.set(name);
     this.serialTypePickerOpen.set(false);
   }
@@ -390,7 +423,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
     this.typeLocatorResult.set(null);
     this.serialLocationResult.set(null);
-    this.inventorySearchQuery.set(resolved.label);
+    this.serialLocationIsOneTime.set(false);
 
     if (!serialCode) {
       this.showTypeOnlySearchResult(resolved);
@@ -399,6 +432,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
     if (resolved.kind === 'oneTime') {
       this.serialSearchAttempted.set(true);
+      this.serialLocationIsOneTime.set(true);
       const loan = resolved.loans.find((l) =>
         (l.serialCodes ?? []).some(
           (c) => c.localeCompare(serialCode, undefined, { sensitivity: 'accent' }) === 0
@@ -488,6 +522,17 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       }
     }
 
+    const selectedOneTime = this.selectedOneTimeTypeName().trim();
+    if (selectedOneTime) {
+      const lower = selectedOneTime.toLowerCase();
+      const loans = this.oneTimeAccessoryLoans().filter(
+        (l) => (l.itemName ?? '').trim().toLowerCase() === lower
+      );
+      if (loans.length > 0) {
+        return { kind: 'oneTime', label: selectedOneTime, loans };
+      }
+    }
+
     const query = this.serialTypeQuery().trim();
     if (!query) {
       return null;
@@ -549,6 +594,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     }
 
     const outstanding = resolved.loans.reduce((sum, l) => sum + (l.outstandingQuantity || 0), 0);
+    this.selectedOneTimeTypeName.set(resolved.label);
+    this.serialTypeQuery.set(resolved.label);
     this.typeLocatorResult.set({
       kind: 'oneTime',
       label: resolved.label,
@@ -562,10 +609,11 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected clearSerialSearch(): void {
     this.serialSearchAttempted.set(false);
     this.serialLocationResult.set(null);
+    this.serialLocationIsOneTime.set(false);
     this.typeLocatorResult.set(null);
     this.serialSearchForm.patchValue({ serialCode: '', inventoryDefinitionId: null });
+    this.selectedOneTimeTypeName.set('');
     this.serialTypeQuery.set('');
-    this.inventorySearchQuery.set('');
   }
 
   protected formatLocatorPhone(phone: string | null | undefined): string {
@@ -641,10 +689,12 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.inventoryStore.invalidate();
     forkJoin({
       inventory: this.inventoryStore.load({ force: true }),
-      oneTime: this.data.getActiveOneTimeAccessories()
+      oneTimeApi: this.data.getActiveOneTimeAccessories(),
+      quickLoans: this.data.getQuickLoans(),
+      unreturned: this.data.getUnreturnedItems()
     })
       .pipe(finalize(() => this.accessoryLoading.set(false)))
-      .subscribe(({ oneTime }) => {
+      .subscribe(({ oneTimeApi, quickLoans, unreturned }) => {
         const list = this.inventoryStore.definitions();
         this.customInventoryDefinitions.set(list);
         this.rebuildCustomInventoryRows(list);
@@ -652,81 +702,134 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         const catalogNames = new Set(
           list.map((d) => d.displayName.trim().toLowerCase()).filter((n) => n.length > 0)
         );
-        // Permanent catalog names are never treated as one-time rows.
+        // Same sources as Active Loans: open custom order lines + custom manual reports.
         this.oneTimeAccessoryLoans.set(
-          (oneTime ?? []).filter(
-            (l) => !catalogNames.has((l.itemName ?? '').trim().toLowerCase())
+          this.buildOneTimeAccessoryLoans(
+            quickLoans ?? [],
+            unreturned ?? [],
+            oneTimeApi ?? [],
+            catalogNames
           )
         );
       });
   }
 
-  protected onInventorySearchInput(value: string): void {
-    this.inventorySearchQuery.set(value);
-  }
+  /**
+   * Merge active one-time / custom accessories for איתור פריט.
+   * Catalog names are never treated as one-time rows.
+   */
+  private buildOneTimeAccessoryLoans(
+    orders: OrderDto[],
+    unreturned: UnreturnedItemDto[],
+    apiRows: ActiveOneTimeAccessoryLoanDto[],
+    catalogNames: Set<string>
+  ): ActiveOneTimeAccessoryLoanDto[] {
+    const byKey = new Map<string, ActiveOneTimeAccessoryLoanDto>();
 
-  protected clearInventorySearch(): void {
-    this.inventorySearchQuery.set('');
-  }
+    const remember = (key: string, row: ActiveOneTimeAccessoryLoanDto): void => {
+      const name = (row.itemName ?? '').trim();
+      if (!name || catalogNames.has(name.toLowerCase())) {
+        return;
+      }
+      if (!byKey.has(key)) {
+        byKey.set(key, { ...row, itemName: name });
+      }
+    };
 
-  private catalogRowMatchesSearch(
-    def: InventoryDefinitionDto,
-    query: string,
-    digitsQuery: string
-  ): boolean {
-    if (def.displayName.toLowerCase().includes(query)) {
-      return true;
+    for (const order of orders ?? []) {
+      if (order.isCancelled || order.isReturnProcessed) {
+        continue;
+      }
+      const loanDate = order.shifts?.[0]?.orderDate ?? null;
+      for (const le of order.loanedEquipments ?? []) {
+        if (!le.isCustomItem || le.id == null || le.id <= 0 || le.quantity <= 0) {
+          continue;
+        }
+        const returned = le.returnedQuantity ?? 0;
+        if (returned >= le.quantity) {
+          continue;
+        }
+        const codes = (le.notes ?? [])
+          .filter((n) => !n.isReturned)
+          .map((n) => (n.content ?? '').trim())
+          .filter((c) => c.length > 0);
+        remember(`o:${order.id}:${le.id}`, {
+          orderId: order.id,
+          loanedEquipmentId: le.id,
+          manualItemId: null,
+          itemName: (le.customItemName ?? '').trim() || 'פריט נוסף',
+          quantity: le.quantity,
+          outstandingQuantity: Math.max(0, le.quantity - returned),
+          customerName: order.customerName ?? null,
+          phone: order.phone ?? '',
+          address: order.address ?? null,
+          loanDate,
+          serialCodes: codes
+        });
+      }
     }
-    const codes = [
-      ...(def.serialCodes ?? []),
-      ...(def.serialUnits ?? []).map((u) => u.serialCode)
-    ];
-    if (codes.some((c) => (c ?? '').toLowerCase().includes(query))) {
-      return true;
-    }
-    for (const holder of def.activeHolders ?? []) {
-      if ((holder.customerName ?? '').toLowerCase().includes(query)) {
-        return true;
-      }
-      if ((holder.address ?? '').toLowerCase().includes(query)) {
-        return true;
-      }
-      const phoneDigits = (holder.phone ?? '').replace(/\D/g, '');
-      if (digitsQuery && phoneDigits.includes(digitsQuery)) {
-        return true;
-      }
-      if ((holder.phone ?? '').toLowerCase().includes(query)) {
-        return true;
-      }
-    }
-    return false;
-  }
 
-  private oneTimeLoanMatchesSearch(
-    loan: ActiveOneTimeAccessoryLoanDto,
-    query: string,
-    digitsQuery: string
-  ): boolean {
-    if ((loan.itemName ?? '').toLowerCase().includes(query)) {
-      return true;
+    for (const u of unreturned ?? []) {
+      // Backend already marks permanent catalog leftovers as isCustomItem=false.
+      if (!u.isCustomItem) {
+        continue;
+      }
+      const name = (u.equipmentName ?? '').trim();
+      if (!name) {
+        continue;
+      }
+      if (u.manualItemId != null && u.manualItemId > 0) {
+        remember(`m:${u.manualItemId}`, {
+          orderId: u.orderId ?? 0,
+          loanedEquipmentId: 0,
+          manualItemId: u.manualItemId,
+          itemName: name,
+          quantity: u.quantityLoaned || 1,
+          outstandingQuantity: u.missingQuantity || 1,
+          customerName: u.customerName ?? null,
+          phone: u.phone ?? '',
+          address: u.address ?? null,
+          loanDate: u.returnDate ?? null,
+          serialCodes: [...(u.assignedSerialCodes ?? []), ...(u.missingSerialCodes ?? [])].filter(
+            (c, i, arr) => !!c && arr.indexOf(c) === i
+          )
+        });
+        continue;
+      }
+      if (u.loanedEquipmentId > 0 && u.orderId > 0) {
+        remember(`o:${u.orderId}:${u.loanedEquipmentId}`, {
+          orderId: u.orderId,
+          loanedEquipmentId: u.loanedEquipmentId,
+          manualItemId: null,
+          itemName: name,
+          quantity: u.quantityLoaned || 1,
+          outstandingQuantity: u.missingQuantity || 1,
+          customerName: u.customerName ?? null,
+          phone: u.phone ?? '',
+          address: u.address ?? null,
+          loanDate: u.returnDate ?? null,
+          serialCodes: [...(u.missingSerialCodes ?? [])]
+        });
+      }
     }
-    if ((loan.customerName ?? '').toLowerCase().includes(query)) {
-      return true;
+
+    for (const row of apiRows ?? []) {
+      if (row.manualItemId != null && row.manualItemId > 0) {
+        remember(`m:${row.manualItemId}`, row);
+      } else if (row.loanedEquipmentId > 0 && row.orderId > 0) {
+        remember(`o:${row.orderId}:${row.loanedEquipmentId}`, row);
+      }
     }
-    if ((loan.address ?? '').toLowerCase().includes(query)) {
-      return true;
-    }
-    const phoneDigits = (loan.phone ?? '').replace(/\D/g, '');
-    if (digitsQuery && phoneDigits.includes(digitsQuery)) {
-      return true;
-    }
-    if ((loan.phone ?? '').toLowerCase().includes(query)) {
-      return true;
-    }
-    return (loan.serialCodes ?? []).some((c) => (c ?? '').toLowerCase().includes(query));
+
+    return [...byKey.values()].sort((a, b) =>
+      (a.itemName ?? '').localeCompare(b.itemName ?? '', 'he')
+    );
   }
 
   protected oneTimeLoanKey(loan: ActiveOneTimeAccessoryLoanDto): string {
+    if (loan.manualItemId != null && loan.manualItemId > 0) {
+      return `m:${loan.manualItemId}`;
+    }
     return `${loan.orderId}:${loan.loanedEquipmentId}`;
   }
 
@@ -743,6 +846,24 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
+    const key = this.oneTimeLoanKey(loan);
+    this.returningOneTimeKey.set(key);
+
+    if (loan.manualItemId != null && loan.manualItemId > 0) {
+      this.data
+        .resolveManualUnreturnedItem(loan.manualItemId)
+        .pipe(finalize(() => this.returningOneTimeKey.set(null)))
+        .subscribe((ok) => {
+          if (!ok) {
+            return;
+          }
+          this.toast.success('הפריט סומן כהוחזר');
+          this.closeOneTimeLoanDetails();
+          this.loadAccessoryInventory();
+        });
+      return;
+    }
+
     const assignedCodes = (loan.serialCodes ?? [])
       .map((c) => (c ?? '').trim())
       .filter((c) => c.length > 0);
@@ -751,8 +872,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       ? assignedCodes.length
       : Math.max(loan.quantity, loan.outstandingQuantity);
 
-    const key = this.oneTimeLoanKey(loan);
-    this.returningOneTimeKey.set(key);
     this.data
       .recordOrderReturn(loan.orderId, {
         items: [
@@ -1207,6 +1326,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           if (!ok) {
             return;
           }
+          // Only mutate local state after the API confirms the soft-delete (204).
           this.removeCustomInventoryRow(def.id, rowIndex);
           this.toast.success(`הפריט "${def.displayName}" נמחק`);
         }
@@ -1327,6 +1447,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .subscribe(() => {
         this.serialSearchForm.patchValue({ serialCode: '' }, { emitEvent: false });
         this.serialLocationResult.set(null);
+        this.serialLocationIsOneTime.set(false);
         this.typeLocatorResult.set(null);
         this.serialSearchAttempted.set(false);
       });

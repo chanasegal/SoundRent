@@ -13,6 +13,7 @@ public class UnreturnedItemDto
     public int OrderId { get; set; }
     public string? CustomerName { get; set; }
     public string Phone { get; set; } = string.Empty;
+    public string? Address { get; set; }
     public int LoanedEquipmentId { get; set; }
     public bool IsCustomItem { get; set; }
     public LoanedEquipmentType? LoanedEquipmentType { get; set; }

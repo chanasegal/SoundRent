@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
+using SoundRent.Api.Application.Mapping;
 using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
@@ -53,7 +54,7 @@ public class OpenDebtService : IOpenDebtService
 
         var debts = await _db.CustomerDebts
             .AsNoTracking()
-            .Where(d => !d.IsPaid)
+            .Where(d => !d.IsPaid && d.Amount > 0)
             .ToListAsync(cancellationToken);
 
         foreach (var d in debts)
@@ -74,10 +75,12 @@ public class OpenDebtService : IOpenDebtService
         }
 
         var unpaidOrders = await _orders.GetUnpaidOrdersAsync(cancellationToken);
-        foreach (var order in unpaidOrders.Where(o => !o.IsCancelled))
+        foreach (var order in unpaidOrders.Where(o => !o.IsCancelled && o.PaymentAmount is > 0))
         {
             var category = ToDebtCategory(order.SystemType);
-            var groupKey = BuildSessionKey(order.Phone, order.CreatedAt, category);
+            // Charge date = rental start (earliest shift / pickup day), not order creation time.
+            var chargeDate = ResolveOrderChargeDate(order);
+            var groupKey = BuildSessionKey(order.Phone, chargeDate, category);
             lines.Add((
                 groupKey,
                 order.CustomerName ?? string.Empty,
@@ -86,7 +89,7 @@ public class OpenDebtService : IOpenDebtService
                 order.PaymentAmount ?? 0m,
                 BuildOrderEquipmentSummary(order),
                 FormatOrderDeposit(order),
-                order.CreatedAt.Date,
+                chargeDate.Date,
                 null,
                 order.Id));
         }
@@ -122,6 +125,7 @@ public class OpenDebtService : IOpenDebtService
                     OrderIds = g.Where(x => x.OrderId.HasValue).Select(x => x.OrderId!.Value).Distinct().ToList()
                 };
             })
+            .Where(g => g.TotalAmount > 0)
             .OrderByDescending(g => g.SessionDate)
             .ThenBy(g => g.CustomerName)
             .ToList();
@@ -258,6 +262,23 @@ public class OpenDebtService : IOpenDebtService
         return $"{digits}|{day}|{(int)category}";
     }
 
+    /// <summary>
+    /// Billing / charge date for an unpaid order: earliest shift date (תחילת הזמנה / איסוף).
+    /// Falls back to <see cref="Order.CreatedAt"/> only when the order has no shifts.
+    /// </summary>
+    private static DateTime ResolveOrderChargeDate(Order order)
+    {
+        if (order.Shifts is { Count: > 0 })
+        {
+            var start = order.Shifts.Min(s => s.OrderDate);
+            return DateTime.SpecifyKind(start.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        }
+
+        return order.CreatedAt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(order.CreatedAt, DateTimeKind.Utc)
+            : order.CreatedAt.ToUniversalTime();
+    }
+
     public static string CategoryLabel(DebtCategory category) => category switch
     {
         DebtCategory.Tools => "כלי עבודה",
@@ -279,28 +300,45 @@ public class OpenDebtService : IOpenDebtService
         _ => SystemType.Sound
     };
 
+    /// <summary>
+    /// Builds the open-debt "ציוד" label from primary equipment only:
+    /// booking-slot units plus main loaned units (e.g. Mixer).
+    /// Accessories (cables, bags, adaptors, auto-attached defaults, etc.) are excluded.
+    /// </summary>
     private static string BuildOrderEquipmentSummary(Order order)
     {
         var parts = new List<string>();
-        if (order.Equipments != null)
+
+        if (order.Equipments is { Count: > 0 })
         {
-            foreach (var eq in order.Equipments)
+            foreach (var eq in order.Equipments
+                .OrderBy(e => e.EquipmentDefinition?.SortOrder ?? int.MaxValue)
+                .ThenBy(e => e.EquipmentDefinition?.DisplayName ?? e.EquipmentDefinitionId))
             {
-                if (!string.IsNullOrWhiteSpace(eq.EquipmentDefinitionId))
+                var displayName = eq.EquipmentDefinition?.DisplayName?.Trim();
+                var name = !string.IsNullOrWhiteSpace(displayName)
+                    ? displayName
+                    : (eq.EquipmentDefinitionId ?? string.Empty).Trim();
+                if (name.Length > 0)
                 {
-                    parts.Add(eq.EquipmentDefinitionId.Trim());
+                    parts.Add(name);
                 }
             }
         }
 
-        if (order.LoanedEquipments != null)
+        if (order.LoanedEquipments is { Count: > 0 })
         {
             foreach (var loaned in order.LoanedEquipments)
             {
-                var name = !string.IsNullOrWhiteSpace(loaned.CustomItemName)
-                    ? loaned.CustomItemName.Trim()
-                    : loaned.LoanedEquipmentType?.ToString() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(name))
+                if (!IsPrimaryLoanedEquipment(loaned))
+                {
+                    continue;
+                }
+
+                var name = loaned.LoanedEquipmentType is { } type
+                    ? LoanedEquipmentTypeLabels.GetLabel(type)
+                    : (loaned.CustomItemName ?? string.Empty).Trim();
+                if (name.Length > 0)
                 {
                     parts.Add(name);
                 }
@@ -308,6 +346,20 @@ public class OpenDebtService : IOpenDebtService
         }
 
         return string.Join(", ", parts.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Primary loaned units that should appear in debt summaries (not accessory kit items).
+    /// </summary>
+    private static bool IsPrimaryLoanedEquipment(OrderLoanedEquipment loaned)
+    {
+        if (loaned.IsCustomItem || loaned.LoanedEquipmentType is null)
+        {
+            return false;
+        }
+
+        return loaned.LoanedEquipmentType is LoanedEquipmentType.Mixer
+            or LoanedEquipmentType.Microphone;
     }
 
     private static string? FormatOrderDeposit(Order order)

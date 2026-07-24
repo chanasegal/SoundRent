@@ -2,7 +2,9 @@
   <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
-      <p class="mt-1 text-sm text-slate-600">השאלות פעילות — סימון החזרה מעביר את הספר לדף ההחזרות.</p>
+      <p class="mt-1 text-sm text-slate-600">
+        השאלות פעילות לפי קורא — החזרה לפי ספר או סמן הכל כהוחזר.
+      </p>
     </div>
 
     <div class="time-limit-bar">
@@ -376,86 +378,112 @@
     <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
   </section>
 
-  <div class="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+  <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     @if (activeLoading()) {
-      <p class="px-4 py-8 text-center text-sm text-slate-500">טוען השאלות פעילות…</p>
+      <p class="py-8 text-center text-sm text-slate-500">טוען השאלות פעילות…</p>
+    } @else if (activeCustomerCards().length === 0) {
+      <p class="py-8 text-center text-sm text-slate-500">
+        {{
+          activeSearchQuery().trim()
+            ? 'לא נמצאו השאלות תואמות לחיפוש'
+            : 'אין השאלות פעילות'
+        }}
+      </p>
     } @else {
-      <table class="loans-table w-full min-w-[56rem] border-collapse text-right text-sm">
-        <thead>
-          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-3 font-semibold">תאריך</th>
-            <th class="px-3 py-3 font-semibold">ספר</th>
-            <th class="px-3 py-3 font-semibold">ברקוד</th>
-            <th class="px-3 py-3 font-semibold">פרטי קורא</th>
-            <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
-            <th class="px-3 py-3 font-semibold">קנס/חיוב</th>
-            <th class="px-3 py-3 font-semibold">הוחזר</th>
-            <th class="px-3 py-3 font-semibold">משך כולל</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of activeRows(); track row.rowKey) {
-            <tr class="border-b border-slate-100" [class.row-overdue]="isOverdue(row)">
-              <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
-                {{ row.hebrewLentDisplay }}
-              </td>
-              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.bookTitle }}</td>
-              <td class="px-3 py-3">
-                <span class="ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
-              </td>
-              <td class="px-3 py-3">
-                <div class="client-cell">
-                  <span>{{ row.clientName || '—' }}</span>
-                  <span class="ltr-field phone" dir="ltr">{{ formatPhone(row.phone) }}</span>
+      <div class="customer-breakdown-list active-loans-cards">
+        @for (card of activeCustomerCards(); track card.key) {
+          <article class="customer-breakdown-card active-loan-card">
+            <header class="customer-breakdown-card__header">
+              <div class="customer-breakdown-card__primary">
+                <div class="customer-breakdown-card__identity">
+                  <span class="customer-breakdown-card__name">
+                    {{ card.customerName || 'ללא שם' }}
+                  </span>
                 </div>
-              </td>
-              <td class="px-3 py-3 whitespace-nowrap">
-                {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
-              </td>
-              <td class="px-3 py-3">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="charge-input ltr-field"
-                  dir="ltr"
-                  placeholder="0"
-                  [value]="rowChargeValue(row.itemId)"
-                  (input)="onRowChargeInput(row.itemId, $any($event.target).value)"
-                  [disabled]="row.returning"
-                />
-              </td>
-              <td class="px-3 py-3">
-                <label class="returned-check">
-                  <input
-                    type="checkbox"
-                    [checked]="false"
-                    [disabled]="row.returning"
-                    (change)="onReturnedToggle(row, $any($event.target).checked)"
-                  />
-                  <span>הוחזר</span>
-                </label>
-              </td>
-              <td
-                class="px-3 py-3 whitespace-nowrap font-medium"
-                [class.duration-overdue]="isOverdue(row)"
+                <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
+                @if (card.address) {
+                  <span class="customer-breakdown-card__address">{{ card.address }}</span>
+                }
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
+                  </div>
+                }
+                <span class="customer-breakdown-card__total">
+                  סכום כולל:
+                  <strong dir="ltr">{{ formatChargeTotal(cardTotalCharge(card)) }}</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                class="active-loans-return-all-btn"
+                [disabled]="isCardBusy(card)"
+                (click)="markCustomerAllReturned(card)"
               >
-                {{ durationText(row) }}
-              </td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="8" class="px-3 py-8 text-center text-slate-500">
-                {{
-                  activeSearchQuery().trim()
-                    ? 'לא נמצאו השאלות תואמות לחיפוש'
-                    : 'אין השאלות פעילות'
-                }}
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
+                @if (isReturningCustomer(card)) {
+                  מחזיר…
+                } @else {
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5"></path>
+                  </svg>
+                  סמן הכל כהוחזר
+                }
+              </button>
+            </header>
+
+            <ul class="customer-breakdown-card__items">
+              @for (row of card.items; track row.rowKey) {
+                <li
+                  class="loan-item-row"
+                  [class.loan-item-row--overdue]="isOverdue(row)"
+                >
+                  <div class="loan-item-row__main">
+                    <span class="loan-item-row__name">{{ row.item.bookTitle }}</span>
+                    <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
+                    <span class="loan-item-row__meta">{{ row.hebrewLentDisplay }}</span>
+                    <span class="loan-item-row__meta">
+                      מועד נדרש:
+                      {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
+                    </span>
+                    <span
+                      class="loan-item-row__duration"
+                      [class.duration-overdue]="isOverdue(row)"
+                    >
+                      {{ durationText(row) }}
+                    </span>
+                  </div>
+                  <div class="loan-item-row__actions">
+                    <label class="loan-item-row__charge">
+                      <span>קנס/חיוב</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        class="charge-input ltr-field"
+                        dir="ltr"
+                        placeholder="0"
+                        [value]="rowChargeValue(row.itemId)"
+                        (input)="onRowChargeInput(row.itemId, $any($event.target).value)"
+                        [disabled]="row.returning || isCardBusy(card)"
+                      />
+                    </label>
+                    <label class="returned-check">
+                      <input
+                        type="checkbox"
+                        [checked]="false"
+                        [disabled]="row.returning || isCardBusy(card)"
+                        (change)="onReturnedToggle(row, $any($event.target).checked)"
+                      />
+                      <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
+                    </label>
+                  </div>
+                </li>
+              }
+            </ul>
+          </article>
+        }
+      </div>
     }
   </div>
 </div>

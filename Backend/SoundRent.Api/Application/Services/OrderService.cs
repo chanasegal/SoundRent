@@ -82,6 +82,10 @@ public class OrderService : IOrderService
             shifts,
             excludeOrderId: null,
             cancellationToken);
+        await _inventoryDefinitions.ValidateOrderCatalogSerialsAsync(
+            dto.LoanedEquipments,
+            excludeOrderId: null,
+            cancellationToken);
         var allowAccessoryOnly =
             (dto.LoanedEquipments ?? []).Any(le => le.Quantity > 0);
         await ValidateReservationRequestAsync(
@@ -100,6 +104,10 @@ public class OrderService : IOrderService
         await _accessorySerialInventory.SyncPhysicalStatusForOrderAsync(
             0,
             new Dictionary<LoanedEquipmentType, HashSet<string>>(),
+            dto.LoanedEquipments,
+            cancellationToken);
+        await _inventoryDefinitions.SyncCatalogSerialStatusForOrderAsync(
+            new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase),
             dto.LoanedEquipments,
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -123,6 +131,10 @@ public class OrderService : IOrderService
         await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
             dto.LoanedEquipments,
             shifts,
+            excludeOrderId: id,
+            cancellationToken);
+        await _inventoryDefinitions.ValidateOrderCatalogSerialsAsync(
+            dto.LoanedEquipments,
             excludeOrderId: id,
             cancellationToken);
         await _accessorySerialInventory.ValidateReturnedSerialGuardrailsAsync(
@@ -149,6 +161,7 @@ public class OrderService : IOrderService
             cancellationToken);
 
         var priorAssignedSerials = ExtractAssignedSerialCodesByType(existing);
+        var priorAssignedCatalogSerials = ExtractAssignedCatalogSerialCodesByName(existing);
 
         OrderMapper.ApplyTo(dto, existing);
         existing.SystemType = dto.SystemType;
@@ -175,6 +188,10 @@ public class OrderService : IOrderService
             priorAssignedSerials,
             dto.LoanedEquipments,
             cancellationToken);
+        await _inventoryDefinitions.SyncCatalogSerialStatusForOrderAsync(
+            priorAssignedCatalogSerials,
+            dto.LoanedEquipments,
+            cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
         return OrderMapper.ToDto(existing);
@@ -186,6 +203,7 @@ public class OrderService : IOrderService
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
         await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
+        await _inventoryDefinitions.ReleaseAllOrderCatalogSerialsAsync(id, cancellationToken);
         _orderRepository.Remove(existing);
         await _orderRepository.SaveChangesAsync(cancellationToken);
     }
@@ -357,6 +375,7 @@ public class OrderService : IOrderService
 
         existing.IsCancelled = true;
         await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
+        await _inventoryDefinitions.ReleaseAllOrderCatalogSerialsAsync(id, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -473,6 +492,7 @@ public class OrderService : IOrderService
 
         var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
         var returnedSerials = new List<(LoanedEquipmentType EquipmentType, string SerialCode)>();
+        var returnedCatalogSerials = new List<(string ItemName, string SerialCode)>();
 
         foreach (var item in items)
         {
@@ -520,6 +540,17 @@ public class OrderService : IOrderService
                         }
                     }
                 }
+                else if (line.IsCustomItem && !string.IsNullOrWhiteSpace(line.CustomItemName))
+                {
+                    var itemName = line.CustomItemName.Trim();
+                    foreach (var code in returnedCodes)
+                    {
+                        if (!previouslyReturned.Contains(code))
+                        {
+                            returnedCatalogSerials.Add((itemName, code));
+                        }
+                    }
+                }
 
                 continue;
             }
@@ -536,6 +567,7 @@ public class OrderService : IOrderService
         existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
             le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
         await _accessorySerialInventory.ReleaseReturnedSerialsAsync(returnedSerials, cancellationToken);
+        await _inventoryDefinitions.ReleaseReturnedCatalogSerialsAsync(returnedCatalogSerials, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -682,21 +714,222 @@ public class OrderService : IOrderService
         return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
     }
 
+    public Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(
+        string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.GetReturnedAccessoriesAsync(search, cancellationToken);
+    }
+
+    public async Task<OrderDto> UndoReturnAsync(
+        int id,
+        UndoOrderReturnRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.LoanedEquipmentId <= 0)
+        {
+            throw new ValidationException("יש לציין פריט מושאל לביטול החזרה");
+        }
+
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("לא ניתן לבטל החזרה להזמנה מבוטלת");
+        }
+
+        var line = existing.LoanedEquipments.FirstOrDefault(le => le.Id == request.LoanedEquipmentId)
+            ?? throw new NotFoundException("פריט מושאל לא נמצא בהזמנה");
+
+        var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
+        var assignedCodes = GetAssignedSerialCodes(line);
+        var serialCode = (request.SerialCode ?? string.Empty).Trim();
+        var reloanTyped = new List<(LoanedEquipmentType EquipmentType, string SerialCode)>();
+        var reloanCatalog = new List<(string ItemName, string SerialCode)>();
+
+        if (assignedCodes.Count > 0)
+        {
+            if (serialCode.Length == 0)
+            {
+                throw new ValidationException($"יש לציין קוד פריט לביטול החזרה עבור {label}");
+            }
+
+            if (!assignedCodes.Contains(serialCode))
+            {
+                throw new ValidationException($"הקוד \"{serialCode}\" אינו משויך לפריט {label}");
+            }
+
+            var note = line.Notes.FirstOrDefault(n =>
+                string.Equals((n.Content ?? string.Empty).Trim(), serialCode, StringComparison.OrdinalIgnoreCase));
+            if (note is null || !note.IsReturned)
+            {
+                throw new ValidationException($"הקוד \"{serialCode}\" אינו מסומן כהוחזר");
+            }
+
+            note.IsReturned = false;
+            line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - 1);
+
+            if (line.LoanedEquipmentType is LoanedEquipmentType equipmentType)
+            {
+                reloanTyped.Add((equipmentType, serialCode));
+            }
+            else if (line.IsCustomItem && !string.IsNullOrWhiteSpace(line.CustomItemName))
+            {
+                reloanCatalog.Add((line.CustomItemName.Trim(), serialCode));
+            }
+        }
+        else
+        {
+            if (line.ReturnedQuantity <= 0)
+            {
+                throw new ValidationException($"הפריט {label} אינו מסומן כהוחזר");
+            }
+
+            var undoQty = request.Quantity is > 0
+                ? Math.Min(request.Quantity.Value, line.ReturnedQuantity)
+                : line.ReturnedQuantity;
+            line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - undoQty);
+        }
+
+        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
+            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
+
+        foreach (var (type, code) in reloanTyped)
+        {
+            var location = await _accessorySerialInventory.GetSerialCodeLocationAsync(
+                type,
+                code,
+                cancellationToken);
+            if (location is { OrderId: int holderId } && holderId != id)
+            {
+                throw new ValidationException(
+                    $"לא ניתן לבטל החזרה — קוד {code} כבר מושאל בהשאלה אחרת");
+            }
+
+            await _accessorySerialInventory.SetPhysicalStatusAsync(
+                type,
+                code,
+                AccessorySerialPhysicalStatus.LoanedOut,
+                cancellationToken);
+        }
+
+        if (reloanCatalog.Count > 0)
+        {
+            await _inventoryDefinitions.MarkCatalogSerialsLoanedOutAsync(
+                reloanCatalog,
+                excludeOrderId: id,
+                cancellationToken);
+        }
+
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+        return OrderMapper.ToDto(existing);
+    }
+
+    public async Task DeleteReturnedAccessoryAsync(
+        int id,
+        DeleteReturnedAccessoryRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.LoanedEquipmentId <= 0)
+        {
+            throw new ValidationException("יש לציין פריט מושאל למחיקת רשומת החזרה");
+        }
+
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("לא ניתן למחוק רשומת החזרה מהזמנה מבוטלת");
+        }
+
+        var line = existing.LoanedEquipments.FirstOrDefault(le => le.Id == request.LoanedEquipmentId)
+            ?? throw new NotFoundException("פריט מושאל לא נמצא בהזמנה");
+
+        var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
+        var assignedCodes = GetAssignedSerialCodes(line);
+        var serialCode = (request.SerialCode ?? string.Empty).Trim();
+
+        if (assignedCodes.Count > 0)
+        {
+            if (serialCode.Length == 0)
+            {
+                throw new ValidationException($"יש לציין קוד פריט למחיקת רשומת החזרה עבור {label}");
+            }
+
+            var note = line.Notes.FirstOrDefault(n =>
+                string.Equals((n.Content ?? string.Empty).Trim(), serialCode, StringComparison.OrdinalIgnoreCase));
+            if (note is null || !note.IsReturned)
+            {
+                throw new ValidationException($"הקוד \"{serialCode}\" אינו מסומן כהוחזר");
+            }
+
+            line.Notes.Remove(note);
+            _orderRepository.RemoveLoanedEquipmentNote(note);
+            line.Quantity = Math.Max(0, line.Quantity - 1);
+            line.ReturnedQuantity = Math.Max(0, Math.Min(line.ReturnedQuantity - 1, line.Quantity));
+            line.ExpectedNoteCount = Math.Max(0, line.ExpectedNoteCount - 1);
+
+            // Re-pack ordinals so remaining notes stay contiguous.
+            var ordinal = 0;
+            foreach (var remaining in line.Notes.OrderBy(n => n.Ordinal))
+            {
+                remaining.Ordinal = ordinal++;
+            }
+        }
+        else
+        {
+            if (line.ReturnedQuantity <= 0)
+            {
+                throw new ValidationException($"הפריט {label} אינו מסומן כהוחזר");
+            }
+
+            var deleteQty = request.Quantity is > 0
+                ? Math.Min(request.Quantity.Value, line.ReturnedQuantity)
+                : line.ReturnedQuantity;
+
+            line.Quantity = Math.Max(0, line.Quantity - deleteQty);
+            line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - deleteQty);
+            line.ExpectedNoteCount = Math.Max(0, Math.Min(line.ExpectedNoteCount, line.Quantity));
+        }
+
+        if (line.Quantity <= 0)
+        {
+            foreach (var leftover in line.Notes.ToList())
+            {
+                line.Notes.Remove(leftover);
+                _orderRepository.RemoveLoanedEquipmentNote(leftover);
+            }
+
+            existing.LoanedEquipments.Remove(line);
+            _orderRepository.RemoveLoanedEquipment(line);
+        }
+
+        var hasMainEquipment = existing.Equipments.Any();
+        var hasRemainingAccessories = existing.LoanedEquipments.Any(le => le.Quantity > 0);
+
+        if (!hasMainEquipment && !hasRemainingAccessories)
+        {
+            // Standalone accessory-only loan with nothing left — remove the order record.
+            _orderRepository.Remove(existing);
+            await _orderRepository.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
+            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
+
+        // Inventory stays InWarehouse — do not re-loan.
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
         CreateManualUnreturnedItemDto dto,
         CancellationToken cancellationToken = default)
     {
-        // Ensure custom catalog items exist in inventory before the manual row is saved.
-        if (dto.InventoryDefinitionId is not > 0 && !string.IsNullOrWhiteSpace(dto.ItemName))
-        {
-            var ensured = await _inventoryDefinitions.EnsureByDisplayNameAsync(
-                dto.ItemName.Trim(),
-                cancellationToken);
-            dto.InventoryDefinitionId = ensured.Id;
-            dto.ItemName = ensured.DisplayName;
-            dto.LoanedEquipmentType ??= ensured.LinkedEquipmentType;
-        }
-
+        // One-time / free-text names stay off the permanent inventory catalog.
+        // Only an explicit InventoryDefinitionId (catalog pick) links to managed stock.
         var created = await _orderRepository.CreateManualUnreturnedItemAsync(dto, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(dto.Phone))
@@ -785,6 +1018,41 @@ public class OrderService : IOrderService
             {
                 codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 result[type] = codes;
+            }
+
+            foreach (var note in line.Notes)
+            {
+                if (note.IsReturned)
+                {
+                    continue;
+                }
+
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, HashSet<string>> ExtractAssignedCatalogSerialCodesByName(Order order)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in order.LoanedEquipments)
+        {
+            if (!line.IsCustomItem || string.IsNullOrWhiteSpace(line.CustomItemName))
+            {
+                continue;
+            }
+
+            var name = line.CustomItemName.Trim();
+            if (!result.TryGetValue(name, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[name] = codes;
             }
 
             foreach (var note in line.Notes)

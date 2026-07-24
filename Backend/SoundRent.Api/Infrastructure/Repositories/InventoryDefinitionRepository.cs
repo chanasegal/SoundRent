@@ -16,6 +16,7 @@ public class InventoryDefinitionRepository : IInventoryDefinitionRepository
     public Task<List<InventoryDefinition>> GetAllWithSerialsOrderedAsync(CancellationToken cancellationToken = default) =>
         _db.InventoryDefinitions
             .AsNoTracking()
+            .Where(d => d.IsActive)
             .Include(d => d.SerialCodes)
             .OrderBy(d => d.SortOrder)
             .ThenBy(d => d.Id)
@@ -24,7 +25,7 @@ public class InventoryDefinitionRepository : IInventoryDefinitionRepository
     public Task<InventoryDefinition?> GetByIdWithSerialsAsync(int id, CancellationToken cancellationToken = default) =>
         _db.InventoryDefinitions
             .Include(d => d.SerialCodes)
-            .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(d => d.Id == id && d.IsActive, cancellationToken);
 
     public Task<bool> DisplayNameExistsAsync(
         string displayName,
@@ -33,7 +34,9 @@ public class InventoryDefinitionRepository : IInventoryDefinitionRepository
     {
         var trimmed = displayName.Trim();
         return _db.InventoryDefinitions.AnyAsync(
-            d => d.DisplayName == trimmed && (excludeId == null || d.Id != excludeId.Value),
+            d => d.IsActive
+                && d.DisplayName == trimmed
+                && (excludeId == null || d.Id != excludeId.Value),
             cancellationToken);
     }
 
@@ -46,7 +49,7 @@ public class InventoryDefinitionRepository : IInventoryDefinitionRepository
             .AsNoTracking()
             .Include(d => d.SerialCodes)
             .FirstOrDefaultAsync(
-                d => d.DisplayName.ToLower() == normalized,
+                d => d.IsActive && d.DisplayName.ToLower() == normalized,
                 cancellationToken);
     }
 

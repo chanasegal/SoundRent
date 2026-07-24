@@ -69,3 +69,73 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;
 }
+
+/* Shared responsive modal shell (custom overlays — no MatDialog). */
+.app-modal-backdrop {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: max(0.75rem, env(safe-area-inset-top, 0px))
+    max(0.75rem, env(safe-area-inset-inline-end, 0px))
+    max(0.75rem, env(safe-area-inset-bottom, 0px))
+    max(0.75rem, env(safe-area-inset-inline-start, 0px));
+}
+
+.app-modal-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: min(90vw, var(--app-modal-max-w, 56rem));
+  max-height: min(85vh, 90dvh);
+  margin-block: auto;
+  overflow: hidden;
+}
+
+/* Simple forms that scroll as one panel (Tailwind overflow-y-auto on the panel). */
+.app-modal-panel.overflow-y-auto {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-modal-header,
+.app-modal-footer {
+  flex: 0 0 auto;
+}
+
+.app-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-data-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .app-modal-panel {
+    max-height: 85vh;
+  }
+
+  .app-modal-header,
+  .app-modal-footer {
+    padding-inline: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-modal-panel {
+    max-width: 94vw;
+    border-radius: 1rem;
+  }
+}
+
+/* Touch-friendly horizontal table scrolling across the app. */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}

@@ -72,6 +72,24 @@ public interface IOrderService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Undoes a prior accessory return (serial or quantity-only), restoring the active loan
+    /// and re-marking inventory as loaned out when needed.
+    /// </summary>
+    Task<OrderDto> UndoReturnAsync(
+        int id,
+        UndoOrderReturnRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Permanently deletes a returned-accessory history entry without restoring
+    /// the item as an active loan (inventory stays in warehouse).
+    /// </summary>
+    Task DeleteReturnedAccessoryAsync(
+        int id,
+        DeleteReturnedAccessoryRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marks loaned lines as partially/not returned, updating ReturnedQuantity / IsReturned
     /// so the order and unreturned-items report stay synchronized.
     /// </summary>
@@ -81,6 +99,10 @@ public interface IOrderService
         CancellationToken cancellationToken = default);
 
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+
+    Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(
+        string? search = null,
+        CancellationToken cancellationToken = default);
 
     Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
         CreateManualUnreturnedItemDto dto,

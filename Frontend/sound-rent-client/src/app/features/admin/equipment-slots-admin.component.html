@@ -103,7 +103,7 @@
     </div>
 
     <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-      <h3 class="mb-3 text-sm font-bold text-[#002244]">איתור קוד פריט</h3>
+      <h3 class="mb-3 text-sm font-bold text-[#002244]">איתור פריט</h3>
       <form [formGroup]="serialSearchForm" class="serial-locator__filters" (ngSubmit)="searchSerialLocation()">
         <div class="serial-locator__field serial-locator__field--type">
           <label class="serial-locator__label" for="serial-search-type">סוג אביזר</label>
@@ -112,7 +112,7 @@
               id="serial-search-type"
               type="text"
               class="serial-locator__search"
-              placeholder="חיפוש סוג אביזר…"
+              placeholder="חיפוש במלאי קבוע או אביזר חד-פעמי…"
               autocomplete="off"
               role="combobox"
               aria-autocomplete="list"
@@ -137,7 +137,8 @@
                         (mousedown)="$event.preventDefault()"
                         (click)="onSerialTypeChosen(def)"
                       >
-                        {{ def.displayName }}
+                        <span>{{ def.displayName }}</span>
+                        <span class="inventory-scope-badge inventory-scope-badge--catalog">במלאי קבוע</span>
                       </button>
                     </li>
                   }
@@ -149,7 +150,8 @@
                         (mousedown)="$event.preventDefault()"
                         (click)="onOneTimeTypeNameChosen(name)"
                       >
-                        {{ name }}
+                        <span>{{ name }}</span>
+                        <span class="inventory-scope-badge inventory-scope-badge--onetime">חד-פעמי</span>
                       </button>
                     </li>
                   }
@@ -207,11 +209,21 @@
           [class.serial-locator__result--missing]="!result.isRegistered"
         >
           @if (!result.isRegistered) {
-            <p class="serial-locator__status">קוד פריט <span class="ltr-field">{{ result.serialCode }}</span> אינו רשום במלאי עבור {{ result.label }}</p>
+            <p class="serial-locator__status">
+              קוד פריט <span class="ltr-field">{{ result.serialCode }}</span> אינו רשום במלאי עבור {{ result.label }}
+              @if (serialLocationIsOneTime()) {
+                <span class="inventory-scope-badge inventory-scope-badge--onetime">אביזר חד-פעמי</span>
+              }
+            </p>
           } @else if (result.isMissing) {
             <p class="serial-locator__status">חסר / לא הוחזר ⚠️</p>
             <p class="serial-locator__meta">
               <span>{{ result.label }}</span>
+              @if (serialLocationIsOneTime()) {
+                <span class="inventory-scope-badge inventory-scope-badge--onetime">
+                  אביזר חד-פעמי להזמנה #{{ result.orderId }}
+                </span>
+              }
               <span class="serial-locator__sep">·</span>
               <span class="ltr-field">{{ result.serialCode }}</span>
             </p>
@@ -244,6 +256,13 @@
             <p class="serial-locator__status">מושאל 🔴</p>
             <p class="serial-locator__meta">
               <span>{{ result.label }}</span>
+              @if (serialLocationIsOneTime()) {
+                <span class="inventory-scope-badge inventory-scope-badge--onetime">
+                  אביזר חד-פעמי להזמנה #{{ result.orderId }}
+                </span>
+              } @else {
+                <span class="inventory-scope-badge inventory-scope-badge--catalog">במלאי קבוע</span>
+              }
               <span class="serial-locator__sep">·</span>
               <span class="ltr-field">{{ result.serialCode }}</span>
             </p>
@@ -297,7 +316,14 @@
           [class.serial-locator__result--warehouse]="typeResult.kind === 'catalog' && typeResult.holders.length === 0"
           [class.serial-locator__result--loaned]="typeResult.holders.length > 0 || typeResult.kind === 'oneTime'"
         >
-          <p class="serial-locator__status">נמצא: {{ typeResult.label }}</p>
+          <p class="serial-locator__status">
+            <span>נמצא: {{ typeResult.label }}</span>
+            @if (typeResult.kind === 'catalog') {
+              <span class="inventory-scope-badge inventory-scope-badge--catalog">במלאי קבוע</span>
+            } @else {
+              <span class="inventory-scope-badge inventory-scope-badge--onetime">אביזר חד-פעמי</span>
+            }
+          </p>
           @if (typeResult.holders.length === 0 && typeResult.loans.length === 0) {
             <p class="serial-locator__meta">
               <span>כמות {{ typeResult.quantity }}</span>
@@ -350,7 +376,12 @@
           @if (typeResult.loans.length > 0) {
             <div class="mt-3 space-y-2">
               @for (loan of typeResult.loans; track oneTimeLoanKey(loan)) {
-                <div class="rounded-lg border border-slate-200 bg-white/70 p-2 text-sm">
+                <div class="rounded-lg border border-sky-200 bg-sky-50/50 p-2 text-sm">
+                  <div class="mb-2">
+                    <span class="inventory-scope-badge inventory-scope-badge--onetime">
+                      אביזר חד-פעמי להזמנה #{{ loan.orderId }}
+                    </span>
+                  </div>
                   <div class="customer-details-grid customer-details-grid--inline-4">
                     <div class="customer-details-grid__item">
                       <span class="customer-details-grid__label">שם לקוח</span>
@@ -391,27 +422,6 @@
     @if (accessoryLoading()) {
       <p class="text-sm text-slate-500">טוען מלאי אביזרים…</p>
     } @else {
-      <div class="inventory-table-search mb-4">
-        <label class="mb-1 block text-sm font-medium text-slate-700" for="inventory-table-search">
-          חיפוש במלאי
-        </label>
-        <div class="inventory-table-search__row">
-          <input
-            id="inventory-table-search"
-            type="search"
-            class="inventory-table-search__input"
-            placeholder="שם פריט, קוד, לקוח או טלפון…"
-            [value]="inventorySearchQuery()"
-            (input)="onInventorySearchInput($any($event.target).value)"
-          />
-          @if (inventorySearchQuery().trim()) {
-            <button type="button" class="inventory-table-search__clear" (click)="clearInventorySearch()">
-              נקה
-            </button>
-          }
-        </div>
-      </div>
-
       <div class="overflow-x-auto" [formGroup]="customInventoryForm">
         <table class="accessory-inventory-table w-full border-collapse text-right text-sm">
           <thead>
@@ -423,7 +433,7 @@
             </tr>
           </thead>
           <tbody formArrayName="rows">
-            @for (row of filteredInventoryTableRows(); track row.def.id) {
+            @for (row of inventoryTableRows(); track row.def.id) {
               <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="row.formIndex">
                 <td class="px-3 py-2 align-middle font-semibold text-[#002244]">
                   <span class="inventory-item-label">
@@ -537,13 +547,7 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="4" class="px-3 py-6 text-center text-slate-500">
-                  {{
-                    inventorySearchQuery().trim()
-                      ? 'לא נמצאו פריטים תואמים לחיפוש'
-                      : 'אין פריטי מלאי'
-                  }}
-                </td>
+                <td colspan="4" class="px-3 py-6 text-center text-slate-500">אין פריטי מלאי</td>
               </tr>
             }
           </tbody>
@@ -566,14 +570,14 @@
 
 @if (addSlotOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="add-slot-modal-title"
     (click)="closeAddSlot()"
   >
     <div
-      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="add-item-modal w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -640,14 +644,14 @@
 
 @if (addInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="add-inventory-modal-title"
     (click)="closeAddInventoryItem()"
   >
     <div
-      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="add-item-modal w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -750,14 +754,14 @@
 
 @if (editInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="inventory-edit-modal-title"
     (click)="closeEditInventoryItem()"
   >
     <div
-      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -802,14 +806,14 @@
 
 @if (editOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="slot-edit-modal-title"
     (click)="closeEdit()"
   >
     <div
-      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -871,23 +875,24 @@
 
 @if (futureOrdersModal(); as blocked) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="future-orders-modal-title"
     (click)="closeFutureOrdersModal()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
-      <div class="border-b border-slate-200 px-5 py-4">
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
         <h2 id="future-orders-modal-title" class="text-lg font-bold text-[#002244]">
           לא ניתן למחוק: קיימות הזמנות עתידיות
         </h2>
         <p class="mt-2 text-sm text-slate-600">יש להעביר את ההזמנות הבאות לתא אחר ואז לנסות שוב.</p>
       </div>
-      <div class="max-h-[55vh] overflow-y-auto px-3 py-3">
+      <div class="app-modal-body px-3 py-3">
         <table class="w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
@@ -915,7 +920,7 @@
           </tbody>
         </table>
       </div>
-      <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <div class="app-modal-footer flex justify-end border-t border-slate-200 px-5 py-3">
         <button
           type="button"
           class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
@@ -1104,14 +1109,14 @@
 
 @if (oneTimeLoanDetails(); as loan) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-label="פרטי השאלה חד-פעמית"
     (click)="closeOneTimeLoanDetails()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-1 text-lg font-bold text-[#002244]">פרטי השאלה</h2>

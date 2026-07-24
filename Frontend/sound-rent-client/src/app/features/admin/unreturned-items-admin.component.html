@@ -20,10 +20,31 @@
   </div>
 
   <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="unreturned-search mb-4">
+      <label class="mb-1 block text-sm font-medium text-slate-700" for="unreturned-search">
+        חיפוש פריטים שלא חזרו
+      </label>
+      <div class="unreturned-search__row">
+        <input
+          id="unreturned-search"
+          type="search"
+          class="unreturned-search__input"
+          placeholder="שם לקוח, טלפון, הזמנה#, שם פריט או קוד…"
+          [value]="searchQuery()"
+          (input)="onSearchInput($any($event.target).value)"
+        />
+        @if (searchQuery().trim()) {
+          <button type="button" class="unreturned-search__clear" (click)="clearSearch()">נקה</button>
+        }
+      </div>
+    </div>
+
     @if (loading()) {
       <p class="py-8 text-center text-sm text-slate-500">טוען…</p>
-    } @else if (rows().length === 0) {
-      <p class="py-8 text-center text-sm text-slate-500">אין פריטים שלא חזרו 🎉</p>
+    } @else if (filteredRows().length === 0) {
+      <p class="py-8 text-center text-sm text-slate-500">
+        {{ searchQuery().trim() ? 'לא נמצאו תוצאות לחיפוש' : 'אין פריטים שלא חזרו 🎉' }}
+      </p>
     } @else {
       <div class="overflow-x-auto">
         <table class="unreturned-table w-full border-collapse text-right text-sm">
@@ -40,14 +61,19 @@
             </tr>
           </thead>
           <tbody>
-            @for (row of rows(); track rowKey(row)) {
+            @for (row of filteredRows(); track rowKey(row)) {
               <tr
                 class="border-b border-slate-100 transition-opacity duration-300 odd:bg-slate-50/50"
                 [class.row-removing]="isRemoving(row)"
               >
                 <td class="px-3 py-2.5">{{ row.customerName || '—' }}</td>
                 <td class="px-3 py-2.5 font-mono" dir="ltr">{{ formatPhone(row.phone) }}</td>
-                <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.equipmentName }}</td>
+                <td class="px-3 py-2.5 font-medium text-[#002244]">
+                  {{ row.equipmentName }}
+                  @if (row.isCustomItem) {
+                    <span class="one-time-badge">חד-פעמי</span>
+                  }
+                </td>
                 <td class="px-3 py-2.5">
                   @if (hasMissingSerialCodes(row)) {
                     <span class="missing-serial-list">
@@ -73,15 +99,15 @@
                   </div>
                 </td>
                 <td class="px-3 py-2.5 text-center">
-                  @if (isManualRow(row) || !row.orderId) {
-                    <span class="text-slate-400">—</span>
-                  } @else {
+                  @if (row.orderId > 0) {
                     <a
                       [routerLink]="['/orders', row.orderId]"
                       class="font-semibold text-sky-700 hover:text-sky-900 hover:underline"
                     >
                       {{ row.orderId }}
                     </a>
+                  } @else {
+                    <span class="text-slate-400">—</span>
                   }
                 </td>
                 <td class="px-3 py-2.5 text-center">
@@ -105,14 +131,14 @@
 
 @if (addOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-label="הוסף פריט שלא חזר"
     (click)="closeAddMissing()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-2 text-lg font-bold text-[#002244]">הוסף פריט שלא חזר</h2>
@@ -206,13 +232,13 @@
             class="h-4 w-4 accent-[#002244]"
             (change)="onCustomItemToggle()"
           />
-          <span>פריט מותאם אישית (לא ברשימה)</span>
+          <span>פריט מותאם אישית / חד-פעמי (לא ברשימת המלאי)</span>
         </label>
 
         @if (addForm.controls.isCustomItem.value) {
           <div>
             <label class="mb-1 block text-sm font-medium text-slate-700">
-              תיאור ציוד <span class="text-rose-500">*</span>
+              תיאור ציוד חד-פעמי <span class="text-rose-500">*</span>
             </label>
             <input
               formControlName="customItemName"

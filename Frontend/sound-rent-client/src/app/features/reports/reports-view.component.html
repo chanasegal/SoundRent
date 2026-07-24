@@ -233,14 +233,14 @@
 
 @if (addDebtOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-label="הוסף חוב חדש"
     (click)="closeAddDebt()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש</h2>
@@ -392,14 +392,14 @@
 
 @if (addCancelledOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-label="הוסף הזמנה מבוטלת"
     (click)="closeAddCancelled()"
   >
     <div
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף הזמנה מבוטלת</h2>

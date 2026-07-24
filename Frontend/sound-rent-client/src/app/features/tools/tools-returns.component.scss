@@ -85,6 +85,18 @@
   vertical-align: middle;
 }
 
+@media (max-width: 768px) {
+  .returns-table {
+    font-size: 0.8rem;
+  }
+
+  .returns-table th,
+  .returns-table td {
+    padding: 0.45rem 0.5rem;
+    white-space: normal;
+  }
+}
+
 .row-overdue {
   background: #fff1f2;
 }

@@ -50,7 +50,7 @@ import {
 } from '../../core/models/lost-equipment.model';
 import { LoanedEquipmentNoteDto, OrderCreateUpdateDto, OrderDto, OrderLoanedEquipmentDto, OrderShiftDto, InstitutionConflictDto } from '../../core/models/order.model';
 import { InstitutionDto } from '../../core/models/institution.model';
-import { OrderReturnRequestDto } from '../../core/models/equipment-return.model';
+import { OrderReturnRequestDto, UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import { EquipmentDefinitionAvailabilityDto } from '../../core/models/equipment-definition.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -88,6 +88,10 @@ interface ReturnModalRow {
   isCustomItem: boolean;
   assignedSerialCodes: string[];
   returnedSerialCodes: string[];
+  /** Codes already persisted as returned — stay selected and cannot be unchecked. */
+  lockedReturnedSerialCodes: string[];
+  /** Quantity already persisted as returned — quantity input cannot go below this. */
+  alreadyReturnedQuantity: number;
 }
 
 /** Per booking-block occupancy map and UI helpers. */
@@ -348,11 +352,19 @@ export class OrderFormComponent implements OnInit {
 
   /** Active (unresolved) forgotten-equipment rows matching this order's customer. */
   protected readonly activeLostEquipment = signal<LostEquipmentDto[]>([]);
-  protected readonly reportLostOpen = signal(false);
-  protected readonly reportLostSaving = signal(false);
-  protected readonly reportLostForm = this.fb.group({
-    itemDescription: ['', [Validators.required, Validators.maxLength(500)]],
-    notes: ['', Validators.maxLength(2000)]
+
+  /** Report unreturned equipment modal (דווח על ציוד שלא חזר). */
+  protected readonly unreturnedReportOpen = signal(false);
+  protected readonly unreturnedReportSaving = signal(false);
+  protected readonly unreturnedItemOptions = computed(() => this.inventoryStore.definitions());
+  protected readonly unreturnedReportForm = this.fb.group({
+    customerName: ['', [Validators.maxLength(200)]],
+    phone: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
+    address: ['', [Validators.maxLength(200)]],
+    isCustomItem: [false],
+    inventoryDefinitionId: [null as number | null],
+    customItemName: ['', [Validators.maxLength(200)]],
+    itemCode: ['', [Validators.maxLength(100)]]
   });
 
   protected readonly isEdit = computed(() => this.editingId() !== null);
@@ -376,7 +388,20 @@ export class OrderFormComponent implements OnInit {
     }
     return true;
   });
-  protected readonly hasRecordedReturns = computed(() => this.loadedOrder()?.isReturnProcessed === true);
+  protected readonly hasRecordedReturns = computed(() => {
+    const order = this.loadedOrder();
+    if (!order) {
+      return false;
+    }
+    if (order.isReturnProcessed) {
+      return true;
+    }
+    return (order.loanedEquipments ?? []).some(
+      (le) =>
+        (le.returnedQuantity ?? 0) > 0 ||
+        (le.notes ?? []).some((n) => n.isReturned === true)
+    );
+  });
   protected readonly title = computed(() =>
     workspacePageTitle(
       this.isEdit() ? 'עריכת הזמנה' : 'הזמנה חדשה',
@@ -788,7 +813,33 @@ export class OrderFormComponent implements OnInit {
     const def = Number.isFinite(inventoryDefinitionId)
       ? this.inventoryStore.byId(inventoryDefinitionId)
       : undefined;
-    return (def?.serialCodes ?? []).map((serialCode) => ({
+    if (!def) {
+      return [];
+    }
+
+    const selected = (group.get('selectedCodes')?.value as string[] | null) ?? [];
+    const initial = (group.get('initialCodes')?.value as string[] | null) ?? [];
+    const reserved = new Set(
+      [...initial, ...selected]
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+        .map((c) => c.toLowerCase())
+    );
+
+    const units = def.serialUnits ?? [];
+    if (units.length > 0) {
+      return units.map((unit) => {
+        const serialCode = unit.serialCode.trim();
+        const status = unit.physicalStatus;
+        const occupied = status === 'LoanedOut' || status === 'Missing';
+        return {
+          serialCode,
+          isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+        };
+      });
+    }
+
+    return (def.serialCodes ?? []).map((serialCode) => ({
       serialCode,
       isAvailable: true
     }));
@@ -1569,6 +1620,8 @@ export class OrderFormComponent implements OnInit {
             this.ordersSync.notifyOrderUpdated(order);
           }
 
+          this.inventoryStore.load({ force: true }).subscribe();
+
           this.orderDraft.clearIfKind('sound-order');
 
           const navigateDate =
@@ -1715,46 +1768,56 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    const useSavedReturns = order.isReturnProcessed === true;
-
     const rows: ReturnModalRow[] = (order.loanedEquipments ?? [])
       .filter((row) => row.quantity > 0 && row.id != null && row.id > 0)
-      .map((row) => {
-        const assignedSerialCodes = (row.notes ?? [])
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
-        const isCustomItem = !!row.isCustomItem;
-        const savedReturnedCodes = (row.notes ?? [])
-          .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
-          .map((n) => (n.content ?? '').trim());
-        const returnedSerialCodes = useSavedReturns ? savedReturnedCodes : [];
-        const quantityReturned = useSavedReturns
-          ? Math.min(Math.max(row.returnedQuantity ?? 0, 0), row.quantity)
-          : 0;
-
-        return {
-          rowId: `line-${row.id}`,
-          loanedEquipmentId: row.id!,
-          label: isCustomItem
-            ? (row.customItemName?.trim() || 'פריט נוסף')
-            : row.loanedEquipmentType
-              ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
-              : String(row.loanedEquipmentType),
-          quantityLoaned: row.quantity,
-          quantityReturned,
-          isCustomItem,
-          assignedSerialCodes,
-          returnedSerialCodes
-        };
-      });
+      .map((row) => this.toReturnModalRow(row));
 
     if (rows.length === 0) {
       this.toast.show('אין ציוד מושאל להחזרה בהזמנה זו', 'info');
       return;
     }
 
+    this.returnSerialDropdownRowId.set(null);
     this.returnRows.set(rows);
     this.returnModalOpen.set(true);
+  }
+
+  /** Build a return-modal row, hydrating any previously recorded returns. */
+  private toReturnModalRow(row: OrderLoanedEquipmentDto): ReturnModalRow {
+    const assignedSerialCodes = (row.notes ?? [])
+      .map((n) => (n.content ?? '').trim())
+      .filter((c) => c.length > 0);
+    const isCustomItem = !!row.isCustomItem;
+    const lockedReturnedSerialCodes = (row.notes ?? [])
+      .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+      .map((n) => (n.content ?? '').trim());
+    const alreadyReturnedQuantity = Math.min(
+      Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
+      row.quantity
+    );
+    const returnedSerialCodes =
+      assignedSerialCodes.length > 0 ? [...lockedReturnedSerialCodes] : [];
+    const quantityReturned =
+      assignedSerialCodes.length > 0
+        ? returnedSerialCodes.length
+        : alreadyReturnedQuantity;
+
+    return {
+      rowId: `line-${row.id}`,
+      loanedEquipmentId: row.id!,
+      label: isCustomItem
+        ? (row.customItemName?.trim() || 'פריט נוסף')
+        : row.loanedEquipmentType
+          ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
+          : String(row.loanedEquipmentType),
+      quantityLoaned: row.quantity,
+      quantityReturned,
+      isCustomItem,
+      assignedSerialCodes,
+      returnedSerialCodes,
+      lockedReturnedSerialCodes,
+      alreadyReturnedQuantity
+    };
   }
 
   protected closeReturnModal(): void {
@@ -1770,7 +1833,8 @@ export class OrderFormComponent implements OnInit {
       rows.map((row) => ({
         ...row,
         quantityReturned: row.quantityLoaned,
-        returnedSerialCodes: row.isCustomItem ? [] : [...row.assignedSerialCodes]
+        returnedSerialCodes:
+          row.assignedSerialCodes.length > 0 ? [...row.assignedSerialCodes] : []
       }))
     );
   }
@@ -1781,8 +1845,12 @@ export class OrderFormComponent implements OnInit {
         i === index
           ? {
               ...row,
-              quantityReturned: row.isCustomItem ? row.quantityLoaned : row.assignedSerialCodes.length,
-              returnedSerialCodes: row.isCustomItem ? [] : [...row.assignedSerialCodes]
+              quantityReturned:
+                row.assignedSerialCodes.length > 0
+                  ? row.assignedSerialCodes.length
+                  : row.quantityLoaned,
+              returnedSerialCodes:
+                row.assignedSerialCodes.length > 0 ? [...row.assignedSerialCodes] : []
             }
           : row
       )
@@ -1790,7 +1858,14 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected hasSerializedReturnCodes(row: ReturnModalRow): boolean {
-    return !row.isCustomItem && row.assignedSerialCodes.length > 0;
+    // Any loaned line with assigned codes (catalog or custom/one-time) uses code selection.
+    return row.assignedSerialCodes.length > 0;
+  }
+
+  protected isReturnSerialLocked(row: ReturnModalRow, code: string): boolean {
+    return row.lockedReturnedSerialCodes.some(
+      (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
   }
 
   protected toggleReturnSerialDropdown(row: ReturnModalRow): void {
@@ -1809,6 +1884,10 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected toggleReturnSerialSelection(row: ReturnModalRow, code: string, checked: boolean): void {
+    if (!checked && this.isReturnSerialLocked(row, code)) {
+      return;
+    }
+
     this.returnRows.update((rows) =>
       rows.map((current) => {
         if (current.rowId !== row.rowId) {
@@ -1828,6 +1907,17 @@ export class OrderFormComponent implements OnInit {
           returnedSerialCodes = returnedSerialCodes.filter(
             (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0
           );
+        }
+
+        // Keep locked (already returned) codes selected.
+        for (const locked of current.lockedReturnedSerialCodes) {
+          if (
+            !returnedSerialCodes.some(
+              (c) => c.localeCompare(locked, undefined, { sensitivity: 'accent' }) === 0
+            )
+          ) {
+            returnedSerialCodes.push(locked);
+          }
         }
 
         return {
@@ -1855,7 +1945,10 @@ export class OrderFormComponent implements OnInit {
           return row;
         }
 
-        const quantityReturned = Math.min(value, row.quantityLoaned);
+        const quantityReturned = Math.min(
+          Math.max(value, row.alreadyReturnedQuantity),
+          row.quantityLoaned
+        );
         if (!this.hasSerializedReturnCodes(row)) {
           return { ...row, quantityReturned };
         }
@@ -2707,60 +2800,141 @@ export class OrderFormComponent implements OnInit {
     });
   }
 
-  protected toggleReportLostEquipment(): void {
-    if (this.reportLostOpen()) {
-      this.closeReportLostEquipment();
-      return;
-    }
-    this.reportLostForm.reset({ itemDescription: '', notes: '' });
-    this.reportLostOpen.set(true);
-  }
-
-  protected closeReportLostEquipment(): void {
-    this.reportLostOpen.set(false);
-    this.reportLostForm.reset({ itemDescription: '', notes: '' });
-  }
-
-  protected submitReportLostEquipment(): void {
-    if (this.reportLostForm.invalid) {
-      this.reportLostForm.markAllAsTouched();
-      this.toast.error('יש למלא תיאור פריט');
-      return;
-    }
-
+  protected openUnreturnedReportModal(): void {
     const customerName = String(this.form.controls['customerName'].value ?? '').trim();
     const phone = String(this.form.controls['phone'].value ?? '').trim();
+    const address = String(this.form.controls['address'].value ?? '').trim();
     if (!customerName && !phone) {
       this.toast.error('יש למלא שם או טלפון של הלקוח לפני הדיווח');
       return;
     }
 
-    const v = this.reportLostForm.getRawValue();
-    this.reportLostSaving.set(true);
+    this.unreturnedReportForm.reset({
+      customerName,
+      phone,
+      address,
+      isCustomItem: false,
+      inventoryDefinitionId: null,
+      customItemName: '',
+      itemCode: ''
+    });
+    this.unreturnedReportOpen.set(true);
+  }
+
+  protected closeUnreturnedReportModal(): void {
+    this.unreturnedReportOpen.set(false);
+    this.unreturnedReportForm.reset({
+      customerName: '',
+      phone: '',
+      address: '',
+      isCustomItem: false,
+      inventoryDefinitionId: null,
+      customItemName: '',
+      itemCode: ''
+    });
+  }
+
+  protected onUnreturnedCustomItemToggle(): void {
+    const checked = this.unreturnedReportForm.controls.isCustomItem.value === true;
+    if (checked) {
+      this.unreturnedReportForm.patchValue({ inventoryDefinitionId: null });
+      this.unreturnedReportForm.controls.inventoryDefinitionId.setErrors(null);
+    } else {
+      this.unreturnedReportForm.patchValue({ customItemName: '' });
+      this.unreturnedReportForm.controls.customItemName.setErrors(null);
+    }
+  }
+
+  protected unreturnedItemOptionLabel(def: InventoryDefinitionDto): string {
+    return def.displayName?.trim() || `פריט #${def.id}`;
+  }
+
+  protected submitUnreturnedReport(): void {
+    const isCustom = this.unreturnedReportForm.controls.isCustomItem.value === true;
+    const catalogCtrl = this.unreturnedReportForm.controls.inventoryDefinitionId;
+    const customCtrl = this.unreturnedReportForm.controls.customItemName;
+
+    if (isCustom) {
+      catalogCtrl.setErrors(null);
+      const customName = (customCtrl.value ?? '').trim();
+      if (!customName) {
+        customCtrl.setErrors({ required: true });
+      }
+    } else {
+      customCtrl.setErrors(null);
+      if (catalogCtrl.value == null) {
+        catalogCtrl.setErrors({ required: true });
+      }
+    }
+
+    if (this.unreturnedReportForm.invalid) {
+      this.unreturnedReportForm.markAllAsTouched();
+      this.toast.error('אנא מלאו את השדות הנדרשים');
+      return;
+    }
+    if (this.unreturnedReportSaving()) {
+      return;
+    }
+
+    const v = this.unreturnedReportForm.getRawValue();
+    const customerName = (v.customerName ?? '').trim();
+    const phone = (v.phone ?? '').trim();
+    if (!customerName && !phone) {
+      this.toast.error('יש למלא שם או טלפון של הלקוח לפני הדיווח');
+      return;
+    }
+
+    let inventoryDefinitionId: number | null = null;
+    let loanedEquipmentType: LoanedEquipmentType | null = null;
+    let itemName: string | null = null;
+
+    if (isCustom) {
+      itemName = (v.customItemName ?? '').trim();
+    } else {
+      const definitionId = Number(v.inventoryDefinitionId);
+      const def = this.unreturnedItemOptions().find((d) => d.id === definitionId);
+      if (!def) {
+        this.toast.error('יש לבחור פריט');
+        return;
+      }
+      inventoryDefinitionId = def.id;
+      loanedEquipmentType = (def.linkedEquipmentType as LoanedEquipmentType | null) ?? null;
+      itemName = def.displayName;
+    }
+
+    const orderId = this.editingId();
+    const itemCode = (v.itemCode ?? '').trim();
+
+    this.unreturnedReportSaving.set(true);
     this.data
-      .createLostEquipment({
-        customerName: customerName || phone,
+      .createManualUnreturnedItem({
+        orderId: orderId != null && orderId > 0 ? orderId : null,
+        customerName: customerName || null,
         phone: phone || null,
-        itemDescription: (v.itemDescription ?? '').trim(),
-        hebrewDate: this.hebrew.toHebrew(new Date()),
-        notes: ((v.notes as string) ?? '').trim() || null
+        address: (v.address ?? '').trim() || null,
+        // Custom/one-time entries must never link to the permanent catalog.
+        inventoryDefinitionId: isCustom ? null : inventoryDefinitionId,
+        loanedEquipmentType: isCustom ? null : loanedEquipmentType,
+        itemName,
+        itemCode: itemCode || null
       })
-      .pipe(finalize(() => this.reportLostSaving.set(false)))
+      .pipe(finalize(() => this.unreturnedReportSaving.set(false)))
       .subscribe({
-        next: (created) => {
-          if (created === null) {
+        next: (created: UnreturnedItemDto | null) => {
+          if (!created) {
             return;
           }
-          this.toast.success('הציוד שנשכח נרשם בהצלחה');
-          this.closeReportLostEquipment();
-          if (LOST_EQUIPMENT_ACTIVE_STATUSES.has(created.status)) {
-            this.activeLostEquipment.update((list) => {
-              if (list.some((r) => r.id === created.id)) {
-                return list;
-              }
-              return [created, ...list];
-            });
+          const row: UnreturnedItemDto = isCustom ? { ...created, isCustomItem: true } : created;
+          this.ordersSync.notifyUnreturnedChanged(row);
+          if (!isCustom) {
+            this.inventoryStore.load({ force: true }).subscribe();
           }
+          this.closeUnreturnedReportModal();
+          this.toast.success(
+            isCustom
+              ? 'הפריט החד-פעמי נשמר בהשאלות פעילות ובפריטים שלא חזרו'
+              : 'הדיווח נשמר — הפריט נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
+          );
         }
       });
   }
@@ -3106,6 +3280,7 @@ export class OrderFormComponent implements OnInit {
     label: string;
     quantity: number;
     selectedCodes: string[];
+    initialCodes?: string[];
     lineId: number | null;
     isCustomItem: boolean;
   }): FormGroup {
@@ -3118,6 +3293,7 @@ export class OrderFormComponent implements OnInit {
         Validators.min(1)
       ]),
       selectedCodes: this.fb.nonNullable.control<string[]>([...init.selectedCodes]),
+      initialCodes: this.fb.nonNullable.control<string[]>([...(init.initialCodes ?? init.selectedCodes)]),
       lineId: this.fb.control<number | null>(init.lineId),
       isCustomItem: this.fb.nonNullable.control(init.isCustomItem)
     });

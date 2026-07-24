@@ -1542,17 +1542,20 @@ export class WeeklyGridComponent {
   }
 
   /**
-   * One pass over all orders: for each calendar day, flag distinct orders that share
-   * the same extracted last name (final whitespace-delimited token).
+   * One pass over all orders: for each calendar day, flag orders that share the same
+   * extracted last name with a *different* customer (different phone). Multiple orders
+   * for the same phone on that day do not trigger the warning.
    */
   private buildSameDayLastNameDuplicateOrderIds(orders: OrderDto[]): Map<string, Set<number>> {
-    const lastNameBucketsByDay = new Map<string, Map<string, Set<number>>>();
+    // day → lastName → phoneIdentity → orderIds
+    const lastNameBucketsByDay = new Map<string, Map<string, Map<string, Set<number>>>>();
 
     for (const order of orders) {
       const lastNameKey = this.customerLastNameKey(order.customerName);
       if (!lastNameKey) {
         continue;
       }
+      const phoneIdentity = this.customerPhoneIdentity(order);
 
       const daysOnOrder = new Set((order.shifts ?? []).map((shift) => shift.orderDate));
       for (const iso of daysOnOrder) {
@@ -1561,10 +1564,15 @@ export class WeeklyGridComponent {
           dayBuckets = new Map();
           lastNameBucketsByDay.set(iso, dayBuckets);
         }
-        let orderIds = dayBuckets.get(lastNameKey);
+        let byPhone = dayBuckets.get(lastNameKey);
+        if (!byPhone) {
+          byPhone = new Map();
+          dayBuckets.set(lastNameKey, byPhone);
+        }
+        let orderIds = byPhone.get(phoneIdentity);
         if (!orderIds) {
           orderIds = new Set();
-          dayBuckets.set(lastNameKey, orderIds);
+          byPhone.set(phoneIdentity, orderIds);
         }
         orderIds.add(order.id);
       }
@@ -1573,12 +1581,14 @@ export class WeeklyGridComponent {
     const flaggedByDay = new Map<string, Set<number>>();
     for (const [iso, dayBuckets] of lastNameBucketsByDay) {
       const flagged = new Set<number>();
-      for (const orderIds of dayBuckets.values()) {
-        if (orderIds.size < 2) {
+      for (const byPhone of dayBuckets.values()) {
+        if (byPhone.size < 2) {
           continue;
         }
-        for (const id of orderIds) {
-          flagged.add(id);
+        for (const orderIds of byPhone.values()) {
+          for (const id of orderIds) {
+            flagged.add(id);
+          }
         }
       }
       if (flagged.size > 0) {
@@ -1587,6 +1597,15 @@ export class WeeklyGridComponent {
     }
 
     return flaggedByDay;
+  }
+
+  /** Customer identity for duplicate checks: phone when present, else full name. */
+  private customerPhoneIdentity(order: OrderDto): string {
+    const phone = (order.phone ?? '').trim();
+    if (phone) {
+      return phone;
+    }
+    return `name:${(order.customerName ?? '').trim()}`;
   }
 
   private customerLastNameKey(fullName: string | null | undefined): string {

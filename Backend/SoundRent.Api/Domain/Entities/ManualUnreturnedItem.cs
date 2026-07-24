@@ -4,11 +4,17 @@ using SoundRent.Api.Domain.Enums;
 namespace SoundRent.Api.Domain.Entities;
 
 /// <summary>
-/// Manually logged missing / unreturned accessory (פריט שלא חזר), not tied to an order.
+/// Manually logged missing / unreturned accessory (פריט שלא חזר).
+/// Optionally linked to an order when reported from the order form.
 /// </summary>
 public class ManualUnreturnedItem
 {
     public int Id { get; set; }
+
+    /// <summary>Optional source order when reported from an order context.</summary>
+    public int? OrderId { get; set; }
+
+    public Order? Order { get; set; }
 
     public int? InventoryDefinitionId { get; set; }
 

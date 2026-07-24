@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  computed,
   inject,
   signal
 } from '@angular/core';
@@ -54,6 +55,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly returningKeys = signal<Set<string>>(new Set());
   protected readonly removingKeys = signal<Set<string>>(new Set());
+  protected readonly searchQuery = signal('');
 
   protected readonly addOpen = signal(false);
   protected readonly savingMissing = signal(false);
@@ -64,6 +66,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
+
+  protected readonly filteredRows = computed(() => this.filterRows(this.rows(), this.searchQuery()));
 
   protected readonly addForm = this.fb.group({
     customerName: ['', [Validators.maxLength(200)]],
@@ -79,6 +83,29 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     this.inventory.load().subscribe();
     this.wireCustomerAutocomplete();
     this.refresh();
+
+    this.ordersSync.unreturnedChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((created) => {
+        if (created) {
+          const row: UnreturnedItemDto =
+            created.inventoryDefinitionId == null || created.inventoryDefinitionId <= 0
+              ? { ...created, isCustomItem: true }
+              : created;
+          this.rows.update((list) => {
+            if (list.some((r) => this.rowKey(r) === this.rowKey(row))) {
+              return list;
+            }
+            return [row, ...list];
+          });
+          return;
+        }
+        this.refresh();
+      });
+
+    this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
   }
 
   protected refresh(): void {
@@ -246,8 +273,9 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         customerName: (v.customerName ?? '').trim() || null,
         phone: (v.phone ?? '').trim() || null,
         address: (v.address ?? '').trim() || null,
-        inventoryDefinitionId,
-        loanedEquipmentType,
+        // Custom/one-time entries must never link to the permanent catalog.
+        inventoryDefinitionId: isCustom ? null : inventoryDefinitionId,
+        loanedEquipmentType: isCustom ? null : loanedEquipmentType,
         itemName,
         itemCode: itemCode || null
       })
@@ -257,12 +285,62 @@ export class UnreturnedItemsAdminComponent implements OnInit {
           if (!created) {
             return;
           }
-          this.rows.update((list) => [created, ...list]);
-          this.inventory.load({ force: true }).subscribe();
+          const row: UnreturnedItemDto = isCustom ? { ...created, isCustomItem: true } : created;
+          this.rows.update((list) => [row, ...list]);
+          if (!isCustom) {
+            this.inventory.load({ force: true }).subscribe();
+          }
+          this.ordersSync.notifyUnreturnedChanged(row);
           this.closeAddMissing();
-          this.toast.success('הפריט נוסף לרשימת פריטים שלא חזרו');
+          this.toast.success(
+            isCustom
+              ? 'הפריט החד-פעמי נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
+              : 'הפריט נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
+          );
         }
       });
+  }
+
+  protected onSearchInput(value: string): void {
+    this.searchQuery.set(value);
+  }
+
+  protected clearSearch(): void {
+    this.searchQuery.set('');
+  }
+
+  private filterRows(list: UnreturnedItemDto[], rawQuery: string): UnreturnedItemDto[] {
+    const query = rawQuery.trim().toLowerCase();
+    if (!query) {
+      return list;
+    }
+    const digitsQuery = query.replace(/\D/g, '');
+
+    return list.filter((row) => {
+      if ((row.customerName ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      if ((row.equipmentName ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      if (row.isCustomItem && 'חד-פעמי'.includes(query)) {
+        return true;
+      }
+      if (row.orderId > 0 && (String(row.orderId).includes(query) || String(row.orderId).includes(digitsQuery))) {
+        return true;
+      }
+      const phoneDigits = (row.phone ?? '').replace(/\D/g, '');
+      if (digitsQuery && phoneDigits.includes(digitsQuery)) {
+        return true;
+      }
+      if ((row.phone ?? '').toLowerCase().includes(query)) {
+        return true;
+      }
+      return (
+        (row.missingSerialCodes ?? []).some((c) => c.toLowerCase().includes(query)) ||
+        (row.assignedSerialCodes ?? []).some((c) => c.toLowerCase().includes(query))
+      );
+    });
   }
 
   protected itemOptionLabel(def: InventoryDefinitionDto): string {
@@ -335,6 +413,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
               return;
             }
             this.inventory.load({ force: true }).subscribe();
+            this.ordersSync.notifyUnreturnedChanged(null);
             this.animateRowOut(key);
             this.toast.success('הפריט סומן כהוחזר');
           }
@@ -343,7 +422,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     }
 
     const assignedCodes = row.assignedSerialCodes ?? [];
-    const hasSerializedLine = !row.isCustomItem && assignedCodes.length > 0;
+    const hasSerializedLine = assignedCodes.length > 0;
     const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantityLoaned;
 
     this.returningKeys.update((set) => new Set(set).add(key));

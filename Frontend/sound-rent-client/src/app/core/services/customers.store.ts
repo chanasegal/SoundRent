@@ -1,4 +1,4 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { finalize, map, Observable, of, shareReplay, tap } from 'rxjs';
 
 import { CustomerDto, CustomerSuggestDto, CustomerUpsertDto } from '../models/customer.model';
@@ -11,7 +11,10 @@ export class CustomersStore {
   private readonly data = inject(DataService);
   private readonly systemContext = inject(SystemContextService);
 
-  private cache: CustomerDto[] = [];
+  /** System-scoped customer profiles currently in memory (includes notes). */
+  private readonly customersSignal = signal<CustomerDto[]>([]);
+  readonly customers = this.customersSignal.asReadonly();
+
   private loaded = false;
   private loadedForSystem: SystemType | null = null;
   private loadInFlight: Observable<CustomerDto[]> | null = null;
@@ -23,6 +26,11 @@ export class CustomersStore {
   search(q?: string): Observable<CustomerDto[]> {
     const trimmed = (q ?? '').trim();
     return this.ensureLoaded().pipe(map(() => this.filterCustomers(trimmed)));
+  }
+
+  /** Load (or reuse) the current system's customer list, including notes. */
+  load(): Observable<CustomerDto[]> {
+    return this.ensureLoaded();
   }
 
   /**
@@ -39,8 +47,28 @@ export class CustomersStore {
     return this.data.searchCustomerSuggest(q);
   }
 
+  /**
+   * Profile notes for a loan/order phone (matches phone1 or phone2 digits).
+   * Reads {@link customers} so OnPush views stay reactive after load/upsert.
+   */
+  notesForPhone(phone: string | null | undefined): string | null {
+    const digits = CustomersStore.digitsOnly(phone);
+    if (!digits) {
+      return null;
+    }
+
+    const match = this.customersSignal().find((c) => {
+      const phone1 = CustomersStore.digitsOnly(c.phone1);
+      const phone2 = CustomersStore.digitsOnly(c.phone2);
+      return phone1 === digits || (!!phone2 && phone2 === digits);
+    });
+
+    const notes = match?.notes?.trim();
+    return notes ? notes : null;
+  }
+
   upsert(saved: CustomerDto): void {
-    const idx = this.cache.findIndex((c) => c.phone1 === saved.phone1);
+    const idx = this.customersSignal().findIndex((c) => c.phone1 === saved.phone1);
     const current = this.systemContext.currentSystemType();
     const linkedToCurrent =
       !saved.systemTypes?.length || saved.systemTypes.includes(current);
@@ -51,11 +79,11 @@ export class CustomersStore {
     }
 
     if (idx >= 0) {
-      const next = [...this.cache];
+      const next = [...this.customersSignal()];
       next[idx] = saved;
-      this.cache = next;
+      this.customersSignal.set(next);
     } else {
-      this.cache = [saved, ...this.cache];
+      this.customersSignal.set([saved, ...this.customersSignal()]);
     }
     this.loaded = true;
   }
@@ -65,7 +93,7 @@ export class CustomersStore {
       return;
     }
     const phone1 = payload.phone1.trim();
-    const existing = this.cache.find((c) => c.phone1 === phone1);
+    const existing = this.customersSignal().find((c) => c.phone1 === phone1);
     const systemType = payload.systemType ?? this.systemContext.currentSystemType();
     const systemTypes = Array.from(
       new Set([...(existing?.systemTypes ?? []), systemType])
@@ -82,25 +110,25 @@ export class CustomersStore {
   }
 
   remove(phone1: string): void {
-    this.cache = this.cache.filter((c) => c.phone1 !== phone1);
+    this.customersSignal.set(this.customersSignal().filter((c) => c.phone1 !== phone1));
   }
 
   replacePhone1(oldPhone1: string, saved: CustomerDto): void {
-    this.cache = this.cache.filter((c) => c.phone1 !== oldPhone1);
+    this.customersSignal.set(this.customersSignal().filter((c) => c.phone1 !== oldPhone1));
     this.upsert(saved);
   }
 
   invalidate(): void {
     this.loaded = false;
     this.loadedForSystem = null;
-    this.cache = [];
+    this.customersSignal.set([]);
     this.loadInFlight = null;
   }
 
   private ensureLoaded(): Observable<CustomerDto[]> {
     const system = this.systemContext.currentSystemType();
     if (this.loaded && this.loadedForSystem === system) {
-      return of(this.cache);
+      return of(this.customersSignal());
     }
     if (this.loadInFlight && this.loadedForSystem === system) {
       return this.loadInFlight;
@@ -108,14 +136,14 @@ export class CustomersStore {
 
     if (this.loadedForSystem !== system) {
       this.loaded = false;
-      this.cache = [];
+      this.customersSignal.set([]);
       this.loadInFlight = null;
     }
 
     this.loadedForSystem = system;
     this.loadInFlight = this.data.searchCustomers(undefined, { systemType: system }).pipe(
       tap((list) => {
-        this.cache = list ?? [];
+        this.customersSignal.set(list ?? []);
         this.loaded = true;
         this.loadedForSystem = system;
       }),
@@ -128,8 +156,9 @@ export class CustomersStore {
   }
 
   private filterCustomers(q: string): CustomerDto[] {
+    const cache = this.customersSignal();
     if (q.length === 0) {
-      return [...this.cache];
+      return [...cache];
     }
 
     if (CustomersStore.isDigitsOnlyQuery(q)) {
@@ -137,12 +166,16 @@ export class CustomersStore {
       if (digits.length < 2) {
         return [];
       }
-      return this.cache.filter(
+      return cache.filter(
         (c) => c.phone1.startsWith(digits) || (!!c.phone2 && c.phone2.startsWith(digits))
       );
     }
 
-    return this.cache.filter((c) => (c.fullName ?? '').includes(q));
+    return cache.filter((c) => (c.fullName ?? '').includes(q));
+  }
+
+  private static digitsOnly(value: string | null | undefined): string {
+    return (value ?? '').replace(/\D/g, '');
   }
 
   private static isDigitsOnlyQuery(q: string): boolean {

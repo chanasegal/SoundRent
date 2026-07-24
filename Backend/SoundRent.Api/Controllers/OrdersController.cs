@@ -89,6 +89,19 @@ public class OrdersController : ControllerBase
         return Ok(orders);
     }
 
+    /// <summary>
+    /// History of returned Sound accessories (standalone + weekly-schedule).
+    /// Optional <c>q</c> filters by item name, serial code, customer, phone, or order id.
+    /// </summary>
+    [HttpGet("returned-accessories")]
+    public async Task<ActionResult<List<ReturnedAccessoryHistoryDto>>> GetReturnedAccessories(
+        [FromQuery] string? q,
+        CancellationToken cancellationToken)
+    {
+        var items = await _orderService.GetReturnedAccessoriesAsync(q, cancellationToken);
+        return Ok(items);
+    }
+
     /// <summary>Active free-text (one-time) accessory loans with no inventory catalog row.</summary>
     [HttpGet("active-one-time-accessories")]
     public async Task<ActionResult<List<ActiveOneTimeAccessoryLoanDto>>> GetActiveOneTimeAccessories(
@@ -231,6 +244,56 @@ public class OrdersController : ControllerBase
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Undo a prior accessory return so the item reappears under active loans
+    /// and drops out of returned-accessories history.
+    /// </summary>
+    [HttpPost("{id:int}/undo-return")]
+    public async Task<ActionResult<OrderDto>> UndoReturn(
+        int id,
+        [FromBody] UndoOrderReturnRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var order = await _orderService.UndoReturnAsync(id, request, cancellationToken);
+            return Ok(order);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Permanently delete a returned-accessory history entry without restoring
+    /// it as an active loan.
+    /// </summary>
+    [HttpPost("{id:int}/delete-returned-accessory")]
+    public async Task<IActionResult> DeleteReturnedAccessory(
+        int id,
+        [FromBody] DeleteReturnedAccessoryRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.DeleteReturnedAccessoryAsync(id, request, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
     }
 

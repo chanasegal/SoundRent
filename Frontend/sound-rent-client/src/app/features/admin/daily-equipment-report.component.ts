@@ -613,10 +613,33 @@ export class DailyEquipmentReportComponent implements OnInit {
                   !d.linkedEquipmentType &&
                   d.displayName.localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
               );
-      const options = (def?.serialCodes ?? []).map((serialCode) => ({
-        serialCode,
-        isAvailable: true
-      }));
+      const options = (() => {
+        if (!def) {
+          return [] as AccessorySerialOptionDto[];
+        }
+        const reserved = new Set(
+          (row.serialCodes ?? [])
+            .map((c) => c.trim())
+            .filter((c) => c.length > 0)
+            .map((c) => c.toLowerCase())
+        );
+        const units = def.serialUnits ?? [];
+        if (units.length > 0) {
+          return units.map((unit) => {
+            const serialCode = unit.serialCode.trim();
+            const status = unit.physicalStatus;
+            const occupied = status === 'LoanedOut' || status === 'Missing';
+            return {
+              serialCode,
+              isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+            };
+          });
+        }
+        return (def.serialCodes ?? []).map((serialCode) => ({
+          serialCode,
+          isAvailable: true
+        }));
+      })();
       this.accessoryAvailabilityByRow.update((map) => {
         const next = new Map(map);
         next.set(row.rowKey, options);
@@ -806,6 +829,7 @@ export class DailyEquipmentReportComponent implements OnInit {
           this.removePendingRow(row);
         }
         this.clearSerialDraft(row.rowKey);
+        this.inventoryStore.load({ force: true }).subscribe();
         this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'קודי פריט עודכנו');
       });
   }
@@ -1105,8 +1129,12 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   private buildReport(iso: string, orders: OrderDto[]): DailyEquipmentReport {
-    const ordersOnDay = orders.filter((order) =>
-      (order.shifts ?? []).some((shift) => shift.orderDate === iso)
+    // Accessory-only loans (Quick Loan / cables-only) have no main equipment slots —
+    // exclude them so the report only shows orders with at least one system booking.
+    const ordersOnDay = orders.filter(
+      (order) =>
+        (order.shifts ?? []).some((shift) => shift.orderDate === iso) &&
+        this.hasMainEquipment(order)
     );
     const duplicateOrderIds = this.buildSameDayLastNameDuplicateOrderIds(ordersOnDay, iso);
 
@@ -1246,6 +1274,11 @@ export class DailyEquipmentReportComponent implements OnInit {
     return this.sortEquipmentLines(map);
   }
 
+  /** True when the order has at least one main equipment booking slot (not accessory-only). */
+  private hasMainEquipment(order: OrderDto): boolean {
+    return (order.equipmentDefinitionIds ?? []).some((id) => id.trim().length > 0);
+  }
+
   private mergeSystemSlotIds(group: CustomerBreakdown, order: OrderDto): void {
     const known = new Set(group.systemSlotIds);
     for (const slotId of order.equipmentDefinitionIds ?? []) {
@@ -1304,7 +1337,9 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   private buildSameDayLastNameDuplicateOrderIds(orders: OrderDto[], iso: string): Set<number> {
-    const buckets = new Map<string, Set<number>>();
+    // lastName → customerIdentity → orderIds
+    // Flag only when 2+ distinct customers (name+phone) share a last name that day.
+    const buckets = new Map<string, Map<string, Set<number>>>();
 
     for (const order of orders) {
       const hasShiftOnDay = (order.shifts ?? []).some((shift) => shift.orderDate === iso);
@@ -1315,21 +1350,29 @@ export class DailyEquipmentReportComponent implements OnInit {
       if (!lastNameKey) {
         continue;
       }
-      let orderIds = buckets.get(lastNameKey);
+      const customerIdentity = `${(order.customerName ?? '').trim()}|${order.phone}`;
+      let byCustomer = buckets.get(lastNameKey);
+      if (!byCustomer) {
+        byCustomer = new Map();
+        buckets.set(lastNameKey, byCustomer);
+      }
+      let orderIds = byCustomer.get(customerIdentity);
       if (!orderIds) {
         orderIds = new Set();
-        buckets.set(lastNameKey, orderIds);
+        byCustomer.set(customerIdentity, orderIds);
       }
       orderIds.add(order.id);
     }
 
     const flagged = new Set<number>();
-    for (const orderIds of buckets.values()) {
-      if (orderIds.size < 2) {
+    for (const byCustomer of buckets.values()) {
+      if (byCustomer.size < 2) {
         continue;
       }
-      for (const id of orderIds) {
-        flagged.add(id);
+      for (const orderIds of byCustomer.values()) {
+        for (const id of orderIds) {
+          flagged.add(id);
+        }
       }
     }
     return flagged;

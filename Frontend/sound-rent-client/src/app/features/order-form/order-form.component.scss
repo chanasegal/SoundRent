@@ -1000,6 +1000,23 @@
   white-space: normal;
 }
 
+@media (max-width: 768px) {
+  .return-table {
+    font-size: 0.8rem;
+  }
+
+  .return-table th,
+  .return-table td {
+    padding: 0.45rem 0.5rem;
+    white-space: normal;
+  }
+
+  .return-table__codes,
+  .return-serial-select {
+    min-width: 0;
+  }
+}
+
 .return-table__codes-empty {
   color: #94a3b8;
 }
@@ -1095,6 +1112,23 @@
   &:hover {
     background: #f8fafc;
   }
+
+  &--locked {
+    cursor: default;
+    opacity: 0.85;
+    background: #f1f5f9;
+
+    &:hover {
+      background: #f1f5f9;
+    }
+  }
+}
+
+.return-serial-select__locked-hint {
+  margin-inline-start: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #047857;
 }
 
 .return-qty-input {

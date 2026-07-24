@@ -11,7 +11,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { forkJoin, finalize, merge, EMPTY } from 'rxjs';
+import { finalize, merge, EMPTY } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -50,6 +50,8 @@ interface QuickLoanAccessoryRow {
   label: string;
   quantity: number;
   selectedCodes: string[];
+  /** Codes assigned when the order was loaded for edit (stay selectable until save). */
+  initialCodes?: string[];
   lineId?: number;
 }
 
@@ -62,43 +64,28 @@ interface ReturnModalRow {
   isCustomItem: boolean;
   assignedSerialCodes: string[];
   returnedSerialCodes: string[];
+  /** Codes already persisted as returned — stay selected and cannot be unchecked. */
+  lockedReturnedSerialCodes: string[];
+  /** Quantity already persisted as returned — quantity input cannot go below this. */
+  alreadyReturnedQuantity: number;
 }
 
-interface ActiveLoanRow {
+/** Outstanding accessory line on a standalone quick-loan card (return actions). */
+interface StandaloneLoanItem {
   key: string;
   orderId: number;
   loanedEquipmentId: number;
-  customerName: string;
-  phone: string;
-  address: string;
   accessoryName: string;
   quantity: number;
-  codes: string[];
-  loanDateIso: string;
-  isCustomItem: boolean;
   assignedSerialCodes: string[];
-  /** True when the loan comes from a full order (grid equipment), not a standalone quick loan. */
-  isOrderBased: boolean;
+  loanDateIso: string;
 }
 
-interface QuickReturnItem {
-  key: string;
-  orderId: number;
-  loanedEquipmentId: number;
-  accessoryName: string;
-  /** Specific serial being offered for return; null for quantity-only lines. */
-  serialCode: string | null;
-  quantity: number;
-  selected: boolean;
-  isScannedMatch: boolean;
-}
-
-interface QuickReturnSession {
-  scannedCode: string;
-  customerName: string;
-  phone: string;
-  address: string;
-  items: QuickReturnItem[];
+interface StandaloneLoanCard {
+  order: OrderDto;
+  items: StandaloneLoanItem[];
+  totalQuantity: number;
+  customerNotes: string | null;
 }
 
 @Component({
@@ -151,8 +138,8 @@ export class QuickLoanComponent implements OnInit {
   protected readonly serialQuickEntry = signal('');
   protected readonly submitting = signal(false);
   protected readonly editingId = signal<number | null>(null);
-  protected readonly activeLoans = signal<OrderDto[]>([]);
-  protected readonly activeLoading = signal(false);
+  protected readonly recentLoans = signal<OrderDto[]>([]);
+  protected readonly recentLoading = signal(false);
   protected readonly returningLineKey = signal<string | null>(null);
   protected readonly removingLineKeys = signal<Set<string>>(new Set());
   protected readonly deletingId = signal<number | null>(null);
@@ -163,13 +150,6 @@ export class QuickLoanComponent implements OnInit {
   protected readonly returnOrderId = signal<number | null>(null);
   protected readonly returnRows = signal<ReturnModalRow[]>([]);
   protected readonly returnSerialDropdownRowId = signal<string | null>(null);
-
-  protected readonly quickReturnTypeId = signal<number | null>(null);
-  protected readonly quickReturnCode = signal('');
-  protected readonly quickReturnCodeOpen = signal(false);
-  protected readonly quickReturnSearching = signal(false);
-  protected readonly quickReturnSaving = signal(false);
-  protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
 
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
@@ -192,55 +172,14 @@ export class QuickLoanComponent implements OnInit {
     Array.from({ length: this.hebrew.daysInMonth(this.initialHebrew.month, this.initialHebrew.year) }, (_, i) => i + 1)
   );
 
-  protected readonly activeLoanRows = computed(() => this.buildActiveLoanRows(this.activeLoans()));
+  /** Standalone accessory loans only (created on this page — no weekly-schedule equipment). */
+  protected readonly standaloneLoans = computed(() =>
+    this.recentLoans().filter((order) => (order.equipmentDefinitionIds?.length ?? 0) === 0)
+  );
 
-  protected readonly quickReturnTypes = computed(() => this.inventoryStore.definitions());
-
-  protected readonly quickReturnSelectedType = computed(() => {
-    const id = this.quickReturnTypeId();
-    return id != null ? this.inventoryStore.byId(id) ?? null : null;
-  });
-
-  protected readonly quickReturnCodeOptions = computed(() => {
-    const def = this.quickReturnSelectedType();
-    if (!def) {
-      return [] as string[];
-    }
-
-    const codes = new Set<string>();
-    for (const row of this.activeLoanRows()) {
-      if (!this.rowMatchesAccessoryType(row, def)) {
-        continue;
-      }
-      for (const code of row.assignedSerialCodes.length > 0 ? row.assignedSerialCodes : row.codes) {
-        const trimmed = code.trim();
-        if (trimmed) {
-          codes.add(trimmed);
-        }
-      }
-    }
-
-    for (const unit of def.serialUnits ?? []) {
-      if (unit.physicalStatus === 'LoanedOut' && unit.serialCode.trim()) {
-        codes.add(unit.serialCode.trim());
-      }
-    }
-
-    if (codes.size === 0) {
-      for (const code of def.serialCodes ?? []) {
-        const trimmed = code.trim();
-        if (trimmed) {
-          codes.add(trimmed);
-        }
-      }
-    }
-
-    const query = this.quickReturnCode().trim().toLowerCase();
-    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    if (!query) {
-      return list;
-    }
-    return list.filter((code) => code.toLowerCase().includes(query));
+  protected readonly standaloneLoanCards = computed(() => {
+    this.customers.customers();
+    return this.buildStandaloneLoanCards(this.standaloneLoans());
   });
 
   ngOnInit(): void {
@@ -248,8 +187,9 @@ export class QuickLoanComponent implements OnInit {
     this.wireAvailabilityRefresh();
     this.wireCustomerAutocomplete();
     this.inventoryStore.load({ force: true }).subscribe();
+    this.customers.load().subscribe();
     this.refreshAvailability();
-    this.loadActiveLoans();
+    this.loadRecentLoans();
   }
 
   protected dayLabel(day: number): string {
@@ -623,7 +563,31 @@ export class QuickLoanComponent implements OnInit {
     }
     // Custom (unlinked) catalog rows — serials come from the shared inventory store.
     const def = this.inventoryStore.byId(row.inventoryDefinitionId);
-    return (def?.serialCodes ?? []).map((serialCode) => ({
+    if (!def) {
+      return [];
+    }
+
+    const reserved = new Set(
+      [...(row.initialCodes ?? []), ...row.selectedCodes]
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+        .map((c) => c.toLowerCase())
+    );
+
+    const units = def.serialUnits ?? [];
+    if (units.length > 0) {
+      return units.map((unit) => {
+        const serialCode = unit.serialCode.trim();
+        const status = unit.physicalStatus;
+        const occupied = status === 'LoanedOut' || status === 'Missing';
+        return {
+          serialCode,
+          isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+        };
+      });
+    }
+
+    return (def.serialCodes ?? []).map((serialCode) => ({
       serialCode,
       isAvailable: true
     }));
@@ -748,20 +712,6 @@ export class QuickLoanComponent implements OnInit {
     return phone ?? '';
   }
 
-  protected orderDateLabel(order: OrderDto): string {
-    const iso = order.shifts?.[0]?.orderDate;
-    if (!iso) {
-      return '—';
-    }
-    const date = this.hebrew.parseIso(iso);
-    return date ? this.hebrew.formatGregorianWithDayName(date) : iso;
-  }
-
-  protected orderShiftLabel(order: OrderDto): string {
-    const slot = order.shifts?.[0]?.timeSlot;
-    return slot ? TIME_SLOT_LABELS[slot] : '';
-  }
-
   protected customerSuggestLabel(c: CustomerSuggestDto): string {
     const name = (c.fullName ?? '').trim() || 'ללא שם';
     return `${name} - ${c.phone1}`;
@@ -840,24 +790,254 @@ export class QuickLoanComponent implements OnInit {
     this.customerSuggestField.set(null);
   }
 
-  protected orderAccessoryLines(order: OrderDto): { label: string; codes: string[]; quantity: number }[] {
-    return (order.loanedEquipments ?? [])
-      .filter((le) => le.quantity > 0)
-      .map((le) => {
-        const codes = (le.notes ?? [])
+  protected orderDateLabel(order: OrderDto): string {
+    const iso = order.shifts?.[0]?.orderDate;
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.formatGregorianWithDayName(date) : iso;
+  }
+
+  protected orderShiftLabel(order: OrderDto): string {
+    const slot = order.shifts?.[0]?.timeSlot;
+    return slot != null ? TIME_SLOT_LABELS[slot] : '';
+  }
+
+  protected activeLoanDateLabel(iso: string): string {
+    if (!iso) {
+      return '—';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.formatGregorianWithDayName(date) : iso;
+  }
+
+  protected activeLoanHebrewDate(iso: string): string {
+    if (!iso) {
+      return '';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : '';
+  }
+
+  protected isReturningLine(row: StandaloneLoanItem): boolean {
+    const key = this.returningLineKey();
+    return (
+      key === row.key ||
+      key === this.orderReturnKey(row.orderId) ||
+      (key?.startsWith(`${row.key}::`) ?? false)
+    );
+  }
+
+  protected isReturningCode(row: StandaloneLoanItem, code: string): boolean {
+    return this.returningLineKey() === this.codeReturnKey(row, code);
+  }
+
+  protected isReturningOrder(card: StandaloneLoanCard): boolean {
+    return this.returningLineKey() === this.orderReturnKey(card.order.id);
+  }
+
+  protected isRemovingLine(row: StandaloneLoanItem): boolean {
+    return this.removingLineKeys().has(row.key);
+  }
+
+  protected isRemovingCode(row: StandaloneLoanItem, code: string): boolean {
+    return this.removingLineKeys().has(this.codeReturnKey(row, code));
+  }
+
+  protected isRemovingOrder(card: StandaloneLoanCard): boolean {
+    return this.removingLineKeys().has(this.orderReturnKey(card.order.id));
+  }
+
+  protected markLineReturned(row: StandaloneLoanItem): void {
+    if (this.returningLineKey() !== null) {
+      return;
+    }
+
+    const assignedCodes = row.assignedSerialCodes;
+    const hasSerializedLine = assignedCodes.length > 0;
+    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantity;
+
+    this.returningLineKey.set(row.key);
+    this.data
+      .recordOrderReturn(row.orderId, {
+        items: [
+          {
+            loanedEquipmentId: row.loanedEquipmentId,
+            quantityReturned,
+            ...(hasSerializedLine ? { returnedSerialCodes: [...assignedCodes] } : {})
+          }
+        ]
+      })
+      .pipe(finalize(() => this.returningLineKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.ordersSync.notifyOrderUpdated(updated);
+        this.animateStandaloneLineOut(row.key);
+        this.toast.success('הפריט סומן כהוחזר');
+        if (this.editingId() === row.orderId) {
+          this.cancelEdit();
+        }
+        this.loadRecentLoans();
+        this.refreshAvailability();
+        this.inventoryStore.load({ force: true }).subscribe();
+      });
+  }
+
+  protected markCodeReturned(row: StandaloneLoanItem, code: string): void {
+    if (this.returningLineKey() !== null) {
+      return;
+    }
+
+    const trimmed = code.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const returnKey = this.codeReturnKey(row, trimmed);
+    this.returningLineKey.set(returnKey);
+    this.data
+      .recordOrderReturn(row.orderId, {
+        items: [
+          {
+            loanedEquipmentId: row.loanedEquipmentId,
+            quantityReturned: 1,
+            returnedSerialCodes: [trimmed]
+          }
+        ]
+      })
+      .pipe(finalize(() => this.returningLineKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.ordersSync.notifyOrderUpdated(updated);
+        this.animateStandaloneLineOut(returnKey);
+        this.toast.success(`קוד ${trimmed} סומן כהוחזר`);
+        if (this.editingId() === row.orderId) {
+          this.cancelEdit();
+        }
+        this.loadRecentLoans();
+        this.refreshAvailability();
+        this.inventoryStore.load({ force: true }).subscribe();
+      });
+  }
+
+  protected markOrderAllReturned(card: StandaloneLoanCard): void {
+    if (this.returningLineKey() !== null || card.items.length === 0) {
+      return;
+    }
+
+    const items = card.items.map((row) => {
+      const assignedCodes = row.assignedSerialCodes;
+      if (assignedCodes.length > 0) {
+        return {
+          loanedEquipmentId: row.loanedEquipmentId,
+          quantityReturned: assignedCodes.length,
+          returnedSerialCodes: [...assignedCodes]
+        };
+      }
+      return {
+        loanedEquipmentId: row.loanedEquipmentId,
+        quantityReturned: row.quantity
+      };
+    });
+
+    const returnKey = this.orderReturnKey(card.order.id);
+    this.returningLineKey.set(returnKey);
+    this.data
+      .recordOrderReturn(card.order.id, { items })
+      .pipe(finalize(() => this.returningLineKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.ordersSync.notifyOrderUpdated(updated);
+        this.animateStandaloneLineOut(returnKey);
+        this.toast.success(
+          card.items.length === 1
+            ? 'כל הפריטים סומנו כהוחזרו'
+            : `${card.totalQuantity} פריטים סומנו כהוחזרו`
+        );
+        if (this.editingId() === card.order.id) {
+          this.cancelEdit();
+        }
+        this.loadRecentLoans();
+        this.refreshAvailability();
+        this.inventoryStore.load({ force: true }).subscribe();
+      });
+  }
+
+  private orderReturnKey(orderId: number): string {
+    return `order:${orderId}`;
+  }
+
+  private codeReturnKey(row: StandaloneLoanItem, code: string): string {
+    return `${row.key}::${code.trim()}`;
+  }
+
+  private animateStandaloneLineOut(key: string): void {
+    this.removingLineKeys.update((set) => new Set(set).add(key));
+    window.setTimeout(() => {
+      this.removingLineKeys.update((set) => {
+        const next = new Set(set);
+        next.delete(key);
+        return next;
+      });
+    }, 280);
+  }
+
+  private buildStandaloneLoanCards(orders: OrderDto[]): StandaloneLoanCard[] {
+    const cards: StandaloneLoanCard[] = [];
+    for (const order of orders) {
+      if (order.isReturnProcessed || order.isCancelled) {
+        continue;
+      }
+      const loanDateIso = order.shifts?.[0]?.orderDate ?? '';
+      const items: StandaloneLoanItem[] = [];
+      for (const le of order.loanedEquipments ?? []) {
+        if (le.id == null || le.quantity <= 0) {
+          continue;
+        }
+        const returned = le.returnedQuantity ?? 0;
+        if (returned >= le.quantity) {
+          continue;
+        }
+        const outstandingCodes = (le.notes ?? [])
+          .filter((n) => !n.isReturned)
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
-        const label = le.isCustomItem
+        const allCodes = (le.notes ?? [])
+          .map((n) => (n.content ?? '').trim())
+          .filter((c) => c.length > 0);
+        const accessoryName = le.isCustomItem
           ? (le.customItemName?.trim() || 'פריט נוסף')
           : le.loanedEquipmentType
             ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType)
             : 'פריט';
-        return {
-          label,
-          codes,
-          quantity: le.quantity
-        };
+        items.push({
+          key: `${order.id}-${le.id}`,
+          orderId: order.id,
+          loanedEquipmentId: le.id,
+          accessoryName,
+          quantity: le.quantity - returned,
+          assignedSerialCodes: outstandingCodes.length > 0 ? outstandingCodes : allCodes,
+          loanDateIso
+        });
+      }
+      if (items.length === 0) {
+        continue;
+      }
+      cards.push({
+        order,
+        items,
+        totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
+        customerNotes: this.customers.notesForPhone(order.phone)
       });
+    }
+    return cards;
   }
 
   protected startEdit(order: OrderDto): void {
@@ -917,6 +1097,7 @@ export class QuickLoanComponent implements OnInit {
           label: def?.displayName ?? name,
           quantity: Math.max(le.quantity, codes.length, 1),
           selectedCodes: codes,
+          initialCodes: [...codes],
           lineId: le.id
         });
         continue;
@@ -977,7 +1158,6 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const useSavedReturns = order.isReturnProcessed === true;
     const rows: ReturnModalRow[] = (order.loanedEquipments ?? [])
       .filter((row) => row.quantity > 0 && row.id != null && row.id > 0)
       .map((row) => {
@@ -985,13 +1165,19 @@ export class QuickLoanComponent implements OnInit {
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
         const isCustomItem = !!row.isCustomItem;
-        const savedReturnedCodes = (row.notes ?? [])
+        const lockedReturnedSerialCodes = (row.notes ?? [])
           .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
           .map((n) => (n.content ?? '').trim());
-        const returnedSerialCodes = useSavedReturns ? savedReturnedCodes : [];
-        const quantityReturned = useSavedReturns
-          ? Math.min(Math.max(row.returnedQuantity ?? 0, 0), row.quantity)
-          : 0;
+        const alreadyReturnedQuantity = Math.min(
+          Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
+          row.quantity
+        );
+        const returnedSerialCodes =
+          assignedSerialCodes.length > 0 ? [...lockedReturnedSerialCodes] : [];
+        const quantityReturned =
+          assignedSerialCodes.length > 0
+            ? returnedSerialCodes.length
+            : alreadyReturnedQuantity;
 
         return {
           rowId: `line-${row.id}`,
@@ -1005,7 +1191,9 @@ export class QuickLoanComponent implements OnInit {
           quantityReturned,
           isCustomItem,
           assignedSerialCodes,
-          returnedSerialCodes
+          returnedSerialCodes,
+          lockedReturnedSerialCodes,
+          alreadyReturnedQuantity
         };
       });
 
@@ -1062,6 +1250,12 @@ export class QuickLoanComponent implements OnInit {
     return row.assignedSerialCodes.length > 0;
   }
 
+  protected isReturnSerialLocked(row: ReturnModalRow, code: string): boolean {
+    return row.lockedReturnedSerialCodes.some(
+      (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+  }
+
   protected toggleReturnSerialDropdown(row: ReturnModalRow): void {
     this.returnSerialDropdownRowId.update((cur) => (cur === row.rowId ? null : row.rowId));
   }
@@ -1077,6 +1271,10 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected toggleReturnSerialSelection(row: ReturnModalRow, code: string, checked: boolean): void {
+    if (!checked && this.isReturnSerialLocked(row, code)) {
+      return;
+    }
+
     this.returnRows.update((rows) =>
       rows.map((current) => {
         if (current.rowId !== row.rowId) {
@@ -1096,6 +1294,16 @@ export class QuickLoanComponent implements OnInit {
           returnedSerialCodes = returnedSerialCodes.filter(
             (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0
           );
+        }
+
+        for (const locked of current.lockedReturnedSerialCodes) {
+          if (
+            !returnedSerialCodes.some(
+              (c) => c.localeCompare(locked, undefined, { sensitivity: 'accent' }) === 0
+            )
+          ) {
+            returnedSerialCodes.push(locked);
+          }
         }
 
         return {
@@ -1123,7 +1331,10 @@ export class QuickLoanComponent implements OnInit {
           return row;
         }
 
-        const quantityReturned = Math.min(value, row.quantityLoaned);
+        const quantityReturned = Math.min(
+          Math.max(value, row.alreadyReturnedQuantity),
+          row.quantityLoaned
+        );
         if (!this.hasSerializedReturnCodes(row)) {
           return { ...row, quantityReturned };
         }
@@ -1173,7 +1384,7 @@ export class QuickLoanComponent implements OnInit {
         if (this.editingId() === id) {
           this.cancelEdit();
         }
-        this.loadActiveLoans();
+        this.loadRecentLoans();
         this.refreshAvailability();
       });
   }
@@ -1204,7 +1415,7 @@ export class QuickLoanComponent implements OnInit {
         if (this.editingId() === order.id) {
           this.cancelEdit();
         }
-        this.loadActiveLoans();
+        this.loadRecentLoans();
         this.refreshAvailability();
       });
   }
@@ -1281,7 +1492,7 @@ export class QuickLoanComponent implements OnInit {
       depositType: null,
       depositOnName: null,
       paymentAmount: null,
-      isUnpaid: true,
+      isUnpaid: false,
       returnTimeType: ReturnTimeType.LateNight,
       customReturnTime: null,
       notes: (this.form.controls.notes.value ?? '').trim() || null,
@@ -1305,7 +1516,7 @@ export class QuickLoanComponent implements OnInit {
         editingId != null ? `השאלה #${order.id} עודכנה` : `השאלת ציוד נשמרה (#${order.id})`
       );
       this.resetFormFully();
-      this.loadActiveLoans();
+      this.loadRecentLoans();
       this.refreshAvailability();
       this.inventoryStore.load({ force: true }).subscribe();
     });
@@ -1331,498 +1542,21 @@ export class QuickLoanComponent implements OnInit {
     this.serialQuickEntry.set('');
   }
 
+  protected refreshRecentLoans(): void {
+    this.loadRecentLoans();
+  }
+
+  private loadRecentLoans(): void {
+    this.recentLoading.set(true);
+    this.data
+      .getQuickLoans()
+      .pipe(finalize(() => this.recentLoading.set(false)))
+      .subscribe((orders) => this.recentLoans.set(orders));
+  }
+
   private focusAccessoryTypeSearch(): void {
     const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
     input?.focus();
-  }
-
-  protected refreshActiveLoans(): void {
-    this.loadActiveLoans();
-  }
-
-  protected activeLoanDateLabel(iso: string): string {
-    if (!iso) {
-      return '—';
-    }
-    const date = this.hebrew.parseIso(iso);
-    return date ? this.hebrew.formatGregorianWithDayName(date) : iso;
-  }
-
-  protected activeLoanHebrewDate(iso: string): string {
-    if (!iso) {
-      return '';
-    }
-    const date = this.hebrew.parseIso(iso);
-    return date ? this.hebrew.toHebrew(date) : '';
-  }
-
-  protected isReturningLine(row: ActiveLoanRow): boolean {
-    return this.returningLineKey() === row.key;
-  }
-
-  protected isRemovingLine(row: ActiveLoanRow): boolean {
-    return this.removingLineKeys().has(row.key);
-  }
-
-  protected markLineReturned(row: ActiveLoanRow): void {
-    if (this.returningLineKey() !== null) {
-      return;
-    }
-
-    const assignedCodes = row.assignedSerialCodes;
-    const hasSerializedLine = assignedCodes.length > 0;
-    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantity;
-
-    this.returningLineKey.set(row.key);
-    this.data
-      .recordOrderReturn(row.orderId, {
-        items: [
-          {
-            loanedEquipmentId: row.loanedEquipmentId,
-            quantityReturned,
-            ...(hasSerializedLine ? { returnedSerialCodes: [...assignedCodes] } : {})
-          }
-        ]
-      })
-      .pipe(finalize(() => this.returningLineKey.set(null)))
-      .subscribe((updated) => {
-        if (!updated) {
-          return;
-        }
-        this.ordersSync.notifyOrderUpdated(updated);
-        this.animateActiveLineOut(row.key);
-        this.toast.success('הפריט סומן כהוחזר');
-        if (this.editingId() === row.orderId) {
-          this.cancelEdit();
-        }
-        this.loadActiveLoans();
-        this.refreshAvailability();
-        this.inventoryStore.load({ force: true }).subscribe();
-      });
-  }
-
-  protected onQuickReturnKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      this.quickReturnCodeOpen.set(false);
-      return;
-    }
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    const options = this.quickReturnCodeOptions();
-    const typed = this.quickReturnCode().trim();
-    if (options.length === 1 && typed) {
-      this.selectQuickReturnCode(options[0]);
-    }
-    this.searchQuickReturn();
-  }
-
-  protected onQuickReturnTypeChange(raw: string): void {
-    const id = Number.parseInt(raw, 10);
-    this.quickReturnTypeId.set(Number.isFinite(id) && id > 0 ? id : null);
-    this.quickReturnCode.set('');
-    this.quickReturnCodeOpen.set(false);
-  }
-
-  protected onQuickReturnCodeFocus(): void {
-    if (this.quickReturnTypeId() != null) {
-      this.quickReturnCodeOpen.set(true);
-    }
-  }
-
-  protected onQuickReturnCodeBlur(): void {
-    setTimeout(() => this.quickReturnCodeOpen.set(false), 150);
-  }
-
-  protected onQuickReturnCodeInput(raw: string): void {
-    this.quickReturnCode.set(raw);
-    if (this.quickReturnTypeId() != null) {
-      this.quickReturnCodeOpen.set(true);
-    }
-  }
-
-  protected selectQuickReturnCode(code: string, event?: Event): void {
-    event?.preventDefault();
-    this.quickReturnCode.set(code);
-    this.quickReturnCodeOpen.set(false);
-  }
-
-  protected searchQuickReturn(): void {
-    if (this.quickReturnSearching() || this.quickReturnSaving()) {
-      return;
-    }
-
-    const def = this.quickReturnSelectedType();
-    if (!def) {
-      this.toast.warning('יש לבחור סוג אביזר');
-      return;
-    }
-
-    const code = this.quickReturnCode().trim();
-    if (!code) {
-      this.toast.warning('יש לבחור או להזין קוד פריט');
-      return;
-    }
-
-    const openFromRows = (): void => {
-      const matches = this.findActiveLoansByAccessoryCode(code).filter((row) =>
-        this.rowMatchesAccessoryType(row, def)
-      );
-      if (matches.length === 0) {
-        this.toast.warning(`לא נמצאה השאלה פעילה עבור ${def.displayName} עם קוד "${code}"`);
-        queueMicrotask(() => this.focusQuickReturnCodeInput());
-        return;
-      }
-
-      const phoneKeys = new Set(
-        matches.map((m) => this.normalizePhone(m.phone)).filter((p) => p.length > 0)
-      );
-      if (phoneKeys.size > 1) {
-        this.toast.warning('נמצאו מספר לקוחות עם אותו קוד — בחרו מהרשימה למטה');
-        queueMicrotask(() => this.focusQuickReturnCodeInput());
-        return;
-      }
-
-      const match = matches[0];
-      const phoneKey = this.normalizePhone(match.phone);
-      const customerRows = this.activeLoanRows().filter(
-        (row) => this.normalizePhone(row.phone) === phoneKey && phoneKey.length > 0
-      );
-      const items = this.buildQuickReturnItems(
-        customerRows.length > 0 ? customerRows : [match],
-        match,
-        code
-      );
-
-      this.quickReturnSession.set({
-        scannedCode: code,
-        customerName: match.customerName,
-        phone: match.phone,
-        address: match.address,
-        items
-      });
-    };
-
-    // Always refresh from server so lookups see the latest active loans.
-    this.quickReturnSearching.set(true);
-    this.data
-      .getQuickLoans()
-      .pipe(finalize(() => this.quickReturnSearching.set(false)))
-      .subscribe((orders) => {
-        this.activeLoans.set(orders);
-        this.activeLoading.set(false);
-        openFromRows();
-      });
-  }
-
-  protected closeQuickReturnModal(): void {
-    if (this.quickReturnSaving()) {
-      return;
-    }
-    this.quickReturnSession.set(null);
-    queueMicrotask(() => this.focusQuickReturnCodeInput());
-  }
-
-  protected quickReturnScannedItem(session: QuickReturnSession): QuickReturnItem | null {
-    return session.items.find((item) => item.isScannedMatch) ?? null;
-  }
-
-  protected quickReturnAdditionalItems(session: QuickReturnSession): QuickReturnItem[] {
-    return session.items.filter((item) => !item.isScannedMatch);
-  }
-
-  protected toggleQuickReturnItem(key: string, checked: boolean): void {
-    this.quickReturnSession.update((session) => {
-      if (!session) {
-        return session;
-      }
-      return {
-        ...session,
-        items: session.items.map((item) => {
-          if (item.key !== key) {
-            return item;
-          }
-          // Scanned match stays selected — it is the reason the dialog opened.
-          if (item.isScannedMatch && !checked) {
-            return item;
-          }
-          return { ...item, selected: checked };
-        })
-      };
-    });
-  }
-
-  protected confirmQuickReturn(): void {
-    const session = this.quickReturnSession();
-    if (!session || this.quickReturnSaving()) {
-      return;
-    }
-
-    const selected = session.items.filter((item) => item.selected);
-    if (selected.length === 0) {
-      this.toast.warning('יש לבחור לפחות אביזר אחד להחזרה');
-      return;
-    }
-
-    type LineReturn = {
-      orderId: number;
-      loanedEquipmentId: number;
-      serialCodes: string[];
-      quantityOnly: number;
-    };
-    const byOrderLine = new Map<string, LineReturn>();
-
-    for (const item of selected) {
-      const lineKey = `${item.orderId}:${item.loanedEquipmentId}`;
-      let entry = byOrderLine.get(lineKey);
-      if (!entry) {
-        entry = {
-          orderId: item.orderId,
-          loanedEquipmentId: item.loanedEquipmentId,
-          serialCodes: [],
-          quantityOnly: 0
-        };
-        byOrderLine.set(lineKey, entry);
-      }
-      if (item.serialCode) {
-        if (
-          !entry.serialCodes.some(
-            (c) => c.localeCompare(item.serialCode!, undefined, { sensitivity: 'accent' }) === 0
-          )
-        ) {
-          entry.serialCodes.push(item.serialCode);
-        }
-      } else {
-        entry.quantityOnly += Math.max(1, item.quantity);
-      }
-    }
-
-    const byOrder = new Map<number, LineReturn[]>();
-    for (const entry of byOrderLine.values()) {
-      const list = byOrder.get(entry.orderId) ?? [];
-      list.push(entry);
-      byOrder.set(entry.orderId, list);
-    }
-
-    const requests = [...byOrder.entries()].map(([orderId, lines]) =>
-      this.data.recordOrderReturn(orderId, {
-        items: lines.map((line) => {
-          if (line.serialCodes.length > 0) {
-            return {
-              loanedEquipmentId: line.loanedEquipmentId,
-              quantityReturned: line.serialCodes.length,
-              returnedSerialCodes: [...line.serialCodes]
-            };
-          }
-          return {
-            loanedEquipmentId: line.loanedEquipmentId,
-            quantityReturned: line.quantityOnly
-          };
-        })
-      })
-    );
-
-    this.quickReturnSaving.set(true);
-    forkJoin(requests)
-      .pipe(finalize(() => this.quickReturnSaving.set(false)))
-      .subscribe((results) => {
-        const updated = results.filter((r): r is OrderDto => !!r);
-        if (updated.length === 0) {
-          return;
-        }
-        for (const order of updated) {
-          this.ordersSync.notifyOrderUpdated(order);
-          if (this.editingId() === order.id) {
-            this.cancelEdit();
-          }
-        }
-        this.quickReturnSession.set(null);
-        this.resetQuickReturnSelection();
-        this.toast.success(
-          selected.length === 1
-            ? 'הקוד הוחזר בהצלחה'
-            : `${selected.length} קודים הוחזרו בהצלחה`
-        );
-        this.loadActiveLoans();
-        this.refreshAvailability();
-        this.inventoryStore.load({ force: true }).subscribe();
-        queueMicrotask(() => this.focusQuickReturnCodeInput());
-      });
-  }
-
-  private buildQuickReturnItems(
-    customerRows: ActiveLoanRow[],
-    match: ActiveLoanRow,
-    scannedCode: string
-  ): QuickReturnItem[] {
-    const items: QuickReturnItem[] = [];
-
-    for (const row of customerRows) {
-      const outstandingCodes =
-        row.assignedSerialCodes.length > 0 ? row.assignedSerialCodes : row.codes;
-
-      if (outstandingCodes.length > 0) {
-        for (const code of outstandingCodes) {
-          const isScannedMatch =
-            row.key === match.key &&
-            code.localeCompare(scannedCode, undefined, { sensitivity: 'accent' }) === 0;
-          items.push({
-            key: `${row.key}::${code}`,
-            orderId: row.orderId,
-            loanedEquipmentId: row.loanedEquipmentId,
-            accessoryName: row.accessoryName,
-            serialCode: code,
-            quantity: 1,
-            selected: isScannedMatch,
-            isScannedMatch
-          });
-        }
-        continue;
-      }
-
-      // Quantity-only line (no serial codes): keep as a single selectable unit.
-      const isScannedMatch = row.key === match.key;
-      items.push({
-        key: row.key,
-        orderId: row.orderId,
-        loanedEquipmentId: row.loanedEquipmentId,
-        accessoryName: row.accessoryName,
-        serialCode: null,
-        quantity: row.quantity,
-        selected: isScannedMatch,
-        isScannedMatch
-      });
-    }
-
-    // Put the scanned match first for readability.
-    items.sort((a, b) => Number(b.isScannedMatch) - Number(a.isScannedMatch));
-    return items;
-  }
-
-  private resetQuickReturnSelection(): void {
-    this.quickReturnTypeId.set(null);
-    this.quickReturnCode.set('');
-    this.quickReturnCodeOpen.set(false);
-  }
-
-  private rowMatchesAccessoryType(row: ActiveLoanRow, def: InventoryDefinitionDto): boolean {
-    if (
-      row.accessoryName.localeCompare(def.displayName, 'he', { sensitivity: 'accent' }) === 0
-    ) {
-      return true;
-    }
-    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-    if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
-      const linkedLabel = this.inventoryStore.displayLabelForType(linked);
-      if (
-        linkedLabel &&
-        row.accessoryName.localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private findActiveLoansByAccessoryCode(rawCode: string): ActiveLoanRow[] {
-    const code = rawCode.trim();
-    if (!code) {
-      return [];
-    }
-
-    return this.activeLoanRows().filter(
-      (row) =>
-        row.assignedSerialCodes.some(
-          (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-        ) ||
-        row.codes.some(
-          (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-        )
-    );
-  }
-
-  private normalizePhone(phone: string | null | undefined): string {
-    return (phone ?? '').replace(/\D/g, '');
-  }
-
-  private focusQuickReturnCodeInput(): void {
-    const input = this.document.getElementById(
-      'quick-return-code-input'
-    ) as HTMLInputElement | null;
-    input?.focus();
-    input?.select();
-  }
-
-  private animateActiveLineOut(key: string): void {
-    this.removingLineKeys.update((set) => new Set(set).add(key));
-    window.setTimeout(() => {
-      this.removingLineKeys.update((set) => {
-        const next = new Set(set);
-        next.delete(key);
-        return next;
-      });
-    }, 280);
-  }
-
-  private buildActiveLoanRows(orders: OrderDto[]): ActiveLoanRow[] {
-    const rows: ActiveLoanRow[] = [];
-    for (const order of orders) {
-      if (order.isReturnProcessed || order.isCancelled) {
-        continue;
-      }
-      const loanDateIso = order.shifts?.[0]?.orderDate ?? '';
-      const isOrderBased = (order.equipmentDefinitionIds?.length ?? 0) > 0;
-      for (const le of order.loanedEquipments ?? []) {
-        if (le.id == null || le.quantity <= 0) {
-          continue;
-        }
-        const returned = le.returnedQuantity ?? 0;
-        if (returned >= le.quantity) {
-          continue;
-        }
-        const codes = (le.notes ?? [])
-          .filter((n) => !n.isReturned)
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
-        const allCodes = (le.notes ?? [])
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
-        const accessoryName = le.isCustomItem
-          ? (le.customItemName?.trim() || 'פריט נוסף')
-          : le.loanedEquipmentType
-            ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType)
-            : 'פריט';
-        rows.push({
-          key: `${order.id}-${le.id}`,
-          orderId: order.id,
-          loanedEquipmentId: le.id,
-          customerName: order.customerName?.trim() || 'ללא שם',
-          phone: order.phone,
-          address: order.address?.trim() || '',
-          accessoryName,
-          quantity: le.quantity - returned,
-          codes: codes.length > 0 ? codes : allCodes,
-          loanDateIso,
-          isCustomItem: !!le.isCustomItem,
-          assignedSerialCodes: codes.length > 0 ? codes : allCodes,
-          isOrderBased
-        });
-      }
-    }
-    return rows;
-  }
-
-  protected activeLoanOrderLabel(row: ActiveLoanRow): string {
-    return row.isOrderBased ? `הזמנה #${row.orderId}` : `השאלה #${row.orderId}`;
-  }
-
-  private loadActiveLoans(): void {
-    this.activeLoading.set(true);
-    this.data
-      .getQuickLoans()
-      .pipe(finalize(() => this.activeLoading.set(false)))
-      .subscribe((orders) => this.activeLoans.set(orders));
   }
 
   private focusSerialQuickEntry(): void {

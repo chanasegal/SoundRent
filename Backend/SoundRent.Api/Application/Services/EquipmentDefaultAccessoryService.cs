@@ -194,7 +194,7 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         {
             var byId = await _db.InventoryDefinitions
                 .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == defId, cancellationToken);
+                .FirstOrDefaultAsync(d => d.Id == defId && d.IsActive, cancellationToken);
 
             if (byId == null)
             {
@@ -208,7 +208,7 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         {
             var byType = await _db.InventoryDefinitions
                 .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.LinkedEquipmentType == type, cancellationToken);
+                .FirstOrDefaultAsync(d => d.LinkedEquipmentType == type && d.IsActive, cancellationToken);
 
             if (byType == null)
             {

@@ -46,4 +46,41 @@ public interface IInventoryDefinitionService
         int inventoryDefinitionId,
         string serialCode,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates serial codes on custom (unlinked) catalog loan lines:
+    /// registered on the matching definition, unique, and not already loaned out.
+    /// </summary>
+    Task ValidateOrderCatalogSerialsAsync(
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks / releases <see cref="Domain.Entities.InventorySerialCode"/> rows for
+    /// custom catalog loan lines (matched by display name).
+    /// </summary>
+    Task SyncCatalogSerialStatusForOrderAsync(
+        IReadOnlyDictionary<string, HashSet<string>> priorAssignedByItemName,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Releases returned custom-catalog serials back to InWarehouse.</summary>
+    Task ReleaseReturnedCatalogSerialsAsync(
+        IReadOnlyCollection<(string ItemName, string SerialCode)> returnedCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks custom-catalog serials as LoanedOut again (used when undoing a return).
+    /// Throws if a code is already outstanding on another order.
+    /// </summary>
+    Task MarkCatalogSerialsLoanedOutAsync(
+        IReadOnlyCollection<(string ItemName, string SerialCode)> codes,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Releases all non-returned custom-catalog serials assigned to an order.</summary>
+    Task ReleaseAllOrderCatalogSerialsAsync(
+        int orderId,
+        CancellationToken cancellationToken = default);
 }

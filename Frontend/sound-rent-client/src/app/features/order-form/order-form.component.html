@@ -791,53 +791,10 @@
       <button
         type="button"
         class="lost-equipment-report__toggle"
-        (click)="toggleReportLostEquipment()"
-        [attr.aria-expanded]="reportLostOpen()"
+        (click)="openUnreturnedReportModal()"
       >
-        ⚠️ דווח על ציוד שנשכח
+        ⚠️ דווח על ציוד שלא חזר
       </button>
-
-      @if (reportLostOpen()) {
-        <div class="lost-equipment-report__panel" [formGroup]="reportLostForm">
-          <div class="lost-equipment-report__fields">
-            <div>
-              <label class="form-label">תיאור פריט <span class="text-rose-500">*</span></label>
-              <input
-                type="text"
-                formControlName="itemDescription"
-                class="form-input"
-                autocomplete="off"
-                maxlength="500"
-              />
-              @if (reportLostForm.controls.itemDescription.touched && reportLostForm.controls.itemDescription.errors?.['required']) {
-                <p class="form-error">שדה חובה</p>
-              }
-            </div>
-            <div>
-              <label class="form-label">הערות</label>
-              <textarea formControlName="notes" rows="2" class="form-input" maxlength="2000"></textarea>
-            </div>
-          </div>
-          <div class="lost-equipment-report__actions">
-            <button
-              type="button"
-              class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              [disabled]="reportLostSaving()"
-              (click)="closeReportLostEquipment()"
-            >
-              ביטול
-            </button>
-            <button
-              type="button"
-              class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
-              [disabled]="reportLostSaving() || reportLostForm.invalid"
-              (click)="submitReportLostEquipment()"
-            >
-              {{ reportLostSaving() ? 'שומר…' : 'שמור דיווח' }}
-            </button>
-          </div>
-        </div>
-      }
     </div>
 
     <!-- Action buttons -->
@@ -865,17 +822,18 @@
 
 @if (returnModalOpen()) {
   <div
-    class="return-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="return-modal-backdrop app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="return-modal-title"
     (click)="closeReturnModal()"
   >
     <div
-      class="return-modal w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="return-modal app-modal-panel w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 56rem"
       (click)="$event.stopPropagation()"
     >
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+      <div class="app-modal-header flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">רישום החזרת ציוד</h2>
         <button
           type="button"
@@ -887,7 +845,7 @@
         </button>
       </div>
 
-      <div class="overflow-x-auto px-5 py-4">
+      <div class="app-modal-body px-5 py-4">
         <table class="return-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
@@ -906,7 +864,7 @@
                 <td class="px-3 py-2.5 text-center">
                   <input
                     type="number"
-                    min="0"
+                    [min]="row.alreadyReturnedQuantity"
                     [max]="row.quantityLoaned"
                     step="1"
                     inputmode="numeric"
@@ -940,14 +898,20 @@
                       @if (isReturnSerialDropdownOpen(row)) {
                         <div class="return-serial-select__panel" (click)="$event.stopPropagation()">
                           @for (code of row.assignedSerialCodes; track code) {
-                            <label class="return-serial-select__option">
+                            <label
+                              class="return-serial-select__option"
+                              [class.return-serial-select__option--locked]="isReturnSerialLocked(row, code)"
+                            >
                               <input
                                 type="checkbox"
                                 [checked]="isReturnSerialSelected(row, code)"
-                                [disabled]="returnSaving()"
+                                [disabled]="returnSaving() || isReturnSerialLocked(row, code)"
                                 (change)="toggleReturnSerialSelection(row, code, $any($event.target).checked)"
                               />
                               <span class="ltr-field">{{ code }}</span>
+                              @if (isReturnSerialLocked(row, code)) {
+                                <span class="return-serial-select__locked-hint">הוחזר</span>
+                              }
                             </label>
                           }
                         </div>
@@ -972,7 +936,7 @@
         </table>
       </div>
 
-      <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
         <button
           type="button"
           class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -990,6 +954,157 @@
           {{ returnSaving() ? 'שומר…' : 'שמור החזרה' }}
         </button>
       </div>
+    </div>
+  </div>
+}
+
+@if (unreturnedReportOpen()) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="unreturned-report-title"
+    (click)="closeUnreturnedReportModal()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 id="unreturned-report-title" class="mb-1 text-lg font-bold text-[#002244]">
+        דווח על ציוד שלא חזר
+      </h2>
+      <p class="mb-4 text-sm text-slate-600">
+        הדיווח יישמר בהשאלות פעילות וברשימת פריטים שלא חזרו, עם קישור להזמנה וללקוח.
+      </p>
+
+      <form [formGroup]="unreturnedReportForm" (ngSubmit)="submitUnreturnedReport()" class="space-y-4">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
+            <input
+              formControlName="customerName"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              maxlength="200"
+              autocomplete="off"
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">טלפון</label>
+            <input
+              type="tel"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              formControlName="phone"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+              dir="ltr"
+              maxlength="10"
+              appIsraeliPhoneInput
+              autocomplete="off"
+            />
+            @if (unreturnedReportForm.controls.phone.touched && unreturnedReportForm.controls.phone.errors?.['israeliPhone']) {
+              <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+            }
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <input
+            formControlName="address"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="200"
+            autocomplete="off"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">מספר הזמנה</label>
+          <input
+            type="text"
+            class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
+            [value]="editingId() ?? '— (הזמנה חדשה)'"
+            readonly
+            tabindex="-1"
+          />
+        </div>
+
+        <label class="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            formControlName="isCustomItem"
+            class="h-4 w-4 accent-[#002244]"
+            (change)="onUnreturnedCustomItemToggle()"
+          />
+          <span>פריט מותאם אישית / חד-פעמי (לא ברשימת המלאי)</span>
+        </label>
+
+        @if (unreturnedReportForm.controls.isCustomItem.value) {
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">
+              תיאור ציוד חד-פעמי <span class="text-rose-500">*</span>
+            </label>
+            <input
+              formControlName="customItemName"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              maxlength="200"
+              placeholder="לדוגמה: מיקרופון אלחוטי, כבל XLR"
+              autocomplete="off"
+            />
+            @if (unreturnedReportForm.controls.customItemName.touched && unreturnedReportForm.controls.customItemName.errors?.['required']) {
+              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+            }
+          </div>
+        } @else {
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">
+              פריט מהרשימה <span class="text-rose-500">*</span>
+            </label>
+            <select
+              formControlName="inventoryDefinitionId"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option [ngValue]="null">בחרו פריט…</option>
+              @for (def of unreturnedItemOptions(); track def.id) {
+                <option [ngValue]="def.id">{{ unreturnedItemOptionLabel(def) }}</option>
+              }
+            </select>
+            @if (unreturnedReportForm.controls.inventoryDefinitionId.touched && unreturnedReportForm.controls.inventoryDefinitionId.errors?.['required']) {
+              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+            }
+          </div>
+        }
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">קוד פריט</label>
+          <input
+            formControlName="itemCode"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="100"
+            autocomplete="off"
+            placeholder="אופציונלי — לקוד חד-פעמי או מהרשימה"
+          />
+        </div>
+
+        <div class="flex flex-wrap justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            [disabled]="unreturnedReportSaving()"
+            (click)="closeUnreturnedReportModal()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+            [disabled]="unreturnedReportSaving()"
+          >
+            {{ unreturnedReportSaving() ? 'שומר…' : 'שמור דיווח' }}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 }

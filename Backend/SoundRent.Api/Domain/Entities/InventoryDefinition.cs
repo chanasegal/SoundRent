@@ -30,6 +30,11 @@ public class InventoryDefinition
     /// </summary>
     public LoanedEquipmentType? LinkedEquipmentType { get; set; }
 
+    /// <summary>
+    /// Soft-delete flag. Inactive rows stay in the DB so system types are not re-seeded on load.
+    /// </summary>
+    public bool IsActive { get; set; } = true;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

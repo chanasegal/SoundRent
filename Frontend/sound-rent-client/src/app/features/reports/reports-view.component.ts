@@ -133,7 +133,7 @@ export class ReportsViewComponent implements OnInit {
 
   protected readonly filteredOpenDebts = computed(() => {
     const filter = this.debtCategoryFilter();
-    const rows = this.openDebtGroups();
+    const rows = this.openDebtGroups().filter((r) => (r.totalAmount ?? 0) > 0);
     if (filter === 'all') {
       return rows;
     }

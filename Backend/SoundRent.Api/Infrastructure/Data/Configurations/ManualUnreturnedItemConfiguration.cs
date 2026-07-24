@@ -20,8 +20,14 @@ public class ManualUnreturnedItemConfiguration : IEntityTypeConfiguration<Manual
 
         builder.HasIndex(e => e.IsResolved).HasDatabaseName("IX_ManualUnreturnedItems_IsResolved");
         builder.HasIndex(e => e.CreatedAt).HasDatabaseName("IX_ManualUnreturnedItems_CreatedAt");
+        builder.HasIndex(e => e.OrderId).HasDatabaseName("IX_ManualUnreturnedItems_OrderId");
         builder.HasIndex(e => new { e.ItemCode, e.IsResolved })
             .HasDatabaseName("IX_ManualUnreturnedItems_Code_Resolved");
+
+        builder.HasOne(e => e.Order)
+            .WithMany()
+            .HasForeignKey(e => e.OrderId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne(e => e.InventoryDefinition)
             .WithMany()

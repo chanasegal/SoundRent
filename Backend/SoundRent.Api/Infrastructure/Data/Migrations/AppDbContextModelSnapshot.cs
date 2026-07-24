@@ -653,6 +653,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<int?>("LinkedEquipmentType")
                         .HasColumnType("integer");
 
@@ -674,6 +679,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.HasIndex("DisplayName")
                         .IsUnique()
                         .HasDatabaseName("IX_InventoryDefinitions_DisplayName");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_InventoryDefinitions_IsActive");
 
                     b.HasIndex("LinkedEquipmentType")
                         .IsUnique()
@@ -956,6 +964,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int?>("LoanedEquipmentType")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("OrderId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -973,6 +984,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("ItemCode", "IsResolved")
                         .HasDatabaseName("IX_ManualUnreturnedItems_Code_Resolved");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("IX_ManualUnreturnedItems_OrderId");
 
                     b.ToTable("ManualUnreturnedItems", (string)null);
                 });
@@ -1491,7 +1505,14 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasForeignKey("InventoryDefinitionId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("InventoryDefinition");
+
+                    b.Navigation("Order");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderCustomMissingItem", b =>

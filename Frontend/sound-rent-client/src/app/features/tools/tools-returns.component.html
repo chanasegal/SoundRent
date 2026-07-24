@@ -80,7 +80,7 @@
     } @else if (historySearching()) {
       <p class="px-4 py-8 text-center text-sm text-slate-500">טוען היסטוריית פריט…</p>
     } @else {
-      <table class="returns-table w-full min-w-[56rem] border-collapse text-right text-sm">
+      <table class="returns-table w-full min-w-[40rem] border-collapse text-right text-sm">
         <thead>
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
             <th class="px-3 py-3 font-semibold">תאריך ושעה</th>
@@ -121,10 +121,9 @@
                 {{ durationText(row) }}
               </td>
               <td class="px-3 py-3 whitespace-nowrap">
-                @let charge = calculateCharge(row.lentAt, row.returnedAt);
-                @if (charge > 0) {
+                @if (hasCharge(row)) {
                   <div class="charge-cell">
-                    <span class="charge-amount">{{ charge }} ₪</span>
+                    <span class="charge-amount">{{ formatCharge(row.chargeAmount) }}</span>
                     @if (row.chargeIsPaid === true) {
                       <span class="charge-badge charge-badge--paid">שולם</span>
                     } @else if (canQuickPay(row)) {

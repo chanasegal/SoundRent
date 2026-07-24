@@ -22,6 +22,9 @@ public class InventoryDefinitionConfiguration : IEntityTypeConfiguration<Invento
         builder.Property(e => e.Quantity)
             .HasDefaultValue(0);
 
+        builder.Property(e => e.IsActive)
+            .HasDefaultValue(true);
+
         builder.Property(e => e.UpdatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
@@ -31,6 +34,9 @@ public class InventoryDefinitionConfiguration : IEntityTypeConfiguration<Invento
 
         builder.HasIndex(e => e.SortOrder)
             .HasDatabaseName("IX_InventoryDefinitions_SortOrder");
+
+        builder.HasIndex(e => e.IsActive)
+            .HasDatabaseName("IX_InventoryDefinitions_IsActive");
 
         builder.HasIndex(e => e.LinkedEquipmentType)
             .IsUnique()

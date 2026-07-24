@@ -86,7 +86,7 @@ public static class OrderMapper
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
         PaymentAmount = dto.PaymentAmount,
-        IsUnpaid = dto.IsUnpaid,
+        IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid),
         ReturnTimeType = dto.ReturnTimeType,
         CustomReturnTime = NormalizeCustomReturnTime(dto),
         Notes = NullIfBlank(dto.Notes),
@@ -162,11 +162,17 @@ public static class OrderMapper
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.PaymentAmount = dto.PaymentAmount;
-        entity.IsUnpaid = dto.IsUnpaid;
+        entity.IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid);
         entity.ReturnTimeType = dto.ReturnTimeType;
         entity.CustomReturnTime = NormalizeCustomReturnTime(dto);
         entity.Notes = NullIfBlank(dto.Notes);
     }
+
+    /// <summary>
+    /// An order is tracked as unpaid debt only when it has a positive payment amount.
+    /// </summary>
+    public static bool NormalizeIsUnpaid(decimal? paymentAmount, bool isUnpaid) =>
+        isUnpaid && paymentAmount is > 0;
 
     public static IReadOnlyList<string> NormalizeEquipmentDefinitionIds(IEnumerable<string>? ids)
     {

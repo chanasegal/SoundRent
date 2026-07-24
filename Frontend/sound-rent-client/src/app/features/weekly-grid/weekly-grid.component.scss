@@ -929,7 +929,12 @@
   align-items: center;
   justify-content: center;
   background: rgba(15, 23, 42, 0.45);
-  padding: 1rem;
+  padding: max(0.75rem, env(safe-area-inset-top, 0px))
+    max(0.75rem, env(safe-area-inset-inline-end, 0px))
+    max(0.75rem, env(safe-area-inset-bottom, 0px))
+    max(0.75rem, env(safe-area-inset-inline-start, 0px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .order-context-menu-backdrop {
@@ -1004,7 +1009,12 @@
 
 .waitlist-modal {
   width: 100%;
-  max-width: 22rem;
+  max-width: min(90vw, 22rem);
+  max-height: min(85vh, 90dvh);
+  margin-block: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 0.75rem;
   border: 1px solid #fcd34d;
   background: linear-gradient(180deg, #fffbeb 0%, #fefce8 100%);

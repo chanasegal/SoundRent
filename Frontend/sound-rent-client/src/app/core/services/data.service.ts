@@ -8,8 +8,11 @@ import { SystemType, TimeSlot, LoanedEquipmentType } from '../models/enums';
 import {
   ActiveOneTimeAccessoryLoanDto,
   OrderReturnRequestDto,
+  UndoOrderReturnRequestDto,
+  DeleteReturnedAccessoryRequestDto,
   MarkUnreturnedRequestDto,
   CreateManualUnreturnedItemDto,
+  ReturnedAccessoryHistoryDto,
   UnreturnedItemDto
 } from '../models/equipment-return.model';
 import { OrderCreateUpdateDto, OrderDto, InstitutionConflictDto, CreateManualCancelledOrderDto } from '../models/order.model';
@@ -215,6 +218,22 @@ export class DataService {
     );
   }
 
+  getReturnedAccessories(search?: string | null): Observable<ReturnedAccessoryHistoryDto[]> {
+    let params = new HttpParams();
+    const q = (search ?? '').trim();
+    if (q) {
+      params = params.set('q', q);
+    }
+    return this.http
+      .get<ReturnedAccessoryHistoryDto[]>(`${this.ordersBase}/returned-accessories`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
   getActiveOneTimeAccessories(): Observable<ActiveOneTimeAccessoryLoanDto[]> {
     return this.http
       .get<ActiveOneTimeAccessoryLoanDto[]>(`${this.ordersBase}/active-one-time-accessories`)
@@ -301,6 +320,30 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  undoOrderReturn(id: number, request: UndoOrderReturnRequestDto): Observable<OrderDto | null> {
+    return this.http.post<OrderDto>(`${this.ordersBase}/${id}/undo-return`, request).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteReturnedAccessory(
+    id: number,
+    request: DeleteReturnedAccessoryRequestDto
+  ): Observable<boolean> {
+    return this.http
+      .post<void>(`${this.ordersBase}/${id}/delete-returned-accessory`, request)
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
   }
 
   markOrderUnreturned(id: number, request: MarkUnreturnedRequestDto): Observable<OrderDto | null> {

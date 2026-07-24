@@ -9,6 +9,9 @@ public class ActiveOneTimeAccessoryLoanDto
 
     public int LoanedEquipmentId { get; set; }
 
+    /// <summary>Set when sourced from a manual unreturned report (no order line).</summary>
+    public int? ManualItemId { get; set; }
+
     public string ItemName { get; set; } = string.Empty;
 
     public int Quantity { get; set; }

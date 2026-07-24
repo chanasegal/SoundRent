@@ -16,7 +16,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { finalize, interval, Subject, EMPTY } from 'rxjs';
+import { finalize, forkJoin, interval, Subject, EMPTY } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
 import { CustomerSuggestDto } from '../../core/models/customer.model';
@@ -80,10 +80,20 @@ interface ActiveLoanRowView {
   item: BookLoanItemDto;
   clientName: string;
   phone: string;
+  address: string;
   lentAt: Date;
   hebrewLentDisplay: string;
   deadlineAt: Date | null;
   returning: boolean;
+}
+
+interface ActiveLoanCustomerCard {
+  key: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  customerNotes: string | null;
+  items: ActiveLoanRowView[];
 }
 
 @Component({
@@ -138,6 +148,7 @@ export class LibraryLendingComponent implements OnInit {
   protected readonly activeLoading = signal(true);
   protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
+  protected readonly returningCustomerKey = signal<string | null>(null);
   protected readonly nowTick = signal(Date.now());
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
@@ -204,6 +215,7 @@ export class LibraryLendingComponent implements OnInit {
           item,
           clientName: loan.clientName,
           phone: loan.phone,
+          address: (loan.address ?? '').trim(),
           lentAt,
           hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
           deadlineAt,
@@ -227,9 +239,15 @@ export class LibraryLendingComponent implements OnInit {
     });
   });
 
+  protected readonly activeCustomerCards = computed(() => {
+    this.customers.customers();
+    return this.buildActiveLoanCustomerCards(this.activeRows());
+  });
+
   ngOnInit(): void {
     this.readRenewQueryParams();
     this.loadDefinitions();
+    this.customers.load().subscribe();
     this.wireTimeLimitDays();
     this.wireActiveLoansSearch();
     this.wireCustomerSuggestDebounce();
@@ -670,6 +688,9 @@ export class LibraryLendingComponent implements OnInit {
     if (!checked) {
       return;
     }
+    if (this.returningCustomerKey() != null || this.returningItemId() != null) {
+      return;
+    }
 
     const stamp = new Date();
     const hebrew = this.formatHebrewDate(stamp);
@@ -696,6 +717,114 @@ export class LibraryLendingComponent implements OnInit {
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
+  }
+
+  protected isReturningCustomer(card: ActiveLoanCustomerCard): boolean {
+    return this.returningCustomerKey() === card.key;
+  }
+
+  protected isCardBusy(card: ActiveLoanCustomerCard): boolean {
+    if (this.isReturningCustomer(card)) {
+      return true;
+    }
+    const itemId = this.returningItemId();
+    return itemId != null && card.items.some((row) => row.itemId === itemId);
+  }
+
+  protected cardTotalCharge(card: ActiveLoanCustomerCard): number {
+    this.rowCharges();
+    let sum = 0;
+    for (const row of card.items) {
+      const charge = this.parseCharge(this.rowChargeValue(row.itemId));
+      if (charge != null) {
+        sum += charge;
+      }
+    }
+    return sum;
+  }
+
+  protected formatChargeTotal(amount: number): string {
+    const rounded = Math.round(amount * 100) / 100;
+    return Number.isInteger(rounded) ? `₪${rounded}` : `₪${rounded.toFixed(2)}`;
+  }
+
+  protected markCustomerAllReturned(card: ActiveLoanCustomerCard): void {
+    if (this.returningCustomerKey() != null || this.returningItemId() != null || card.items.length === 0) {
+      return;
+    }
+
+    const hebrew = this.formatHebrewDate(new Date());
+    const requests = card.items.map((row) => {
+      const charge = this.parseCharge(this.rowChargeValue(row.itemId));
+      return this.data.returnBookLoanItem(row.loanId, row.itemId, {
+        hebrewReturnedDisplay: hebrew,
+        chargeAmount: charge && charge > 0 ? charge : null
+      });
+    });
+
+    this.returningCustomerKey.set(card.key);
+    forkJoin(requests)
+      .pipe(finalize(() => this.returningCustomerKey.set(null)))
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
+          this.refreshActiveLoans();
+          return;
+        }
+        this.toast.success(
+          card.items.length === 1
+            ? 'הספר סומן כהוחזר'
+            : `${okCount} ספרים סומנו כהוחזרו`
+        );
+        this.rowCharges.update((m) => {
+          const next = { ...m };
+          for (const row of card.items) {
+            delete next[row.itemId];
+          }
+          return next;
+        });
+        this.refreshActiveLoans();
+        this.refreshAvailability();
+      });
+  }
+
+  private customerCardKey(row: Pick<ActiveLoanRowView, 'clientName' | 'phone'>): string {
+    return `${(row.clientName ?? '').trim()}|${(row.phone ?? '').replace(/\D/g, '')}`;
+  }
+
+  private buildActiveLoanCustomerCards(rows: ActiveLoanRowView[]): ActiveLoanCustomerCard[] {
+    const byCustomer = new Map<string, ActiveLoanCustomerCard>();
+
+    for (const row of rows) {
+      const key = this.customerCardKey(row);
+      let card = byCustomer.get(key);
+      if (!card) {
+        card = {
+          key,
+          customerName: row.clientName,
+          phone: row.phone,
+          address: row.address,
+          customerNotes: this.customers.notesForPhone(row.phone),
+          items: []
+        };
+        byCustomer.set(key, card);
+      }
+      if (!card.address && row.address) {
+        card.address = row.address;
+      }
+      if (!card.customerNotes) {
+        card.customerNotes = this.customers.notesForPhone(row.phone);
+      }
+      card.items.push(row);
+    }
+
+    return [...byCustomer.values()].sort((a, b) => {
+      const nameCmp = a.customerName.localeCompare(b.customerName, 'he');
+      if (nameCmp !== 0) {
+        return nameCmp;
+      }
+      return a.phone.localeCompare(b.phone, 'he');
+    });
   }
 
   protected removeForm(formId: string): void {

@@ -2,6 +2,58 @@
   display: block;
 }
 
+.one-time-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 0.35rem;
+  border-radius: 0.4rem;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.1rem 0.35rem;
+  vertical-align: middle;
+}
+
+.unreturned-search {
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  &__input {
+    flex: 1 1 16rem;
+    min-width: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.875rem;
+    background: #fff;
+
+    &:focus {
+      outline: 2px solid rgba(0, 34, 68, 0.2);
+      border-color: #002244;
+    }
+  }
+
+  &__clear {
+    border: 1px solid #cbd5e1;
+    border-radius: 0.55rem;
+    background: #fff;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #475569;
+
+    &:hover {
+      background: #f8fafc;
+    }
+  }
+}
+
 .unreturned-table th,
 .unreturned-table td {
   white-space: nowrap;

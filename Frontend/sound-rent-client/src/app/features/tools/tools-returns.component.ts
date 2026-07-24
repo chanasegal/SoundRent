@@ -335,7 +335,8 @@ export class ToolsReturnsComponent implements OnInit {
     if (amount == null || amount <= 0) {
       return '—';
     }
-    return `${amount} ₪`;
+    const rounded = Math.round(amount * 100) / 100;
+    return Number.isInteger(rounded) ? `₪ ${rounded}` : `₪ ${rounded.toFixed(2)}`;
   }
 
   protected hasCharge(row: CompletedLoanRowView): boolean {

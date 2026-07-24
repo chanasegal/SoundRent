@@ -28,6 +28,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
     public async Task EnsureSystemTypesSeededAsync(CancellationToken cancellationToken = default)
     {
+        // Include inactive (soft-deleted) rows so deleted system types are not re-created on GetAll.
         var existingLinks = await _db.InventoryDefinitions
             .AsNoTracking()
             .Where(d => d.LinkedEquipmentType != null)
@@ -48,7 +49,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             // Avoid unique DisplayName clash with a user-created custom row of the same name.
             var displayName = label;
             var suffix = 0;
-            while (await _repository.DisplayNameExistsAsync(displayName, excludeId: null, cancellationToken))
+            while (await _db.InventoryDefinitions.AnyAsync(
+                       d => d.DisplayName == displayName,
+                       cancellationToken))
             {
                 suffix++;
                 displayName = $"{label} ({suffix})";
@@ -59,6 +62,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 DisplayName = displayName,
                 SortOrder = (int)type,
                 LinkedEquipmentType = type,
+                IsActive = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
@@ -98,10 +102,18 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         var missingByKey = await LoadUnresolvedMissingByKeyAsync(cancellationToken);
         var loanHolders = await LoadActiveLoanHoldersAsync(linkedTypes, cancellationToken);
+        var catalogLoanHolders = await LoadActiveCatalogLoanHoldersAsync(cancellationToken);
         var missingByDefinition = await LoadUnresolvedMissingByDefinitionAsync(cancellationToken);
 
         return rows
-            .Select(r => ToDto(r, accessoryCodes, accessoryStatuses, missingByKey, loanHolders, missingByDefinition))
+            .Select(r => ToDto(
+                r,
+                accessoryCodes,
+                accessoryStatuses,
+                missingByKey,
+                loanHolders,
+                missingByDefinition,
+                catalogLoanHolders))
             .ToList();
     }
 
@@ -125,6 +137,14 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
         }
 
+        // Soft-deleted system rows still occupy the unique display name.
+        if (await _db.InventoryDefinitions.AnyAsync(
+                d => !d.IsActive && d.DisplayName.ToLower() == displayName.ToLower() && d.LinkedEquipmentType != null,
+                cancellationToken))
+        {
+            throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
+        }
+
         var quantity = dto.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
         var providedCodes = (dto.SerialCodes ?? [])
             .Select(c => (c ?? string.Empty).Trim())
@@ -144,12 +164,32 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             codes = [];
         }
 
+        // Reuse a soft-deleted custom row with the same display name (unique index still holds).
+        var inactive = await _db.InventoryDefinitions
+            .Include(d => d.SerialCodes)
+            .FirstOrDefaultAsync(
+                d => !d.IsActive
+                    && d.LinkedEquipmentType == null
+                    && d.DisplayName.ToLower() == displayName.ToLower(),
+                cancellationToken);
+
+        if (inactive is not null)
+        {
+            inactive.IsActive = true;
+            inactive.Quantity = quantity;
+            inactive.UpdatedAt = DateTime.UtcNow;
+            ReplaceSerialCollection(inactive, codes);
+            await _repository.SaveChangesAsync(cancellationToken);
+            return ToDto(inactive, null);
+        }
+
         var entity = new InventoryDefinition
         {
             DisplayName = displayName,
             SortOrder = await _repository.GetNextSortOrderAsync(cancellationToken),
             Quantity = quantity,
             LinkedEquipmentType = null,
+            IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SerialCodes = codes
@@ -188,12 +228,29 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             return ToDto(existing, null);
         }
 
+        var inactive = await _db.InventoryDefinitions
+            .Include(d => d.SerialCodes)
+            .FirstOrDefaultAsync(
+                d => !d.IsActive
+                    && d.LinkedEquipmentType == null
+                    && d.DisplayName.ToLower() == trimmed.ToLower(),
+                cancellationToken);
+
+        if (inactive is not null)
+        {
+            inactive.IsActive = true;
+            inactive.UpdatedAt = DateTime.UtcNow;
+            await _repository.SaveChangesAsync(cancellationToken);
+            return ToDto(inactive, null);
+        }
+
         var entity = new InventoryDefinition
         {
             DisplayName = trimmed,
             SortOrder = await _repository.GetNextSortOrderAsync(cancellationToken),
             Quantity = 0,
             LinkedEquipmentType = null,
+            IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SerialCodes = []
@@ -287,6 +344,316 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         existing.PhysicalStatus = AccessorySerialPhysicalStatus.InWarehouse;
         entity.UpdatedAt = DateTime.UtcNow;
         await _repository.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ValidateOrderCatalogSerialsAsync(
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default)
+    {
+        var customItems = (items ?? [])
+            .Where(i => i.IsCustomItem && i.Quantity > 0 && !string.IsNullOrWhiteSpace(i.CustomItemName))
+            .ToList();
+        if (customItems.Count == 0)
+        {
+            return;
+        }
+
+        var names = customItems
+            .Select(i => i.CustomItemName!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var definitions = await LoadUnlinkedDefinitionsByNamesAsync(names, tracked: false, cancellationToken);
+        if (definitions.Count == 0)
+        {
+            return;
+        }
+
+        var reservedByName = excludeOrderId is int orderId
+            ? await GetAssignedCatalogCodesForOrderAsync(orderId, cancellationToken)
+            : new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        var activeByName = await GetActiveCatalogAssignedCodesAsync(excludeOrderId, cancellationToken);
+
+        foreach (var item in customItems)
+        {
+            var name = item.CustomItemName!.Trim();
+            if (!definitions.TryGetValue(name, out var def) || def.SerialCodes.Count == 0)
+            {
+                continue;
+            }
+
+            var allowedCodes = def.SerialCodes
+                .Select(s => s.SerialCode.Trim())
+                .Where(c => c.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var statusByCode = def.SerialCodes
+                .Where(s => (s.SerialCode ?? string.Empty).Trim().Length > 0)
+                .ToDictionary(
+                    s => s.SerialCode.Trim(),
+                    s => s.PhysicalStatus,
+                    StringComparer.OrdinalIgnoreCase);
+
+            var selectedCodes = (item.Notes ?? [])
+                .OrderBy(n => n.Ordinal)
+                .Select(n => new
+                {
+                    Code = (n.Content ?? string.Empty).Trim(),
+                    n.IsReturned
+                })
+                .Where(n => n.Code.Length > 0)
+                .ToList();
+
+            if (selectedCodes.Count > 0 && selectedCodes.Count != item.Quantity)
+            {
+                throw new ValidationException($"יש לבחור קוד לכל יחידה עבור \"{name}\"");
+            }
+
+            if (selectedCodes.Select(n => n.Code).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                != selectedCodes.Count)
+            {
+                throw new ValidationException($"לא ניתן לבחור את אותו קוד פעמיים עבור \"{name}\"");
+            }
+
+            reservedByName.TryGetValue(name, out var reserved);
+            reserved ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            activeByName.TryGetValue(name, out var active);
+            active ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in selectedCodes)
+            {
+                if (!allowedCodes.Contains(entry.Code))
+                {
+                    throw new ValidationException($"הקוד \"{entry.Code}\" אינו רשום במלאי עבור \"{name}\"");
+                }
+
+                if (entry.IsReturned)
+                {
+                    continue;
+                }
+
+                var unavailableByStatus =
+                    statusByCode.TryGetValue(entry.Code, out var status)
+                    && status is AccessorySerialPhysicalStatus.LoanedOut
+                        or AccessorySerialPhysicalStatus.Missing;
+                var unavailableByActiveLoan = active.Contains(entry.Code);
+
+                if ((unavailableByStatus || unavailableByActiveLoan) && !reserved.Contains(entry.Code))
+                {
+                    throw new ValidationException(
+                        $"הקוד \"{entry.Code}\" כרגע בחוץ (מושאל) ואינו זמין לבחירה ({name})");
+                }
+            }
+        }
+    }
+
+    public async Task SyncCatalogSerialStatusForOrderAsync(
+        IReadOnlyDictionary<string, HashSet<string>> priorAssignedByItemName,
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items,
+        CancellationToken cancellationToken = default)
+    {
+        var prior = priorAssignedByItemName ?? new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var next = ExtractAssignedCatalogCodesByName(items);
+        var allNames = prior.Keys
+            .Concat(next.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (allNames.Count == 0)
+        {
+            return;
+        }
+
+        var definitions = await LoadUnlinkedDefinitionsByNamesAsync(allNames, tracked: true, cancellationToken);
+        if (definitions.Count == 0)
+        {
+            return;
+        }
+
+        var changed = false;
+        foreach (var name in allNames)
+        {
+            if (!definitions.TryGetValue(name, out var def))
+            {
+                continue;
+            }
+
+            prior.TryGetValue(name, out var priorCodes);
+            priorCodes ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            next.TryGetValue(name, out var nextCodes);
+            nextCodes ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var code in priorCodes.Except(nextCodes, StringComparer.OrdinalIgnoreCase))
+            {
+                if (SetCatalogSerialStatus(def, code, AccessorySerialPhysicalStatus.InWarehouse))
+                {
+                    changed = true;
+                }
+            }
+
+            foreach (var code in nextCodes.Except(priorCodes, StringComparer.OrdinalIgnoreCase))
+            {
+                if (SetCatalogSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
+                {
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            await _repository.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task ReleaseReturnedCatalogSerialsAsync(
+        IReadOnlyCollection<(string ItemName, string SerialCode)> returnedCodes,
+        CancellationToken cancellationToken = default)
+    {
+        if (returnedCodes is null || returnedCodes.Count == 0)
+        {
+            return;
+        }
+
+        var byName = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (itemName, serialCode) in returnedCodes)
+        {
+            var name = (itemName ?? string.Empty).Trim();
+            var code = (serialCode ?? string.Empty).Trim();
+            if (name.Length == 0 || code.Length == 0)
+            {
+                continue;
+            }
+
+            if (!byName.TryGetValue(name, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                byName[name] = codes;
+            }
+
+            codes.Add(code);
+        }
+
+        if (byName.Count == 0)
+        {
+            return;
+        }
+
+        var definitions = await LoadUnlinkedDefinitionsByNamesAsync(byName.Keys.ToList(), tracked: true, cancellationToken);
+        var changed = false;
+        foreach (var (name, codes) in byName)
+        {
+            if (!definitions.TryGetValue(name, out var def))
+            {
+                continue;
+            }
+
+            foreach (var code in codes)
+            {
+                if (SetCatalogSerialStatus(def, code, AccessorySerialPhysicalStatus.InWarehouse))
+                {
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            await _repository.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task MarkCatalogSerialsLoanedOutAsync(
+        IReadOnlyCollection<(string ItemName, string SerialCode)> codesToMark,
+        int? excludeOrderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (codesToMark is null || codesToMark.Count == 0)
+        {
+            return;
+        }
+
+        var byName = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (itemName, serialCode) in codesToMark)
+        {
+            var name = (itemName ?? string.Empty).Trim();
+            var code = (serialCode ?? string.Empty).Trim();
+            if (name.Length == 0 || code.Length == 0)
+            {
+                continue;
+            }
+
+            if (!byName.TryGetValue(name, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                byName[name] = codes;
+            }
+
+            codes.Add(code);
+        }
+
+        if (byName.Count == 0)
+        {
+            return;
+        }
+
+        var activeByName = await GetActiveCatalogAssignedCodesAsync(excludeOrderId, cancellationToken);
+        foreach (var (name, codes) in byName)
+        {
+            if (!activeByName.TryGetValue(name, out var active) || active.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var code in codes)
+            {
+                if (active.Contains(code))
+                {
+                    throw new ValidationException(
+                        $"לא ניתן לבטל החזרה — קוד {code} כבר מושאל בהשאלה אחרת ({name})");
+                }
+            }
+        }
+
+        var definitions = await LoadUnlinkedDefinitionsByNamesAsync(byName.Keys.ToList(), tracked: true, cancellationToken);
+        var changed = false;
+        foreach (var (name, codes) in byName)
+        {
+            if (!definitions.TryGetValue(name, out var def))
+            {
+                continue;
+            }
+
+            foreach (var code in codes)
+            {
+                if (SetCatalogSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
+                {
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            await _repository.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task ReleaseAllOrderCatalogSerialsAsync(
+        int orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var assigned = await GetAssignedCatalogCodesForOrderAsync(orderId, cancellationToken);
+        if (assigned.Count == 0)
+        {
+            return;
+        }
+
+        var returned = assigned
+            .SelectMany(kv => kv.Value.Select(code => (ItemName: kv.Key, SerialCode: code)))
+            .ToList();
+        await ReleaseReturnedCatalogSerialsAsync(returned, cancellationToken);
     }
 
     public async Task<InventoryDefinitionDto> UpdateAsync(
@@ -385,15 +752,34 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        var entity = await _repository.GetByIdWithSerialsAsync(id, cancellationToken)
+        var entity = await _db.InventoryDefinitions
+            .Include(d => d.SerialCodes)
+            .FirstOrDefaultAsync(d => d.Id == id, cancellationToken)
             ?? throw new NotFoundException("פריט המלאי לא נמצא");
+
+        if (!entity.IsActive)
+        {
+            return;
+        }
+
+        // Soft-delete so EnsureSystemTypesSeededAsync does not recreate linked system rows on GetAll.
+        entity.IsActive = false;
+        entity.UpdatedAt = DateTime.UtcNow;
 
         if (entity.LinkedEquipmentType is LoanedEquipmentType linked)
         {
             await _accessorySerials.ReplaceCodesForTypeAsync(linked, Array.Empty<string>(), cancellationToken);
         }
 
-        _repository.Remove(entity);
+        // Drop default-accessory links that would otherwise keep pointing at a removed catalog row.
+        var defaultAccessories = await _db.EquipmentDefaultAccessories
+            .Where(a => a.InventoryDefinitionId == id)
+            .ToListAsync(cancellationToken);
+        if (defaultAccessories.Count > 0)
+        {
+            _db.EquipmentDefaultAccessories.RemoveRange(defaultAccessories);
+        }
+
         await _repository.SaveChangesAsync(cancellationToken);
     }
 
@@ -505,13 +891,23 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
     private static void ReplaceSerialCollection(InventoryDefinition entity, List<string> codes)
     {
+        var priorStatus = entity.SerialCodes
+            .Where(s => (s.SerialCode ?? string.Empty).Trim().Length > 0)
+            .GroupBy(s => s.SerialCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.First().PhysicalStatus,
+                StringComparer.OrdinalIgnoreCase);
+
         entity.SerialCodes.Clear();
         foreach (var code in codes)
         {
             entity.SerialCodes.Add(new InventorySerialCode
             {
                 SerialCode = code,
-                PhysicalStatus = AccessorySerialPhysicalStatus.InWarehouse
+                PhysicalStatus = priorStatus.TryGetValue(code, out var status)
+                    ? status
+                    : AccessorySerialPhysicalStatus.InWarehouse
             });
         }
     }
@@ -532,7 +928,17 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         var missingByKey = await LoadUnresolvedMissingByKeyAsync(cancellationToken);
         var missingByDefinition = await LoadUnresolvedMissingByDefinitionAsync(cancellationToken);
-        return ToDto(entity, accessoryCodes, accessoryStatuses, missingByKey, loanHolders, missingByDefinition);
+        var catalogLoanHolders = entity.LinkedEquipmentType is null
+            ? await LoadActiveCatalogLoanHoldersAsync(cancellationToken)
+            : null;
+        return ToDto(
+            entity,
+            accessoryCodes,
+            accessoryStatuses,
+            missingByKey,
+            loanHolders,
+            missingByDefinition,
+            catalogLoanHolders);
     }
 
     private async Task<Dictionary<(LoanedEquipmentType Type, string Code), AccessorySerialPhysicalStatus>>
@@ -688,7 +1094,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         IReadOnlyDictionary<(LoanedEquipmentType Type, string Code), AccessorySerialPhysicalStatus>? accessoryStatuses = null,
         IReadOnlyDictionary<string, ManualUnreturnedItem>? missingByKey = null,
         IReadOnlyDictionary<(LoanedEquipmentType Type, string Code), InventoryHolderDto>? loanHolders = null,
-        IReadOnlyDictionary<int, List<ManualUnreturnedItem>>? missingByDefinition = null)
+        IReadOnlyDictionary<int, List<ManualUnreturnedItem>>? missingByDefinition = null,
+        IReadOnlyDictionary<string, Dictionary<string, InventoryHolderDto>>? catalogLoanHolders = null)
     {
         List<string> codes;
         List<InventorySerialUnitDto> units;
@@ -742,6 +1149,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     var code = s.SerialCode;
                     var status = s.PhysicalStatus;
                     ManualUnreturnedItem? missing = null;
+                    InventoryHolderDto? loan = null;
                     if (status == AccessorySerialPhysicalStatus.Missing && missingByKey is not null)
                     {
                         missingByKey.TryGetValue(BuildMissingKey(entity.Id, null, code), out missing);
@@ -753,11 +1161,17 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                         status = AccessorySerialPhysicalStatus.Missing;
                         missing = byDef;
                     }
+                    else if (status != AccessorySerialPhysicalStatus.Missing
+                             && catalogLoanHolders is not null
+                             && TryGetCatalogLoan(catalogLoanHolders, entity.DisplayName, code, out loan))
+                    {
+                        status = AccessorySerialPhysicalStatus.LoanedOut;
+                    }
 
-                    var unit = BuildSerialUnit(code, status, missing, null);
+                    var unit = BuildSerialUnit(code, status, missing, loan);
                     if (status is AccessorySerialPhysicalStatus.Missing or AccessorySerialPhysicalStatus.LoanedOut)
                     {
-                        holders.Add(ToHolder(unit, null));
+                        holders.Add(ToHolder(unit, loan?.OrderId));
                     }
 
                     return unit;
@@ -876,4 +1290,263 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         AccessorySerialPhysicalStatus.Missing => "חסר / לא הוחזר",
         _ => "זמין"
     };
+
+    private async Task<Dictionary<string, InventoryDefinition>> LoadUnlinkedDefinitionsByNamesAsync(
+        IReadOnlyCollection<string> names,
+        bool tracked,
+        CancellationToken cancellationToken)
+    {
+        var normalized = names
+            .Select(n => (n ?? string.Empty).Trim())
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (normalized.Count == 0)
+        {
+            return new Dictionary<string, InventoryDefinition>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var lowered = normalized.Select(n => n.ToLower()).ToList();
+        IQueryable<InventoryDefinition> query = tracked
+            ? _db.InventoryDefinitions.Include(d => d.SerialCodes)
+            : _db.InventoryDefinitions.AsNoTracking().Include(d => d.SerialCodes);
+
+        var rows = await query
+            .Where(d => d.IsActive && d.LinkedEquipmentType == null && lowered.Contains(d.DisplayName.ToLower()))
+            .ToListAsync(cancellationToken);
+
+        var result = new Dictionary<string, InventoryDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            result.TryAdd(row.DisplayName, row);
+        }
+
+        return result;
+    }
+
+    private async Task<Dictionary<string, HashSet<string>>> GetAssignedCatalogCodesForOrderAsync(
+        int orderId,
+        CancellationToken cancellationToken)
+    {
+        var pairs = await (
+            from le in _db.OrderLoanedEquipments.AsNoTracking()
+            join note in _db.LoanedEquipmentNotes.AsNoTracking()
+                on le.Id equals note.OrderLoanedEquipmentId
+            where le.OrderId == orderId
+                  && le.IsCustomItem
+                  && le.CustomItemName != null
+                  && le.CustomItemName != ""
+                  && note.Content != null
+                  && note.Content != ""
+                  && !note.IsReturned
+            select new
+            {
+                Name = le.CustomItemName!,
+                Code = note.Content!
+            }).ToListAsync(cancellationToken);
+
+        return GroupCatalogCodesByName(pairs.Select(p => (p.Name, p.Code)));
+    }
+
+    private async Task<Dictionary<string, HashSet<string>>> GetActiveCatalogAssignedCodesAsync(
+        int? excludeOrderId,
+        CancellationToken cancellationToken)
+    {
+        var query =
+            from le in _db.OrderLoanedEquipments.AsNoTracking()
+            join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
+            join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
+            where !order.IsCancelled
+                  && le.IsCustomItem
+                  && le.CustomItemName != null
+                  && le.CustomItemName != ""
+                  && note.Content != null
+                  && note.Content != ""
+                  && !note.IsReturned
+            select new
+            {
+                Name = le.CustomItemName!,
+                Code = note.Content!,
+                le.OrderId
+            };
+
+        if (excludeOrderId is int excluded)
+        {
+            query = query.Where(row => row.OrderId != excluded);
+        }
+
+        var rows = await query.ToListAsync(cancellationToken);
+        return GroupCatalogCodesByName(rows.Select(r => (r.Name, r.Code)));
+    }
+
+    private async Task<Dictionary<string, Dictionary<string, InventoryHolderDto>>>
+        LoadActiveCatalogLoanHoldersAsync(CancellationToken cancellationToken)
+    {
+        var rows = await (
+            from le in _db.OrderLoanedEquipments.AsNoTracking()
+            join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
+            join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
+            where !order.IsCancelled
+                  && le.IsCustomItem
+                  && le.CustomItemName != null
+                  && le.CustomItemName != ""
+                  && note.Content != null
+                  && note.Content != ""
+                  && !note.IsReturned
+            select new
+            {
+                Name = le.CustomItemName!,
+                Code = note.Content!,
+                order.Id,
+                order.CustomerName,
+                order.Phone,
+                order.Address,
+                LoanDate = _db.OrderShifts
+                    .Where(s => s.OrderId == order.Id)
+                    .OrderBy(s => s.OrderDate)
+                    .Select(s => (DateOnly?)s.OrderDate)
+                    .FirstOrDefault()
+            }).ToListAsync(cancellationToken);
+
+        var result = new Dictionary<string, Dictionary<string, InventoryHolderDto>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            var name = row.Name.Trim();
+            var code = row.Code.Trim();
+            if (name.Length == 0 || code.Length == 0)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(name, out var byCode))
+            {
+                byCode = new Dictionary<string, InventoryHolderDto>(StringComparer.OrdinalIgnoreCase);
+                result[name] = byCode;
+            }
+
+            byCode.TryAdd(code, new InventoryHolderDto
+            {
+                SerialCode = code,
+                Status = AccessorySerialPhysicalStatus.LoanedOut,
+                StatusLabel = AggregateStatusLabel(AccessorySerialPhysicalStatus.LoanedOut),
+                CustomerName = row.CustomerName,
+                Phone = row.Phone,
+                Address = row.Address,
+                EventDate = row.LoanDate,
+                OrderId = row.Id
+            });
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, HashSet<string>> ExtractAssignedCatalogCodesByName(
+        IReadOnlyCollection<OrderLoanedEquipmentDto> items)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items ?? [])
+        {
+            if (!item.IsCustomItem || item.Quantity <= 0 || string.IsNullOrWhiteSpace(item.CustomItemName))
+            {
+                continue;
+            }
+
+            var name = item.CustomItemName.Trim();
+            if (!result.TryGetValue(name, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[name] = codes;
+            }
+
+            foreach (var note in item.Notes ?? [])
+            {
+                if (note.IsReturned)
+                {
+                    continue;
+                }
+
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, HashSet<string>> GroupCatalogCodesByName(
+        IEnumerable<(string Name, string Code)> pairs)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawName, rawCode) in pairs)
+        {
+            var name = (rawName ?? string.Empty).Trim();
+            var code = (rawCode ?? string.Empty).Trim();
+            if (name.Length == 0 || code.Length == 0)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(name, out var codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[name] = codes;
+            }
+
+            codes.Add(code);
+        }
+
+        return result;
+    }
+
+    private static bool SetCatalogSerialStatus(
+        InventoryDefinition definition,
+        string serialCode,
+        AccessorySerialPhysicalStatus status)
+    {
+        var code = (serialCode ?? string.Empty).Trim();
+        if (code.Length == 0)
+        {
+            return false;
+        }
+
+        var existing = definition.SerialCodes.FirstOrDefault(s =>
+            string.Equals(s.SerialCode, code, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            return false;
+        }
+
+        if (existing.PhysicalStatus == status)
+        {
+            return false;
+        }
+
+        existing.PhysicalStatus = status;
+        definition.UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    private static bool TryGetCatalogLoan(
+        IReadOnlyDictionary<string, Dictionary<string, InventoryHolderDto>> holders,
+        string itemName,
+        string serialCode,
+        out InventoryHolderDto? loan)
+    {
+        loan = null;
+        if (!holders.TryGetValue(itemName, out var byCode))
+        {
+            return false;
+        }
+
+        if (!byCode.TryGetValue(serialCode, out var found))
+        {
+            return false;
+        }
+
+        loan = found;
+        return true;
+    }
 }

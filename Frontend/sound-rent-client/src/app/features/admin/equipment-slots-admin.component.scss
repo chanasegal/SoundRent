@@ -139,8 +139,11 @@ tr.row-in-maintenance:hover {
 }
 
 .serial-locator__option {
-  display: block;
+  display: flex;
   width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   border: none;
   border-radius: 0.4rem;
   background: transparent;
@@ -529,8 +532,22 @@ tr.row-in-maintenance:hover {
 }
 
 .add-item-modal {
-  max-height: min(92vh, 40rem);
+  max-width: min(90vw, 32rem);
+  max-height: min(85vh, 90dvh);
+  overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .add-item-modal {
+    max-height: 85vh;
+  }
+
+  .add-item-modal .note-input {
+    width: 100%;
+    max-width: 8rem;
+  }
 }
 
 .add-item-modal .note-input {
@@ -615,9 +632,30 @@ tr.row-in-maintenance:hover {
 
 .inventory-item-label {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   min-width: 0;
+}
+
+.inventory-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.12rem 0.4rem;
+
+  &--catalog {
+    background: #ecfdf5;
+    color: #047857;
+  }
+
+  &--onetime {
+    background: #e0f2fe;
+    color: #075985;
+  }
 }
 
 .default-acc-clip {
@@ -648,7 +686,10 @@ tr.row-in-maintenance:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: max(0.75rem, env(safe-area-inset-top, 0px))
+    max(0.75rem, env(safe-area-inset-inline-end, 0px))
+    max(0.75rem, env(safe-area-inset-bottom, 0px))
+    max(0.75rem, env(safe-area-inset-inline-start, 0px));
   background: rgba(15, 23, 42, 0.45);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -658,8 +699,8 @@ tr.row-in-maintenance:hover {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 28rem;
-  max-height: min(90vh, 36rem);
+  max-width: min(90vw, 28rem);
+  max-height: min(85vh, 90dvh);
   margin: auto;
   overflow: hidden;
   border-radius: 1rem;

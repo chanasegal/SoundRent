@@ -330,8 +330,22 @@
 }
 
 .add-item-modal {
-  max-height: min(92vh, 40rem);
+  max-width: min(90vw, 32rem);
+  max-height: min(85vh, 90dvh);
+  overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .add-item-modal {
+    max-height: 85vh;
+  }
+
+  .add-item-modal .note-input {
+    width: 100%;
+    max-width: 8rem;
+  }
 }
 
 .add-item-modal .note-input {

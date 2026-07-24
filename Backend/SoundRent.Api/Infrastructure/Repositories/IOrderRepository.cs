@@ -69,6 +69,10 @@ public interface IOrderRepository
 
     void Remove(Order order);
 
+    void RemoveLoanedEquipmentNote(LoanedEquipmentNote note);
+
+    void RemoveLoanedEquipment(OrderLoanedEquipment line);
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Orders whose primary or secondary phone matches any of the given digit strings.</summary>
@@ -94,6 +98,14 @@ public interface IOrderRepository
         CancellationToken cancellationToken = default);
 
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returned Sound accessories (standalone + weekly-schedule), newest event date first.
+    /// Optional free-text <paramref name="search"/> matches item name, serial, customer, or phone.
+    /// </summary>
+    Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(
+        string? search = null,
+        CancellationToken cancellationToken = default);
 
     Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
         CreateManualUnreturnedItemDto dto,

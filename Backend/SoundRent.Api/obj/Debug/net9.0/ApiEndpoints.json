@@ -2052,6 +2052,27 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "DeleteReturnedAccessory",
+    "RelativePath": "api/Orders/{id}/delete-returned-accessory",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "SoundRent.Api.Application.DTOs.DeleteReturnedAccessoryRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "MarkAsPaid",
     "RelativePath": "api/Orders/{id}/mark-as-paid",
     "HttpMethod": "POST",
@@ -2123,6 +2144,37 @@
       {
         "Name": "request",
         "Type": "SoundRent.Api.Application.DTOs.OrderReturnRequestDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.OrderDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "UndoReturn",
+    "RelativePath": "api/Orders/{id}/undo-return",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "SoundRent.Api.Application.DTOs.UndoOrderReturnRequestDto",
         "IsRequired": true
       }
     ],
@@ -2261,6 +2313,32 @@
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.OrderDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "GetReturnedAccessories",
+    "RelativePath": "api/Orders/returned-accessories",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "q",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.ReturnedAccessoryHistoryDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
         "MediaTypes": [
           "text/plain",
           "application/json",

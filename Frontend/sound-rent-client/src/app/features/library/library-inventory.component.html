@@ -1,9 +1,9 @@
-ο»Ώ<div class="mx-auto max-w-5xl px-4 py-6">
+<div class="mx-auto max-w-5xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
       <p class="mt-1 text-sm text-slate-600">
-        Χ”Χ’Χ“Χ™Χ¨Χ• Χ›ΧΧ•Χª ΧΧ›Χ Χ΅Χ¤Χ¨ Χ•Χ”Χ–Χ™Χ Χ• Χ‘Χ¨Χ§Χ•Χ“ Χ™Χ™Χ—Χ•Χ“Χ™ ΧΧ›Χ ΧΆΧ•ΧªΧ§.
+        δβγιψε λξεϊ μλμ ρτψ εδζιπε αψχεγ ιιηεγι μλμ ςεϊχ.
       </p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
@@ -19,31 +19,31 @@
         class="inventory-import-btn"
         [disabled]="importing() || loading()"
         (click)="excelImportInput.click()"
-        title="Χ™Χ™Χ‘Χ•Χ Χ΅Χ¤Χ¨Χ™Χ ΧΧ§Χ•Χ‘Χ¥ Excel/CSV (ΧΆΧΧ•Χ“Χ•Χª: Χ΅Χ¤Χ¨, Χ›ΧΧ•Χª, Χ‘Χ¨Χ§Χ•Χ“)"
+        title="ιιαεΰ ρτψιν ξχεαυ Excel/CSV (ςξεγεϊ: ρτψ, λξεϊ, αψχεγ)"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 16V5"></path>
           <path d="m8 9 4-4 4 4"></path>
           <path d="M5 19h14"></path>
         </svg>
-        {{ importing() ? 'ΧΧ™Χ™Χ‘Χβ€¦' : 'Χ™Χ™Χ‘Χ•Χ ΧΧΧ§Χ΅Χ' }}
+        {{ importing() ? 'ξιιαΰ…' : 'ιιαεΰ ξΰχρμ' }}
       </button>
       <button
         type="button"
         class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
         (click)="openAddInventoryItem()"
       >
-        Χ”Χ•Χ΅Χ£ Χ΅Χ¤Χ¨ Χ—Χ“Χ©
+        δερσ ρτψ ηγω
       </button>
     </div>
   </div>
 
   <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <div class="serial-locator mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-      <h3 class="mb-3 text-sm font-bold text-[#002244]">ΧΧ™ΧªΧ•Χ¨ Χ΅Χ¤Χ¨</h3>
+      <h3 class="mb-3 text-sm font-bold text-[#002244]">ΰιϊεψ ρτψ</h3>
       <form [formGroup]="serialSearchForm" class="serial-locator__filters" (ngSubmit)="searchSerialLocation()">
         <div class="serial-locator__field serial-locator__field--type">
-          <label class="serial-locator__label" for="tools-serial-search-type">Χ΅Χ¤Χ¨</label>
+          <label class="serial-locator__label" for="tools-serial-search-type">ρτψ</label>
           <app-book-title-select
             inputId="tools-serial-search-type"
             formControlName="bookId"
@@ -52,7 +52,7 @@
           />
         </div>
         <div class="serial-locator__field serial-locator__field--code">
-          <label class="serial-locator__label" for="tools-serial-search-code">Χ‘Χ¨Χ§Χ•Χ“</label>
+          <label class="serial-locator__label" for="tools-serial-search-code">αψχεγ</label>
           <input
             id="tools-serial-search-code"
             type="text"
@@ -61,7 +61,7 @@
             list="tools-serial-code-options"
             dir="ltr"
             autocomplete="off"
-            placeholder="Χ‘Χ—Χ¨Χ• ΧΧ• Χ”Χ§ΧΧ™Χ“Χ• Χ‘Χ¨Χ§Χ•Χ“"
+            placeholder="αηψε ΰε δχμιγε αψχεγ"
           />
           <datalist id="tools-serial-code-options">
             @for (code of copiesForSearchType(); track code) {
@@ -75,11 +75,11 @@
             class="serial-locator__search-btn"
             [disabled]="serialSearchLoading() || loading()"
           >
-            {{ serialSearchLoading() ? 'ΧΧ—Χ¤Χ©β€¦' : 'Χ—Χ¤Χ©' }}
+            {{ serialSearchLoading() ? 'ξητω…' : 'ητω' }}
           </button>
           @if (serialSearchAttempted()) {
             <button type="button" class="serial-locator__clear-btn" (click)="clearSerialSearch()">
-              Χ Χ§Χ”
+              πχδ
             </button>
           }
         </div>
@@ -94,50 +94,50 @@
         >
           @if (!result.isRegistered) {
             <p class="serial-locator__status">
-              Χ‘Χ¨Χ§Χ•Χ“ <span class="ltr-field">{{ result.copyNumber }}</span> ΧΧ™Χ Χ• Χ¨Χ©Χ•Χ Χ‘ΧΧΧΧ™
+              αψχεγ <span class="ltr-field">{{ result.copyNumber }}</span> ΰιπε ψωεν αξμΰι
             </p>
           } @else if (result.isInWarehouse) {
-            <p class="serial-locator__status">Χ‘ΧΧΧΧ™ πΆ</p>
+            <p class="serial-locator__status">αξμΰι ??</p>
             <p class="serial-locator__meta">
               <span>{{ result.bookTitle }}</span>
-              <span class="serial-locator__sep">Β·</span>
+              <span class="serial-locator__sep">·</span>
               <span class="ltr-field">{{ result.copyNumber }}</span>
             </p>
           } @else {
-            <p class="serial-locator__status">ΧΧ•Χ©ΧΧ π”΄</p>
+            <p class="serial-locator__status">ξεωΰμ ??</p>
             <p class="serial-locator__meta">
               <span>{{ result.bookTitle }}</span>
-              <span class="serial-locator__sep">Β·</span>
+              <span class="serial-locator__sep">·</span>
               <span class="ltr-field">{{ result.copyNumber }}</span>
             </p>
             <div class="customer-details-grid">
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">Χ©Χ ΧΧ§Χ•Χ—</span>
-                <span class="customer-details-grid__value">{{ result.clientName || 'β€”' }}</span>
+                <span class="customer-details-grid__label">ων μχεη</span>
+                <span class="customer-details-grid__value">{{ result.clientName || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">ΧªΧΧ¨Χ™Χ ΧΆΧ‘Χ¨Χ™</span>
+                <span class="customer-details-grid__label">ϊΰψικ ςαψι</span>
                 <span class="customer-details-grid__value">{{ formatLocatorHebrewDate(result.hebrewLentDisplay, result.loanDate) }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">ΧΧΧ¤Χ•Χ</span>
-                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || 'β€”' }}</span>
+                <span class="customer-details-grid__label">θμτεο</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone) || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">ΧΧΧ¤Χ•Χ 2</span>
-                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone2) || 'β€”' }}</span>
+                <span class="customer-details-grid__label">θμτεο 2</span>
+                <span class="customer-details-grid__value ltr-field" dir="ltr">{{ formatLocatorPhone(result.phone2) || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">Χ›ΧªΧ•Χ‘Χª</span>
-                <span class="customer-details-grid__value">{{ result.address || 'β€”' }}</span>
+                <span class="customer-details-grid__label">λϊεαϊ</span>
+                <span class="customer-details-grid__value">{{ result.address || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">Χ¤Χ™Χ§Χ“Χ•Χ</span>
-                <span class="customer-details-grid__value">{{ result.deposit || 'β€”' }}</span>
+                <span class="customer-details-grid__label">τιχγεο</span>
+                <span class="customer-details-grid__value">{{ result.deposit || '—' }}</span>
               </div>
               <div class="customer-details-grid__item">
-                <span class="customer-details-grid__label">Χ”ΧΆΧ¨Χ•Χª</span>
-                <span class="customer-details-grid__value">{{ result.notes || 'β€”' }}</span>
+                <span class="customer-details-grid__label">δςψεϊ</span>
+                <span class="customer-details-grid__value">{{ result.notes || '—' }}</span>
               </div>
             </div>
           }
@@ -146,15 +146,15 @@
     </div>
 
     @if (loading()) {
-      <p class="text-sm text-slate-500">ΧΧ•ΧΆΧ ΧΧΧΧ™ Χ΅Χ¤Χ¨Χ™Χβ€¦</p>
+      <p class="text-sm text-slate-500">θεςο ξμΰι ρτψιν…</p>
     } @else {
       <div class="overflow-x-auto" [formGroup]="inventoryForm">
         <table class="accessory-inventory-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <th class="w-44 px-3 py-2 font-semibold">Χ΅Χ¤Χ¨</th>
-              <th class="w-24 px-3 py-2 text-center font-semibold">Χ›ΧΧ•Χª</th>
-              <th class="px-3 py-2 font-semibold">Χ‘Χ¨Χ§Χ•Χ“</th>
+              <th class="w-44 px-3 py-2 font-semibold">ρτψ</th>
+              <th class="w-24 px-3 py-2 text-center font-semibold">λξεϊ</th>
+              <th class="px-3 py-2 font-semibold">αψχεγ</th>
               <th class="w-28 px-3 py-2 font-semibold"></th>
             </tr>
           </thead>
@@ -177,7 +177,7 @@
                 </td>
                 <td class="px-3 py-2 align-middle">
                   @if (codeIndicesForRow(i).length === 0) {
-                    <span class="text-xs text-slate-400">β€”</span>
+                    <span class="text-xs text-slate-400">—</span>
                   } @else {
                     <div class="note-row" formArrayName="codes">
                       @for (idx of codeIndicesForRow(i); track idx) {
@@ -202,7 +202,7 @@
                       class="slot-action-btn slot-action-btn--edit"
                       (click)="openEditInventoryItem(def)"
                     >
-                      ΧΆΧ¨Χ™Χ›Χ”
+                      ςψιλδ
                     </button>
                     <button
                       type="button"
@@ -210,14 +210,14 @@
                       [disabled]="deletingInventoryId() === def.id"
                       (click)="deleteInventoryItem(def)"
                     >
-                      {{ deletingInventoryId() === def.id ? 'ΧΧ•Χ—Χ§β€¦' : 'ΧΧ—Χ§' }}
+                      {{ deletingInventoryId() === def.id ? 'ξεηχ…' : 'ξηχ' }}
                     </button>
                   </div>
                 </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="4" class="px-3 py-6 text-center text-slate-500">ΧΧ™Χ Χ΅Χ¤Χ¨Χ™Χ Χ‘ΧΧΧΧ™</td>
+                <td colspan="4" class="px-3 py-6 text-center text-slate-500">ΰιο ρτψιν αξμΰι</td>
               </tr>
             }
           </tbody>
@@ -231,7 +231,7 @@
           [disabled]="saving() || definitions().length === 0"
           (click)="saveInventory()"
         >
-          {{ saving() ? 'Χ©Χ•ΧΧ¨β€¦' : 'Χ©ΧΧ™Χ¨Χª ΧΧΧΧ™' }}
+          {{ saving() ? 'ωεξψ…' : 'ωξιψϊ ξμΰι' }}
         </button>
       </div>
     }
@@ -240,23 +240,23 @@
 
 @if (addInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="tools-add-inventory-modal-title"
     (click)="closeAddInventoryItem()"
   >
     <div
-      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="add-item-modal w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
-        <h2 id="tools-add-inventory-modal-title" class="text-lg font-bold text-[#002244]">Χ”Χ•Χ΅Χ£ Χ΅Χ¤Χ¨ Χ—Χ“Χ©</h2>
+        <h2 id="tools-add-inventory-modal-title" class="text-lg font-bold text-[#002244]">δερσ ρτψ ηγω</h2>
       </div>
       <form [formGroup]="addInventoryForm" (ngSubmit)="submitAddInventoryItem()" class="space-y-4 px-5 py-4">
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700" for="tools-add-inventory-name">
-            Χ©Χ Χ”Χ΅Χ¤Χ¨ <span class="text-rose-500">*</span>
+            ων δρτψ <span class="text-rose-500">*</span>
           </label>
           <input
             id="tools-add-inventory-name"
@@ -265,13 +265,13 @@
             autocomplete="off"
           />
           @if (addInventoryForm.controls.title.touched && addInventoryForm.controls.title.errors?.['required']) {
-            <p class="mt-1 text-xs text-rose-600">Χ©Χ“Χ” Χ—Χ•Χ‘Χ”</p>
+            <p class="mt-1 text-xs text-rose-600">ωγδ ηεαδ</p>
           }
         </div>
 
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700" for="tools-add-inventory-qty">
-            Χ›ΧΧ•Χª <span class="text-slate-400">(ΧΧ•Χ¤Χ¦Χ™Χ•Χ ΧΧ™)</span>
+            λξεϊ <span class="text-slate-400">(ΰετφιεπμι)</span>
           </label>
           <input
             id="tools-add-inventory-qty"
@@ -287,21 +287,21 @@
             class="qty-input"
             placeholder="0"
           />
-          <p class="mt-1 text-xs text-slate-500">Χ”Χ©ΧΧ™Χ¨Χ• 0 ΧΧ ΧΆΧ“Χ™Χ™Χ ΧΧ™Χ Χ™Χ—Χ™Χ“Χ•Χª. ΧΧΆΧ 0 β€” Χ™Χ•Χ¦Χ’Χ• Χ©Χ“Χ•Χª Χ§Χ•Χ“ ΧΧ›Χ Χ™Χ—Χ™Χ“Χ”.</p>
+          <p class="mt-1 text-xs text-slate-500">δωΰιψε 0 ΰν ςγιιο ΰιο ιηιγεϊ. ξςμ 0 — ιεφβε ωγεϊ χεγ μλμ ιηιγδ.</p>
         </div>
 
         @if (showAddInventoryCodes()) {
           <div>
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
               <label class="block text-sm font-medium text-slate-700">
-                Χ‘Χ¨Χ§Χ•Χ“<span class="text-slate-400">(ΧΧ•Χ¤Χ¦Χ™Χ•Χ ΧΧ™)</span>
+                αψχεγ<span class="text-slate-400">(ΰετφιεπμι)</span>
               </label>
               <button
                 type="button"
                 class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                 (click)="autoFillInventoryCodes()"
               >
-                ΧΧ™ΧΧ•Χ™ ΧΧ•ΧΧ•ΧΧΧ™
+                ξιμει ΰεθεξθι
               </button>
             </div>
             <div class="note-row" formArrayName="codes">
@@ -315,13 +315,13 @@
                   autocomplete="off"
                   [attr.data-serial-nav]="'inv'"
                   [attr.placeholder]="'#' + (idx + 1)"
-                  [attr.aria-label]="'Χ‘Χ¨Χ§Χ•Χ“' + (idx + 1)"
+                  [attr.aria-label]="'αψχεγ' + (idx + 1)"
                   (keydown.enter)="focusNextAddInventoryCode($event)"
                 />
               }
             </div>
             <p class="mt-1 text-xs text-slate-500">
-              Χ Χ™ΧªΧ ΧΧ”Χ©ΧΧ™Χ¨ Χ¨Χ™Χ§ β€” Χ”ΧΧΆΧ¨Χ›Χª ΧªΧΧΧ ΧΧ΅Χ¤Χ•Χ¨ Χ¨Χ¦Χ™Χ£ Χ‘ΧΆΧª Χ”Χ©ΧΧ™Χ¨Χ”.
+              πιϊο μδωΰιψ ψιχ — δξςψλϊ ϊξμΰ ξρτεψ ψφισ αςϊ δωξιψδ.
             </p>
           </div>
         }
@@ -332,14 +332,14 @@
             class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
             (click)="closeAddInventoryItem()"
           >
-            Χ‘Χ™ΧΧ•Χ
+            αιθεμ
           </button>
           <button
             type="submit"
             class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
             [disabled]="inventorySaving() || addInventoryForm.invalid"
           >
-            {{ inventorySaving() ? 'Χ©Χ•ΧΧ¨β€¦' : 'Χ”Χ•Χ΅Χ£ ΧΧΧΧΧ™' }}
+            {{ inventorySaving() ? 'ωεξψ…' : 'δερσ μξμΰι' }}
           </button>
         </div>
       </form>
@@ -349,23 +349,23 @@
 
 @if (editInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="tools-inventory-edit-modal-title"
     (click)="closeEditInventoryItem()"
   >
     <div
-      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
-        <h2 id="tools-inventory-edit-modal-title" class="text-lg font-bold text-[#002244]">ΧΆΧ¨Χ™Χ›Χª Χ΅Χ¤Χ¨</h2>
+        <h2 id="tools-inventory-edit-modal-title" class="text-lg font-bold text-[#002244]">ςψιλϊ ρτψ</h2>
       </div>
       <form [formGroup]="editInventoryForm" (ngSubmit)="submitEditInventoryItem()" class="space-y-4 px-5 py-4">
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700" for="tools-edit-inventory-name">
-            Χ©Χ Χ”Χ΅Χ¤Χ¨ <span class="text-rose-500">*</span>
+            ων δρτψ <span class="text-rose-500">*</span>
           </label>
           <input
             id="tools-edit-inventory-name"
@@ -380,14 +380,14 @@
             class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
             (click)="closeEditInventoryItem()"
           >
-            Χ‘Χ™ΧΧ•Χ
+            αιθεμ
           </button>
           <button
             type="submit"
             class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
             [disabled]="editInventorySaving() || editInventoryForm.invalid"
           >
-            {{ editInventorySaving() ? 'Χ©Χ•ΧΧ¨β€¦' : 'Χ©ΧΧ™Χ¨Χ”' }}
+            {{ editInventorySaving() ? 'ωεξψ…' : 'ωξιψδ' }}
           </button>
         </div>
       </form>

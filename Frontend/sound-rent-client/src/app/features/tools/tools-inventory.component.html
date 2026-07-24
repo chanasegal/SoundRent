@@ -217,14 +217,14 @@
 
 @if (addInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="tools-add-inventory-modal-title"
     (click)="closeAddInventoryItem()"
   >
     <div
-      class="add-item-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="add-item-modal w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -327,14 +327,14 @@
 
 @if (editInventoryOpen()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="tools-inventory-edit-modal-title"
     (click)="closeEditInventoryItem()"
   >
     <div
-      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">

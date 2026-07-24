@@ -277,6 +277,7 @@ public class ToolLoanService : IToolLoanService
     {
         var entity = await _db.ToolLoans
             .Include(l => l.Items)
+                .ThenInclude(i => i.CustomerDebt)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
             ?? throw new NotFoundException("ההשאלה לא נמצאה");
 
@@ -287,6 +288,7 @@ public class ToolLoanService : IToolLoanService
         {
             item.ReturnedAt = stamp;
             item.HebrewReturnedDisplay = hebrew;
+            ApplyReturnCharge(entity, item, dto.ChargeAmount, stamp);
         }
 
         entity.ReturnedAt = stamp;
@@ -502,7 +504,7 @@ public class ToolLoanService : IToolLoanService
                 DeadlineAt = i.ToolLoan.DeadlineAt,
                 ReturnedAt = i.ReturnedAt!.Value,
                 HebrewReturnedDisplay = i.HebrewReturnedDisplay,
-                ChargeAmount = i.ChargeAmount,
+                ChargeAmount = i.ChargeAmount ?? (i.CustomerDebt != null ? i.CustomerDebt.Amount : null),
                 ChargeIsPaid = i.CustomerDebt != null ? i.CustomerDebt.IsPaid : null,
                 CustomerDebtId = i.CustomerDebt != null ? i.CustomerDebt.Id : null
             })
@@ -584,7 +586,7 @@ public class ToolLoanService : IToolLoanService
                     SerialCode = i.SerialCode,
                     ReturnedAt = i.ReturnedAt,
                     HebrewReturnedDisplay = i.HebrewReturnedDisplay,
-                    ChargeAmount = i.ChargeAmount,
+                    ChargeAmount = i.ChargeAmount ?? i.CustomerDebt?.Amount,
                     ChargeIsPaid = i.CustomerDebt?.IsPaid,
                     CustomerDebtId = i.CustomerDebt?.Id
                 })

@@ -396,6 +396,12 @@
         </button>
       } @else {
         <a
+          routerLink="/admin/loans"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          להשאלות
+        </a>
+        <a
           routerLink="/admin/equipment-report"
           class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
@@ -412,307 +418,194 @@
     </div>
   </form>
 
-  <section class="quick-return-bar mt-8 mb-6 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-sky-200 sm:p-5">
-    <div class="mb-3">
-      <h2 class="text-lg font-bold text-[#002244]">החזרה מהירה</h2>
-      <p class="mt-1 text-sm text-slate-600">בחרו סוג אביזר וקוד פריט לרישום החזרה מיידי.</p>
-    </div>
-    <div class="quick-return-bar__row">
-      <div class="quick-return-field quick-return-field--type">
-        <label class="quick-return-field__label" for="quick-return-type">בחירת סוג אביזר</label>
-        <select
-          id="quick-return-type"
-          class="quick-return-bar__select"
-          [value]="quickReturnTypeId() ?? ''"
-          [disabled]="quickReturnSearching() || quickReturnSaving()"
-          (change)="onQuickReturnTypeChange($any($event.target).value)"
-        >
-          <option value="">בחירת סוג אביזר…</option>
-          @for (def of quickReturnTypes(); track def.id) {
-            <option [value]="def.id">{{ def.displayName }}</option>
-          }
-        </select>
-      </div>
-
-      <div class="quick-return-field quick-return-field--code">
-        <label class="quick-return-field__label" for="quick-return-code-input">בחירת/הזנת קוד פריט</label>
-        <div class="quick-return-code">
-          <input
-            id="quick-return-code-input"
-            type="text"
-            class="quick-return-bar__input ltr-field"
-            placeholder="בחירת/הזנת קוד פריט"
-            autocomplete="off"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="quick-return-code-options"
-            [attr.aria-expanded]="quickReturnCodeOpen()"
-            [value]="quickReturnCode()"
-            [disabled]="quickReturnTypeId() == null || quickReturnSearching() || quickReturnSaving()"
-            (focus)="onQuickReturnCodeFocus()"
-            (blur)="onQuickReturnCodeBlur()"
-            (input)="onQuickReturnCodeInput($any($event.target).value)"
-            (keydown)="onQuickReturnKeydown($event)"
-          />
-          @if (quickReturnCodeOpen() && quickReturnTypeId() != null) {
-            <ul
-              id="quick-return-code-options"
-              class="quick-return-code__panel"
-              role="listbox"
-              aria-label="קודי פריט"
-            >
-              @if (quickReturnCodeOptions().length === 0) {
-                <li class="quick-return-code__empty">אין קודים זמינים לסוג זה</li>
-              } @else {
-                @for (code of quickReturnCodeOptions(); track code) {
-                  <li role="option">
-                    <button
-                      type="button"
-                      class="quick-return-code__option"
-                      (mousedown)="selectQuickReturnCode(code, $event)"
-                    >
-                      <span class="ltr-field">{{ code }}</span>
-                    </button>
-                  </li>
-                }
-              }
-            </ul>
-          }
-        </div>
-      </div>
-
-      <div class="quick-return-field quick-return-field--action">
-        <span class="quick-return-field__label quick-return-field__label--spacer" aria-hidden="true">&nbsp;</span>
-        <button
-          type="button"
-          class="quick-return-bar__btn"
-          [disabled]="quickReturnSearching() || quickReturnSaving()"
-          (click)="searchQuickReturn()"
-        >
-          @if (quickReturnSearching()) {
-            מחפש…
-          } @else {
-            חפש / החזר
-          }
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <section class="mt-2 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+  <section class="mt-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
       <div>
-        <h2 class="text-lg font-bold text-[#002244]">השאלות פעילות</h2>
-        <p class="mt-1 text-sm text-slate-600">השאלות אביזרים שטרם הוחזרו לחלוטין.</p>
+        <h2 class="text-lg font-bold text-[#002244]">השאלות אביזרים ללא ציוד</h2>
+        <p class="mt-1 text-sm text-slate-600">
+          רהשאלות אביזרים ללא ציוד — החזרה לפי קוד, לפי פריט, או סמן הכל כהוחזר.
+        </p>
       </div>
       <button
         type="button"
         class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        [disabled]="activeLoading()"
-        (click)="refreshActiveLoans()"
+        [disabled]="recentLoading()"
+        (click)="refreshRecentLoans()"
       >
-        {{ activeLoading() ? 'טוען…' : 'רענון' }}
+        {{ recentLoading() ? 'טוען…' : 'רענון' }}
       </button>
     </div>
 
-    @if (activeLoading() && activeLoanRows().length === 0) {
+    @if (recentLoading() && standaloneLoanCards().length === 0) {
       <p class="py-6 text-center text-sm text-slate-500">טוען…</p>
-    } @else if (activeLoanRows().length === 0) {
-      <p class="py-6 text-center text-sm text-slate-500">אין השאלות פעילות כרגע 🎉</p>
+    } @else if (standaloneLoanCards().length === 0) {
+      <p class="py-6 text-center text-sm text-slate-500">אין השאלות אביזרים פעילות מעמוד זה</p>
     } @else {
-      <div class="overflow-x-auto">
-        <table class="active-loans-table w-full border-collapse text-right text-sm">
-          <thead>
-            <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <th class="px-3 py-2 font-semibold">מקור</th>
-              <th class="px-3 py-2 font-semibold">שם הלווה</th>
-              <th class="px-3 py-2 font-semibold">טלפון</th>
-              <th class="px-3 py-2 font-semibold">שם האביזר</th>
-              <th class="px-3 py-2 font-semibold">כמות / קודים</th>
-              <th class="px-3 py-2 font-semibold">תאריך השאלה</th>
-              <th class="px-3 py-2 text-center font-semibold">פעולה</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of activeLoanRows(); track row.key) {
-              <tr
-                class="border-b border-slate-100 transition-opacity duration-300 odd:bg-slate-50/50"
-                [class.row-removing]="isRemovingLine(row)"
-              >
-                <td class="px-3 py-2.5">
-                  <span class="font-medium text-[#002244]">{{ activeLoanOrderLabel(row) }}</span>
-                </td>
-                <td class="px-3 py-2.5">{{ row.customerName }}</td>
-                <td class="px-3 py-2.5 font-mono" dir="ltr">{{ formatPhone(row.phone) }}</td>
-                <td class="px-3 py-2.5 font-medium text-[#002244]">{{ row.accessoryName }}</td>
-                <td class="px-3 py-2.5">
-                  @if (row.codes.length > 0) {
-                    <span class="active-loans-qty">{{ row.quantity }}</span>
-                    <span class="active-loans-codes ltr-field">{{ row.codes.join(', ') }}</span>
-                  } @else {
-                    <span>{{ row.quantity }}</span>
+      <div class="recent-loans-list standalone-loans-cards">
+        @for (card of standaloneLoanCards(); track card.order.id) {
+          <article
+            class="recent-loan-card active-loan-card"
+            [class.recent-loan-card--editing]="editingId() === card.order.id"
+            [class.active-loan-card--removing]="isRemovingOrder(card)"
+          >
+            <header class="recent-loan-card__header">
+              <div class="recent-loan-card__primary">
+                <span class="recent-loan-card__name">{{ card.order.customerName || 'ללא שם' }}</span>
+                <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(card.order.phone) }}</span>
+                <span class="recent-loan-card__meta">
+                  #{{ card.order.id }}
+                  <span class="recent-loan-card__sep">·</span>
+                  {{ orderDateLabel(card.order) }}
+                  @if (orderShiftLabel(card.order)) {
+                    <span class="recent-loan-card__sep">·</span>
+                    {{ orderShiftLabel(card.order) }}
                   }
-                </td>
-                <td class="px-3 py-2.5">
-                  <div class="active-loans-date">
-                    <span>{{ activeLoanDateLabel(row.loanDateIso) }}</span>
-                    @if (activeLoanHebrewDate(row.loanDateIso); as heb) {
-                      <span class="active-loans-date__hebrew">{{ heb }}</span>
-                    }
+                </span>
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
                   </div>
-                </td>
-                <td class="px-3 py-2.5 text-center">
-                  <button
-                    type="button"
-                    class="active-loans-return-btn"
-                    [disabled]="isReturningLine(row) || isRemovingLine(row)"
-                    (click)="markLineReturned(row)"
-                  >
-                    @if (isReturningLine(row)) {
-                      שומר…
-                    } @else {
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20 6 9 17l-5-5"></path>
-                      </svg>
-                      סמן כהוחזר
-                    }
-                  </button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+                }
+              </div>
+              <div class="recent-loan-card__actions">
+                <button
+                  type="button"
+                  class="active-loans-return-all-btn"
+                  [disabled]="
+                    isReturningOrder(card) ||
+                    isRemovingOrder(card) ||
+                    returningLineKey() !== null
+                  "
+                  (click)="markOrderAllReturned(card)"
+                >
+                  @if (isReturningOrder(card)) {
+                    מחזיר…
+                  } @else {
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5"></path>
+                    </svg>
+                    סמן הכל כהוחזר
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="recent-loan-action"
+                  title="עריכה"
+                  aria-label="עריכה"
+                  (click)="startEdit(card.order)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                    <path d="M13.5 6 18 10.5"></path>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="recent-loan-action recent-loan-action--delete"
+                  title="מחיקה"
+                  aria-label="מחיקה"
+                  [disabled]="deletingId() === card.order.id"
+                  (click)="askDelete(card.order)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16"></path>
+                    <path d="M10 11v6"></path>
+                    <path d="M14 11v6"></path>
+                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </header>
+
+            <ul class="customer-breakdown-card__items">
+              @for (row of card.items; track row.key) {
+                <li
+                  class="accessory-row active-loan-item"
+                  [class.accessory-row--removing]="isRemovingLine(row)"
+                >
+                  <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
+                  <span class="accessory-row__label">{{ row.accessoryName }}</span>
+
+                  @if (row.assignedSerialCodes.length > 0) {
+                    <span class="accessory-row__serial">
+                      <span class="accessory-row__serial-sep">:</span>
+                      <span class="accessory-row__serial-chip-list">
+                        @for (code of row.assignedSerialCodes; track code) {
+                          <button
+                            type="button"
+                            class="accessory-row__serial-chip accessory-row__serial-chip--returnable"
+                            [class.accessory-row__serial-chip--busy]="isReturningCode(row, code)"
+                            [class.accessory-row__serial-chip--removing]="isRemovingCode(row, code)"
+                            [disabled]="
+                              isReturningCode(row, code) ||
+                              isRemovingCode(row, code) ||
+                              (returningLineKey() !== null && !isReturningCode(row, code))
+                            "
+                            [title]="'סמן קוד ' + code + ' כהוחזר'"
+                            [attr.aria-label]="'סמן קוד ' + code + ' כהוחזר'"
+                            (click)="markCodeReturned(row, code)"
+                          >
+                            <span class="ltr-field">{{ code }}</span>
+                            @if (isReturningCode(row, code)) {
+                              <span class="return-chip-hint">…</span>
+                            } @else {
+                              <span class="return-chip-hint">החזר</span>
+                            }
+                          </button>
+                        }
+                      </span>
+                    </span>
+                  }
+
+                  <div class="active-loan-item__meta">
+                    <div class="active-loans-date">
+                      <span>{{ activeLoanDateLabel(row.loanDateIso) }}</span>
+                      @if (activeLoanHebrewDate(row.loanDateIso); as heb) {
+                        <span class="active-loans-date__hebrew">{{ heb }}</span>
+                      }
+                    </div>
+                    <button
+                      type="button"
+                      class="active-loans-return-btn"
+                      [disabled]="
+                        isReturningLine(row) ||
+                        isRemovingLine(row) ||
+                        (returningLineKey() !== null && !isReturningLine(row))
+                      "
+                      (click)="markLineReturned(row)"
+                    >
+                      @if (isReturningLine(row) && returningLineKey() === row.key) {
+                        שומר…
+                      } @else {
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M20 6 9 17l-5-5"></path>
+                        </svg>
+                        סמן כהוחזר
+                      }
+                    </button>
+                  </div>
+                </li>
+              }
+            </ul>
+          </article>
+        }
       </div>
     }
   </section>
 </div>
 
-@if (quickReturnSession(); as session) {
-  <div
-    class="quick-return-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="quick-return-modal-title"
-    (click)="closeQuickReturnModal()"
-  >
-    <div
-      class="quick-return-modal w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
-      (click)="$event.stopPropagation()"
-    >
-      <div class="border-b border-slate-200 px-5 py-4">
-        <h2 id="quick-return-modal-title" class="text-lg font-bold text-[#002244]">החזרה מהירה</h2>
-        <p class="mt-1 text-sm text-slate-500">
-          קוד שהוקש:
-          <span class="ltr-field font-mono font-semibold text-sky-800">{{ session.scannedCode }}</span>
-        </p>
-      </div>
-
-      <div class="space-y-5 px-5 py-4">
-        <div class="quick-return-customer">
-          <h3 class="mb-2 text-sm font-bold text-[#002244]">פרטי לקוח</h3>
-          <dl class="quick-return-customer__grid">
-            <div>
-              <dt>שם לקוח</dt>
-              <dd>{{ session.customerName }}</dd>
-            </div>
-            <div>
-              <dt>טלפון</dt>
-              <dd class="ltr-field font-mono">{{ formatPhone(session.phone) }}</dd>
-            </div>
-            <div class="quick-return-customer__address">
-              <dt>כתובת</dt>
-              <dd>{{ session.address || '—' }}</dd>
-            </div>
-          </dl>
-        </div>
-
-        @if (quickReturnScannedItem(session); as scanned) {
-          <div class="quick-return-scanned">
-            <h3 class="mb-2 text-sm font-bold text-[#002244]">אביזר שנבחר להחזרה</h3>
-            <div class="quick-return-item quick-return-item--primary">
-              <span class="quick-return-item__check" aria-hidden="true">✓</span>
-              <div class="quick-return-item__body">
-                <span class="quick-return-item__name">{{ scanned.accessoryName }}</span>
-                <span class="quick-return-item__meta">
-                  @if (scanned.serialCode) {
-                    קוד
-                    <span class="ltr-field font-mono font-semibold text-[#002244]">{{ scanned.serialCode }}</span>
-                  } @else {
-                    כמות {{ scanned.quantity }}
-                  }
-                </span>
-              </div>
-              <span class="quick-return-item__badge">נבחר</span>
-            </div>
-          </div>
-        }
-
-        @if (quickReturnAdditionalItems(session); as extras) {
-          @if (extras.length > 0) {
-            <div class="quick-return-extras">
-              <h3 class="mb-2 text-sm font-bold text-[#002244]">אביזרים נוספים מושאלים ללקוח זה</h3>
-              <ul class="quick-return-extras__list">
-                @for (item of extras; track item.key) {
-                  <li>
-                    <label class="quick-return-item">
-                      <input
-                        type="checkbox"
-                        [checked]="item.selected"
-                        [disabled]="quickReturnSaving()"
-                        (change)="toggleQuickReturnItem(item.key, $any($event.target).checked)"
-                      />
-                      <span class="quick-return-item__body">
-                        <span class="quick-return-item__name">{{ item.accessoryName }}</span>
-                        <span class="quick-return-item__meta">
-                          @if (item.serialCode) {
-                            קוד
-                            <span class="ltr-field font-mono font-semibold">{{ item.serialCode }}</span>
-                          } @else {
-                            כמות {{ item.quantity }}
-                          }
-                        </span>
-                      </span>
-                    </label>
-                  </li>
-                }
-              </ul>
-            </div>
-          }
-        }
-      </div>
-
-      <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
-        <button
-          type="button"
-          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          [disabled]="quickReturnSaving()"
-          (click)="closeQuickReturnModal()"
-        >
-          ביטול
-        </button>
-        <button
-          type="button"
-          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
-          [disabled]="quickReturnSaving()"
-          (click)="confirmQuickReturn()"
-        >
-          {{ quickReturnSaving() ? 'מחזיר…' : 'אשר החזרה' }}
-        </button>
-      </div>
-    </div>
-  </div>
-}
-
 @if (deleteConfirmOrder(); as doomed) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="quick-loan-delete-title"
     (click)="closeDeleteConfirm()"
   >
     <div
-      class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
       (click)="$event.stopPropagation()"
     >
       <div class="border-b border-slate-200 px-5 py-4">
@@ -751,17 +644,18 @@
 
 @if (returnModalOpen()) {
   <div
-    class="return-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+    class="return-modal-backdrop app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="return-modal-title"
     (click)="closeReturnModal()"
   >
     <div
-      class="return-modal w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      class="return-modal app-modal-panel w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 56rem"
       (click)="$event.stopPropagation()"
     >
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+      <div class="app-modal-header flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">
           רישום החזרת ציוד
           @if (returnOrderId(); as rid) {
@@ -778,7 +672,7 @@
         </button>
       </div>
 
-      <div class="overflow-x-auto px-5 py-4">
+      <div class="app-modal-body px-5 py-4">
         <table class="return-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
@@ -797,7 +691,7 @@
                 <td class="px-3 py-2.5 text-center">
                   <input
                     type="number"
-                    min="0"
+                    [min]="row.alreadyReturnedQuantity"
                     [max]="row.quantityLoaned"
                     step="1"
                     inputmode="numeric"
@@ -831,14 +725,20 @@
                       @if (isReturnSerialDropdownOpen(row)) {
                         <div class="return-serial-select__panel" (click)="$event.stopPropagation()">
                           @for (code of row.assignedSerialCodes; track code) {
-                            <label class="return-serial-select__option">
+                            <label
+                              class="return-serial-select__option"
+                              [class.return-serial-select__option--locked]="isReturnSerialLocked(row, code)"
+                            >
                               <input
                                 type="checkbox"
                                 [checked]="isReturnSerialSelected(row, code)"
-                                [disabled]="returnSaving()"
+                                [disabled]="returnSaving() || isReturnSerialLocked(row, code)"
                                 (change)="toggleReturnSerialSelection(row, code, $any($event.target).checked)"
                               />
                               <span class="ltr-field">{{ code }}</span>
+                              @if (isReturnSerialLocked(row, code)) {
+                                <span class="return-serial-select__locked-hint">הוחזר</span>
+                              }
                             </label>
                           }
                         </div>
@@ -863,7 +763,7 @@
         </table>
       </div>
 
-      <div class="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
         <button
           type="button"
           class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
