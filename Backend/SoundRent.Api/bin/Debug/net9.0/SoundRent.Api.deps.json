@@ -15,7 +15,8 @@
           "Microsoft.EntityFrameworkCore": "9.0.0",
           "Microsoft.EntityFrameworkCore.Design": "9.0.0",
           "Microsoft.EntityFrameworkCore.Tools": "9.0.0",
-          "Npgsql.EntityFrameworkCore.PostgreSQL": "9.0.2"
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "9.0.2",
+          "System.Text.Encoding.CodePages": "9.0.0"
         },
         "runtime": {
           "SoundRent.Api.dll": {}
@@ -744,6 +745,7 @@
         }
       },
       "System.Runtime.CompilerServices.Unsafe/6.0.0": {},
+      "System.Text.Encoding.CodePages/9.0.0": {},
       "System.Text.Json/9.0.0": {},
       "System.Threading.Channels/7.0.0": {}
     }
@@ -1166,6 +1168,13 @@
       "sha512": "sha512-/iUeP3tq1S0XdNNoMz5C9twLSrM/TH+qElHkXWaPvuNOt+99G75NrV0OS2EqHx5wMN7popYjpc8oTjC1y16DLg==",
       "path": "system.runtime.compilerservices.unsafe/6.0.0",
       "hashPath": "system.runtime.compilerservices.unsafe.6.0.0.nupkg.sha512"
+    },
+    "System.Text.Encoding.CodePages/9.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-GxJTSFPQpoVd0vQRgq8hwesicxgZoHTbYMvR/UMM4IzhkHMT+ebZE11c2C1gUyxz55zWtGCWktMTHvmgLzob9g==",
+      "path": "system.text.encoding.codepages/9.0.0",
+      "hashPath": "system.text.encoding.codepages.9.0.0.nupkg.sha512"
     },
     "System.Text.Json/9.0.0": {
       "type": "package",

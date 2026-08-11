@@ -11,6 +11,8 @@ using SoundRent.Api.Infrastructure.Data;
 using SoundRent.Api.Infrastructure.Repositories;
 using SoundRent.Api.Middleware;
 
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Configuration -------------------------------------------------------

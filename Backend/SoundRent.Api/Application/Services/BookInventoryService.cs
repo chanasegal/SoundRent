@@ -31,6 +31,10 @@ public interface IBookInventoryService
 
 public class BookInventoryService : IBookInventoryService
 {
+    private static readonly UTF8Encoding Utf8Strict = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     private readonly AppDbContext _db;
 
     public BookInventoryService(AppDbContext db)
@@ -624,8 +628,11 @@ public class BookInventoryService : IBookInventoryService
 
     private static List<ImportRow> ParseCsvRows(Stream stream)
     {
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        var text = DecodeCsvText(buffer.ToArray());
         var lines = new List<string>();
+        using var reader = new StringReader(text);
         while (reader.ReadLine() is { } line)
         {
             lines.Add(line);
@@ -683,6 +690,27 @@ public class BookInventoryService : IBookInventoryService
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// CSV is decoded as UTF-8 (BOM honored). Hebrew Excel "CSV" without a BOM
+    /// is often Windows-1255; that is converted to Unicode rather than U+FFFD.
+    /// </summary>
+    private static string DecodeCsvText(byte[] bytes)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            return Utf8Strict.GetString(bytes, 3, bytes.Length - 3);
+        }
+
+        try
+        {
+            return Utf8Strict.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            return Encoding.GetEncoding(1255).GetString(bytes);
+        }
     }
 
     private static ImportRow BuildImportRow(string title, string quantityRaw, string barcodeRaw)
