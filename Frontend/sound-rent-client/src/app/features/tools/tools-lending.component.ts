@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -93,6 +93,34 @@ interface ActiveLoanCustomerCard {
   items: ActiveLoanRowView[];
 }
 
+interface QuickReturnItem {
+  key: string;
+  loanId: number;
+  itemId: number;
+  toolDefinitionId: number;
+  toolName: string;
+  serialCode: string;
+  loanDateIso: string;
+  hebrewDate: string;
+  selected: boolean;
+  isScannedMatch: boolean;
+}
+
+interface QuickReturnLoanGroup {
+  loanId: number;
+  loanDateIso: string;
+  hebrewDate: string;
+  items: QuickReturnItem[];
+}
+
+interface QuickReturnSession {
+  scannedCode: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: QuickReturnItem[];
+}
+
 @Component({
   selector: 'app-tools-lending',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -117,6 +145,7 @@ export class ToolsLendingComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly orderDraft = inject(OrderDraftService);
+  private readonly document = inject(DOCUMENT);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
   private pendingRenew: {
@@ -155,11 +184,14 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly institutionSuggestIndex = signal(-1);
   private institutionSuggestBlurTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Quick return by code — local page state only. */
+  /** Quick return by code — opens confirmation modal with customer extras. */
   protected readonly quickReturnToolId = signal<number | null>(null);
   protected readonly quickReturnCode = signal('');
   protected readonly quickReturnCharge = signal('');
-  protected readonly quickReturning = signal(false);
+  protected readonly quickReturnCodeOpen = signal(false);
+  protected readonly quickReturnSearching = signal(false);
+  protected readonly quickReturnSaving = signal(false);
+  protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
   /** Inline charge amounts keyed by loan item id (local only). */
   protected readonly rowCharges = signal<Record<number, string>>({});
 
@@ -168,10 +200,36 @@ export class ToolsLendingComponent implements OnInit {
     if (toolId == null) {
       return [] as string[];
     }
-    const def = this.definitions().find((d) => d.id === toolId);
-    return [...(def?.serialCodes ?? [])].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
-    );
+
+    const codes = new Set<string>();
+    for (const loan of this.activeLoans()) {
+      for (const item of loan.items) {
+        if (item.returnedAt || item.toolDefinitionId !== toolId) {
+          continue;
+        }
+        const trimmed = item.serialCode.trim();
+        if (trimmed) {
+          codes.add(trimmed);
+        }
+      }
+    }
+
+    if (codes.size === 0) {
+      const def = this.definitions().find((d) => d.id === toolId);
+      for (const code of def?.serialCodes ?? []) {
+        const trimmed = code.trim();
+        if (trimmed) {
+          codes.add(trimmed);
+        }
+      }
+    }
+
+    const query = this.quickReturnCode().trim().toLowerCase();
+    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (!query) {
+      return list;
+    }
+    return list.filter((code) => code.toLowerCase().includes(query));
   });
 
   protected readonly timeLimitForm = this.fb.group({
@@ -195,30 +253,7 @@ export class ToolsLendingComponent implements OnInit {
 
   protected readonly activeRows = computed(() => {
     this.nowTick();
-    const views: ActiveLoanRowView[] = [];
-    for (const loan of this.activeLoans()) {
-      const lentAt = new Date(loan.lentAt);
-      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
-      for (const item of loan.items) {
-        if (item.returnedAt) {
-          continue;
-        }
-        views.push({
-          rowKey: `${loan.id}-${item.id}`,
-          loanId: loan.id,
-          itemId: item.id,
-          item,
-          clientName: loan.clientName,
-          phone: loan.phone,
-          address: (loan.address ?? '').trim(),
-          lentAt,
-          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
-          deadlineAt,
-          returning: this.returningItemId() === item.id
-        });
-      }
-    }
-    const sorted = views.sort((a, b) => b.lentAt.getTime() - a.lentAt.getTime());
+    const sorted = this.buildActiveLoanRowViews(this.activeLoans());
     const raw = this.activeSearchQuery().trim().toLowerCase();
     if (!raw) {
       return sorted;
@@ -260,13 +295,15 @@ export class ToolsLendingComponent implements OnInit {
       target?.closest('[data-tool-suggest]') ||
       target?.closest('[data-codes-dropdown]') ||
       target?.closest('[data-customer-suggest]') ||
-      target?.closest('[data-institution-suggest]')
+      target?.closest('[data-institution-suggest]') ||
+      target?.closest('.quick-return-code')
     ) {
       return;
     }
     this.closeToolUi();
     this.closeCustomerSuggest();
     this.closeInstitutionSuggest();
+    this.quickReturnCodeOpen.set(false);
   }
 
   protected addForm(): void {
@@ -281,6 +318,9 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected closeFormPanel(): void {
+    if (this.submittingId()) {
+      return;
+    }
     this.formOpen.set(false);
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
@@ -290,6 +330,9 @@ export class ToolsLendingComponent implements OnInit {
 
   /** Keep the in-progress loan and return to the main lending board. */
   protected minimizeDraft(): void {
+    if (this.submittingId()) {
+      return;
+    }
     const current = this.forms();
     const clientName = current[0]?.clientName?.trim() ?? '';
     this.orderDraft.minimize({
@@ -353,14 +396,51 @@ export class ToolsLendingComponent implements OnInit {
   protected onQuickReturnToolChange(toolId: number | null): void {
     this.quickReturnToolId.set(toolId != null && toolId > 0 ? toolId : null);
     this.quickReturnCode.set('');
+    this.quickReturnCodeOpen.set(false);
   }
 
   protected onQuickReturnCodeInput(value: string): void {
     this.quickReturnCode.set(value);
+    if (this.quickReturnToolId() != null) {
+      this.quickReturnCodeOpen.set(true);
+    }
+  }
+
+  protected onQuickReturnCodeFocus(): void {
+    if (this.quickReturnToolId() != null) {
+      this.quickReturnCodeOpen.set(true);
+    }
+  }
+
+  protected onQuickReturnCodeBlur(): void {
+    setTimeout(() => this.quickReturnCodeOpen.set(false), 150);
   }
 
   protected onQuickReturnChargeInput(value: string): void {
     this.quickReturnCharge.set(value);
+  }
+
+  protected onQuickReturnKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      this.quickReturnCodeOpen.set(false);
+      return;
+    }
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    const options = this.quickReturnCodes();
+    const typed = this.quickReturnCode().trim();
+    if (options.length === 1 && typed && options[0].toLowerCase() !== typed.toLowerCase()) {
+      this.selectQuickReturnCode(options[0]);
+    }
+    this.searchQuickReturn();
+  }
+
+  protected selectQuickReturnCode(code: string, event?: Event): void {
+    event?.preventDefault();
+    this.quickReturnCode.set(code);
+    this.quickReturnCodeOpen.set(false);
   }
 
   protected onRowChargeInput(itemId: number, value: string): void {
@@ -383,54 +463,285 @@ export class ToolsLendingComponent implements OnInit {
     return n;
   }
 
-  protected submitQuickReturn(): void {
-    const toolId = this.quickReturnToolId();
-    const serial = this.quickReturnCode().trim();
-    if (toolId == null) {
-      this.toast.error('יש לבחור סוג כלי');
-      return;
-    }
-    if (!serial) {
-      this.toast.error('יש להזין קוד פריט');
+  protected searchQuickReturn(): void {
+    if (this.quickReturnSearching() || this.quickReturnSaving()) {
       return;
     }
 
-    const matched = this.activeRows().find(
-      (r) =>
-        r.item.toolDefinitionId === toolId &&
-        r.item.serialCode.toLowerCase() === serial.toLowerCase()
-    );
-    const charge =
-      this.parseCharge(matched ? this.rowChargeValue(matched.itemId) : null) ??
-      this.parseCharge(this.quickReturnCharge());
+    const toolId = this.quickReturnToolId();
+    if (toolId == null) {
+      this.toast.warning('יש לבחור סוג כלי');
+      return;
+    }
+
+    const serial = this.quickReturnCode().trim();
+    if (!serial) {
+      this.toast.warning('יש לבחור או להזין קוד פריט');
+      return;
+    }
+
+    const openFromRows = (): void => {
+      const allRows = this.buildActiveLoanRowViews(this.activeLoans());
+      const matches = allRows.filter(
+        (r) =>
+          r.item.toolDefinitionId === toolId &&
+          r.item.serialCode.localeCompare(serial, undefined, { sensitivity: 'accent' }) === 0
+      );
+
+      if (matches.length === 0) {
+        this.toast.warning(`לא נמצאה השאלה פעילה עם קוד "${serial}"`);
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
+        return;
+      }
+
+      const phoneKeys = new Set(
+        matches.map((m) => this.normalizePhone(m.phone)).filter((p) => p.length > 0)
+      );
+      if (phoneKeys.size > 1) {
+        this.toast.warning('נמצאו מספר לקוחות עם אותו קוד — בחרו מהרשימה למטה');
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
+        return;
+      }
+
+      const match = matches[0];
+      const phoneKey = this.normalizePhone(match.phone);
+      const customerRows = allRows.filter(
+        (row) => this.normalizePhone(row.phone) === phoneKey && phoneKey.length > 0
+      );
+      const items = this.buildQuickReturnItems(
+        customerRows.length > 0 ? customerRows : [match],
+        match,
+        serial
+      );
+
+      this.quickReturnSession.set({
+        scannedCode: serial,
+        customerName: match.clientName,
+        phone: match.phone,
+        address: match.address,
+        items
+      });
+      this.quickReturnCodeOpen.set(false);
+    };
+
+    this.quickReturnSearching.set(true);
+    this.data
+      .getActiveToolLoans()
+      .pipe(finalize(() => this.quickReturnSearching.set(false)))
+      .subscribe((list) => {
+        this.activeLoans.set(list);
+        this.activeLoading.set(false);
+        openFromRows();
+      });
+  }
+
+  protected closeQuickReturnModal(): void {
+    if (this.quickReturnSaving()) {
+      return;
+    }
+    this.quickReturnSession.set(null);
+    queueMicrotask(() => this.focusQuickReturnCodeInput());
+  }
+
+  protected quickReturnScannedItem(session: QuickReturnSession): QuickReturnItem | null {
+    return session.items.find((item) => item.isScannedMatch) ?? null;
+  }
+
+  protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
+    const extras = session.items.filter((item) => !item.isScannedMatch);
+    const byLoan = new Map<number, QuickReturnLoanGroup>();
+
+    for (const item of extras) {
+      let group = byLoan.get(item.loanId);
+      if (!group) {
+        group = {
+          loanId: item.loanId,
+          loanDateIso: item.loanDateIso,
+          hebrewDate: item.hebrewDate || 'ללא תאריך',
+          items: []
+        };
+        byLoan.set(item.loanId, group);
+      }
+      group.items.push(item);
+    }
+
+    return [...byLoan.values()].sort((a, b) => {
+      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      return byDate !== 0 ? byDate : b.loanId - a.loanId;
+    });
+  }
+
+  protected toggleQuickReturnItem(key: string, checked: boolean): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.key !== key) {
+            return item;
+          }
+          if (item.isScannedMatch && !checked) {
+            return item;
+          }
+          return { ...item, selected: checked };
+        })
+      };
+    });
+  }
+
+  protected selectQuickReturnGroup(loanId: number, selected = true): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.isScannedMatch || item.loanId !== loanId) {
+            return item;
+          }
+          return { ...item, selected };
+        })
+      };
+    });
+  }
+
+  protected isQuickReturnGroupFullySelected(group: QuickReturnLoanGroup): boolean {
+    return group.items.length > 0 && group.items.every((item) => item.selected);
+  }
+
+  protected confirmQuickReturn(): void {
+    const session = this.quickReturnSession();
+    if (!session || this.quickReturnSaving()) {
+      return;
+    }
+
+    const selected = session.items.filter((item) => item.selected);
+    if (selected.length === 0) {
+      this.toast.warning('יש לבחור לפחות פריט אחד להחזרה');
+      return;
+    }
 
     const hebrew = this.formatHebrewDateTime(new Date(), true);
-    this.quickReturning.set(true);
-    this.data
-      .returnToolLoanByCode({
-        toolDefinitionId: toolId,
-        serialCode: serial,
+    const barCharge = this.parseCharge(this.quickReturnCharge());
+
+    const requests = selected.map((item) => {
+      const charge =
+        item.isScannedMatch
+          ? barCharge ?? this.parseCharge(this.rowChargeValue(item.itemId))
+          : this.parseCharge(this.rowChargeValue(item.itemId));
+      return this.data.returnToolLoanItem(item.loanId, item.itemId, {
         hebrewReturnedDisplay: hebrew,
         chargeAmount: charge && charge > 0 ? charge : null
-      })
-      .pipe(finalize(() => this.quickReturning.set(false)))
-      .subscribe((updated) => {
-        if (!updated) {
+      });
+    });
+
+    this.quickReturnSaving.set(true);
+    forkJoin(requests)
+      .pipe(finalize(() => this.quickReturnSaving.set(false)))
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
+          this.refreshActiveLoans();
           return;
         }
-        this.toast.success('ההחזרה נרשמה');
+        this.toast.success(
+          selected.length === 1
+            ? 'הקוד הוחזר בהצלחה'
+            : `${okCount} קודים הוחזרו בהצלחה`
+        );
+        this.rowCharges.update((m) => {
+          const next = { ...m };
+          for (const item of selected) {
+            delete next[item.itemId];
+          }
+          return next;
+        });
+        this.quickReturnSession.set(null);
         this.quickReturnCode.set('');
         this.quickReturnCharge.set('');
-        if (matched) {
-          this.rowCharges.update((m) => {
-            const next = { ...m };
-            delete next[matched.itemId];
-            return next;
-          });
-        }
         this.refreshActiveLoans();
         this.refreshAvailability();
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
       });
+  }
+
+  private buildActiveLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
+    const views: ActiveLoanRowView[] = [];
+    for (const loan of loans) {
+      const lentAt = new Date(loan.lentAt);
+      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
+      for (const item of loan.items) {
+        if (item.returnedAt) {
+          continue;
+        }
+        views.push({
+          rowKey: `${loan.id}-${item.id}`,
+          loanId: loan.id,
+          itemId: item.id,
+          item,
+          clientName: loan.clientName,
+          phone: loan.phone,
+          address: (loan.address ?? '').trim(),
+          lentAt,
+          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+          deadlineAt,
+          returning: this.returningItemId() === item.id
+        });
+      }
+    }
+    return views.sort((a, b) => b.lentAt.getTime() - a.lentAt.getTime());
+  }
+
+  private buildQuickReturnItems(
+    customerRows: ActiveLoanRowView[],
+    match: ActiveLoanRowView,
+    scannedCode: string
+  ): QuickReturnItem[] {
+    const items: QuickReturnItem[] = [];
+
+    for (const row of customerRows) {
+      const isScannedMatch =
+        row.rowKey === match.rowKey &&
+        row.item.serialCode.localeCompare(scannedCode, undefined, { sensitivity: 'accent' }) === 0;
+      const hebrewDate = this.hebrew.toHebrew(row.lentAt);
+      items.push({
+        key: row.rowKey,
+        loanId: row.loanId,
+        itemId: row.itemId,
+        toolDefinitionId: row.item.toolDefinitionId,
+        toolName: row.item.toolName,
+        serialCode: row.item.serialCode,
+        loanDateIso: this.toIsoDate(row.lentAt),
+        hebrewDate,
+        selected: isScannedMatch,
+        isScannedMatch
+      });
+    }
+
+    items.sort((a, b) => Number(b.isScannedMatch) - Number(a.isScannedMatch));
+    return items;
+  }
+
+  private normalizePhone(phone: string | null | undefined): string {
+    return (phone ?? '').replace(/\D/g, '');
+  }
+
+  private toIsoDate(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  private focusQuickReturnCodeInput(): void {
+    const input = this.document.getElementById(
+      'tools-quick-return-code-input'
+    ) as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
   }
 
   protected refreshActiveLoans(): void {

@@ -22,12 +22,14 @@
           <input type="number" min="0.25" max="168" step="0.25" formControlName="hours" />
         </label>
       }
-      @if (formOpen()) {
-        <button type="button" class="add-row-btn" (click)="minimizeDraft()">מזער</button>
-        <button type="button" class="add-row-btn" (click)="closeFormPanel()">סגור טופס</button>
-      } @else {
-        <button type="button" class="add-row-btn add-row-btn--primary" (click)="addForm()">הוסף השאלה</button>
-      }
+      <button
+        type="button"
+        class="add-row-btn add-row-btn--primary"
+        [disabled]="formOpen()"
+        (click)="addForm()"
+      >
+        הוסף השאלה
+      </button>
       <button
         type="button"
         class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -40,6 +42,9 @@
 
   <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד פריט">
     <h2 class="quick-return-card__title">החזרה מהירה לפי קוד פריט</h2>
+    <p class="quick-return-card__hint">
+      בחרו סוג כלי וקוד פריט — ייפתח חלון עם פרטי הלקוח ושאר הפריטים המושאלים לו לפי תאריך עברי.
+    </p>
     <div class="quick-return-card__row">
       <label class="quick-return-field">
         <span>סוג כלי</span>
@@ -52,22 +57,50 @@
       </label>
       <label class="quick-return-field">
         <span>קוד פריט</span>
-        <input
-          type="text"
-          class="field-input ltr-field"
-          dir="ltr"
-          list="quick-return-codes"
-          placeholder="הזינו או בחרו קוד"
-          [value]="quickReturnCode()"
-          (input)="onQuickReturnCodeInput($any($event.target).value)"
-          (keydown.enter)="submitQuickReturn()"
-          autocomplete="off"
-        />
-        <datalist id="quick-return-codes">
-          @for (code of quickReturnCodes(); track code) {
-            <option [value]="code"></option>
+        <div class="quick-return-code">
+          <input
+            id="tools-quick-return-code-input"
+            type="text"
+            class="field-input ltr-field"
+            dir="ltr"
+            placeholder="הזינו או בחרו קוד"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="tools-quick-return-code-options"
+            [attr.aria-expanded]="quickReturnCodeOpen()"
+            [value]="quickReturnCode()"
+            [disabled]="quickReturnToolId() == null || quickReturnSearching() || quickReturnSaving()"
+            (focus)="onQuickReturnCodeFocus()"
+            (blur)="onQuickReturnCodeBlur()"
+            (input)="onQuickReturnCodeInput($any($event.target).value)"
+            (keydown)="onQuickReturnKeydown($event)"
+            autocomplete="off"
+          />
+          @if (quickReturnCodeOpen() && quickReturnToolId() != null) {
+            <ul
+              id="tools-quick-return-code-options"
+              class="quick-return-code__panel"
+              role="listbox"
+              aria-label="קודי פריט"
+            >
+              @if (quickReturnCodes().length === 0) {
+                <li class="quick-return-code__empty">אין קודים זמינים לסוג זה</li>
+              } @else {
+                @for (code of quickReturnCodes(); track code) {
+                  <li role="option">
+                    <button
+                      type="button"
+                      class="quick-return-code__option"
+                      (mousedown)="selectQuickReturnCode(code, $event)"
+                    >
+                      <span class="ltr-field" dir="ltr">{{ code }}</span>
+                    </button>
+                  </li>
+                }
+              }
+            </ul>
           }
-        </datalist>
+        </div>
       </label>
       <label class="quick-return-field quick-return-field--charge">
         <span>סכום חיוב</span>
@@ -79,318 +112,20 @@
           dir="ltr"
           placeholder="0"
           [value]="quickReturnCharge()"
+          [disabled]="quickReturnSearching() || quickReturnSaving()"
           (input)="onQuickReturnChargeInput($any($event.target).value)"
         />
       </label>
       <button
         type="button"
         class="add-row-btn add-row-btn--primary quick-return-submit"
-        [disabled]="quickReturning()"
-        (click)="submitQuickReturn()"
+        [disabled]="quickReturnSearching() || quickReturnSaving()"
+        (click)="searchQuickReturn()"
       >
-        {{ quickReturning() ? 'מבצע…' : 'בצע החזרה' }}
+        {{ quickReturnSearching() ? 'מחפש…' : 'חפש / החזר' }}
       </button>
     </div>
   </section>
-
-  @if (formOpen()) {
-    <div class="forms-stack mb-6">
-      @for (form of forms(); track form.id) {
-        <section class="loan-card">
-          <header class="loan-card__header">
-            <div>
-              <p class="loan-card__eyebrow">תאריך ושעה</p>
-              <p class="loan-card__datetime">{{ form.hebrewDateTime }}</p>
-            </div>
-            @if (showDeadline()) {
-              <div class="loan-card__deadline">
-                <p class="loan-card__eyebrow">מועד החזרה נדרש</p>
-                <p class="loan-card__deadline-value">{{ formatDeadline(form.deadlineAt) }}</p>
-              </div>
-            }
-          </header>
-
-          <div class="loan-card__grid">
-            <div class="field-block field-block--span2">
-              <label class="field-label">ציוד מושאל</label>
-              <div class="tool-lines">
-                @for (line of form.toolLines; track line.id) {
-                  <div class="tool-line">
-                    <div class="tool-line__tool" data-tool-suggest>
-                      <input
-                        type="text"
-                        class="field-input"
-                        placeholder="חיפוש כלי (למשל: מברגה)"
-                        [value]="line.toolQuery"
-                        (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
-                        (focus)="onToolQueryFocus(form.id, line.id)"
-                        autocomplete="off"
-                      />
-                      @if (line.toolSuggestOpen) {
-                        <ul class="suggest-list" (click)="$event.stopPropagation()">
-                          @for (tool of filteredToolsForLine(form, line); track tool.id) {
-                            <li>
-                              <button type="button" (click)="selectTool(form.id, line.id, tool)">
-                                <span class="suggest-main">{{ tool.displayName }}</span>
-                                <span class="suggest-meta">
-                                  {{ availableByTool().get(tool.id)?.length ?? 0 }} קודים זמינים
-                                </span>
-                              </button>
-                            </li>
-                          } @empty {
-                            <li class="suggest-empty">לא נמצאו כלים תואמים</li>
-                          }
-                        </ul>
-                      }
-                    </div>
-
-                    <div class="tool-line__codes" data-codes-dropdown>
-                      <button
-                        type="button"
-                        class="ms-dropdown__btn"
-                        [disabled]="line.toolId == null"
-                        (click)="toggleCodesDropdown(form.id, line.id, $event)"
-                      >
-                        @if (line.selectedCodes.length === 0) {
-                          <span class="placeholder">בחרו קודים…</span>
-                        } @else {
-                          <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
-                        }
-                      </button>
-                      @if (line.codesOpen) {
-                        <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
-                          @for (code of availableCodesForLine(form, line); track code) {
-                            <label class="ms-dropdown__option">
-                              <input
-                                type="checkbox"
-                                [checked]="line.selectedCodes.includes(code)"
-                                (change)="toggleCodeSelection(form.id, line.id, code, $event)"
-                              />
-                              <span class="ltr-field" dir="ltr">{{ code }}</span>
-                            </label>
-                          } @empty {
-                            <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
-                          }
-                        </div>
-                      }
-                    </div>
-
-                    @if (form.toolLines.length > 1) {
-                      <button
-                        type="button"
-                        class="tool-line__remove"
-                        (click)="removeToolLine(form.id, line.id)"
-                        aria-label="הסר שורת כלי"
-                      >
-                        ×
-                      </button>
-                    }
-                  </div>
-                }
-              </div>
-              <button type="button" class="add-tool-btn" (click)="addToolLine(form.id)">
-                + הוסף פריט נוסף
-              </button>
-            </div>
-
-            <div class="field-block field-block--span2" data-customer-suggest>
-              <label class="field-label">פרטי לקוח</label>
-              @if (form.clientAlertNotes) {
-                <div class="client-alert" role="alert">
-                  <div class="client-alert__body">
-                    <strong>התראת לקוח</strong>
-                    <span>{{ form.clientAlertNotes }}</span>
-                  </div>
-                  <button type="button" class="client-alert__dismiss" (click)="dismissClientAlert(form.id)">
-                    סגור
-                  </button>
-                </div>
-              }
-              <div class="client-grid">
-                <div class="relative">
-                  <input
-                    type="text"
-                    class="field-input"
-                    placeholder="שם לקוח"
-                    [value]="form.clientName"
-                    (input)="onClientNameInput(form.id, $any($event.target).value)"
-                    (focus)="onClientNameInput(form.id, form.clientName)"
-                    autocomplete="off"
-                  />
-                  @if (
-                    customerSuggestOpen() &&
-                    customerSuggestFormId() === form.id &&
-                    customerSuggestField() === 'name'
-                  ) {
-                    <ul class="suggest-list">
-                      @for (c of customerSuggestions(); track c.phone1) {
-                        <li>
-                          <button type="button" (click)="selectCustomerSuggestion(form.id, c)">
-                            <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
-                            <span class="suggest-meta">
-                              <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
-                              @if (c.address) {
-                                <span>{{ c.address }}</span>
-                              }
-                            </span>
-                          </button>
-                        </li>
-                      }
-                    </ul>
-                  }
-                </div>
-
-                <div class="relative">
-                  <input
-                    type="tel"
-                    class="field-input phone-input"
-                    [class.phone-input--filled]="!!form.phone"
-                    placeholder="טלפון"
-                    maxlength="10"
-                    inputmode="numeric"
-                    pattern="[0-9]*"
-                    appIsraeliPhoneInput
-                    [value]="form.phone"
-                    (input)="onPhoneInput(form.id, $any($event.target).value)"
-                    (focus)="onPhoneInput(form.id, form.phone)"
-                    autocomplete="off"
-                  />
-                  @if (
-                    customerSuggestOpen() &&
-                    customerSuggestFormId() === form.id &&
-                    customerSuggestField() === 'phone'
-                  ) {
-                    <ul class="suggest-list">
-                      @for (c of customerSuggestions(); track c.phone1) {
-                        <li>
-                          <button type="button" (click)="selectCustomerSuggestion(form.id, c)">
-                            <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
-                            <span class="suggest-meta">
-                              <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
-                              @if (c.address) {
-                                <span>{{ c.address }}</span>
-                              }
-                            </span>
-                          </button>
-                        </li>
-                      }
-                    </ul>
-                  }
-                </div>
-
-                <div class="relative">
-                  <input
-                    type="tel"
-                    class="field-input phone-input"
-                    [class.phone-input--filled]="!!form.phone2"
-                    placeholder="טלפון 2"
-                    maxlength="10"
-                    inputmode="numeric"
-                    pattern="[0-9]*"
-                    appIsraeliPhoneInput
-                    [value]="form.phone2"
-                    (input)="onPhone2Input(form.id, $any($event.target).value)"
-                    autocomplete="off"
-                  />
-                </div>
-
-                <div class="client-grid__address-row">
-                  <div class="relative">
-                    <input
-                      type="text"
-                      class="field-input"
-                      placeholder="כתובת"
-                      [value]="form.address"
-                      (input)="onAddressInput(form.id, $any($event.target).value)"
-                      autocomplete="off"
-                    />
-                  </div>
-
-                  <div class="relative" data-institution-suggest>
-                    <input
-                      type="text"
-                      class="field-input"
-                      placeholder="מוסד"
-                      maxlength="200"
-                      [value]="form.institutionName"
-                      (input)="onInstitutionInput(form.id, $any($event.target).value)"
-                      (focus)="onInstitutionFocus(form.id)"
-                      (blur)="onInstitutionBlur()"
-                      (keydown)="onInstitutionKeydown(form.id, $event)"
-                      autocomplete="off"
-                      role="combobox"
-                      aria-autocomplete="list"
-                      [attr.aria-expanded]="
-                        institutionSuggestOpen() &&
-                        institutionSuggestFormId() === form.id &&
-                        institutionSuggestions().length > 0
-                      "
-                    />
-                    @if (
-                      institutionSuggestOpen() &&
-                      institutionSuggestFormId() === form.id &&
-                      institutionSuggestions().length > 0
-                    ) {
-                      <ul class="suggest-list" role="listbox" aria-label="מוסדות תואמים">
-                        @for (inst of institutionSuggestions(); track inst.id; let i = $index) {
-                          <li role="option" [attr.aria-selected]="institutionSuggestIndex() === i">
-                            <button
-                              type="button"
-                              [class.suggest-item--active]="institutionSuggestIndex() === i"
-                              (mousedown)="selectInstitutionSuggestion(form.id, inst, $event)"
-                            >
-                              <span class="suggest-main">{{ inst.name }}</span>
-                              @if (inst.defaultNote?.trim()) {
-                                <span class="suggest-meta">{{ inst.defaultNote }}</span>
-                              }
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="field-block">
-              <label class="field-label">פיקדון</label>
-              <input
-                type="text"
-                class="field-input"
-                placeholder="פרטי פיקדון"
-                [value]="form.deposit"
-                (input)="patchForm(form.id, { deposit: $any($event.target).value })"
-              />
-            </div>
-
-            <div class="field-block">
-              <label class="field-label">הערות</label>
-              <input
-                type="text"
-                class="field-input"
-                placeholder="הערות"
-                [value]="form.notes"
-                (input)="patchForm(form.id, { notes: $any($event.target).value })"
-              />
-            </div>
-          </div>
-
-          <footer class="loan-card__footer">
-            <button
-              type="button"
-              class="save-btn"
-              [disabled]="submittingId() === form.id"
-              (click)="submitForm(form)"
-            >
-              {{ submittingId() === form.id ? 'שומר…' : 'שמירת השאלה' }}
-            </button>
-            <button type="button" class="remove-btn" (click)="closeFormPanel()">ביטול</button>
-          </footer>
-        </section>
-      }
-    </div>
-  }
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש (טלפון או שם)</label>
@@ -512,3 +247,478 @@
     }
   </div>
 </div>
+
+@if (formOpen()) {
+  <div
+    class="loan-form-modal-backdrop app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tools-loan-form-modal-title"
+    (click)="closeFormPanel()"
+  >
+    <div
+      class="loan-form-modal app-modal-panel w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 56rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div>
+          <h2 id="tools-loan-form-modal-title" class="text-lg font-bold text-[#002244]">השאלה חדשה</h2>
+          @for (form of forms(); track form.id) {
+            <p class="mt-1 text-sm text-slate-500">
+              {{ form.hebrewDateTime }}
+              @if (showDeadline()) {
+                <span class="loan-form-modal__deadline">
+                  · מועד החזרה: {{ formatDeadline(form.deadlineAt) }}
+                </span>
+              }
+            </p>
+          }
+        </div>
+        <div class="loan-form-modal__header-actions">
+          <button
+            type="button"
+            class="add-row-btn"
+            [disabled]="!!submittingId()"
+            (click)="minimizeDraft()"
+          >
+            מזער
+          </button>
+          <button
+            type="button"
+            class="add-row-btn"
+            [disabled]="!!submittingId()"
+            (click)="closeFormPanel()"
+          >
+            סגור
+          </button>
+        </div>
+      </div>
+
+      <div class="app-modal-body px-5 py-4">
+        <div class="forms-stack">
+          @for (form of forms(); track form.id) {
+            <section class="loan-card loan-card--modal">
+              <div class="loan-card__grid">
+                <div class="field-block field-block--span2">
+                  <label class="field-label">ציוד מושאל</label>
+                  <div class="tool-lines">
+                    @for (line of form.toolLines; track line.id) {
+                      <div class="tool-line">
+                        <div class="tool-line__tool" data-tool-suggest>
+                          <input
+                            type="text"
+                            class="field-input"
+                            placeholder="חיפוש כלי (למשל: מברגה)"
+                            [value]="line.toolQuery"
+                            (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
+                            (focus)="onToolQueryFocus(form.id, line.id)"
+                            autocomplete="off"
+                          />
+                          @if (line.toolSuggestOpen) {
+                            <ul class="suggest-list" (click)="$event.stopPropagation()">
+                              @for (tool of filteredToolsForLine(form, line); track tool.id) {
+                                <li>
+                                  <button type="button" (click)="selectTool(form.id, line.id, tool)">
+                                    <span class="suggest-main">{{ tool.displayName }}</span>
+                                    <span class="suggest-meta">
+                                      {{ availableByTool().get(tool.id)?.length ?? 0 }} קודים זמינים
+                                    </span>
+                                  </button>
+                                </li>
+                              } @empty {
+                                <li class="suggest-empty">לא נמצאו כלים תואמים</li>
+                              }
+                            </ul>
+                          }
+                        </div>
+
+                        <div class="tool-line__codes" data-codes-dropdown>
+                          <button
+                            type="button"
+                            class="ms-dropdown__btn"
+                            [disabled]="line.toolId == null"
+                            (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                          >
+                            @if (line.selectedCodes.length === 0) {
+                              <span class="placeholder">בחרו קודים…</span>
+                            } @else {
+                              <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                            }
+                          </button>
+                          @if (line.codesOpen) {
+                            <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
+                              @for (code of availableCodesForLine(form, line); track code) {
+                                <label class="ms-dropdown__option">
+                                  <input
+                                    type="checkbox"
+                                    [checked]="line.selectedCodes.includes(code)"
+                                    (change)="toggleCodeSelection(form.id, line.id, code, $event)"
+                                  />
+                                  <span class="ltr-field" dir="ltr">{{ code }}</span>
+                                </label>
+                              } @empty {
+                                <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                              }
+                            </div>
+                          }
+                        </div>
+
+                        @if (form.toolLines.length > 1) {
+                          <button
+                            type="button"
+                            class="tool-line__remove"
+                            (click)="removeToolLine(form.id, line.id)"
+                            aria-label="הסר שורת כלי"
+                          >
+                            ×
+                          </button>
+                        }
+                      </div>
+                    }
+                  </div>
+                  <button type="button" class="add-tool-btn" (click)="addToolLine(form.id)">
+                    + הוסף פריט נוסף
+                  </button>
+                </div>
+
+                <div class="field-block field-block--span2" data-customer-suggest>
+                  <label class="field-label">פרטי לקוח</label>
+                  @if (form.clientAlertNotes) {
+                    <div class="client-alert" role="alert">
+                      <div class="client-alert__body">
+                        <strong>התראת לקוח</strong>
+                        <span>{{ form.clientAlertNotes }}</span>
+                      </div>
+                      <button type="button" class="client-alert__dismiss" (click)="dismissClientAlert(form.id)">
+                        סגור
+                      </button>
+                    </div>
+                  }
+                  <div class="client-grid">
+                    <div class="relative">
+                      <input
+                        type="text"
+                        class="field-input"
+                        placeholder="שם לקוח"
+                        [value]="form.clientName"
+                        (input)="onClientNameInput(form.id, $any($event.target).value)"
+                        (focus)="onClientNameInput(form.id, form.clientName)"
+                        autocomplete="off"
+                      />
+                      @if (
+                        customerSuggestOpen() &&
+                        customerSuggestFormId() === form.id &&
+                        customerSuggestField() === 'name'
+                      ) {
+                        <ul class="suggest-list">
+                          @for (c of customerSuggestions(); track c.phone1) {
+                            <li>
+                              <button type="button" (click)="selectCustomerSuggestion(form.id, c)">
+                                <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
+                                <span class="suggest-meta">
+                                  <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
+                                  @if (c.address) {
+                                    <span>{{ c.address }}</span>
+                                  }
+                                </span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      }
+                    </div>
+
+                    <div class="relative">
+                      <input
+                        type="tel"
+                        class="field-input phone-input"
+                        [class.phone-input--filled]="!!form.phone"
+                        placeholder="טלפון"
+                        maxlength="10"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        appIsraeliPhoneInput
+                        [value]="form.phone"
+                        (input)="onPhoneInput(form.id, $any($event.target).value)"
+                        (focus)="onPhoneInput(form.id, form.phone)"
+                        autocomplete="off"
+                      />
+                      @if (
+                        customerSuggestOpen() &&
+                        customerSuggestFormId() === form.id &&
+                        customerSuggestField() === 'phone'
+                      ) {
+                        <ul class="suggest-list">
+                          @for (c of customerSuggestions(); track c.phone1) {
+                            <li>
+                              <button type="button" (click)="selectCustomerSuggestion(form.id, c)">
+                                <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
+                                <span class="suggest-meta">
+                                  <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
+                                  @if (c.address) {
+                                    <span>{{ c.address }}</span>
+                                  }
+                                </span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      }
+                    </div>
+
+                    <div class="relative">
+                      <input
+                        type="tel"
+                        class="field-input phone-input"
+                        [class.phone-input--filled]="!!form.phone2"
+                        placeholder="טלפון 2"
+                        maxlength="10"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        appIsraeliPhoneInput
+                        [value]="form.phone2"
+                        (input)="onPhone2Input(form.id, $any($event.target).value)"
+                        autocomplete="off"
+                      />
+                    </div>
+
+                    <div class="client-grid__address-row">
+                      <div class="relative">
+                        <input
+                          type="text"
+                          class="field-input"
+                          placeholder="כתובת"
+                          [value]="form.address"
+                          (input)="onAddressInput(form.id, $any($event.target).value)"
+                          autocomplete="off"
+                        />
+                      </div>
+
+                      <div class="relative" data-institution-suggest>
+                        <input
+                          type="text"
+                          class="field-input"
+                          placeholder="מוסד"
+                          maxlength="200"
+                          [value]="form.institutionName"
+                          (input)="onInstitutionInput(form.id, $any($event.target).value)"
+                          (focus)="onInstitutionFocus(form.id)"
+                          (blur)="onInstitutionBlur()"
+                          (keydown)="onInstitutionKeydown(form.id, $event)"
+                          autocomplete="off"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          [attr.aria-expanded]="
+                            institutionSuggestOpen() &&
+                            institutionSuggestFormId() === form.id &&
+                            institutionSuggestions().length > 0
+                          "
+                        />
+                        @if (
+                          institutionSuggestOpen() &&
+                          institutionSuggestFormId() === form.id &&
+                          institutionSuggestions().length > 0
+                        ) {
+                          <ul class="suggest-list" role="listbox" aria-label="מוסדות תואמים">
+                            @for (inst of institutionSuggestions(); track inst.id; let i = $index) {
+                              <li role="option" [attr.aria-selected]="institutionSuggestIndex() === i">
+                                <button
+                                  type="button"
+                                  [class.suggest-item--active]="institutionSuggestIndex() === i"
+                                  (mousedown)="selectInstitutionSuggestion(form.id, inst, $event)"
+                                >
+                                  <span class="suggest-main">{{ inst.name }}</span>
+                                  @if (inst.defaultNote?.trim()) {
+                                    <span class="suggest-meta">{{ inst.defaultNote }}</span>
+                                  }
+                                </button>
+                              </li>
+                            }
+                          </ul>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="field-block">
+                  <label class="field-label">פיקדון</label>
+                  <input
+                    type="text"
+                    class="field-input"
+                    placeholder="פרטי פיקדון"
+                    [value]="form.deposit"
+                    (input)="patchForm(form.id, { deposit: $any($event.target).value })"
+                  />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-label">הערות</label>
+                  <input
+                    type="text"
+                    class="field-input"
+                    placeholder="הערות"
+                    [value]="form.notes"
+                    (input)="patchForm(form.id, { notes: $any($event.target).value })"
+                  />
+                </div>
+              </div>
+
+              <footer class="loan-card__footer">
+                <button
+                  type="button"
+                  class="save-btn"
+                  [disabled]="submittingId() === form.id"
+                  (click)="submitForm(form)"
+                >
+                  {{ submittingId() === form.id ? 'שומר…' : 'שמירת השאלה' }}
+                </button>
+                <button
+                  type="button"
+                  class="remove-btn"
+                  [disabled]="submittingId() === form.id"
+                  (click)="closeFormPanel()"
+                >
+                  ביטול
+                </button>
+              </footer>
+            </section>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (quickReturnSession(); as session) {
+  <div
+    class="quick-return-modal-backdrop app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tools-quick-return-modal-title"
+    (click)="closeQuickReturnModal()"
+  >
+    <div
+      class="quick-return-modal app-modal-panel w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
+        <h2 id="tools-quick-return-modal-title" class="text-lg font-bold text-[#002244]">החזרה מהירה</h2>
+        <p class="mt-1 text-sm text-slate-500">
+          קוד שהוקש:
+          <span class="ltr-field font-mono font-semibold text-sky-800">{{ session.scannedCode }}</span>
+        </p>
+      </div>
+
+      <div class="app-modal-body space-y-5 px-5 py-4">
+        <div class="quick-return-customer">
+          <h3 class="mb-2 text-sm font-bold text-[#002244]">פרטי לקוח</h3>
+          <dl class="quick-return-customer__grid">
+            <div>
+              <dt>שם לקוח</dt>
+              <dd>{{ session.customerName }}</dd>
+            </div>
+            <div>
+              <dt>טלפון</dt>
+              <dd class="ltr-field font-mono">{{ formatPhone(session.phone) }}</dd>
+            </div>
+            <div class="quick-return-customer__address">
+              <dt>כתובת</dt>
+              <dd>{{ session.address || '—' }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        @if (quickReturnScannedItem(session); as scanned) {
+          <div class="quick-return-scanned">
+            <h3 class="mb-2 text-sm font-bold text-[#002244]">פריט שנבחר להחזרה</h3>
+            <div class="quick-return-item quick-return-item--primary">
+              <span class="quick-return-item__check" aria-hidden="true">✓</span>
+              <div class="quick-return-item__body">
+                <span class="quick-return-item__name">{{ scanned.toolName }}</span>
+                <span class="quick-return-item__meta">
+                  קוד
+                  <span class="ltr-field font-mono font-semibold text-[#002244]">{{ scanned.serialCode }}</span>
+                </span>
+              </div>
+              <span class="quick-return-item__badge">נבחר</span>
+            </div>
+          </div>
+        }
+
+        @if (quickReturnAdditionalGroups(session); as groups) {
+          @if (groups.length > 0) {
+            <div class="quick-return-extras">
+              <h3 class="mb-2 text-sm font-bold text-[#002244]">פריטים נוספים מושאלים ללקוח זה</h3>
+              <div class="quick-return-extras__groups">
+                @for (group of groups; track group.loanId) {
+                  <section
+                    class="quick-return-extras__group"
+                    [attr.aria-label]="'השאלה מתאריך ' + group.hebrewDate"
+                  >
+                    <div class="quick-return-extras__date-row">
+                      <h4 class="quick-return-extras__date">
+                        <span class="quick-return-extras__date-label">תאריך עברי</span>
+                        <span class="quick-return-extras__date-value">{{ group.hebrewDate }}</span>
+                      </h4>
+                      <button
+                        type="button"
+                        class="quick-return-extras__select-all"
+                        [disabled]="quickReturnSaving()"
+                        (click)="selectQuickReturnGroup(group.loanId, !isQuickReturnGroupFullySelected(group))"
+                      >
+                        {{ isQuickReturnGroupFullySelected(group) ? 'בטל בחירה' : 'סמן הכל' }}
+                      </button>
+                    </div>
+                    <ul class="quick-return-extras__list">
+                      @for (item of group.items; track item.key) {
+                        <li>
+                          <label class="quick-return-item">
+                            <input
+                              type="checkbox"
+                              [checked]="item.selected"
+                              [disabled]="quickReturnSaving()"
+                              (change)="toggleQuickReturnItem(item.key, $any($event.target).checked)"
+                            />
+                            <span class="quick-return-item__body">
+                              <span class="quick-return-item__name">{{ item.toolName }}</span>
+                              <span class="quick-return-item__meta">
+                                קוד
+                                <span class="ltr-field font-mono font-semibold">{{ item.serialCode }}</span>
+                              </span>
+                            </span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                }
+              </div>
+            </div>
+          }
+        }
+      </div>
+
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          [disabled]="quickReturnSaving()"
+          (click)="closeQuickReturnModal()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="quickReturnSaving()"
+          (click)="confirmQuickReturn()"
+        >
+          {{ quickReturnSaving() ? 'מחזיר…' : 'אשר החזרה' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

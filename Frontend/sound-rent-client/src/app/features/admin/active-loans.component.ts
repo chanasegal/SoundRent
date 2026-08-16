@@ -69,8 +69,18 @@ interface QuickReturnItem {
   /** Specific serial being offered for return; null for quantity-only lines. */
   serialCode: string | null;
   quantity: number;
+  /** Gregorian loan/order date (yyyy-MM-dd) used for Hebrew grouping. */
+  loanDateIso: string;
   selected: boolean;
   isScannedMatch: boolean;
+}
+
+/** Additional quick-return items grouped by distinct loan/order transaction. */
+interface QuickReturnLoanGroup {
+  orderId: number;
+  loanDateIso: string;
+  hebrewDate: string;
+  items: QuickReturnItem[];
 }
 
 interface QuickReturnSession {
@@ -590,8 +600,30 @@ export class ActiveLoansComponent implements OnInit {
     return session.items.find((item) => item.isScannedMatch) ?? null;
   }
 
-  protected quickReturnAdditionalItems(session: QuickReturnSession): QuickReturnItem[] {
-    return session.items.filter((item) => !item.isScannedMatch);
+  /** Additional (non-scanned) items grouped by loan/order, labeled with Hebrew date. */
+  protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
+    const extras = session.items.filter((item) => !item.isScannedMatch);
+    const byOrder = new Map<number, QuickReturnLoanGroup>();
+
+    for (const item of extras) {
+      let group = byOrder.get(item.orderId);
+      if (!group) {
+        const hebrewDate = this.activeLoanHebrewDate(item.loanDateIso);
+        group = {
+          orderId: item.orderId,
+          loanDateIso: item.loanDateIso,
+          hebrewDate: hebrewDate || 'ללא תאריך',
+          items: []
+        };
+        byOrder.set(item.orderId, group);
+      }
+      group.items.push(item);
+    }
+
+    return [...byOrder.values()].sort((a, b) => {
+      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      return byDate !== 0 ? byDate : b.orderId - a.orderId;
+    });
   }
 
   protected toggleQuickReturnItem(key: string, checked: boolean): void {
@@ -613,6 +645,28 @@ export class ActiveLoansComponent implements OnInit {
         })
       };
     });
+  }
+
+  /** Select (or clear) every additional item in a loan/date group. */
+  protected selectQuickReturnGroup(orderId: number, selected = true): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.isScannedMatch || item.orderId !== orderId) {
+            return item;
+          }
+          return { ...item, selected };
+        })
+      };
+    });
+  }
+
+  protected isQuickReturnGroupFullySelected(group: QuickReturnLoanGroup): boolean {
+    return group.items.length > 0 && group.items.every((item) => item.selected);
   }
 
   protected confirmQuickReturn(): void {
@@ -913,6 +967,7 @@ export class ActiveLoansComponent implements OnInit {
             accessoryName: row.accessoryName,
             serialCode: code,
             quantity: 1,
+            loanDateIso: row.loanDateIso,
             selected: isScannedMatch,
             isScannedMatch
           });
@@ -929,6 +984,7 @@ export class ActiveLoansComponent implements OnInit {
         accessoryName: row.accessoryName,
         serialCode: null,
         quantity: row.quantity,
+        loanDateIso: row.loanDateIso,
         selected: isScannedMatch,
         isScannedMatch
       });

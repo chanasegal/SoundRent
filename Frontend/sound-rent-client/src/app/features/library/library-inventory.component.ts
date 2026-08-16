@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  OnDestroy,
   OnInit,
   inject,
   signal
@@ -35,7 +36,9 @@ import { BookTitleSelectComponent } from '../../shared/components/book-title-sel
   templateUrl: './library-inventory.component.html',
   styleUrl: './library-inventory.component.scss'
 })
-export class LibraryInventoryComponent implements OnInit {
+export class LibraryInventoryComponent implements OnInit, OnDestroy {
+  private static readonly AUTO_REFRESH_MS = 30_000;
+
   private readonly data = inject(DataService);
   private readonly booksStore = inject(BooksStore);
   private readonly toast = inject(ToastService);
@@ -43,6 +46,8 @@ export class LibraryInventoryComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ספרים');
+
+  private refreshIntervalId: ReturnType<typeof setInterval> | null = null;
 
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -83,6 +88,17 @@ export class LibraryInventoryComponent implements OnInit {
     this.wireAddInventoryQuantitySync();
     this.wireSerialSearchTypeFilter();
     this.refresh();
+    this.refreshIntervalId = setInterval(
+      () => this.autoRefresh(),
+      LibraryInventoryComponent.AUTO_REFRESH_MS
+    );
+  }
+
+  ngOnDestroy(): void {
+    if (this.refreshIntervalId != null) {
+      clearInterval(this.refreshIntervalId);
+      this.refreshIntervalId = null;
+    }
   }
 
   protected inventoryRows(): FormArray {
@@ -123,6 +139,58 @@ export class LibraryInventoryComponent implements OnInit {
           this.serialSearchForm.patchValue({ bookId: list[0]!.id });
         }
       });
+  }
+
+  /** Background reload — skipped while the user is editing, in a modal, or focused in an input. */
+  private autoRefresh(): void {
+    if (this.shouldSkipAutoRefresh()) {
+      return;
+    }
+    this.booksStore.invalidate();
+    this.booksStore.load({ force: true }).subscribe(() => {
+      if (this.shouldSkipAutoRefresh()) {
+        return;
+      }
+      const list = this.booksStore.definitions();
+      this.rebuildRows(list);
+      if (list.length > 0 && this.serialSearchForm.controls.bookId.value == null) {
+        this.serialSearchForm.patchValue({ bookId: list[0]!.id });
+      }
+    });
+  }
+
+  private shouldSkipAutoRefresh(): boolean {
+    if (
+      this.loading() ||
+      this.saving() ||
+      this.inventorySaving() ||
+      this.editInventorySaving() ||
+      this.importing() ||
+      this.serialSearchLoading() ||
+      this.addInventoryOpen() ||
+      this.editInventoryOpen() ||
+      this.deletingInventoryId() != null
+    ) {
+      return true;
+    }
+    if (
+      this.inventoryForm.dirty ||
+      this.addInventoryForm.dirty ||
+      this.editInventoryForm.dirty ||
+      this.serialSearchForm.dirty
+    ) {
+      return true;
+    }
+    return this.isUserEditingField();
+  }
+
+  private isUserEditingField(): boolean {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) {
+      return false;
+    }
+    const tag = active.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable;
   }
 
   protected searchSerialLocation(): void {
