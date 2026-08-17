@@ -84,11 +84,6 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
                 class="layout-nav__link"
               >דוח ציוד</a>
               <a
-                routerLink="/admin/quick-loan"
-                routerLinkActive="bg-white/10 text-white"
-                class="layout-nav__link"
-              >השאלת אביזרים</a>
-              <a
                 routerLink="/admin/loans"
                 routerLinkActive="bg-white/10 text-white"
                 class="layout-nav__link"

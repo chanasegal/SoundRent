@@ -5,8 +5,10 @@ import {
   DestroyRef,
   OnInit,
   computed,
+  effect,
   inject,
-  signal
+  signal,
+  untracked
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -33,6 +35,7 @@ import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-d
 import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
+import { OrderDraftService, QuickLoanDraftPayload } from '../../core/services/order-draft.service';
 import { ToastService } from '../../core/services/toast.service';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
@@ -109,6 +112,7 @@ export class QuickLoanComponent implements OnInit {
   private readonly hebrew = inject(HebrewDateService);
   private readonly customers = inject(CustomersStore);
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
+  private readonly orderDraft = inject(OrderDraftService);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
@@ -144,6 +148,7 @@ export class QuickLoanComponent implements OnInit {
   protected readonly removingLineKeys = signal<Set<string>>(new Set());
   protected readonly deletingId = signal<number | null>(null);
   protected readonly deleteConfirmOrder = signal<OrderDto | null>(null);
+  protected readonly formMinimized = signal(false);
 
   protected readonly returnModalOpen = signal(false);
   protected readonly returnSaving = signal(false);
@@ -163,6 +168,7 @@ export class QuickLoanComponent implements OnInit {
     hebrewYear: [this.initialHebrew.year, Validators.required],
     hebrewMonth: [this.initialHebrew.month, Validators.required],
     hebrewDay: [this.initialHebrew.day, Validators.required],
+    deposit: ['', Validators.maxLength(100)],
     notes: ['', Validators.maxLength(1000)]
   });
 
@@ -182,6 +188,13 @@ export class QuickLoanComponent implements OnInit {
     return this.buildStandaloneLoanCards(this.standaloneLoans());
   });
 
+  constructor() {
+    effect(() => {
+      this.orderDraft.resumeTick();
+      untracked(() => this.tryRestoreMinimizedDraft());
+    });
+  }
+
   ngOnInit(): void {
     this.wireDateForm();
     this.wireAvailabilityRefresh();
@@ -190,6 +203,35 @@ export class QuickLoanComponent implements OnInit {
     this.customers.load().subscribe();
     this.refreshAvailability();
     this.loadRecentLoans();
+    if (this.orderDraft.draft()?.kind === 'quick-loan' && this.orderDraft.showBar()) {
+      this.formMinimized.set(true);
+    }
+    this.tryRestoreMinimizedDraft();
+  }
+
+  /** Keep the standalone accessory loan available while using another area of the app. */
+  protected minimizeDraft(): void {
+    if (this.submitting()) {
+      return;
+    }
+
+    this.orderDraft.minimize({
+      kind: 'quick-loan',
+      customerLabel: String(this.form.controls.customerName.value ?? '').trim(),
+      resumePath: '/tools/accessory-lending',
+      payload: {
+        formValue: this.form.getRawValue() as Record<string, unknown>,
+        accessoryRows: this.accessoryRows().map((row) => ({
+          ...row,
+          selectedCodes: [...row.selectedCodes],
+          ...(row.initialCodes ? { initialCodes: [...row.initialCodes] } : {})
+        })),
+        editingId: this.editingId(),
+        nextOneTimeAccessoryId: this.nextOneTimeAccessoryId
+      }
+    });
+    this.closeDraftOnlyUi();
+    this.formMinimized.set(true);
   }
 
   protected dayLabel(day: number): string {
@@ -1069,6 +1111,7 @@ export class QuickLoanComponent implements OnInit {
       customerName: order.customerName ?? '',
       phone: order.phone ?? '',
       address: order.address ?? '',
+      deposit: order.depositOnName ?? '',
       notes: order.notes ?? ''
     });
 
@@ -1490,7 +1533,7 @@ export class QuickLoanComponent implements OnInit {
       phone2: null,
       address: (this.form.controls.address.value ?? '').trim() || null,
       depositType: null,
-      depositOnName: null,
+      depositOnName: (this.form.controls.deposit.value ?? '').trim() || null,
       paymentAmount: null,
       isUnpaid: false,
       returnTimeType: ReturnTimeType.LateNight,
@@ -1515,6 +1558,7 @@ export class QuickLoanComponent implements OnInit {
       this.toast.success(
         editingId != null ? `השאלה #${order.id} עודכנה` : `השאלת ציוד נשמרה (#${order.id})`
       );
+      this.orderDraft.clearIfKind('quick-loan');
       this.resetFormFully();
       this.loadRecentLoans();
       this.refreshAvailability();
@@ -1524,14 +1568,84 @@ export class QuickLoanComponent implements OnInit {
 
   private resetFormFully(): void {
     this.editingId.set(null);
+    this.formMinimized.set(false);
     this.resetSelections();
     this.form.patchValue({
       customerName: '',
       phone: '',
       address: '',
+      deposit: '',
       notes: ''
     });
     this.form.markAsUntouched();
+  }
+
+  /** Restore the form exactly once after the global draft bar requests it. */
+  private tryRestoreMinimizedDraft(): void {
+    const draft = this.orderDraft.takePendingRestore<QuickLoanDraftPayload>('quick-loan');
+    if (!draft) {
+      return;
+    }
+
+    const raw = draft.formValue ?? {};
+    const year = Number(raw['hebrewYear']);
+    const month = Number(raw['hebrewMonth']);
+    const day = Number(raw['hebrewDay']);
+    if (Number.isFinite(year) && year > 0) {
+      this.ensureYearInOptions(year);
+    }
+
+    this.form.patchValue({
+      customerName: String(raw['customerName'] ?? ''),
+      phone: String(raw['phone'] ?? ''),
+      address: String(raw['address'] ?? ''),
+      deposit: String(raw['deposit'] ?? ''),
+      notes: String(raw['notes'] ?? ''),
+      ...(Number.isFinite(year) && year > 0 ? { hebrewYear: year } : {}),
+      ...(Number.isFinite(month) && month > 0 ? { hebrewMonth: month } : {}),
+      ...(Number.isFinite(day) && day > 0 ? { hebrewDay: day } : {})
+    });
+    const restoredYear = this.form.controls.hebrewYear.value;
+    const restoredMonth = this.form.controls.hebrewMonth.value;
+    const restoredDay = this.form.controls.hebrewDay.value;
+    if (
+      typeof restoredYear === 'number' &&
+      typeof restoredMonth === 'number' &&
+      typeof restoredDay === 'number'
+    ) {
+      this.hebrewYearSig.set(restoredYear);
+      this.hebrewMonthSig.set(restoredMonth);
+      this.hebrewDaySig.set(restoredDay);
+      this.monthOptions.set(this.hebrew.monthsForYear(restoredYear));
+      this.syncDayOptions();
+    }
+    this.editingId.set(draft.editingId);
+    this.nextOneTimeAccessoryId = Number.isFinite(draft.nextOneTimeAccessoryId)
+      ? draft.nextOneTimeAccessoryId
+      : -1;
+    this.accessoryRows.set(
+      (draft.accessoryRows ?? []).map((row) => ({
+        inventoryDefinitionId: row.inventoryDefinitionId,
+        type: row.type as LoanedEquipmentType | null,
+        label: row.label,
+        quantity: Math.max(1, Number(row.quantity) || 1),
+        selectedCodes: [...(row.selectedCodes ?? [])],
+        ...(row.initialCodes ? { initialCodes: [...row.initialCodes] } : {}),
+        ...(row.lineId ? { lineId: row.lineId } : {})
+      }))
+    );
+    this.closeDraftOnlyUi();
+    this.formMinimized.set(false);
+    this.refreshAvailability();
+    queueMicrotask(() => this.document.getElementById('quick-loan-name')?.focus());
+  }
+
+  private closeDraftOnlyUi(): void {
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+    this.openSerialDropdownId.set(null);
+    this.serialQuickEntry.set('');
+    this.closeCustomerSuggestions();
   }
 
   private resetSelections(): void {

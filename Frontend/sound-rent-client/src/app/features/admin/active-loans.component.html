@@ -14,7 +14,7 @@
         החזרות
       </a>
       <a
-        routerLink="/admin/quick-loan"
+        routerLink="/tools/accessory-lending"
         class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
         השאלת אביזרים
@@ -160,6 +160,18 @@
                 <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
+                }
+                @if (card.deposit) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
+                  </div>
+                }
+                @if (card.loanNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
+                  </div>
                 }
                 @if (card.customerNotes) {
                   <div class="customer-profile-note" role="status">

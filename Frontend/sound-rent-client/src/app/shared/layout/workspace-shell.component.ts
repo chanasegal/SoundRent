@@ -89,6 +89,11 @@ import { SystemContextService } from '../../core/services/system-context.service
                   class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
                 >השאלות</a>
                 <a
+                  routerLink="/tools/accessory-lending"
+                  routerLinkActive="bg-white/10 text-white"
+                  class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+                >השאלת אביזרים</a>
+                <a
                   routerLink="/tools/returns"
                   routerLinkActive="bg-white/10 text-white"
                   class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"

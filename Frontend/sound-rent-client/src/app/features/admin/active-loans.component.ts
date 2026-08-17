@@ -14,7 +14,12 @@ import { forkJoin, finalize, of } from 'rxjs';
 
 import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
-import { LoanedEquipmentType, LOANED_EQUIPMENT_ORDER } from '../../core/models/enums';
+import {
+  DEPOSIT_TYPE_LABELS,
+  DepositType,
+  LoanedEquipmentType,
+  LOANED_EQUIPMENT_ORDER
+} from '../../core/models/enums';
 import { OrderDto } from '../../core/models/order.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
@@ -41,6 +46,10 @@ interface ActiveLoanRow {
   isOrderBased: boolean;
   /** True when this loan row is a free-text one-time accessory (not permanent catalog). */
   isOneTimeItem: boolean;
+  /** Order-level deposit text (type + name), when present. */
+  deposit: string | null;
+  /** Order-level notes from the loan form. */
+  loanNotes: string | null;
   /** When set, this row is a manual "ציוד שלא חזר" report (not an order loan line). */
   manualItemId?: number | null;
 }
@@ -56,6 +65,8 @@ interface ActiveLoanCustomerCard {
   phone: string;
   address: string;
   customerNotes: string | null;
+  deposit: string | null;
+  loanNotes: string | null;
   orders: ActiveLoanOrderRef[];
   items: ActiveLoanRow[];
   totalQuantity: number;
@@ -830,6 +841,8 @@ export class ActiveLoansComponent implements OnInit {
           phone: row.phone,
           address: row.address,
           customerNotes: this.customers.notesForPhone(row.phone),
+          deposit: row.deposit,
+          loanNotes: row.loanNotes,
           orders: [],
           items: [],
           totalQuantity: 0
@@ -842,6 +855,12 @@ export class ActiveLoansComponent implements OnInit {
       }
       if (!card.customerNotes) {
         card.customerNotes = this.customers.notesForPhone(row.phone);
+      }
+      if (!card.deposit && row.deposit) {
+        card.deposit = row.deposit;
+      }
+      if (!card.loanNotes && row.loanNotes) {
+        card.loanNotes = row.loanNotes;
       }
       if (!card.orders.some((o) => o.id === row.orderId)) {
         card.orders.push({ id: row.orderId, isOrderBased: row.isOrderBased });
@@ -877,6 +896,8 @@ export class ActiveLoansComponent implements OnInit {
             : this.isOneTimeAccessoryName(accessoryName, report.isCustomItem),
         assignedSerialCodes: codes,
         isOrderBased: report.orderId > 0,
+        deposit: null,
+        loanNotes: null,
         manualItemId
       };
 
@@ -903,6 +924,8 @@ export class ActiveLoansComponent implements OnInit {
         phone: reportRow.phone,
         address: reportRow.address,
         customerNotes: this.customers.notesForPhone(reportRow.phone),
+        deposit: null,
+        loanNotes: null,
         orders:
           reportRow.orderId > 0 ? [{ id: reportRow.orderId, isOrderBased: true }] : [],
         items: [reportRow],
@@ -1068,6 +1091,8 @@ export class ActiveLoansComponent implements OnInit {
       }
       const loanDateIso = order.shifts?.[0]?.orderDate ?? '';
       const isOrderBased = (order.equipmentDefinitionIds?.length ?? 0) > 0;
+      const deposit = this.formatOrderDeposit(order);
+      const loanNotes = (order.notes ?? '').trim() || null;
       for (const le of order.loanedEquipments ?? []) {
         if (le.id == null || le.quantity <= 0) {
           continue;
@@ -1102,11 +1127,28 @@ export class ActiveLoansComponent implements OnInit {
           isCustomItem: !!le.isCustomItem,
           isOneTimeItem: this.isOneTimeAccessoryName(accessoryName, !!le.isCustomItem),
           assignedSerialCodes: codes.length > 0 ? codes : allCodes,
-          isOrderBased
+          isOrderBased,
+          deposit,
+          loanNotes
         });
       }
     }
     return rows;
+  }
+
+  private formatOrderDeposit(order: OrderDto): string | null {
+    const typeLabel =
+      order.depositType != null
+        ? DEPOSIT_TYPE_LABELS[order.depositType as DepositType] ?? null
+        : null;
+    const onName = (order.depositOnName ?? '').trim() || null;
+    if (!typeLabel && !onName) {
+      return null;
+    }
+    if (!typeLabel) {
+      return onName;
+    }
+    return onName ? `${typeLabel} — ${onName}` : typeLabel;
   }
 
   /** Free-text loan names that are not in the permanent inventory catalog. */

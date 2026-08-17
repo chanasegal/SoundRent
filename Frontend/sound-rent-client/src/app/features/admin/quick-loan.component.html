@@ -1,9 +1,20 @@
 <div class="mx-auto max-w-5xl px-4 py-6">
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
+    @if (!formMinimized()) {
+      <button
+        type="button"
+        class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+        [disabled]="submitting()"
+        (click)="minimizeDraft()"
+      >
+        מזער
+      </button>
+    }
   </div>
 
-  <form [formGroup]="form" class="space-y-6" (ngSubmit)="submit()">
+  @if (!formMinimized()) {
+    <form [formGroup]="form" class="space-y-6" (ngSubmit)="submit()">
     @if (editingId(); as editId) {
       <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
         עורכים השאלת אביזרים <strong>#{{ editId }}</strong> — שמירה תעדכן את ההזמנה הקיימת.
@@ -172,14 +183,31 @@
         </div>
       </div>
 
-      <div class="mt-4">
-        <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-notes">הערות</label>
-        <textarea
-          id="quick-loan-notes"
-          formControlName="notes"
-          rows="2"
-          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        ></textarea>
+      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-deposit"
+            >פיקדון</label
+          >
+          <input
+            id="quick-loan-deposit"
+            type="text"
+            formControlName="deposit"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+          />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-notes"
+            >הערות</label
+          >
+          <input
+            id="quick-loan-notes"
+            type="text"
+            formControlName="notes"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+          />
+        </div>
       </div>
     </section>
 
@@ -416,7 +444,8 @@
         </button>
       }
     </div>
-  </form>
+    </form>
+  }
 
   <section class="mt-8 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -461,12 +490,6 @@
                     {{ orderShiftLabel(card.order) }}
                   }
                 </span>
-                @if (card.customerNotes) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערת לקוח:</span>
-                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
-                  </div>
-                }
               </div>
               <div class="recent-loan-card__actions">
                 <button
@@ -518,6 +541,29 @@
                 </button>
               </div>
             </header>
+
+            @if (card.order.depositOnName?.trim() || card.order.notes?.trim() || card.customerNotes) {
+              <div class="recent-loan-card__notes">
+                @if (card.order.depositOnName?.trim()) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">{{ card.order.depositOnName }}</span>
+                  </div>
+                }
+                @if (card.order.notes?.trim()) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">{{ card.order.notes }}</span>
+                  </div>
+                }
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
+                  </div>
+                }
+              </div>
+            }
 
             <ul class="customer-breakdown-card__items">
               @for (row of card.items; track row.key) {

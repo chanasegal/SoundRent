@@ -164,6 +164,18 @@
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
+                @if (card.deposit) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
+                  </div>
+                }
+                @if (card.loanNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
+                  </div>
+                }
                 @if (card.customerNotes) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">הערת לקוח:</span>
@@ -175,21 +187,23 @@
                   <strong dir="ltr">{{ formatChargeTotal(cardTotalCharge(card)) }}</strong>
                 </span>
               </div>
-              <button
-                type="button"
-                class="active-loans-return-all-btn"
-                [disabled]="isCardBusy(card)"
-                (click)="markCustomerAllReturned(card)"
-              >
-                @if (isReturningCustomer(card)) {
-                  מחזיר…
-                } @else {
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M20 6 9 17l-5-5"></path>
-                  </svg>
-                  סמן הכל כהוחזר
-                }
-              </button>
+              @if (hasReturnableTools(card)) {
+                <button
+                  type="button"
+                  class="active-loans-return-all-btn"
+                  [disabled]="isCardBusy(card)"
+                  (click)="markCustomerAllReturned(card)"
+                >
+                  @if (isReturningCustomer(card)) {
+                    מחזיר…
+                  } @else {
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5"></path>
+                    </svg>
+                    סמן הכל כהוחזר
+                  }
+                </button>
+              }
             </header>
 
             <ul class="customer-breakdown-card__items">
@@ -199,45 +213,56 @@
                   [class.loan-item-row--overdue]="isOverdue(row)"
                 >
                   <div class="loan-item-row__main">
-                    <span class="loan-item-row__name">{{ row.item.toolName }}</span>
-                    <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                    <span class="loan-item-row__name">
+                      {{ row.item.toolName }}
+                      @if (row.quantity > 1) {
+                        <span>×{{ row.quantity }}</span>
+                      }
+                    </span>
+                    @if (row.item.serialCode) {
+                      <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                    }
                     <span class="loan-item-row__meta">{{ row.hebrewLentDisplay }}</span>
-                    <span class="loan-item-row__meta">
-                      מועד נדרש:
-                      {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
-                    </span>
-                    <span
-                      class="loan-item-row__duration"
-                      [class.duration-overdue]="isOverdue(row)"
-                    >
-                      {{ durationText(row) }}
-                    </span>
+                    @if (!isAccessoryLoan(row)) {
+                      <span class="loan-item-row__meta">
+                        מועד נדרש:
+                        {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
+                      </span>
+                      <span
+                        class="loan-item-row__duration"
+                        [class.duration-overdue]="isOverdue(row)"
+                      >
+                        {{ durationText(row) }}
+                      </span>
+                    }
                   </div>
-                  <div class="loan-item-row__actions">
-                    <label class="loan-item-row__charge">
-                      <span>סכום חיוב</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        class="charge-input ltr-field"
-                        dir="ltr"
-                        placeholder="0"
-                        [value]="rowChargeValue(row.itemId)"
-                        (input)="onRowChargeInput(row.itemId, $any($event.target).value)"
-                        [disabled]="row.returning || isCardBusy(card)"
-                      />
-                    </label>
-                    <label class="returned-check">
-                      <input
-                        type="checkbox"
-                        [checked]="false"
-                        [disabled]="row.returning || isCardBusy(card)"
-                        (change)="onReturnedToggle(row, $any($event.target).checked)"
-                      />
-                      <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
-                    </label>
-                  </div>
+                  @if (!isAccessoryLoan(row) && row.itemId !== null) {
+                    <div class="loan-item-row__actions">
+                      <label class="loan-item-row__charge">
+                        <span>סכום חיוב</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          class="charge-input ltr-field"
+                          dir="ltr"
+                          placeholder="0"
+                          [value]="rowChargeValue(row.itemId)"
+                          (input)="onRowChargeInput(row.itemId, $any($event.target).value)"
+                          [disabled]="row.returning || isCardBusy(card)"
+                        />
+                      </label>
+                      <label class="returned-check">
+                        <input
+                          type="checkbox"
+                          [checked]="false"
+                          [disabled]="row.returning || isCardBusy(card)"
+                          (change)="onReturnedToggle(row, $any($event.target).checked)"
+                        />
+                        <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
+                      </label>
+                    </div>
+                  }
                 </li>
               }
             </ul>
@@ -246,6 +271,7 @@
       </div>
     }
   </div>
+
 </div>
 
 @if (formOpen()) {

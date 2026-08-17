@@ -47,6 +47,11 @@ const toolsChildren: Routes = [
       import('./features/tools/tools-lending.component').then((m) => m.ToolsLendingComponent)
   },
   {
+    path: 'accessory-lending',
+    loadComponent: () =>
+      import('./features/admin/quick-loan.component').then((m) => m.QuickLoanComponent)
+  },
+  {
     path: 'returns',
     loadComponent: () =>
       import('./features/tools/tools-returns.component').then((m) => m.ToolsReturnsComponent)
@@ -112,8 +117,7 @@ export const routes: Routes = [
       },
       {
         path: 'admin/quick-loan',
-        loadComponent: () =>
-          import('./features/admin/quick-loan.component').then((m) => m.QuickLoanComponent)
+        redirectTo: '/tools/accessory-lending'
       },
       {
         path: 'admin/loans',

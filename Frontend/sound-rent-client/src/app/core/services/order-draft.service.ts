@@ -1,6 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 
-export type OrderDraftKind = 'sound-order' | 'tools-loan' | 'library-loan';
+export type OrderDraftKind = 'sound-order' | 'tools-loan' | 'library-loan' | 'quick-loan';
 
 /** Parallel UI state for each booking block on the sound order form. */
 export interface SoundOrderBookingUiSnapshot {
@@ -31,6 +31,22 @@ export interface WorkspaceLendingDraftPayload {
   timeLimitValue: number;
 }
 
+/** In-progress standalone accessory loan, including its customer and item selections. */
+export interface QuickLoanDraftPayload {
+  formValue: Record<string, unknown>;
+  accessoryRows: Array<{
+    inventoryDefinitionId: number;
+    type: string | null;
+    label: string;
+    quantity: number;
+    selectedCodes: string[];
+    initialCodes?: string[];
+    lineId?: number;
+  }>;
+  editingId: number | null;
+  nextOneTimeAccessoryId: number;
+}
+
 export interface OrderDraftSnapshot {
   kind: OrderDraftKind;
   minimized: boolean;
@@ -38,7 +54,7 @@ export interface OrderDraftSnapshot {
   customerLabel: string;
   /** Absolute in-app path to reopen the form (e.g. `/orders/new`, `/tools/lending`). */
   resumePath: string;
-  payload: SoundOrderDraftPayload | WorkspaceLendingDraftPayload;
+  payload: SoundOrderDraftPayload | WorkspaceLendingDraftPayload | QuickLoanDraftPayload;
   updatedAt: number;
 }
 
@@ -108,7 +124,9 @@ export class OrderDraftService {
    * Called by the form after navigation / tick. Returns the payload once,
    * then clears the draft.
    */
-  takePendingRestore<T extends SoundOrderDraftPayload | WorkspaceLendingDraftPayload>(
+  takePendingRestore<
+    T extends SoundOrderDraftPayload | WorkspaceLendingDraftPayload | QuickLoanDraftPayload
+  >(
     kind: OrderDraftKind
   ): T | null {
     const d = this.draftSig();
