@@ -245,7 +245,11 @@
     >
       <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש</h2>
       <form [formGroup]="debtForm" (ngSubmit)="submitAddDebt()" class="space-y-4">
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
           <input
             formControlName="customerName"
@@ -273,7 +277,11 @@
           }
         </div>
 
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">
             טלפון <span class="text-rose-500">*</span>
           </label>
@@ -408,7 +416,11 @@
       </p>
 
       <form class="space-y-4" [formGroup]="cancelledForm" (ngSubmit)="submitAddCancelled()">
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
           <input
             formControlName="customerName"
@@ -436,7 +448,11 @@
           }
         </div>
 
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && addCancelledOpen() && cancelledCustomerSuggestField() === 'phone'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">
             טלפון <span class="text-rose-500">*</span>
           </label>

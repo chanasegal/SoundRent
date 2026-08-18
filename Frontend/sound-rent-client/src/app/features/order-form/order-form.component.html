@@ -87,7 +87,11 @@
       <div class="customer-row">
         <div class="customer-field customer-field--name">
           <label class="form-label">שם</label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+          >
             <input
               type="text"
               formControlName="customerName"
@@ -129,7 +133,11 @@
         </div>
         <div class="customer-field customer-field--phone">
           <label class="form-label">טלפון 1 <span class="text-rose-500">*</span></label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+          >
             <input
               type="tel"
               inputmode="numeric"
@@ -219,7 +227,11 @@
         </div>
         <div class="customer-field customer-field--institution">
           <label class="form-label">שם מוסד</label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeInstitutionSuggest()"
+            [appClickOutsideEnabled]="institutionSuggestOpen()"
+          >
             <input
               type="text"
               formControlName="institutionName"
@@ -575,7 +587,13 @@
 
         <ul class="customer-breakdown-card__items">
           @for (ctrl of equipmentList.controls; track $index; let i = $index) {
-            <li class="accessory-row" [formGroupName]="i" [class.loaned-row--returned-readonly]="isAccessoryRowReadOnly(i)">
+            <li
+              class="accessory-row"
+              [formGroupName]="i"
+              [class.loaned-row--returned-readonly]="isAccessoryRowReadOnly(i)"
+              (appClickOutside)="closeAccessorySerialDropdown()"
+              [appClickOutsideEnabled]="isAccessorySerialDropdownOpen(i)"
+            >
               <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + ($any(ctrl).get('label')?.value || 'אביזר')">
                 <span class="accessory-row__qty-label">כמות</span>
                 <input
@@ -722,7 +740,11 @@
           }
         </ul>
 
-        <div class="add-accessory">
+        <div
+          class="add-accessory"
+          (appClickOutside)="closeAddAccessoryPicker()"
+          [appClickOutsideEnabled]="addAccessoryOpen()"
+        >
           @if (addAccessoryOpen()) {
             <div class="add-accessory__picker">
               <div class="add-accessory__combobox">
@@ -877,7 +899,11 @@
                 </td>
                 <td class="return-table__codes px-3 py-2.5">
                   @if (hasSerializedReturnCodes(row)) {
-                    <div class="return-serial-select">
+                    <div
+                      class="return-serial-select"
+                      (appClickOutside)="closeReturnSerialDropdown()"
+                      [appClickOutsideEnabled]="isReturnSerialDropdownOpen(row)"
+                    >
                       <button
                         type="button"
                         class="return-serial-select__trigger"

@@ -3,8 +3,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  HostListener,
+  Injector,
   OnInit,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -12,7 +13,7 @@ import {
   untracked
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize, forkJoin, interval, Subject, EMPTY } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
@@ -40,7 +41,7 @@ import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { formatCalendarDuration } from '../../core/utils/tools-billable-duration';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
-import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { clampIsraeliPhoneDigits, ISRAELI_PHONE_INVALID_MESSAGE, isValidIsraeliPhone } from '../../core/validators/israeli-phone.validator';
 
@@ -49,6 +50,7 @@ interface ToolLineItem {
   toolId: number | null;
   toolQuery: string;
   selectedCodes: string[];
+  isTemporary: boolean;
   toolSuggestOpen: boolean;
   codesOpen: boolean;
 }
@@ -138,9 +140,8 @@ interface QuickReturnSession {
   imports: [
     CommonModule,
     ReactiveFormsModule,
-    FormsModule,
-    ToolTypeSelectComponent,
     IsraeliPhoneInputDirective,
+    ClickOutsideDirective,
     LoanRangeCalendarHostComponent
   ],
   templateUrl: './tools-lending.component.html',
@@ -159,6 +160,7 @@ export class ToolsLendingComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly orderDraft = inject(OrderDraftService);
   private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
   private pendingRenew: {
@@ -175,7 +177,6 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
   protected readonly timeLimitEnabled = signal(false);
-  protected readonly formOpen = signal(false);
   protected readonly activeLoading = signal(true);
   protected readonly activeLoans = signal<ToolLoanDto[]>([]);
   /** Accessory lending uses the shared Orders backend, not the Tools-loans backend. */
@@ -311,66 +312,10 @@ export class ToolsLendingComponent implements OnInit {
       .subscribe(() => this.nowTick.set(Date.now()));
   }
 
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (
-      target?.closest('[data-tool-suggest]') ||
-      target?.closest('[data-codes-dropdown]') ||
-      target?.closest('[data-customer-suggest]') ||
-      target?.closest('[data-institution-suggest]') ||
-      target?.closest('.quick-return-code')
-    ) {
-      return;
-    }
-    this.closeToolUi();
-    this.closeCustomerSuggest();
-    this.closeInstitutionSuggest();
-    this.quickReturnCodeOpen.set(false);
-  }
-
-  protected addForm(): void {
-    this.formOpen.set(true);
-    if (this.forms().length === 0) {
-      this.forms.set([this.createDraftForm()]);
-    } else {
-      // Reset to a fresh single draft when opening the panel.
-      this.forms.set([this.createDraftForm()]);
-    }
-    // Use already-cached availability — no extra API call.
-  }
-
   protected closeFormPanel(): void {
     if (this.submittingId()) {
       return;
     }
-    this.formOpen.set(false);
-    this.forms.set([this.createDraftForm()]);
-    this.closeToolUi();
-    this.closeCustomerSuggest();
-    this.closeInstitutionSuggest();
-  }
-
-  /** Keep the in-progress loan and return to the main lending board. */
-  protected minimizeDraft(): void {
-    if (this.submittingId()) {
-      return;
-    }
-    const current = this.forms();
-    const clientName = current[0]?.clientName?.trim() ?? '';
-    this.orderDraft.minimize({
-      kind: 'tools-loan',
-      customerLabel: clientName,
-      resumePath: '/tools/lending',
-      payload: {
-        formsJson: JSON.stringify(current, (_key, value) =>
-          value instanceof Date ? value.toISOString() : value
-        ),
-        timeLimitEnabled: this.timeLimitEnabled(),
-        timeLimitValue: Number(this.timeLimitForm.controls.hours.value) || 2
-      }
-    });
-    this.formOpen.set(false);
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
@@ -391,6 +336,7 @@ export class ToolsLendingComponent implements OnInit {
         toolLines: Array.isArray(raw['toolLines'])
           ? (raw['toolLines'] as ToolLineItem[]).map((line) => ({
               ...line,
+              isTemporary: line.isTemporary === true,
               toolSuggestOpen: false,
               codesOpen: false
             }))
@@ -410,7 +356,6 @@ export class ToolsLendingComponent implements OnInit {
       this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
       this.timeLimitForm.controls.hours.setValue(payload.timeLimitValue || 2, { emitEvent: false });
       this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
-      this.formOpen.set(true);
     } catch {
       this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
     }
@@ -1240,6 +1185,7 @@ export class ToolsLendingComponent implements OnInit {
                   toolQuery: value,
                   toolId: null,
                   selectedCodes: [],
+                  isTemporary: false,
                   toolSuggestOpen: true,
                   codesOpen: false
                 }
@@ -1269,6 +1215,14 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
+  protected onToolQueryKeydown(formId: string, lineId: string, event: KeyboardEvent): void {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    this.commitToolLineFromText(formId, lineId);
+  }
+
   protected selectTool(formId: string, lineId: string, tool: ToolDefinitionDto): void {
     this.forms.update((list) =>
       list.map((f) => {
@@ -1285,6 +1239,7 @@ export class ToolsLendingComponent implements OnInit {
                   toolId: tool.id,
                   toolQuery: tool.displayName,
                   selectedCodes: [],
+                  isTemporary: false,
                   toolSuggestOpen: false,
                   codesOpen: false
                 }
@@ -1567,7 +1522,6 @@ export class ToolsLendingComponent implements OnInit {
           });
         this.toast.success('ההשאלה נשמרה');
         this.orderDraft.clearIfKind('tools-loan');
-        this.formOpen.set(false);
         this.forms.set([this.createDraftForm()]);
         this.refreshAvailability();
         this.refreshActiveLoans();
@@ -1606,13 +1560,362 @@ export class ToolsLendingComponent implements OnInit {
     );
   }
 
+  protected closeToolSuggest(formId: string, lineId: string): void {
+    this.patchToolLineUi(formId, lineId, { toolSuggestOpen: false });
+  }
+
+  protected closeCodesDropdown(formId: string, lineId: string): void {
+    this.patchToolLineUi(formId, lineId, { codesOpen: false });
+  }
+
+  private patchToolLineUi(
+    formId: string,
+    lineId: string,
+    patch: Pick<ToolLineItem, 'toolSuggestOpen'> | Pick<ToolLineItem, 'codesOpen'>
+  ): void {
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        return {
+          ...f,
+          toolLines: f.toolLines.map((l) => (l.id === lineId ? { ...l, ...patch } : l))
+        };
+      })
+    );
+  }
+
+  private commitToolLineFromText(formId: string, lineId: string): void {
+    const form = this.forms().find((f) => f.id === formId);
+    const line = form?.toolLines.find((l) => l.id === lineId);
+    if (!form || !line) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextToolEntry(line.toolQuery);
+    let toolId: number | null;
+    let toolQuery: string;
+    let selectedCodes: string[];
+    let isTemporary = false;
+
+    if (parsed) {
+      toolId = parsed.tool.id;
+      toolQuery = parsed.tool.displayName;
+
+      if (parsed.codes.length === 0) {
+        this.forms.update((list) =>
+          list.map((f) => {
+            if (f.id !== formId) {
+              return f;
+            }
+            return {
+              ...f,
+              toolLines: f.toolLines.map((l) =>
+                l.id !== lineId
+                  ? l
+                  : {
+                      ...l,
+                      toolId,
+                      toolQuery,
+                      selectedCodes: [],
+                      isTemporary: false,
+                      toolSuggestOpen: false,
+                      codesOpen: false
+                    }
+              )
+            };
+          })
+        );
+        this.focusToolLineInput(lineId);
+        return;
+      }
+
+      const canonicalToolCodes = parsed.codes.map((code) =>
+        this.findCodeMatch(parsed.tool.serialCodes ?? [], code)
+      );
+      const invalidCodeIndex = canonicalToolCodes.findIndex((code) => !code);
+      if (invalidCodeIndex >= 0) {
+        const badCode = parsed.codes[invalidCodeIndex];
+        this.toast.error(`הקוד "${badCode}" לא שייך לכלי "${parsed.tool.displayName}"`);
+        this.focusToolLineInput(lineId);
+        return;
+      }
+
+      const availableCodes = this.availableByTool().get(parsed.tool.id) ?? [];
+      const canonicalAvailableCodes = parsed.codes.map((code) =>
+        this.findCodeMatch(availableCodes, code)
+      );
+      const unavailableCodeIndex = canonicalAvailableCodes.findIndex((code) => !code);
+      if (unavailableCodeIndex >= 0) {
+        const missingCode =
+          canonicalToolCodes[unavailableCodeIndex] ?? parsed.codes[unavailableCodeIndex];
+        this.toast.warning(`הקוד "${missingCode}" אינו זמין כרגע להשאלה`);
+        this.focusToolLineInput(lineId);
+        return;
+      }
+
+      toolId = parsed.tool.id;
+      toolQuery = parsed.tool.displayName;
+      selectedCodes = [
+        ...new Set(canonicalAvailableCodes.filter((code): code is string => !!code))
+      ];
+    } else {
+      const temporary = this.parseTemporaryToolEntry(line.toolQuery);
+      if (temporary) {
+        toolId = null;
+        toolQuery = temporary.toolName;
+        selectedCodes = [...new Set(temporary.codes)];
+        isTemporary = true;
+        this.toast.warning(`"${temporary.toolName}" אינו במלאי — יתווסף כפריט חד-פעמי להשאלה זו`);
+      } else if (line.isTemporary && line.toolQuery.trim()) {
+        toolId = null;
+        toolQuery = line.toolQuery.trim();
+        selectedCodes = [...line.selectedCodes];
+        isTemporary = true;
+      } else if (line.toolId != null && line.selectedCodes.length > 0) {
+        const tool = this.definitions().find((d) => d.id === line.toolId);
+        if (!tool) {
+          this.toast.error('הכלי שנבחר אינו קיים');
+          this.focusToolLineInput(lineId);
+          return;
+        }
+
+        const availableCodes = this.availableByTool().get(line.toolId) ?? [];
+        for (const code of line.selectedCodes) {
+          if (!this.findCodeMatch(tool.serialCodes ?? [], code)) {
+            this.toast.error(`הקוד "${code}" לא שייך לכלי "${tool.displayName}"`);
+            this.focusToolLineInput(lineId);
+            return;
+          }
+          if (!this.findCodeMatch(availableCodes, code)) {
+            this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+            this.focusToolLineInput(lineId);
+            return;
+          }
+        }
+
+        toolId = line.toolId;
+        toolQuery = tool.displayName;
+        selectedCodes = [...line.selectedCodes];
+      } else {
+        this.toast.warning('הקלידו שם כלי ולפחות קוד אחד, למשל: מברגה 2 4 8');
+        this.focusToolLineInput(lineId);
+        return;
+      }
+    }
+
+    const nextLineId = this.createToolLine().id;
+
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        const updatedLines = f.toolLines.map((l) =>
+          l.id !== lineId
+            ? l
+            : {
+                ...l,
+                toolId,
+                toolQuery,
+                selectedCodes,
+                isTemporary,
+                toolSuggestOpen: false,
+                codesOpen: false
+              }
+        );
+        const insertAt = updatedLines.findIndex((l) => l.id === lineId);
+        const freshLine: ToolLineItem = {
+          id: nextLineId,
+          toolId: null,
+          toolQuery: '',
+          selectedCodes: [],
+          isTemporary: false,
+          toolSuggestOpen: false,
+          codesOpen: false
+        };
+        const toolLines = [...updatedLines];
+        toolLines.splice(insertAt + 1, 0, freshLine);
+        return { ...f, toolLines };
+      })
+    );
+    this.scheduleFocusToolLineInput(nextLineId);
+  }
+
+  private parseFreeTextToolEntry(raw: string): { tool: ToolDefinitionDto; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input) {
+      return null;
+    }
+
+    if (this.isStrictPrefixOfLongerCatalogToolName(input)) {
+      return null;
+    }
+
+    const lower = input.toLocaleLowerCase();
+    const defs = [...this.definitions()].sort(
+      (a, b) => b.displayName.trim().length - a.displayName.trim().length
+    );
+
+    for (const tool of defs) {
+      const name = tool.displayName.trim();
+      const lowerName = name.toLocaleLowerCase();
+      if (!lower.startsWith(lowerName)) {
+        continue;
+      }
+
+      const remainder = input.slice(name.length).replace(/^[\s\-:;,#/\\]+/, '').trim();
+      if (!remainder) {
+        return { tool, codes: [] };
+      }
+
+      const codes = remainder
+        .split(/[\s,;|/\\]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+      if (codes.length === 0) {
+        continue;
+      }
+
+      return { tool, codes };
+    }
+
+    return null;
+  }
+
+  private isStrictPrefixOfLongerCatalogToolName(input: string): boolean {
+    const lower = input.trim().toLocaleLowerCase();
+    const isExactCatalogName = this.definitions().some(
+      (tool) => tool.displayName.trim().toLocaleLowerCase() === lower
+    );
+    if (isExactCatalogName) {
+      return false;
+    }
+
+    return this.definitions().some((tool) => {
+      const lowerName = tool.displayName.trim().toLocaleLowerCase();
+      return lowerName.startsWith(lower) && lowerName !== lower;
+    });
+  }
+
+  private isIncompleteCatalogEntry(input: string): boolean {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return true;
+    }
+    if (this.isStrictPrefixOfLongerCatalogToolName(trimmed)) {
+      return true;
+    }
+
+    const lower = trimmed.toLocaleLowerCase();
+    return this.definitions().some((tool) => {
+      const name = tool.displayName.trim().toLocaleLowerCase();
+      return name.startsWith(lower) && name !== lower;
+    });
+  }
+
+  private parseTemporaryToolEntry(raw: string): { toolName: string; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input || this.parseFreeTextToolEntry(input) !== null || this.isIncompleteCatalogEntry(input)) {
+      return null;
+    }
+
+    const tokens = input
+      .split(/[\s,;|/\\]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+    if (tokens.length === 0) {
+      return null;
+    }
+
+    let splitAt = tokens.length;
+    while (splitAt > 1 && /^[\d\-]+$/u.test(tokens[splitAt - 1])) {
+      splitAt--;
+    }
+
+    const toolName = tokens.slice(0, splitAt).join(' ').trim();
+    const codes = tokens.slice(splitAt);
+    if (!toolName) {
+      return null;
+    }
+
+    return { toolName, codes };
+  }
+
+  private isUncommittedTemporaryLine(line: ToolLineItem): boolean {
+    if (line.toolId != null || !line.toolQuery.trim()) {
+      return false;
+    }
+    return this.parseTemporaryToolEntry(line.toolQuery) !== null;
+  }
+
+  private findCodeMatch(codes: string[], candidate: string): string | null {
+    const normalized = candidate.trim().toLocaleLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    return codes.find((code) => code.trim().toLocaleLowerCase() === normalized) ?? null;
+  }
+
+  private focusToolLineInput(lineId: string): void {
+    const input = this.document.querySelector<HTMLInputElement>(
+      `[data-tool-line-input][data-line-id="${lineId}"]`
+    );
+    input?.focus();
+    input?.select();
+  }
+
+  private scheduleFocusToolLineInput(lineId: string): void {
+    afterNextRender(
+      () => {
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-tool-line-input][data-line-id="${lineId}"]`
+        );
+        if (!input) {
+          return;
+        }
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+      { injector: this.injector }
+    );
+  }
+
   private buildLoanItems(form: LendingDraftForm): ToolLoanCreateDto['items'] | null {
     const items: ToolLoanCreateDto['items'] = [];
 
     for (const line of form.toolLines) {
+      if (line.isTemporary || this.isUncommittedTemporaryLine(line)) {
+        const parsedTemp = line.isTemporary ? null : this.parseTemporaryToolEntry(line.toolQuery);
+        const name = (parsedTemp?.toolName ?? line.toolQuery).trim();
+        if (!name) {
+          if (line.selectedCodes.length > 0) {
+            this.toast.error('יש להזין שם כלי תקין בכל שורה');
+            return null;
+          }
+          continue;
+        }
+        const codes =
+          line.selectedCodes.length > 0
+            ? line.selectedCodes
+            : parsedTemp && parsedTemp.codes.length > 0
+              ? parsedTemp.codes
+              : [''];
+        for (const code of codes) {
+          items.push({
+            toolDefinitionId: 0,
+            serialCode: code,
+            toolName: name
+          });
+        }
+        continue;
+      }
+
       if (line.toolId == null) {
         if (line.toolQuery.trim() || line.selectedCodes.length > 0) {
-          this.toast.error('יש לבחור כלי מרשימת ההשלמה בכל שורה');
+          this.toast.error('יש להזין שם כלי וקוד פריט תקינים בכל שורה');
           return null;
         }
         continue;
@@ -1627,7 +1930,7 @@ export class ToolsLendingComponent implements OnInit {
     }
 
     if (items.length === 0) {
-      this.toast.error('יש להוסיף לפחות כלי אחד עם קוד פריט');
+      this.toast.error('יש להוסיף לפחות כלי אחד');
       return null;
     }
     return items;
@@ -1725,12 +2028,12 @@ export class ToolsLendingComponent implements OnInit {
         toolId: def.id,
         toolQuery: def.displayName,
         selectedCodes: [pending.serialCode],
+        isTemporary: false,
         toolSuggestOpen: false,
         codesOpen: false
       }
     ];
     this.forms.set([draft]);
-    this.formOpen.set(true);
     if (pending.phone.replace(/\D/g, '').length >= 9) {
       this.lookupClientNotesByPhone(draft.id, pending.phone.replace(/\D/g, ''));
     }
@@ -1791,6 +2094,7 @@ export class ToolsLendingComponent implements OnInit {
       toolId: null,
       toolQuery: '',
       selectedCodes: [],
+      isTemporary: false,
       toolSuggestOpen: false,
       codesOpen: false
     };

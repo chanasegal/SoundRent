@@ -35,6 +35,7 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 type ReportsTab = 'cancelled' | 'unpaid';
@@ -43,7 +44,7 @@ type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספרי
 @Component({
   selector: 'app-reports-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective, HebrewCalendarPickerComponent],
+  imports: [CommonModule, RouterLink, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective, ClickOutsideDirective, HebrewCalendarPickerComponent],
   templateUrl: './reports-view.component.html',
   styleUrl: './reports-view.component.scss'
 })
@@ -813,7 +814,7 @@ export class ReportsViewComponent implements OnInit {
     }
   }
 
-  private closeCustomerSuggestions(): void {
+  protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestField.set(null);
     this.customerSuggestIndex.set(-1);

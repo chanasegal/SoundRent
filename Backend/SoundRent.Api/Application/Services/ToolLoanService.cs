@@ -157,6 +157,29 @@ public class ToolLoanService : IToolLoanService
         foreach (var item in items)
         {
             var serial = (item.SerialCode ?? string.Empty).Trim();
+
+            if (item.ToolDefinitionId <= 0)
+            {
+                var toolName = (item.ToolName ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(toolName))
+                {
+                    throw new ValidationException("שם כלי חסר לפריט חד-פעמי");
+                }
+
+                if (toolName.Length > 200)
+                {
+                    throw new ValidationException("שם כלי ארוך מדי");
+                }
+
+                if (serial.Length > 100)
+                {
+                    throw new ValidationException("קוד פריט ארוך מדי");
+                }
+
+                normalizedItems.Add((0, serial, toolName));
+                continue;
+            }
+
             if (string.IsNullOrEmpty(serial))
             {
                 throw new ValidationException("קוד פריט חסר");

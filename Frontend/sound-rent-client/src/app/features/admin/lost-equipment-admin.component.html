@@ -16,7 +16,11 @@
       <div class="lost-add-form__meta-row">
         <div class="lost-add-form__field lost-add-form__field--name">
           <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח <span class="text-rose-500">*</span></label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+          >
             <input
               formControlName="customerName"
               class="lost-add-form__input"
@@ -61,7 +65,11 @@
 
         <div class="lost-add-form__field lost-add-form__field--phone">
           <label class="mb-1 block text-sm font-medium text-slate-700">מספר טלפון</label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+          >
             <input
               type="tel"
               inputmode="numeric"

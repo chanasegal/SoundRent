@@ -86,6 +86,8 @@ export interface ToolLoanDto {
 export interface ToolLoanItemCreateDto {
   toolDefinitionId: number;
   serialCode: string;
+  /** Display name for one-off items when toolDefinitionId is 0. */
+  toolName?: string | null;
 }
 
 export interface ToolLoanCreateDto {

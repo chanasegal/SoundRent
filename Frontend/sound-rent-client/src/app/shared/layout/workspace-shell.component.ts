@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  HostListener,
   inject,
   signal
 } from '@angular/core';
@@ -16,6 +15,7 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { HeaderClockComponent } from './header-clock.component';
+import { ClickOutsideDirective } from '../directives/click-outside.directive';
 
 /**
  * Isolated Tools / Library application shell.
@@ -25,13 +25,18 @@ import { HeaderClockComponent } from './header-clock.component';
 @Component({
   selector: 'app-workspace-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, HeaderClockComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, HeaderClockComponent, ClickOutsideDirective],
   template: `
     <div class="flex min-h-screen flex-col bg-slate-50">
       <header class="bg-[#002244] text-white shadow-md">
         <div class="layout-header flex w-full items-center justify-between gap-3 px-3 py-3 lg:px-4">
           <div class="flex min-w-0 flex-1 items-center gap-3">
-            <div class="relative shrink-0" data-workspace-switcher>
+            <div
+              class="relative shrink-0"
+              data-workspace-switcher
+              (appClickOutside)="switcherOpen.set(false)"
+              [appClickOutsideEnabled]="switcherOpen()"
+            >
               <button
                 type="button"
                 class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
@@ -188,18 +193,6 @@ export class WorkspaceShellComponent {
         takeUntilDestroyed()
       )
       .subscribe((e) => this.syncFromUrl(e.urlAfterRedirects));
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    if (!this.switcherOpen()) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('[data-workspace-switcher]')) {
-      return;
-    }
-    this.switcherOpen.set(false);
   }
 
   protected toggleSwitcher(event: MouseEvent): void {

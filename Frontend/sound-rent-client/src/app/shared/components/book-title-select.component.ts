@@ -41,7 +41,7 @@ import { BookDto } from '../../core/models/library-workspace.model';
       [inputId]="inputId()"
       [virtualScroll]="options().length > 60"
       [virtualScrollItemSize]="38"
-      [virtualScrollOptions]="{ scrollHeight: '280px' }"
+      [virtualScrollOptions]="{ scrollHeight: '250px' }"
       [resetFilterOnHide]="true"
       [appendTo]="'body'"
       [fluid]="true"

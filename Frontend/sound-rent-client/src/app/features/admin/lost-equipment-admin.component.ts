@@ -25,6 +25,7 @@ import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
@@ -39,6 +40,7 @@ import {
     ReactiveFormsModule,
     IntegerOnlyDirective,
     IsraeliPhoneInputDirective,
+    ClickOutsideDirective,
     HebrewCalendarPickerComponent
   ],
   templateUrl: './lost-equipment-admin.component.html',
@@ -370,7 +372,7 @@ export class LostEquipmentAdminComponent implements OnInit {
       });
   }
 
-  private closeCustomerSuggestions(): void {
+  protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestIndex.set(-1);
     this.customerSuggestions.set([]);

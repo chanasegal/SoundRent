@@ -59,6 +59,7 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface WeeklyGridColumnDef {
   id: string;
@@ -236,7 +237,7 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 @Component({
   selector: 'app-weekly-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective, IsraeliPhoneInputDirective],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective, IsraeliPhoneInputDirective, ClickOutsideDirective],
   templateUrl: './weekly-grid.component.html',
   styleUrl: './weekly-grid.component.scss'
 })
@@ -958,7 +959,7 @@ export class WeeklyGridComponent {
     this.toast.show('פרטי הלקוח מולאו מהרשימה', 'info');
   }
 
-  private closeWaitlistCustomerSuggestions(): void {
+  protected closeWaitlistCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestIndex.set(-1);
     this.customerSuggestions.set([]);

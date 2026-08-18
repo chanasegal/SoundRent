@@ -44,6 +44,10 @@ body {
   @apply rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:text-sky-700;
 }
 
+:root {
+  --sr-menu-max-height: 250px;
+}
+
 /* PrimeNG Select overlays appended to <body> (Tools / Library catalog pickers). */
 .p-select-overlay.catalog-select-overlay,
 .catalog-select-overlay.p-select-overlay {
@@ -51,6 +55,49 @@ body {
   min-width: 12rem;
   max-width: min(24rem, 92vw);
   box-sizing: border-box;
+}
+
+.p-select-overlay .p-select-list-container,
+.p-select-overlay .p-select-list,
+.p-select-overlay .p-virtualscroller,
+.p-multiselect-overlay .p-multiselect-list-container,
+.p-multiselect-overlay .p-multiselect-list,
+.p-multiselect-overlay .p-virtualscroller {
+  max-height: var(--sr-menu-max-height) !important;
+}
+
+/*
+ * Contained internal scroll for custom dropdowns / autocomplete panels.
+ * Keeps long catalogs from stretching the page.
+ */
+.suggest-list,
+.ms-dropdown__panel,
+.customer-suggest__panel,
+.customer-suggest-list,
+.reports-suggest-list,
+.quick-return-code__panel,
+.add-accessory__options,
+.multi-select__panel,
+.accessory-serial-panel,
+.return-serial-select__panel,
+.reports-multi-select__panel,
+.serial-locator__options {
+  max-height: var(--sr-menu-max-height) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.add-accessory__combobox {
+  position: relative;
+}
+
+.add-accessory__options {
+  position: absolute;
+  z-index: 40;
+  inset-inline: 0;
+  top: calc(100% + 0.15rem);
 }
 
 /* Mixer default-accessories multi-select panel (appendTo body). */

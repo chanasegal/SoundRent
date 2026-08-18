@@ -105,6 +105,8 @@ public class ToolLoanItemCreateDto
 {
     public int ToolDefinitionId { get; set; }
     public string SerialCode { get; set; } = string.Empty;
+    /// <summary>Display name for one-off items when <see cref="ToolDefinitionId"/> is 0.</summary>
+    public string? ToolName { get; set; }
 }
 
 public class ToolLoanCreateDto : IValidatableObject

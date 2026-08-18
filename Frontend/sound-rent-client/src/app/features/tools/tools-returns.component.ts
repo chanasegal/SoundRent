@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
+import { forkJoin } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import {
@@ -29,6 +30,7 @@ import {
 } from '../../core/utils/tools-billable-duration';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface CompletedLoanRowView {
   rowKey: string;
@@ -47,6 +49,45 @@ interface CompletedLoanRowView {
   chargeIsPaid: boolean | null;
 }
 
+interface QuickReturnItem {
+  key: string;
+  loanId: number;
+  itemId: number;
+  toolDefinitionId: number;
+  toolName: string;
+  serialCode: string;
+  loanDateIso: string;
+  hebrewDate: string;
+  selected: boolean;
+  isScannedMatch: boolean;
+}
+
+interface QuickReturnLoanGroup {
+  loanId: number;
+  loanDateIso: string;
+  hebrewDate: string;
+  items: QuickReturnItem[];
+}
+
+interface QuickReturnSession {
+  scannedCode: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: QuickReturnItem[];
+}
+
+interface ActiveLoanRowView {
+  rowKey: string;
+  loanId: number;
+  itemId: number | null;
+  item: ToolLoanItemDto;
+  clientName: string;
+  phone: string;
+  address: string;
+  lentAt: Date;
+}
+
 @Component({
   selector: 'app-tools-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -55,6 +96,7 @@ interface CompletedLoanRowView {
     FormsModule,
     ToolTypeSelectComponent,
     LoanRangeCalendarHostComponent,
+    ClickOutsideDirective,
     ConfirmPopup
   ],
   providers: [ConfirmationService],
@@ -67,14 +109,23 @@ export class ToolsReturnsComponent implements OnInit {
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
+  private readonly document = inject(DOCUMENT);
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<ToolLoanDto[]>([]);
+  protected readonly activeLoans = signal<ToolLoanDto[]>([]);
   protected readonly definitions = this.toolStore.definitions;
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
   protected readonly deletingLoanId = signal<number | null>(null);
+  protected readonly quickReturnToolId = signal<number | null>(null);
+  protected readonly quickReturnCode = signal('');
+  protected readonly quickReturnCharge = signal('');
+  protected readonly quickReturnCodeOpen = signal(false);
+  protected readonly quickReturnSearching = signal(false);
+  protected readonly quickReturnSaving = signal(false);
+  protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
 
   /** Audit search — isolated to this component. */
   protected readonly historyToolId = signal<number | null>(null);
@@ -92,6 +143,43 @@ export class ToolsReturnsComponent implements OnInit {
     return [...(def?.serialCodes ?? [])].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true })
     );
+  });
+
+  protected readonly quickReturnCodes = computed(() => {
+    const toolId = this.quickReturnToolId();
+    if (toolId == null) {
+      return [] as string[];
+    }
+
+    const codes = new Set<string>();
+    for (const loan of this.activeLoans()) {
+      for (const item of loan.items) {
+        if (item.returnedAt || item.toolDefinitionId !== toolId) {
+          continue;
+        }
+        const trimmed = item.serialCode.trim();
+        if (trimmed) {
+          codes.add(trimmed);
+        }
+      }
+    }
+
+    if (codes.size === 0) {
+      const def = this.definitions().find((d) => d.id === toolId);
+      for (const code of def?.serialCodes ?? []) {
+        const trimmed = code.trim();
+        if (trimmed) {
+          codes.add(trimmed);
+        }
+      }
+    }
+
+    const query = this.quickReturnCode().trim().toLowerCase();
+    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (!query) {
+      return list;
+    }
+    return list.filter((code) => code.toLowerCase().includes(query));
   });
 
   protected readonly allCompletedRows = computed(() => {
@@ -136,6 +224,7 @@ export class ToolsReturnsComponent implements OnInit {
   ngOnInit(): void {
     this.toolStore.load().subscribe();
     this.refresh();
+    this.refreshActiveLoans();
 
     if (isDevMode()) {
       (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
@@ -144,6 +233,10 @@ export class ToolsReturnsComponent implements OnInit {
         '[tools-returns] Debug helper ready — run debugReturns(<loanId>) in the console.'
       );
     }
+  }
+
+  protected closeQuickReturnCodePanel(): void {
+    this.quickReturnCodeOpen.set(false);
   }
 
   /**
@@ -181,6 +274,12 @@ export class ToolsReturnsComponent implements OnInit {
       });
   }
 
+  protected refreshActiveLoans(): void {
+    this.data.getActiveToolLoans().subscribe((list) => {
+      this.activeLoans.set(list);
+    });
+  }
+
   protected onHistoryToolChange(toolId: number | null): void {
     this.historyToolId.set(toolId != null && toolId > 0 ? toolId : null);
     this.historyCode.set('');
@@ -188,6 +287,56 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected onHistoryCodeInput(value: string): void {
     this.historyCode.set(value);
+  }
+
+  protected onQuickReturnToolChange(toolId: number | null): void {
+    this.quickReturnToolId.set(toolId != null && toolId > 0 ? toolId : null);
+    this.quickReturnCode.set('');
+    this.quickReturnCodeOpen.set(false);
+  }
+
+  protected onQuickReturnCodeInput(value: string): void {
+    this.quickReturnCode.set(value);
+    if (this.quickReturnToolId() != null) {
+      this.quickReturnCodeOpen.set(true);
+    }
+  }
+
+  protected onQuickReturnCodeFocus(): void {
+    if (this.quickReturnToolId() != null) {
+      this.quickReturnCodeOpen.set(true);
+    }
+  }
+
+  protected onQuickReturnCodeBlur(): void {
+    setTimeout(() => this.quickReturnCodeOpen.set(false), 150);
+  }
+
+  protected onQuickReturnChargeInput(value: string): void {
+    this.quickReturnCharge.set(value);
+  }
+
+  protected onQuickReturnKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      this.quickReturnCodeOpen.set(false);
+      return;
+    }
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    const options = this.quickReturnCodes();
+    const typed = this.quickReturnCode().trim();
+    if (options.length === 1 && typed && options[0].toLowerCase() !== typed.toLowerCase()) {
+      this.selectQuickReturnCode(options[0]);
+    }
+    this.searchQuickReturn();
+  }
+
+  protected selectQuickReturnCode(code: string, event?: Event): void {
+    event?.preventDefault();
+    this.quickReturnCode.set(code);
+    this.quickReturnCodeOpen.set(false);
   }
 
   protected searchItemHistory(): void {
@@ -219,12 +368,214 @@ export class ToolsReturnsComponent implements OnInit {
     this.historyCode.set('');
   }
 
+  protected searchQuickReturn(): void {
+    if (this.quickReturnSearching() || this.quickReturnSaving()) {
+      return;
+    }
+
+    const toolId = this.quickReturnToolId();
+    if (toolId == null) {
+      this.toast.warning('יש לבחור סוג כלי');
+      return;
+    }
+
+    const serial = this.quickReturnCode().trim();
+    if (!serial) {
+      this.toast.warning('יש לבחור או להזין קוד פריט');
+      return;
+    }
+
+    const openFromRows = (): void => {
+      const allRows = this.buildActiveLoanRowViews(this.activeLoans());
+      const matches = allRows.filter(
+        (r) =>
+          r.item.toolDefinitionId === toolId &&
+          r.item.serialCode.localeCompare(serial, undefined, { sensitivity: 'accent' }) === 0
+      );
+
+      if (matches.length === 0) {
+        this.toast.warning(`לא נמצאה השאלה פעילה עם קוד "${serial}"`);
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
+        return;
+      }
+
+      const phoneKeys = new Set(
+        matches.map((m) => this.normalizePhone(m.phone)).filter((p) => p.length > 0)
+      );
+      if (phoneKeys.size > 1) {
+        this.toast.warning('נמצאו מספר לקוחות עם אותו קוד — בחרו מהרשימה למטה');
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
+        return;
+      }
+
+      const match = matches[0];
+      const phoneKey = this.normalizePhone(match.phone);
+      const customerRows = allRows.filter(
+        (row) => this.normalizePhone(row.phone) === phoneKey && phoneKey.length > 0
+      );
+      const items = this.buildQuickReturnItems(
+        customerRows.length > 0 ? customerRows : [match],
+        match,
+        serial
+      );
+
+      this.quickReturnSession.set({
+        scannedCode: serial,
+        customerName: match.clientName,
+        phone: match.phone,
+        address: match.address,
+        items
+      });
+      this.quickReturnCodeOpen.set(false);
+    };
+
+    this.quickReturnSearching.set(true);
+    this.data
+      .getActiveToolLoans()
+      .pipe(finalize(() => this.quickReturnSearching.set(false)))
+      .subscribe((list) => {
+        this.activeLoans.set(list);
+        openFromRows();
+      });
+  }
+
+  protected closeQuickReturnModal(): void {
+    if (this.quickReturnSaving()) {
+      return;
+    }
+    this.quickReturnSession.set(null);
+    queueMicrotask(() => this.focusQuickReturnCodeInput());
+  }
+
+  protected quickReturnScannedItem(session: QuickReturnSession): QuickReturnItem | null {
+    return session.items.find((item) => item.isScannedMatch) ?? null;
+  }
+
+  protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
+    const extras = session.items.filter((item) => !item.isScannedMatch);
+    const byLoan = new Map<number, QuickReturnLoanGroup>();
+
+    for (const item of extras) {
+      let group = byLoan.get(item.loanId);
+      if (!group) {
+        group = {
+          loanId: item.loanId,
+          loanDateIso: item.loanDateIso,
+          hebrewDate: item.hebrewDate || 'ללא תאריך',
+          items: []
+        };
+        byLoan.set(item.loanId, group);
+      }
+      group.items.push(item);
+    }
+
+    return [...byLoan.values()].sort((a, b) => {
+      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      return byDate !== 0 ? byDate : b.loanId - a.loanId;
+    });
+  }
+
+  protected toggleQuickReturnItem(key: string, checked: boolean): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.key !== key) {
+            return item;
+          }
+          if (item.isScannedMatch && !checked) {
+            return item;
+          }
+          return { ...item, selected: checked };
+        })
+      };
+    });
+  }
+
+  protected selectQuickReturnGroup(loanId: number, selected = true): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.isScannedMatch || item.loanId !== loanId) {
+            return item;
+          }
+          return { ...item, selected };
+        })
+      };
+    });
+  }
+
+  protected isQuickReturnGroupFullySelected(group: QuickReturnLoanGroup): boolean {
+    return group.items.length > 0 && group.items.every((item) => item.selected);
+  }
+
+  protected confirmQuickReturn(): void {
+    const session = this.quickReturnSession();
+    if (!session || this.quickReturnSaving()) {
+      return;
+    }
+
+    const selected = session.items.filter((item) => item.selected);
+    if (selected.length === 0) {
+      this.toast.warning('יש לבחור לפחות פריט אחד להחזרה');
+      return;
+    }
+
+    const hebrew = this.formatHebrewDateTime(new Date(), true);
+    const barCharge = this.parseCharge(this.quickReturnCharge());
+    const requests = selected.map((item) =>
+      this.data.returnToolLoanItem(item.loanId, item.itemId, {
+        hebrewReturnedDisplay: hebrew,
+        chargeAmount: item.isScannedMatch && barCharge && barCharge > 0 ? barCharge : null
+      })
+    );
+
+    this.quickReturnSaving.set(true);
+    forkJoin(requests)
+      .pipe(finalize(() => this.quickReturnSaving.set(false)))
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
+          this.refreshActiveLoans();
+          return;
+        }
+        this.toast.success(
+          selected.length === 1 ? 'הקוד הוחזר בהצלחה' : `${okCount} קודים הוחזרו בהצלחה`
+        );
+        this.quickReturnSession.set(null);
+        this.quickReturnCode.set('');
+        this.quickReturnCharge.set('');
+        this.refreshActiveLoans();
+        this.refresh();
+        queueMicrotask(() => this.focusQuickReturnCodeInput());
+      });
+  }
+
   protected formatPhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.length === 10) {
       return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
     }
     return phone;
+  }
+
+  private parseCharge(raw: string | undefined | null): number | null {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed) {
+      return null;
+    }
+    const n = Number(trimmed.replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) {
+      return null;
+    }
+    return n;
   }
 
   protected formatDeadline(deadline: Date | null): string {
@@ -531,6 +882,74 @@ export class ToolsReturnsComponent implements OnInit {
       chargeAmount: h.chargeAmount ?? null,
       chargeIsPaid: h.chargeIsPaid ?? null
     };
+  }
+
+  private buildActiveLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
+    const views: ActiveLoanRowView[] = [];
+    for (const loan of loans) {
+      const lentAt = new Date(loan.lentAt);
+      for (const item of loan.items) {
+        if (item.returnedAt) {
+          continue;
+        }
+        views.push({
+          rowKey: `${loan.id}-${item.id}`,
+          loanId: loan.id,
+          itemId: item.id,
+          item,
+          clientName: loan.clientName,
+          phone: loan.phone,
+          address: (loan.address ?? '').trim(),
+          lentAt
+        });
+      }
+    }
+    return views.sort((a, b) => b.lentAt.getTime() - a.lentAt.getTime());
+  }
+
+  private buildQuickReturnItems(
+    customerRows: ActiveLoanRowView[],
+    match: ActiveLoanRowView,
+    scannedCode: string
+  ): QuickReturnItem[] {
+    const items: QuickReturnItem[] = [];
+
+    for (const row of customerRows) {
+      if (row.itemId == null) {
+        continue;
+      }
+      const isScannedMatch =
+        row.rowKey === match.rowKey &&
+        row.item.serialCode.localeCompare(scannedCode, undefined, { sensitivity: 'accent' }) === 0;
+      const hebrewDate = this.hebrew.toHebrew(row.lentAt);
+      items.push({
+        key: row.rowKey,
+        loanId: row.loanId,
+        itemId: row.itemId,
+        toolDefinitionId: row.item.toolDefinitionId,
+        toolName: row.item.toolName,
+        serialCode: row.item.serialCode,
+        loanDateIso: this.toIsoDay(row.lentAt),
+        hebrewDate,
+        selected: isScannedMatch,
+        isScannedMatch
+      });
+    }
+
+    items.sort((a, b) => Number(b.isScannedMatch) - Number(a.isScannedMatch));
+    return items;
+  }
+
+  private normalizePhone(phone: string | null | undefined): string {
+    return (phone ?? '').replace(/\D/g, '');
+  }
+
+  private focusQuickReturnCodeInput(): void {
+    const input = this.document.getElementById(
+      'tools-returns-quick-return-code-input'
+    ) as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
   }
 
   private formatHebrewDateTime(date: Date, withSeconds = false): string {

@@ -1,4 +1,8 @@
-<div class="hebrew-calendar-picker">
+<div
+  class="hebrew-calendar-picker"
+  (appClickOutside)="close()"
+  [appClickOutsideEnabled]="open()"
+>
   <button
     type="button"
     class="hebrew-calendar-trigger"

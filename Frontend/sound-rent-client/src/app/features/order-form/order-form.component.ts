@@ -71,6 +71,7 @@ import { SystemContextService } from '../../core/services/system-context.service
 import { ToastService } from '../../core/services/toast.service';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import {
   israeliPhoneValidator,
@@ -116,6 +117,7 @@ interface BookingUiState {
     RouterLink,
     IntegerOnlyDirective,
     IsraeliPhoneInputDirective,
+    ClickOutsideDirective,
     HebrewCalendarPickerComponent
   ],
   templateUrl: './order-form.component.html',
@@ -1438,7 +1440,7 @@ export class OrderFormComponent implements OnInit {
     });
   }
 
-  private closeCustomerSuggestions(): void {
+  protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestIndex.set(-1);
     this.customerSuggestions.set([]);
@@ -2406,6 +2408,20 @@ export class OrderFormComponent implements OnInit {
     this.institutionSuggestOpen.set(false);
     this.institutionSuggestIndex.set(-1);
     this.institutionConflictTrigger$.next();
+  }
+
+  protected closeInstitutionSuggest(): void {
+    this.institutionSuggestOpen.set(false);
+    this.institutionSuggestIndex.set(-1);
+  }
+
+  protected closeAddAccessoryPicker(): void {
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+  }
+
+  protected closeReturnSerialDropdown(): void {
+    this.returnSerialDropdownRowId.set(null);
   }
 
   private loadInstitutionConflict() {

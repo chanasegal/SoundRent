@@ -43,6 +43,7 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 interface QuickLoanAccessoryRow {
@@ -104,7 +105,8 @@ interface StandaloneLoanCard {
     RouterLink,
     HebrewCalendarPickerComponent,
     IntegerOnlyDirective,
-    IsraeliPhoneInputDirective
+    IsraeliPhoneInputDirective,
+    ClickOutsideDirective
   ],
   templateUrl: './quick-loan.component.html',
   styleUrl: './quick-loan.component.scss'
@@ -829,11 +831,20 @@ export class QuickLoanComponent implements OnInit {
     this.toast.show('פרטי הלקוח מולאו מהרשימה', 'info');
   }
 
-  private closeCustomerSuggestions(): void {
+  protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestIndex.set(-1);
     this.customerSuggestions.set([]);
     this.customerSuggestField.set(null);
+  }
+
+  protected closeAddAccessoryPicker(): void {
+    this.addAccessoryOpen.set(false);
+    this.accessoryTypeQuery.set('');
+  }
+
+  protected closeReturnSerialDropdown(): void {
+    this.returnSerialDropdownRowId.set(null);
   }
 
   protected orderDateLabel(order: OrderDto): string {

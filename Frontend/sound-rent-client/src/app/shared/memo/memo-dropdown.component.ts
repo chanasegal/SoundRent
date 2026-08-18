@@ -1,16 +1,17 @@
-import { CommonModule, DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, OnInit, signal, viewChild } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { debounceTime, distinctUntilChanged, finalize } from 'rxjs';
 
 import { DataService } from '../../core/services/data.service';
 import { ToastService } from '../../core/services/toast.service';
+import { ClickOutsideDirective } from '../directives/click-outside.directive';
 
 @Component({
   selector: 'app-memo-dropdown',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, ClickOutsideDirective],
   templateUrl: './memo-dropdown.component.html',
   styleUrl: './memo-dropdown.component.scss'
 })
@@ -18,9 +19,6 @@ export class MemoDropdownComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly document = inject(DOCUMENT);
-
-  private readonly rootRef = viewChild<ElementRef<HTMLElement>>('memoRoot');
 
   protected readonly open = signal(false);
   protected readonly loading = signal(false);
@@ -35,11 +33,6 @@ export class MemoDropdownComponent implements OnInit {
     this.contentControl.valueChanges
       .pipe(debounceTime(600), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.saveMemo(false));
-
-    this.document.addEventListener('click', this.onDocumentClick);
-    this.destroyRef.onDestroy(() => {
-      this.document.removeEventListener('click', this.onDocumentClick);
-    });
   }
 
   protected toggle(event: MouseEvent): void {
@@ -90,14 +83,4 @@ export class MemoDropdownComponent implements OnInit {
         }
       });
   }
-
-  private readonly onDocumentClick = (event: MouseEvent): void => {
-    if (!this.open()) {
-      return;
-    }
-    const root = this.rootRef()?.nativeElement;
-    if (root && !root.contains(event.target as Node)) {
-      this.open.set(false);
-    }
-  };
 }

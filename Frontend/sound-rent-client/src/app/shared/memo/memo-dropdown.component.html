@@ -1,4 +1,8 @@
-<div #memoRoot class="memo-root">
+<div
+  class="memo-root"
+  (appClickOutside)="open.set(false)"
+  [appClickOutsideEnabled]="open()"
+>
   <button
     type="button"
     class="memo-trigger"

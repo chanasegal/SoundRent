@@ -160,7 +160,12 @@
                 } @else {
                   <ul class="customer-breakdown-card__items">
                     @for (item of displayAccessoryRows(customer); track item.rowKey) {
-                      <li class="accessory-row" [class.accessory-row--pending]="isPendingAccessoryRow(item)">
+                      <li
+                        class="accessory-row"
+                        [class.accessory-row--pending]="isPendingAccessoryRow(item)"
+                        (appClickOutside)="onSerialDropdownOutside(item)"
+                        [appClickOutsideEnabled]="isSerialDropdownOpen(item)"
+                      >
                         <span class="customer-breakdown-card__qty">{{ displayAccessoryQuantity(item) }}</span>
                         <span class="accessory-row__label">{{ item.label }}</span>
 
@@ -299,7 +304,11 @@
                   </ul>
                 }
 
-                <div class="add-accessory">
+                <div
+                  class="add-accessory"
+                  (appClickOutside)="closeAddAccessory()"
+                  [appClickOutsideEnabled]="isAddAccessoryOpen(customer)"
+                >
                   @if (isAddAccessoryOpen(customer)) {
                     <div class="add-accessory__picker">
                       @if (customer.orderIds.length > 1) {

@@ -45,6 +45,7 @@ import {
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { clampIsraeliPhoneDigits, ISRAELI_PHONE_INVALID_MESSAGE, isValidIsraeliPhone } from '../../core/validators/israeli-phone.validator';
 import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
@@ -105,6 +106,7 @@ interface ActiveLoanCustomerCard {
     FormsModule,
     BookTitleSelectComponent,
     AutoFocusDirective,
+    ClickOutsideDirective,
     IsraeliPhoneInputDirective
   ],
   templateUrl: './library-lending.component.html',
@@ -256,20 +258,6 @@ export class LibraryLendingComponent implements OnInit {
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.nowTick.set(Date.now()));
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (
-      target?.closest('[data-tool-suggest]') ||
-      target?.closest('[data-codes-dropdown]') ||
-      target?.closest('[data-customer-suggest]')
-    ) {
-      return;
-    }
-    this.closeToolUi();
-    this.closeCustomerSuggest();
   }
 
   /** Global wedge scan when no input is focused — routes to return or loan. */
@@ -1166,6 +1154,32 @@ export class LibraryLendingComponent implements OnInit {
           copiesOpen: false
         }))
       }))
+    );
+  }
+
+  protected closeBookSuggest(formId: string, lineId: string): void {
+    this.patchBookLineUi(formId, lineId, { bookSuggestOpen: false });
+  }
+
+  protected closeCopiesDropdown(formId: string, lineId: string): void {
+    this.patchBookLineUi(formId, lineId, { copiesOpen: false });
+  }
+
+  private patchBookLineUi(
+    formId: string,
+    lineId: string,
+    patch: Pick<BookLineItem, 'bookSuggestOpen'> | Pick<BookLineItem, 'copiesOpen'>
+  ): void {
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        return {
+          ...f,
+          bookLines: f.bookLines.map((l) => (l.id === lineId ? { ...l, ...patch } : l))
+        };
+      })
     );
   }
 

@@ -11,6 +11,7 @@ import {
 import { HDate } from '@hebcal/core';
 
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { ClickOutsideDirective } from '../directives/click-outside.directive';
 
 interface HebrewCalendarCell {
   day: number | null;
@@ -26,7 +27,7 @@ interface HebrewCalendarView {
 @Component({
   selector: 'app-hebrew-calendar-picker',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule],
+  imports: [CommonModule, ClickOutsideDirective],
   templateUrl: './hebrew-calendar-picker.component.html',
   styleUrl: './hebrew-calendar-picker.component.scss'
 })

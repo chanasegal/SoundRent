@@ -26,6 +26,7 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   optionalIsraeliPhoneValidator
@@ -34,7 +35,7 @@ import {
 @Component({
   selector: 'app-unreturned-items-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ReactiveFormsModule, IsraeliPhoneInputDirective],
+  imports: [CommonModule, RouterLink, ReactiveFormsModule, IsraeliPhoneInputDirective, ClickOutsideDirective],
   templateUrl: './unreturned-items-admin.component.html',
   styleUrl: './unreturned-items-admin.component.scss'
 })
@@ -457,7 +458,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
       });
   }
 
-  private closeCustomerSuggestions(): void {
+  protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestIndex.set(-1);
     this.customerSuggestions.set([]);

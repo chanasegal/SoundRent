@@ -137,7 +137,12 @@
               <div class="tool-lines">
                 @for (line of form.bookLines; track line.id) {
                   <div class="tool-line">
-                    <div class="tool-line__tool" data-tool-suggest>
+                    <div
+                      class="tool-line__tool"
+                      data-tool-suggest
+                      (appClickOutside)="closeBookSuggest(form.id, line.id)"
+                      [appClickOutsideEnabled]="line.bookSuggestOpen"
+                    >
                       <input
                         type="text"
                         class="field-input"
@@ -165,7 +170,12 @@
                       }
                     </div>
 
-                    <div class="tool-line__codes" data-codes-dropdown>
+                    <div
+                      class="tool-line__codes"
+                      data-codes-dropdown
+                      (appClickOutside)="closeCopiesDropdown(form.id, line.id)"
+                      [appClickOutsideEnabled]="line.copiesOpen"
+                    >
                       <button
                         type="button"
                         class="ms-dropdown__btn"
@@ -214,7 +224,12 @@
               </button>
             </div>
 
-            <div class="field-block field-block--span2" data-customer-suggest>
+            <div
+              class="field-block field-block--span2"
+              data-customer-suggest
+              (appClickOutside)="closeCustomerSuggest()"
+              [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestFormId() === form.id"
+            >
               <label class="field-label">פרטי לקוח</label>
               @if (form.clientAlertNotes) {
                 <div class="client-alert" role="alert">

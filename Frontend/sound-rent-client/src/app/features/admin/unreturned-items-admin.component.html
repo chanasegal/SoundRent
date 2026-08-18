@@ -147,7 +147,11 @@
       </p>
 
       <form [formGroup]="addForm" (ngSubmit)="submitAddMissing()" class="space-y-4">
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
           <input
             formControlName="customerName"
@@ -177,7 +181,11 @@
           }
         </div>
 
-        <div class="relative">
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+        >
           <label class="mb-1 block text-sm font-medium text-slate-700">טלפון</label>
           <input
             type="tel"

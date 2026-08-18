@@ -350,8 +350,10 @@
   inset-inline-end: 0;
   z-index: 30;
   margin-top: 0.3rem;
-  max-height: 15rem;
-  overflow: auto;
+  max-height: var(--sr-menu-max-height, 250px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 0.65rem;
   border: 1px solid #e2e8f0;
   background: #fff;
@@ -393,6 +395,10 @@
   list-style: none;
   min-width: 100%;
   max-width: 28rem;
+  max-height: var(--sr-menu-max-height, 250px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 0.55rem;
   border: 1px solid #e2e8f0;
   background: #fff;

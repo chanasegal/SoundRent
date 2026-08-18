@@ -28,6 +28,7 @@ import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { CustomersStore } from '../../core/services/customers.store';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface ActiveLoanRow {
   key: string;
@@ -106,7 +107,7 @@ interface QuickReturnSession {
 @Component({
   selector: 'app-active-loans',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, ClickOutsideDirective],
   templateUrl: './active-loans.component.html',
   styleUrl: './active-loans.component.scss'
 })
@@ -484,6 +485,10 @@ export class ActiveLoansComponent implements OnInit {
       this.selectQuickReturnCode(options[0]);
     }
     this.searchQuickReturn();
+  }
+
+  protected closeQuickReturnCodePanel(): void {
+    this.quickReturnCodeOpen.set(false);
   }
 
   protected onQuickReturnTypeChange(raw: string): void {

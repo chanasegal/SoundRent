@@ -54,7 +54,11 @@
 
       <div class="quick-return-field quick-return-field--code">
         <label class="quick-return-field__label" for="quick-return-code-input">בחירת/הזנת קוד פריט</label>
-        <div class="quick-return-code">
+        <div
+          class="quick-return-code"
+          (appClickOutside)="closeQuickReturnCodePanel()"
+          [appClickOutsideEnabled]="quickReturnCodeOpen()"
+        >
           <input
             id="quick-return-code-input"
             type="text"

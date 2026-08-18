@@ -37,6 +37,7 @@ import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-d
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
+import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface EquipmentLine {
   label: string;
@@ -79,7 +80,7 @@ const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה ע�
 @Component({
   selector: 'app-daily-equipment-report',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, HebrewCalendarPickerComponent],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, HebrewCalendarPickerComponent, ClickOutsideDirective],
   templateUrl: './daily-equipment-report.component.html',
   styleUrl: './daily-equipment-report.component.scss'
 })
@@ -667,6 +668,10 @@ export class DailyEquipmentReportComponent implements OnInit {
       });
   }
 
+  protected onSerialDropdownOutside(row: CustomerAccessoryLine): void {
+    this.closeSerialDropdown(row, { saveIfChanged: true });
+  }
+
   private closeSerialDropdown(row: CustomerAccessoryLine, options: { saveIfChanged: boolean }): void {
     if (this.openSerialDropdownKey() !== row.rowKey) {
       return;
@@ -925,7 +930,7 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
   }
 
-  private closeAddAccessory(): void {
+  protected closeAddAccessory(): void {
     this.closeAddAccessoryPicker();
   }
 

@@ -27,7 +27,11 @@
       <div class="loan-client-row">
         <div class="loan-client-field loan-client-field--name">
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-name">שם לקוח</label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+          >
             <input
               id="quick-loan-name"
               type="text"
@@ -73,7 +77,11 @@
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-phone">
             טלפון <span class="text-rose-500">*</span>
           </label>
-          <div class="customer-suggest">
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+          >
             <input
               id="quick-loan-phone"
               type="tel"
@@ -224,7 +232,11 @@
 
         <ul class="customer-breakdown-card__items">
           @for (item of accessoryRows(); track item.inventoryDefinitionId) {
-            <li class="accessory-row">
+            <li
+              class="accessory-row"
+              (appClickOutside)="closeSerialDropdown(item)"
+              [appClickOutsideEnabled]="isSerialDropdownOpen(item)"
+            >
               <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
                 <span class="accessory-row__qty-label">כמות</span>
                 <input
@@ -340,7 +352,11 @@
           }
         </ul>
 
-        <div class="add-accessory">
+        <div
+          class="add-accessory"
+          (appClickOutside)="closeAddAccessoryPicker()"
+          [appClickOutsideEnabled]="addAccessoryOpen()"
+        >
           @if (addAccessoryOpen()) {
             <div class="add-accessory__picker">
               <div class="add-accessory__combobox">
@@ -749,7 +765,11 @@
                 </td>
                 <td class="return-table__codes px-3 py-2.5">
                   @if (hasSerializedReturnCodes(row)) {
-                    <div class="return-serial-select">
+                    <div
+                      class="return-serial-select"
+                      (appClickOutside)="closeReturnSerialDropdown()"
+                      [appClickOutsideEnabled]="isReturnSerialDropdownOpen(row)"
+                    >
                       <button
                         type="button"
                         class="return-serial-select__trigger"
