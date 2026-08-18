@@ -158,6 +158,12 @@
                   </span>
                 </div>
                 <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
+                <span class="customer-breakdown-card__address">
+                  {{ activeLoanDateLabel(card.loanDateIso) }}
+                  @if (activeLoanHebrewDate(card.loanDateIso); as heb) {
+                    · {{ heb }}
+                  }
+                </span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
@@ -261,12 +267,6 @@
                   }
 
                   <div class="active-loan-item__meta">
-                    <div class="active-loans-date">
-                      <span>{{ activeLoanDateLabel(row.loanDateIso) }}</span>
-                      @if (activeLoanHebrewDate(row.loanDateIso); as heb) {
-                        <span class="active-loans-date__hebrew">{{ heb }}</span>
-                      }
-                    </div>
                     <button
                       type="button"
                       class="active-loans-return-btn"

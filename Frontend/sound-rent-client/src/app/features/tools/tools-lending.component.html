@@ -1,4 +1,6 @@
 <div class="mx-auto max-w-6xl px-4 py-6">
+  <app-loan-range-calendar-host #loanRangeCal />
+
   <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
@@ -161,6 +163,12 @@
                   </span>
                 </div>
                 <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
+                <span class="customer-breakdown-card__address">
+                  {{ activeLoanDateLabel(card.loanDate) }}
+                  @if (activeLoanHebrewDate(card.loanDate); as heb) {
+                    · {{ heb }}
+                  }
+                </span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
@@ -187,7 +195,7 @@
                   <strong dir="ltr">{{ formatChargeTotal(cardTotalCharge(card)) }}</strong>
                 </span>
               </div>
-              @if (hasReturnableTools(card)) {
+              @if (hasReturnableItems(card)) {
                 <button
                   type="button"
                   class="active-loans-return-all-btn"
@@ -222,7 +230,9 @@
                     @if (row.item.serialCode) {
                       <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
                     }
-                    <span class="loan-item-row__meta">{{ row.hebrewLentDisplay }}</span>
+                    @if (!isAccessoryLoan(row)) {
+                      <span class="loan-item-row__meta">שעה: {{ activeLoanTimeLabel(row.lentAt) }}</span>
+                    }
                     @if (!isAccessoryLoan(row)) {
                       <span class="loan-item-row__meta">
                         מועד נדרש:
@@ -234,6 +244,15 @@
                       >
                         {{ durationText(row) }}
                       </span>
+                      <button
+                        type="button"
+                        class="action-icon-btn action-icon-btn--calendar"
+                        (click)="loanRangeCal.open($event, row.lentAt, null)"
+                        title="תצוגת טווח השאלה"
+                        aria-label="תצוגת טווח השאלה"
+                      >
+                        <i class="pi pi-calendar" aria-hidden="true"></i>
+                      </button>
                     }
                   </div>
                   @if (!isAccessoryLoan(row) && row.itemId !== null) {
@@ -260,6 +279,18 @@
                           (change)="onReturnedToggle(row, $any($event.target).checked)"
                         />
                         <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
+                      </label>
+                    </div>
+                  } @else if (isAccessoryLoan(row) && row.loanedEquipmentId !== null) {
+                    <div class="loan-item-row__actions">
+                      <label class="returned-check">
+                        <input
+                          type="checkbox"
+                          [checked]="false"
+                          [disabled]="row.returning || isCardBusy(card)"
+                          (change)="onReturnedToggle(row, $any($event.target).checked)"
+                        />
+                        <span>{{ isCardBusy(card) ? 'מחזיר…' : 'הוחזר' }}</span>
                       </label>
                     </div>
                   }

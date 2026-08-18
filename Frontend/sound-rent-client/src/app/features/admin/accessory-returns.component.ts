@@ -16,6 +16,7 @@ import { debounceTime, distinctUntilChanged, finalize, startWith, switchMap } fr
 import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 
@@ -35,6 +36,7 @@ export class AccessoryReturnsComponent implements OnInit {
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ordersSync = inject(OrdersSyncService);
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   protected readonly loading = signal(false);
@@ -68,6 +70,12 @@ export class AccessoryReturnsComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((items) => this.rows.set(this.mapRows(items)));
+
+    // Returns recorded from Tools or Active Loans should appear here without a
+    // manual refresh, using the shared order-mutation broadcast.
+    this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
   }
 
   protected refresh(): void {
@@ -112,6 +120,7 @@ export class AccessoryReturnsComponent implements OnInit {
         if (!updated) {
           return;
         }
+        this.ordersSync.notifyOrderUpdated(updated);
         this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });

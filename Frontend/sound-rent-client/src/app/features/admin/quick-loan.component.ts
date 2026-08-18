@@ -13,7 +13,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { finalize, merge, EMPTY } from 'rxjs';
+import { EMPTY, finalize, forkJoin, merge } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -85,7 +85,11 @@ interface StandaloneLoanItem {
 }
 
 interface StandaloneLoanCard {
-  order: OrderDto;
+  key: string;
+  customerName: string;
+  phone: string;
+  loanDateIso: string;
+  orders: OrderDto[];
   items: StandaloneLoanItem[];
   totalQuantity: number;
   customerNotes: string | null;
@@ -859,7 +863,7 @@ export class QuickLoanComponent implements OnInit {
       return '';
     }
     const date = this.hebrew.parseIso(iso);
-    return date ? this.hebrew.toHebrew(date) : '';
+    return date ? this.hebrew.toHebrewWithDayOfWeek(date) : '';
   }
 
   protected isReturningLine(row: StandaloneLoanItem): boolean {
@@ -876,7 +880,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected isReturningOrder(card: StandaloneLoanCard): boolean {
-    return this.returningLineKey() === this.orderReturnKey(card.order.id);
+    return this.returningLineKey() === this.cardReturnKey(card.key);
   }
 
   protected isRemovingLine(row: StandaloneLoanItem): boolean {
@@ -888,7 +892,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected isRemovingOrder(card: StandaloneLoanCard): boolean {
-    return this.removingLineKeys().has(this.orderReturnKey(card.order.id));
+    return this.removingLineKeys().has(this.cardReturnKey(card.key));
   }
 
   protected markLineReturned(row: StandaloneLoanItem): void {
@@ -972,38 +976,46 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const items = card.items.map((row) => {
-      const assignedCodes = row.assignedSerialCodes;
-      if (assignedCodes.length > 0) {
-        return {
-          loanedEquipmentId: row.loanedEquipmentId,
-          quantityReturned: assignedCodes.length,
-          returnedSerialCodes: [...assignedCodes]
-        };
-      }
-      return {
-        loanedEquipmentId: row.loanedEquipmentId,
-        quantityReturned: row.quantity
-      };
+    const requests = card.orders.map((order) => {
+      const items = card.items
+        .filter((row) => row.orderId === order.id)
+        .map((row) => {
+          const assignedCodes = row.assignedSerialCodes;
+          if (assignedCodes.length > 0) {
+            return {
+              loanedEquipmentId: row.loanedEquipmentId,
+              quantityReturned: assignedCodes.length,
+              returnedSerialCodes: [...assignedCodes]
+            };
+          }
+          return {
+            loanedEquipmentId: row.loanedEquipmentId,
+            quantityReturned: row.quantity
+          };
+        });
+      return this.data.recordOrderReturn(order.id, { items });
     });
 
-    const returnKey = this.orderReturnKey(card.order.id);
+    const returnKey = this.cardReturnKey(card.key);
     this.returningLineKey.set(returnKey);
-    this.data
-      .recordOrderReturn(card.order.id, { items })
+    forkJoin(requests)
       .pipe(finalize(() => this.returningLineKey.set(null)))
-      .subscribe((updated) => {
-        if (!updated) {
+      .subscribe((updatedOrders) => {
+        if (updatedOrders.some((order) => !order)) {
           return;
         }
-        this.ordersSync.notifyOrderUpdated(updated);
+        updatedOrders.forEach((order) => {
+          if (order) {
+            this.ordersSync.notifyOrderUpdated(order);
+          }
+        });
         this.animateStandaloneLineOut(returnKey);
         this.toast.success(
           card.items.length === 1
             ? 'כל הפריטים סומנו כהוחזרו'
             : `${card.totalQuantity} פריטים סומנו כהוחזרו`
         );
-        if (this.editingId() === card.order.id) {
+        if (card.orders.some((order) => this.editingId() === order.id)) {
           this.cancelEdit();
         }
         this.loadRecentLoans();
@@ -1014,6 +1026,10 @@ export class QuickLoanComponent implements OnInit {
 
   private orderReturnKey(orderId: number): string {
     return `order:${orderId}`;
+  }
+
+  private cardReturnKey(cardKey: string): string {
+    return `card:${cardKey}`;
   }
 
   private codeReturnKey(row: StandaloneLoanItem, code: string): string {
@@ -1032,7 +1048,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   private buildStandaloneLoanCards(orders: OrderDto[]): StandaloneLoanCard[] {
-    const cards: StandaloneLoanCard[] = [];
+    const byCustomerAndDate = new Map<string, StandaloneLoanCard>();
     for (const order of orders) {
       if (order.isReturnProcessed || order.isCancelled) {
         continue;
@@ -1072,14 +1088,29 @@ export class QuickLoanComponent implements OnInit {
       if (items.length === 0) {
         continue;
       }
-      cards.push({
-        order,
-        items,
-        totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-        customerNotes: this.customers.notesForPhone(order.phone)
-      });
+      const key = `${(order.customerName ?? '').trim()}|${(order.phone ?? '').replace(/\D/g, '')}|${loanDateIso}`;
+      let card = byCustomerAndDate.get(key);
+      if (!card) {
+        card = {
+          key,
+          customerName: order.customerName ?? '',
+          phone: order.phone ?? '',
+          loanDateIso,
+          orders: [],
+          items: [],
+          totalQuantity: 0,
+          customerNotes: this.customers.notesForPhone(order.phone)
+        };
+        byCustomerAndDate.set(key, card);
+      }
+      card.orders.push(order);
+      card.items.push(...items);
+      card.totalQuantity += items.reduce((sum, item) => sum + item.quantity, 0);
     }
-    return cards;
+    return [...byCustomerAndDate.values()].sort((a, b) => {
+      const nameCmp = a.customerName.localeCompare(b.customerName, 'he');
+      return nameCmp !== 0 ? nameCmp : b.loanDateIso.localeCompare(a.loanDateIso);
+    });
   }
 
   protected startEdit(order: OrderDto): void {

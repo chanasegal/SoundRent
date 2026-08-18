@@ -8,11 +8,12 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
+import { HeaderClockComponent } from './header-clock.component';
 
 @Component({
   selector: 'app-layout',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, MemoDropdownComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, MemoDropdownComponent, HeaderClockComponent],
   template: `
     <div class="flex min-h-screen flex-col bg-slate-50">
       <header class="bg-[#002244] text-white shadow-md">
@@ -124,7 +125,8 @@ import { MemoDropdownComponent } from '../memo/memo-dropdown.component';
                 class="layout-nav__link"
               >דוחות</a>
           </nav>
-          <div class="shrink-0">
+          <div class="flex shrink-0 items-center gap-3">
+            <app-header-clock />
             <app-memo-dropdown />
           </div>
         </div>

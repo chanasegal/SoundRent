@@ -38,10 +38,8 @@ import {
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
-import {
-  formatBillableDuration,
-  toBillableParts
-} from '../../core/utils/tools-billable-duration';
+import { formatCalendarDuration } from '../../core/utils/tools-billable-duration';
+import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { clampIsraeliPhoneDigits, ISRAELI_PHONE_INVALID_MESSAGE, isValidIsraeliPhone } from '../../core/validators/israeli-phone.validator';
@@ -76,8 +74,12 @@ interface ActiveLoanRowView {
   rowKey: string;
   loanId: number;
   itemId: number | null;
+  /** Orders-backend loaned-equipment line id for accessory loans. */
+  loanedEquipmentId: number | null;
   item: ToolLoanItemDto;
   source: 'tools' | 'accessory';
+  /** Active serials on an accessory order line, if it is serialized. */
+  activeSerialCodes: string[];
   quantity: number;
   clientName: string;
   phone: string;
@@ -95,6 +97,7 @@ interface ActiveLoanCustomerCard {
   customerName: string;
   phone: string;
   address: string;
+  loanDate: Date;
   customerNotes: string | null;
   deposit: string | null;
   loanNotes: string | null;
@@ -137,7 +140,8 @@ interface QuickReturnSession {
     ReactiveFormsModule,
     FormsModule,
     ToolTypeSelectComponent,
-    IsraeliPhoneInputDirective
+    IsraeliPhoneInputDirective,
+    LoanRangeCalendarHostComponent
   ],
   templateUrl: './tools-lending.component.html',
   styleUrl: './tools-lending.component.scss'
@@ -177,6 +181,7 @@ export class ToolsLendingComponent implements OnInit {
   /** Accessory lending uses the shared Orders backend, not the Tools-loans backend. */
   protected readonly activeAccessoryLoans = signal<OrderDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
+  protected readonly returningAccessoryKey = signal<string | null>(null);
   protected readonly returningCustomerKey = signal<string | null>(null);
   protected readonly nowTick = signal(Date.now());
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
@@ -699,14 +704,16 @@ export class ToolsLendingComponent implements OnInit {
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,
           itemId: item.id,
+          loanedEquipmentId: null,
           item,
           source: 'tools',
+          activeSerialCodes: [],
           quantity: 1,
           clientName: loan.clientName,
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
           lentAt,
-          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+          hebrewLentDisplay: this.hebrew.formatHebrewDateTime(lentAt),
           deadlineAt,
           returning: this.returningItemId() === item.id,
           deposit: (loan.deposit ?? '').trim() || null,
@@ -748,6 +755,7 @@ export class ToolsLendingComponent implements OnInit {
           rowKey: `accessory-${order.id}-${line.id ?? label}`,
           loanId: order.id,
           itemId: null,
+          loanedEquipmentId: line.id ?? null,
           item: {
             id: line.id ?? -1,
             toolDefinitionId: -1,
@@ -755,12 +763,13 @@ export class ToolsLendingComponent implements OnInit {
             serialCode: serialCodes.join(', ')
           },
           source: 'accessory',
+          activeSerialCodes: serialCodes,
           quantity,
           clientName: order.customerName ?? '',
           phone: order.phone ?? '',
           address: order.address ?? '',
           lentAt,
-          hebrewLentDisplay: loanDate ? this.hebrew.toHebrew(lentAt) : '—',
+          hebrewLentDisplay: loanDate ? this.hebrew.toHebrewWithDayOfWeek(lentAt) : '—',
           deadlineAt: null,
           returning: false,
           deposit: this.formatOrderDeposit(order),
@@ -872,7 +881,9 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected durationText(row: ActiveLoanRowView): string {
-    return formatBillableDuration(toBillableParts(row.lentAt, new Date(this.nowTick())));
+    // Same calendar-day span as the returns module / loan-range calendar
+    // (loan start → now for still-held items).
+    return formatCalendarDuration(row.lentAt, new Date(this.nowTick()));
   }
 
   protected isOverdue(row: ActiveLoanRowView): boolean {
@@ -883,10 +894,22 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onReturnedToggle(row: ActiveLoanRowView, checked: boolean): void {
-    if (!checked || row.source !== 'tools' || row.itemId == null) {
+    if (!checked) {
       return;
     }
-    if (this.returningCustomerKey() != null || this.returningItemId() != null) {
+    if (
+      this.returningCustomerKey() != null ||
+      this.returningItemId() != null ||
+      this.returningAccessoryKey() != null
+    ) {
+      return;
+    }
+
+    if (row.source === 'accessory') {
+      this.returnAccessoryLoanRow(row);
+      return;
+    }
+    if (row.itemId == null) {
       return;
     }
 
@@ -918,6 +941,42 @@ export class ToolsLendingComponent implements OnInit {
       });
   }
 
+  /**
+   * Returns an accessory through the same Orders endpoint used by Sound Active
+   * Loans and Accessory Returns, then broadcasts the updated order to every view.
+   */
+  private returnAccessoryLoanRow(row: ActiveLoanRowView): void {
+    if (row.loanedEquipmentId == null) {
+      return;
+    }
+
+    const request = {
+      items: [
+        {
+          loanedEquipmentId: row.loanedEquipmentId,
+          quantityReturned: row.activeSerialCodes.length || row.quantity,
+          ...(row.activeSerialCodes.length > 0
+            ? { returnedSerialCodes: [...row.activeSerialCodes] }
+            : {})
+        }
+      ]
+    };
+
+    this.returningAccessoryKey.set(row.rowKey);
+    this.data
+      .recordOrderReturn(row.loanId, request)
+      .pipe(finalize(() => this.returningAccessoryKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.ordersSync.notifyOrderUpdated(updated);
+        this.toast.success('הפריט סומן כהוחזר');
+        this.refreshAccessoryLoans();
+        this.refreshAvailability();
+      });
+  }
+
   protected isReturningCustomer(card: ActiveLoanCustomerCard): boolean {
     return this.returningCustomerKey() === card.key;
   }
@@ -927,11 +986,19 @@ export class ToolsLendingComponent implements OnInit {
       return true;
     }
     const itemId = this.returningItemId();
-    return itemId != null && card.items.some((row) => row.itemId === itemId);
+    if (itemId != null && card.items.some((row) => row.itemId === itemId)) {
+      return true;
+    }
+    const accessoryKey = this.returningAccessoryKey();
+    return accessoryKey != null && card.items.some((row) => row.rowKey === accessoryKey);
   }
 
-  protected hasReturnableTools(card: ActiveLoanCustomerCard): boolean {
-    return card.items.some((row) => row.source === 'tools');
+  protected hasReturnableItems(card: ActiveLoanCustomerCard): boolean {
+    return card.items.some(
+      (row) =>
+        (row.source === 'tools' && row.itemId != null) ||
+        (row.source === 'accessory' && row.loanedEquipmentId != null)
+    );
   }
 
   protected cardTotalCharge(card: ActiveLoanCustomerCard): number {
@@ -959,7 +1026,16 @@ export class ToolsLendingComponent implements OnInit {
       (row): row is ActiveLoanRowView & { itemId: number } =>
         row.source === 'tools' && row.itemId != null
     );
-    if (this.returningCustomerKey() != null || this.returningItemId() != null || toolRows.length === 0) {
+    const accessoryRows = card.items.filter(
+      (row): row is ActiveLoanRowView & { loanedEquipmentId: number } =>
+        row.source === 'accessory' && row.loanedEquipmentId != null
+    );
+    if (
+      this.returningCustomerKey() != null ||
+      this.returningItemId() != null ||
+      this.returningAccessoryKey() != null ||
+      (toolRows.length === 0 && accessoryRows.length === 0)
+    ) {
       return;
     }
 
@@ -971,9 +1047,22 @@ export class ToolsLendingComponent implements OnInit {
         chargeAmount: charge && charge > 0 ? charge : null
       });
     });
+    const accessoryRequests = accessoryRows.map((row) =>
+      this.data.recordOrderReturn(row.loanId, {
+        items: [
+          {
+            loanedEquipmentId: row.loanedEquipmentId,
+            quantityReturned: row.activeSerialCodes.length || row.quantity,
+            ...(row.activeSerialCodes.length > 0
+              ? { returnedSerialCodes: [...row.activeSerialCodes] }
+              : {})
+          }
+        ]
+      })
+    );
 
     this.returningCustomerKey.set(card.key);
-    forkJoin(requests)
+    forkJoin([...requests, ...accessoryRequests])
       .pipe(finalize(() => this.returningCustomerKey.set(null)))
       .subscribe((results) => {
         const okCount = results.filter((r) => !!r).length;
@@ -993,6 +1082,13 @@ export class ToolsLendingComponent implements OnInit {
           }
           return next;
         });
+        for (const order of results.slice(toolRows.length)) {
+          if (order) {
+            // The slice contains only `recordOrderReturn` results (OrderDto);
+            // TypeScript retains the union from the combined forkJoin array.
+            this.ordersSync.notifyOrderUpdated(order as OrderDto);
+          }
+        }
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
@@ -1002,11 +1098,29 @@ export class ToolsLendingComponent implements OnInit {
     return `${(row.clientName ?? '').trim()}|${(row.phone ?? '').replace(/\D/g, '')}`;
   }
 
+  protected activeLoanDateLabel(date: Date): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    return this.hebrew.formatGregorianWithDayName(date);
+  }
+
+  protected activeLoanHebrewDate(date: Date): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
+    return this.hebrew.toHebrewWithDayOfWeek(date);
+  }
+
+  protected activeLoanTimeLabel(date: Date): string {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
   private buildActiveLoanCustomerCards(rows: ActiveLoanRowView[]): ActiveLoanCustomerCard[] {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = this.customerCardKey(row);
+      const key = `${this.customerCardKey(row)}|${this.toIsoDate(row.lentAt)}`;
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -1014,6 +1128,7 @@ export class ToolsLendingComponent implements OnInit {
           customerName: row.clientName,
           phone: row.phone,
           address: row.address,
+          loanDate: row.lentAt,
           customerNotes: this.customers.notesForPhone(row.phone),
           deposit: row.deposit,
           loanNotes: row.loanNotes,
@@ -1041,7 +1156,8 @@ export class ToolsLendingComponent implements OnInit {
       if (nameCmp !== 0) {
         return nameCmp;
       }
-      return a.phone.localeCompare(b.phone, 'he');
+      const dateCmp = b.loanDate.getTime() - a.loanDate.getTime();
+      return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
     });
   }
 
@@ -1703,12 +1819,6 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private formatHebrewDateTime(date: Date, withSeconds = false): string {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    if (withSeconds) {
-      const ss = String(date.getSeconds()).padStart(2, '0');
-      return `${this.hebrew.toHebrew(date)} ${hh}:${mm}:${ss}`;
-    }
-    return `${this.hebrew.toHebrew(date)} ${hh}:${mm}`;
+    return this.hebrew.formatHebrewDateTime(date, withSeconds);
   }
 }

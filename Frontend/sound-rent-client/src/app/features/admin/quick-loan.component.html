@@ -471,23 +471,26 @@
       <p class="py-6 text-center text-sm text-slate-500">אין השאלות אביזרים פעילות מעמוד זה</p>
     } @else {
       <div class="recent-loans-list standalone-loans-cards">
-        @for (card of standaloneLoanCards(); track card.order.id) {
+        @for (card of standaloneLoanCards(); track card.key) {
+          @let primaryOrder = card.orders[0];
           <article
             class="recent-loan-card active-loan-card"
-            [class.recent-loan-card--editing]="editingId() === card.order.id"
+            [class.recent-loan-card--editing]="card.orders.length === 1 && editingId() === primaryOrder.id"
             [class.active-loan-card--removing]="isRemovingOrder(card)"
           >
             <header class="recent-loan-card__header">
               <div class="recent-loan-card__primary">
-                <span class="recent-loan-card__name">{{ card.order.customerName || 'ללא שם' }}</span>
-                <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(card.order.phone) }}</span>
+                <span class="recent-loan-card__name">{{ card.customerName || 'ללא שם' }}</span>
+                <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
                 <span class="recent-loan-card__meta">
-                  #{{ card.order.id }}
-                  <span class="recent-loan-card__sep">·</span>
-                  {{ orderDateLabel(card.order) }}
-                  @if (orderShiftLabel(card.order)) {
+                  {{ activeLoanDateLabel(card.loanDateIso) }}
+                  @if (activeLoanHebrewDate(card.loanDateIso); as heb) {
                     <span class="recent-loan-card__sep">·</span>
-                    {{ orderShiftLabel(card.order) }}
+                    {{ heb }}
+                  }
+                  <span class="recent-loan-card__sep">·</span>
+                  @for (order of card.orders; track order.id; let last = $last) {
+                    #{{ order.id }}@if (!last) {, }
                   }
                 </span>
               </div>
@@ -511,49 +514,51 @@
                     סמן הכל כהוחזר
                   }
                 </button>
-                <button
-                  type="button"
-                  class="recent-loan-action"
-                  title="עריכה"
-                  aria-label="עריכה"
-                  (click)="startEdit(card.order)"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
-                    <path d="M13.5 6 18 10.5"></path>
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="recent-loan-action recent-loan-action--delete"
-                  title="מחיקה"
-                  aria-label="מחיקה"
-                  [disabled]="deletingId() === card.order.id"
-                  (click)="askDelete(card.order)"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 7h16"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
-                    <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-                    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-                  </svg>
-                </button>
+                @if (card.orders.length === 1) {
+                  <button
+                    type="button"
+                    class="recent-loan-action"
+                    title="עריכה"
+                    aria-label="עריכה"
+                    (click)="startEdit(primaryOrder)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                      <path d="M13.5 6 18 10.5"></path>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="recent-loan-action recent-loan-action--delete"
+                    title="מחיקה"
+                    aria-label="מחיקה"
+                    [disabled]="deletingId() === primaryOrder.id"
+                    (click)="askDelete(primaryOrder)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 7h16"></path>
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                    </svg>
+                  </button>
+                }
               </div>
             </header>
 
-            @if (card.order.depositOnName?.trim() || card.order.notes?.trim() || card.customerNotes) {
+            @if (primaryOrder.depositOnName?.trim() || primaryOrder.notes?.trim() || card.customerNotes) {
               <div class="recent-loan-card__notes">
-                @if (card.order.depositOnName?.trim()) {
+                @if (primaryOrder.depositOnName?.trim()) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ card.order.depositOnName }}</span>
+                    <span class="customer-profile-note__text">{{ primaryOrder.depositOnName }}</span>
                   </div>
                 }
-                @if (card.order.notes?.trim()) {
+                @if (primaryOrder.notes?.trim()) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ card.order.notes }}</span>
+                    <span class="customer-profile-note__text">{{ primaryOrder.notes }}</span>
                   </div>
                 }
                 @if (card.customerNotes) {
@@ -606,12 +611,6 @@
                   }
 
                   <div class="active-loan-item__meta">
-                    <div class="active-loans-date">
-                      <span>{{ activeLoanDateLabel(row.loanDateIso) }}</span>
-                      @if (activeLoanHebrewDate(row.loanDateIso); as heb) {
-                        <span class="active-loans-date__hebrew">{{ heb }}</span>
-                      }
-                    </div>
                     <button
                       type="button"
                       class="active-loans-return-btn"

@@ -15,6 +15,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { SystemContextService } from '../../core/services/system-context.service';
+import { HeaderClockComponent } from './header-clock.component';
 
 /**
  * Isolated Tools / Library application shell.
@@ -24,7 +25,7 @@ import { SystemContextService } from '../../core/services/system-context.service
 @Component({
   selector: 'app-workspace-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, HeaderClockComponent],
   template: `
     <div class="flex min-h-screen flex-col bg-slate-50">
       <header class="bg-[#002244] text-white shadow-md">
@@ -128,6 +129,7 @@ import { SystemContextService } from '../../core/services/system-context.service
               >לקוחות</a>
             </nav>
           </div>
+          <app-header-clock />
         </div>
       </header>
 

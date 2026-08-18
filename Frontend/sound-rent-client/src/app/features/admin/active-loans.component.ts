@@ -64,6 +64,7 @@ interface ActiveLoanCustomerCard {
   customerName: string;
   phone: string;
   address: string;
+  loanDateIso: string;
   customerNotes: string | null;
   deposit: string | null;
   loanNotes: string | null;
@@ -245,7 +246,7 @@ export class ActiveLoansComponent implements OnInit {
       return '';
     }
     const date = this.hebrew.parseIso(iso);
-    return date ? this.hebrew.toHebrew(date) : '';
+    return date ? this.hebrew.toHebrewWithDayOfWeek(date) : '';
   }
 
   protected isReturningLine(row: ActiveLoanRow): boolean {
@@ -832,7 +833,7 @@ export class ActiveLoansComponent implements OnInit {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = this.customerCardKey(row);
+      const key = `${this.customerCardKey(row)}|${row.loanDateIso}`;
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -840,6 +841,7 @@ export class ActiveLoansComponent implements OnInit {
           customerName: row.customerName,
           phone: row.phone,
           address: row.address,
+          loanDateIso: row.loanDateIso,
           customerNotes: this.customers.notesForPhone(row.phone),
           deposit: row.deposit,
           loanNotes: row.loanNotes,
@@ -901,7 +903,7 @@ export class ActiveLoansComponent implements OnInit {
         manualItemId
       };
 
-      const matchKey = this.findCustomerCardKeyForReport(report, byCustomer);
+      const matchKey = this.findCustomerCardKeyForReport(report, reportRow.loanDateIso, byCustomer);
       if (matchKey) {
         const card = byCustomer.get(matchKey)!;
         if (!card.items.some((item) => item.manualItemId === manualItemId)) {
@@ -917,12 +919,13 @@ export class ActiveLoansComponent implements OnInit {
         continue;
       }
 
-      const key = this.customerCardKey(reportRow);
+      const key = `${this.customerCardKey(reportRow)}|${reportRow.loanDateIso}`;
       byCustomer.set(key, {
         key,
         customerName: reportRow.customerName,
         phone: reportRow.phone,
         address: reportRow.address,
+        loanDateIso: reportRow.loanDateIso,
         customerNotes: this.customers.notesForPhone(reportRow.phone),
         deposit: null,
         loanNotes: null,
@@ -938,18 +941,20 @@ export class ActiveLoansComponent implements OnInit {
       if (nameCmp !== 0) {
         return nameCmp;
       }
-      return a.phone.localeCompare(b.phone, 'he');
+      const dateCmp = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
     });
   }
 
   private findCustomerCardKeyForReport(
     report: UnreturnedItemDto,
+    loanDateIso: string,
     cards: Map<string, ActiveLoanCustomerCard>
   ): string | null {
     const phone = this.normalizePhone(report.phone);
     if (phone.length >= 7) {
       for (const [key, card] of cards) {
-        if (this.normalizePhone(card.phone) === phone) {
+        if (card.loanDateIso === loanDateIso && this.normalizePhone(card.phone) === phone) {
           return key;
         }
       }
@@ -958,7 +963,7 @@ export class ActiveLoansComponent implements OnInit {
     const name = (report.customerName ?? '').trim().toLowerCase();
     if (name.length > 0) {
       for (const [key, card] of cards) {
-        if (card.customerName.trim().toLowerCase() === name) {
+        if (card.loanDateIso === loanDateIso && card.customerName.trim().toLowerCase() === name) {
           return key;
         }
       }

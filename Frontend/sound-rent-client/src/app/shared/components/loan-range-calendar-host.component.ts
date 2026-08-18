@@ -12,6 +12,7 @@ import { Popover } from 'primeng/popover';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import {
   calendarDayKeys,
+  formatCalendarDuration,
   isNonBillableDay
 } from '../../core/utils/tools-billable-duration';
 
@@ -42,9 +43,10 @@ interface HebrewMonthView {
 }
 
 /**
- * Shared host for the returns-table loan-range overview calendar.
- * Renders a Hebrew (Jewish) month grid with the loan→return span highlighted.
- * Place once per page; call `open(event, lentAt, returnedAt)` from each row button.
+ * Shared host for the loan-range overview calendar (returns + active loans).
+ * Renders a Hebrew (Jewish) month grid with the loan→return (or loan→today) span
+ * highlighted. Place once per page; call `open(event, lentAt, returnedAt)` —
+ * pass `returnedAt = null` for items still held by the customer.
  */
 @Component({
   selector: 'app-loan-range-calendar-host',
@@ -56,6 +58,12 @@ interface HebrewMonthView {
         <p class="range-cal-panel__title"> ההשאלה</p>
         @if (hebrewRangeLabel()) {
           <p class="range-cal-panel__subtitle">{{ hebrewRangeLabel() }}</p>
+        }
+        @if (durationLabel()) {
+          <p class="range-cal-panel__duration">{{ durationLabel() }}</p>
+        }
+        @if (stillHeld()) {
+          <p class="range-cal-panel__still-held">עדיין אצל הלקוח</p>
         }
 
         <div class="range-cal-panel__header">
@@ -132,7 +140,7 @@ interface HebrewMonthView {
     }
 
     .range-cal-panel__subtitle {
-      margin: 0.35rem 0 0.65rem;
+      margin: 0.35rem 0 0;
       font-size: 0.75rem;
       font-weight: 700;
       color: #1d4ed8;
@@ -140,11 +148,30 @@ interface HebrewMonthView {
       line-height: 1.35;
     }
 
+    .range-cal-panel__duration {
+      margin: 0.25rem 0 0;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #002244;
+      text-align: center;
+      line-height: 1.3;
+    }
+
+    .range-cal-panel__still-held {
+      margin: 0.3rem 0 0;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #b45309;
+      text-align: center;
+      line-height: 1.3;
+    }
+
     .range-cal-panel__header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.5rem;
+      margin-top: 0.65rem;
       margin-bottom: 0.45rem;
     }
 
@@ -261,6 +288,9 @@ export class LoanRangeCalendarHostComponent {
   protected readonly weekdays = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'] as const;
 
   private readonly rangeValue = signal<Date[] | null>(null);
+  /** Original start/end timestamps (with time-of-day) for duration text. */
+  private readonly rangeTimestamps = signal<{ start: Date; end: Date } | null>(null);
+  protected readonly stillHeld = signal(false);
   private readonly calendarView = signal<HebrewMonthView>({ year: 0, month: 0 });
 
   protected readonly hebrewRangeLabel = computed(() => {
@@ -268,7 +298,18 @@ export class LoanRangeCalendarHostComponent {
     if (!range || range.length < 2) {
       return '';
     }
+    if (this.stillHeld()) {
+      return `מ-${this.hebrew.toHebrew(range[0])} עד היום`;
+    }
     return `מ-${this.hebrew.toHebrew(range[0])} עד ${this.hebrew.toHebrew(range[1])}`;
+  });
+
+  protected readonly durationLabel = computed(() => {
+    const ts = this.rangeTimestamps();
+    if (!ts) {
+      return '';
+    }
+    return formatCalendarDuration(ts.start, ts.end);
   });
 
   protected readonly monthHeaderLabel = computed(() => {
@@ -388,8 +429,12 @@ export class LoanRangeCalendarHostComponent {
     this.calendarView.set({ year: next.getFullYear(), month: next.getMonth() });
   }
 
-  /** Opens (or retargets/closes) the Hebrew range calendar for the given loan/return dates. */
-  open(event: Event, lentAt: Date, returnedAt: Date): void {
+  /**
+   * Opens (or retargets/closes) the Hebrew range calendar for the given loan dates.
+   * Pass `returnedAt = null` for active / still-held items — the span runs through today
+   * and the panel labels the item as still with the customer.
+   */
+  open(event: Event, lentAt: Date, returnedAt: Date | null): void {
     event.preventDefault();
     event.stopPropagation();
 
@@ -399,8 +444,13 @@ export class LoanRangeCalendarHostComponent {
       return;
     }
 
+    const held = returnedAt == null;
+    const endSource = held ? new Date() : returnedAt;
+    this.stillHeld.set(held);
+    this.rangeTimestamps.set({ start: lentAt, end: endSource });
+
     const start = toLocalDay(lentAt);
-    const end = toLocalDay(returnedAt);
+    const end = toLocalDay(endSource);
     const ordered = start.getTime() <= end.getTime() ? [start, end] : [end, start];
     this.rangeValue.set(ordered);
 

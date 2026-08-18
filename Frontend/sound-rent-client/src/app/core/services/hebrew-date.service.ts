@@ -65,6 +65,26 @@ export class HebrewDateService {
   }
 
   /**
+   * Hebrew date with weekday prefix, e.g. "יום שני כ״א אלול תשפ״ו".
+   */
+  toHebrewWithDayOfWeek(date: Date): string {
+    return `יום ${this.dayOfWeekHebrew(date)} ${this.toHebrew(date)}`;
+  }
+
+  /**
+   * Hebrew date (with weekday) plus local time, e.g. "יום שני כ״א אלול תשפ״ו 15:53".
+   */
+  formatHebrewDateTime(date: Date, withSeconds = false): string {
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    if (withSeconds) {
+      const ss = String(date.getSeconds()).padStart(2, '0');
+      return `${this.toHebrewWithDayOfWeek(date)} ${hh}:${mm}:${ss}`;
+    }
+    return `${this.toHebrewWithDayOfWeek(date)} ${hh}:${mm}`;
+  }
+
+  /**
    * Returns a "<startHebrew> – <endHebrew>" range string.
    */
   toHebrewRange(start: Date, end: Date): string {
