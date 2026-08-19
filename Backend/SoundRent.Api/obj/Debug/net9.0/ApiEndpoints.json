@@ -1705,6 +1705,37 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
+    "Method": "UpdateSerialStatus",
+    "RelativePath": "api/inventory-definitions/{id}/serial-status",
+    "HttpMethod": "PATCH",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionSerialStatusUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
     "Method": "ReplaceSerials",
     "RelativePath": "api/inventory-definitions/{id}/serials",
     "HttpMethod": "PUT",

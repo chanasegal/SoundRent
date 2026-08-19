@@ -8,6 +8,87 @@
   text-align: left;
 }
 
+.history-filter-card {
+  border-radius: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  padding: 1rem 1.2rem 1.05rem;
+}
+
+.history-filter-card__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #002244;
+}
+
+.history-filter-card__hint {
+  margin: 0.35rem 0 0.85rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.history-filter-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.history-filter-card__mode {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: #334155;
+}
+
+.history-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 10rem;
+  flex: 1 1 14rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+
+  &--grow {
+    flex: 1 1 22rem;
+  }
+}
+
+.field-input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0f172a;
+  background: #fff;
+
+  &:focus {
+    outline: none;
+    border-color: #0284c7;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+  }
+}
+
+.history-btn {
+  border-radius: 0.65rem;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #002244;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
 .loan-search {
   &__row {
     display: flex;

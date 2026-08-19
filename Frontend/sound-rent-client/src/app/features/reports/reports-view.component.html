@@ -240,7 +240,7 @@
     (click)="closeAddDebt()"
   >
     <div
-      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
+      class="app-modal-panel reports-modal-panel--cancelled w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש</h2>
@@ -415,7 +415,11 @@
         הזינו פרטי הזמנה מבוטלת ידנית. הרשימה תתעדכן מיד לאחר השמירה.
       </p>
 
-      <form class="space-y-4" [formGroup]="cancelledForm" (ngSubmit)="submitAddCancelled()">
+      <form
+        class="reports-modal-form-scroll space-y-4"
+        [formGroup]="cancelledForm"
+        (ngSubmit)="submitAddCancelled()"
+      >
         <div
           class="relative"
           (appClickOutside)="closeCustomerSuggestions()"

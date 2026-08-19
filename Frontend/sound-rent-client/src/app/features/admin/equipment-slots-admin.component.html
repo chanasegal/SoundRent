@@ -216,7 +216,7 @@
               }
             </p>
           } @else if (result.isMissing) {
-            <p class="serial-locator__status">חסר / לא הוחזר ⚠️</p>
+            <p class="serial-locator__status">מושאל ⚠️</p>
             <p class="serial-locator__meta">
               <span>{{ result.label }}</span>
               @if (serialLocationIsOneTime()) {
@@ -473,9 +473,11 @@
                               maxlength="100"
                               [formControlName]="idx"
                               class="note-input"
+                              [class.note-input--in-repair]="isSerialInRepair(row.def, customInventoryCodeValue(row.formIndex, idx))"
                               [attr.data-serial-nav]="'1'"
                               [attr.placeholder]="'#' + (idx + 1)"
                               (keydown.enter)="focusNextSerialInput($event)"
+                              (contextmenu)="openSerialStatusMenu(row.def, customInventoryCodeValue(row.formIndex, idx), $event)"
                             />
                           } @else {
                             <input
@@ -486,9 +488,11 @@
                               appIntegerOnly
                               [formControlName]="idx"
                               class="note-input"
+                              [class.note-input--in-repair]="isSerialInRepair(row.def, customInventoryCodeValue(row.formIndex, idx))"
                               [attr.data-serial-nav]="'1'"
                               [attr.placeholder]="'#' + (idx + 1)"
                               (keydown.enter)="focusNextSerialInput($event)"
+                              (contextmenu)="openSerialStatusMenu(row.def, customInventoryCodeValue(row.formIndex, idx), $event)"
                             />
                           }
                           @if (supportsDefaultAccessories(row.def) && row.def.linkedEquipmentType) {
@@ -567,6 +571,35 @@
     }
   </section>
 </div>
+
+@if (serialStatusMenu(); as menu) {
+  <div
+    class="serial-status-menu"
+    [style.left.px]="menu.x"
+    [style.top.px]="menu.y"
+    (click)="$event.stopPropagation()"
+    (contextmenu)="$event.preventDefault(); $event.stopPropagation()"
+  >
+    <button
+      type="button"
+      class="serial-status-menu__item"
+      [class.serial-status-menu__item--active]="menu.currentStatus === 'InWarehouse'"
+      [disabled]="serialStatusSaving()"
+      (click)="setSerialStatusFromMenu('InWarehouse')"
+    >
+      במלאי
+    </button>
+    <button
+      type="button"
+      class="serial-status-menu__item serial-status-menu__item--repair"
+      [class.serial-status-menu__item--active]="menu.currentStatus === 'InRepair'"
+      [disabled]="serialStatusSaving()"
+      (click)="setSerialStatusFromMenu('InRepair')"
+    >
+      בתיקון
+    </button>
+  </div>
+}
 
 @if (addSlotOpen()) {
   <div

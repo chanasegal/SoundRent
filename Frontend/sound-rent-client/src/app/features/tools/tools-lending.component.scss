@@ -372,6 +372,26 @@
   }
 }
 
+.add-tool-btn--compact {
+  margin-top: 0.25rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-style: solid;
+  border-color: #cbd5e1;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: #eef2f7;
+  }
+}
+
 .ms-dropdown__btn {
   width: 100%;
   text-align: right;

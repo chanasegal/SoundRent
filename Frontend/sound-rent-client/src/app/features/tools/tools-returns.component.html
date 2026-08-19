@@ -164,6 +164,22 @@
     }
   </section>
 
+  <section class="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div class="loan-search__row">
+      <input
+        type="search"
+        class="loan-search__input"
+        placeholder="קוד / שם פריט / לקוח / טלפון…"
+        autocomplete="off"
+        [value]="returnSearchQuery()"
+        (input)="returnSearchQuery.set($any($event.target).value)"
+      />
+      @if (returnSearchQuery().trim()) {
+        <button type="button" class="loan-search__clear" (click)="returnSearchQuery.set('')">נקה</button>
+      }
+    </div>
+  </section>
+
   <div class="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
     @if (loading() && !historyMode()) {
       <p class="px-4 py-8 text-center text-sm text-slate-500">טוען החזרות…</p>
@@ -185,7 +201,12 @@
           </tr>
         </thead>
         <tbody>
-          @for (row of rows(); track row.rowKey) {
+          @if (filteredRows().length === 0) {
+            <tr><td colspan="9" class="px-4 py-8 text-center text-sm text-slate-500">
+              {{ returnSearchQuery().trim() ? 'לא נמצאו תוצאות לחיפוש' : 'אין החזרות' }}
+            </td></tr>
+          }
+          @for (row of filteredRows(); track row.rowKey) {
             <tr class="border-b border-slate-100" [class.row-overdue]="isOverdue(row)">
               <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
                 {{ row.hebrewLentDisplay }}

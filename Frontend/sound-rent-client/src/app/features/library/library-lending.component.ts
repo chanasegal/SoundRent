@@ -237,7 +237,9 @@ export class LibraryLendingComponent implements OnInit {
       const phoneDigits = (row.phone ?? '').replace(/\D/g, '');
       const nameHit = name.includes(needleText);
       const phoneHit = needleDigits.length > 0 && phoneDigits.includes(needleDigits);
-      return nameHit || phoneHit;
+      const titleHit = (row.item.bookTitle ?? '').toLowerCase().includes(raw);
+      const copyHit = (row.item.copyNumber ?? '').toLowerCase().includes(raw);
+      return nameHit || phoneHit || titleHit || copyHit;
     });
   });
 
@@ -251,7 +253,6 @@ export class LibraryLendingComponent implements OnInit {
     this.loadDefinitions();
     this.customers.load().subscribe();
     this.wireTimeLimitDays();
-    this.wireActiveLoansSearch();
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
     this.tryRestoreMinimizedDraft();
@@ -1339,11 +1340,14 @@ export class LibraryLendingComponent implements OnInit {
       });
   }
 
-  /** Debounced local filter only — no HTTP while typing. */
-  private wireActiveLoansSearch(): void {
-    this.activeSearchInput.valueChanges
-      .pipe(debounceTime(150), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
-      .subscribe((q) => this.activeSearchQuery.set(q));
+  /** Called directly from (input)/(search) DOM events — reliable in zoneless apps. */
+  protected onActiveSearchInput(value: string): void {
+    this.activeSearchQuery.set(value);
+  }
+
+  protected clearActiveSearch(): void {
+    this.activeSearchInput.setValue('');
+    this.activeSearchQuery.set('');
   }
 
   private recomputeAllDeadlines(): void {

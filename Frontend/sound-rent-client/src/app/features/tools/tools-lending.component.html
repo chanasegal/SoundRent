@@ -84,10 +84,11 @@
                         placeholder="שם כלי + קוד (למשל: מברגה 123)"
                         data-tool-line-input
                         [attr.data-line-id]="line.id"
+                        [attr.data-form-id]="form.id"
                         [value]="line.toolQuery"
                         (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
                         (focus)="onToolQueryFocus(form.id, line.id)"
-                        (keydown)="onToolQueryKeydown(form.id, line.id, $event)"
+                        (keydown.enter)="onToolQueryEnter(form.id, line.id, $event)"
                         autocomplete="off"
                       />
                       @if (line.toolSuggestOpen) {
@@ -114,14 +115,18 @@
                     <div
                       class="tool-line__codes"
                       data-codes-dropdown
+                      (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
                       (appClickOutside)="closeCodesDropdown(form.id, line.id)"
                       [appClickOutsideEnabled]="line.codesOpen"
                     >
                       <button
                         type="button"
                         class="ms-dropdown__btn"
+                        [attr.data-line-id]="line.id"
+                        [attr.data-form-id]="form.id"
                         [disabled]="line.toolId == null"
                         (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                        (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
                       >
                         @if (line.selectedCodes.length === 0) {
                           <span class="placeholder">בחרו קודים…</span>
@@ -160,6 +165,16 @@
                   </div>
                 }
               </div>
+              <button
+                type="button"
+                class="add-tool-btn add-tool-btn--compact"
+                [disabled]="!!submittingId()"
+                (click)="onAddToolLineClick(form.id, $event)"
+                aria-label="הוסף שורת כלי"
+                title="הוסף שורת כלי"
+              >
+                +
+              </button>
             </div>
 
             <div
@@ -381,14 +396,21 @@
   </section>
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש (טלפון או שם)</label>
-    <input
-      [formControl]="activeSearchInput"
-      class="w-full max-w-xl rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      placeholder="הקלידו ספרות או שם — החיפוש מתעדכן אוטומטית"
-      autocomplete="off"
-    />
-    <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
+    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש השאלות</label>
+    <div class="loan-search__row">
+      <input
+        type="search"
+        class="loan-search__input"
+        placeholder="קוד / שם פריט / לקוח / טלפון…"
+        [value]="activeSearchQuery()"
+        (input)="onActiveSearchInput($any($event.target).value)"
+        (search)="onActiveSearchInput($any($event.target).value)"
+        autocomplete="off"
+      />
+      @if (activeSearchQuery().trim()) {
+        <button type="button" class="loan-search__clear" (click)="clearActiveSearch()">נקה</button>
+      }
+    </div>
   </section>
 
   <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

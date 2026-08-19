@@ -627,7 +627,7 @@ export class QuickLoanComponent implements OnInit {
       return units.map((unit) => {
         const serialCode = unit.serialCode.trim();
         const status = unit.physicalStatus;
-        const occupied = status === 'LoanedOut' || status === 'Missing';
+        const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
         return {
           serialCode,
           isAvailable: !occupied || reserved.has(serialCode.toLowerCase())

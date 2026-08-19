@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  HostListener,
   OnInit,
   computed,
   effect,
@@ -39,6 +40,7 @@ import {
 } from '../../core/models/equipment-definition.model';
 import {
   InventoryDefinitionDto,
+  InventorySerialPhysicalStatus,
   InventoryHolderDto
 } from '../../core/models/inventory-definition.model';
 import {
@@ -290,6 +292,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly deletingId = signal<string | null>(null);
   protected readonly futureOrdersModal = signal<EquipmentDefinitionDeleteFutureOrder[] | null>(null);
   protected readonly maintenanceTogglingId = signal<string | null>(null);
+  protected readonly serialStatusMenu = signal<{
+    inventoryDefinitionId: number;
+    serialCode: string;
+    x: number;
+    y: number;
+    currentStatus: InventorySerialPhysicalStatus;
+  } | null>(null);
+  protected readonly serialStatusSaving = signal(false);
 
   /** Creates a single booking-slot column on the weekly board (not accessory inventory). */
   protected readonly addSlotForm = this.fb.group({
@@ -495,18 +505,19 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       );
     const isMissing = unit?.physicalStatus === 'Missing';
     const isLoaned = unit?.physicalStatus === 'LoanedOut';
+    const isInRepair = unit?.physicalStatus === 'InRepair';
     this.serialLocationResult.set({
       equipmentType: LoanedEquipmentType.Connectors,
       label: def.displayName,
       serialCode,
       isRegistered: registered,
-      isInWarehouse: registered && !isMissing && !isLoaned,
+      isInWarehouse: registered && !isMissing && !isLoaned && !isInRepair,
       isMissing,
       customerName: unit?.holderCustomerName ?? null,
       phone: unit?.holderPhone ?? null,
       address: unit?.holderAddress ?? null,
       loanDate: unit?.markedMissingAt ?? null,
-      notes: isMissing ? 'חסר / לא הוחזר' : null
+      notes: isMissing ? 'מושאל' : null
     });
   }
 
@@ -957,10 +968,93 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     if (status === 'Missing') {
       return 'inventory-row-status inventory-row-status--missing';
     }
+    if (status === 'InRepair') {
+      return 'inventory-row-status inventory-row-status--in-repair';
+    }
     if (status === 'LoanedOut') {
       return 'inventory-row-status inventory-row-status--loaned';
     }
     return 'inventory-row-status inventory-row-status--available';
+  }
+
+  protected serialStatusFor(
+    def: InventoryDefinitionDto,
+    serialCode: string
+  ): InventorySerialPhysicalStatus {
+    const code = serialCode.trim();
+    if (!code) {
+      return 'InWarehouse';
+    }
+    const unit = (def.serialUnits ?? []).find(
+      (u) => u.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+    return unit?.physicalStatus ?? 'InWarehouse';
+  }
+
+  protected isSerialInRepair(def: InventoryDefinitionDto, serialCode: string): boolean {
+    return this.serialStatusFor(def, serialCode) === 'InRepair';
+  }
+
+  protected openSerialStatusMenu(
+    def: InventoryDefinitionDto,
+    serialCode: string,
+    event: MouseEvent
+  ): void {
+    const code = serialCode.trim();
+    if (!code || this.serialStatusSaving()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.serialStatusMenu.set({
+      inventoryDefinitionId: def.id,
+      serialCode: code,
+      x: event.clientX,
+      y: event.clientY,
+      currentStatus: this.serialStatusFor(def, code)
+    });
+  }
+
+  protected closeSerialStatusMenu(): void {
+    if (this.serialStatusSaving()) {
+      return;
+    }
+    this.serialStatusMenu.set(null);
+  }
+
+  protected setSerialStatusFromMenu(status: InventorySerialPhysicalStatus): void {
+    const menu = this.serialStatusMenu();
+    if (!menu || this.serialStatusSaving()) {
+      return;
+    }
+    if (menu.currentStatus === status) {
+      this.closeSerialStatusMenu();
+      return;
+    }
+
+    this.serialStatusSaving.set(true);
+    this.data
+      .updateInventoryDefinitionSerialStatus(menu.inventoryDefinitionId, {
+        serialCode: menu.serialCode,
+        status
+      })
+      .pipe(finalize(() => this.serialStatusSaving.set(false)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.inventoryStore.upsert(updated);
+        this.customInventoryDefinitions.update((defs) =>
+          defs.map((d) => (d.id === updated.id ? updated : d))
+        );
+        this.serialStatusMenu.set(null);
+      });
+  }
+
+  @HostListener('document:click')
+  @HostListener('document:contextmenu')
+  protected onDocumentPointerCloseMenu(): void {
+    this.closeSerialStatusMenu();
   }
 
   protected formatMissingMarkedAt(iso: string | null | undefined): string {

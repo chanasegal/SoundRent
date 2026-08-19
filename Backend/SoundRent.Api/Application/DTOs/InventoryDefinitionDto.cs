@@ -96,6 +96,13 @@ public class InventoryDefinitionSerialsUpdateDto
     public List<string> SerialCodes { get; set; } = [];
 }
 
+public class InventoryDefinitionSerialStatusUpdateDto
+{
+    public string SerialCode { get; set; } = string.Empty;
+
+    public AccessorySerialPhysicalStatus Status { get; set; } = AccessorySerialPhysicalStatus.InWarehouse;
+}
+
 public class InventoryDefinitionBatchUpdateDto
 {
     public List<InventoryDefinitionTypeUpdateDto> Items { get; set; } = [];

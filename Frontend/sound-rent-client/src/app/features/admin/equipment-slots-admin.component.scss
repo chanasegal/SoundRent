@@ -391,6 +391,56 @@ tr.row-in-maintenance:hover {
     background: #fff1f2;
     color: #9f1239;
   }
+
+  &--in-repair {
+    border-color: #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+  }
+}
+
+.serial-status-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  background: #fff;
+  box-shadow: 0 16px 32px -20px rgba(15, 23, 42, 0.5);
+  padding: 0.3rem;
+}
+
+.serial-status-menu__item {
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  padding: 0.45rem 0.55rem;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e293b;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #f1f5f9;
+  }
+
+  &--active {
+    background: #e0f2fe;
+    color: #075985;
+  }
+
+  &--repair {
+    color: #92400e;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 }
 
 .inventory-row-status-cell {

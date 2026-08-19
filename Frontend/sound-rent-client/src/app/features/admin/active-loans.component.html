@@ -121,25 +121,39 @@
     </div>
   </div>
 
-  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <div class="loan-search mb-4">
-      <label class="mb-1 block text-sm font-medium text-slate-700" for="active-loans-search">
-        חיפוש השאלות
-      </label>
-      <div class="loan-search__row">
+  <section class="history-filter-card mb-5" aria-label="חיפוש השאלות">
+    <h2 class="history-filter-card__title">חיפוש מתקדם</h2>
+    <p class="history-filter-card__hint">
+      חיפוש לפי קוד פריט, שם אביזר (כולל פריטים חד־פעמיים), שם לקוח, טלפון, כתובת או מספר הזמנה.
+    </p>
+    <div class="history-filter-card__row">
+      <label class="history-field history-field--grow">
+        <span>חיפוש חופשי</span>
         <input
           id="active-loans-search"
           type="search"
-          class="loan-search__input"
-          placeholder="שם לקוח, טלפון, הזמנה#, שם אביזר או קוד…"
+          class="field-input"
+          placeholder="קוד / שם אביזר / לקוח / טלפון…"
           [value]="loanSearchQuery()"
-          (input)="onLoanSearchInput($any($event.target).value)"
+          (input)="loanSearchQuery.set($any($event.target).value)"
+          (search)="loanSearchQuery.set($any($event.target).value)"
+          autocomplete="off"
         />
-        @if (loanSearchQuery().trim()) {
-          <button type="button" class="loan-search__clear" (click)="clearLoanSearch()">נקה</button>
-        }
-      </div>
+      </label>
+      @if (loanSearchQuery().trim()) {
+        <button type="button" class="history-btn" (click)="clearLoanSearch()">נקה חיפוש</button>
+      }
     </div>
+    @if (loanSearchQuery().trim()) {
+      <p class="history-filter-card__mode">
+        מציג תוצאות עבור
+        <strong>„{{ loanSearchQuery().trim() }}"</strong>
+        — מסונן אוטומטית
+      </p>
+    }
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
 
     @if (activeLoading() && activeLoanCustomerCards().length === 0) {
       <p class="py-6 text-center text-sm text-slate-500">טוען…</p>

@@ -383,14 +383,21 @@
   }
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש (טלפון או שם)</label>
-    <input
-      [formControl]="activeSearchInput"
-      class="w-full max-w-xl rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      placeholder="הקלידו ספרות או שם — החיפוש מתעדכן אוטומטית"
-      autocomplete="off"
-    />
-    <p class="mt-2 text-xs text-slate-500">מספרי טלפון מאוחסנים ללא מקפים; ניתן להקליד בכל פורמט.</p>
+    <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש השאלות</label>
+    <div class="loan-search__row">
+      <input
+        type="search"
+        class="loan-search__input"
+        placeholder="ברקוד / שם ספר / לקוח / טלפון…"
+        [value]="activeSearchQuery()"
+        (input)="onActiveSearchInput($any($event.target).value)"
+        (search)="onActiveSearchInput($any($event.target).value)"
+        autocomplete="off"
+      />
+      @if (activeSearchQuery().trim()) {
+        <button type="button" class="loan-search__clear" (click)="clearActiveSearch()">נקה</button>
+      }
+    </div>
   </section>
 
   <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

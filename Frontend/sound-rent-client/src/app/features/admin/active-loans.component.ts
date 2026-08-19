@@ -136,7 +136,12 @@ export class ActiveLoansComponent implements OnInit {
   protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
   protected readonly loanSearchQuery = signal('');
 
-  protected readonly activeLoanRows = computed(() => this.buildActiveLoanRows(this.activeLoans()));
+  protected readonly activeLoanRows = computed(() => {
+    // Reading definitions() here establishes a reactive dependency so the rows
+    // recompute (and accessory names resolve correctly) once the store loads.
+    this.inventoryStore.definitions();
+    return this.buildActiveLoanRows(this.activeLoans());
+  });
 
   protected readonly activeLoanCustomerCards = computed(() => {
     // Touch customers signal so notes refresh after profile load/upsert.
@@ -175,7 +180,12 @@ export class ActiveLoansComponent implements OnInit {
     }
 
     for (const unit of def.serialUnits ?? []) {
-      if (unit.physicalStatus === 'LoanedOut' && unit.serialCode.trim()) {
+      if (
+        (unit.physicalStatus === 'LoanedOut' ||
+          unit.physicalStatus === 'Missing' ||
+          unit.physicalStatus === 'InRepair') &&
+        unit.serialCode.trim()
+      ) {
         codes.add(unit.serialCode.trim());
       }
     }
@@ -789,38 +799,44 @@ export class ActiveLoansComponent implements OnInit {
       return cards;
     }
 
-    const digitsQuery = query.replace(/\D/g, '');
-
-    return cards.filter((card) => {
-      if (card.customerName.toLowerCase().includes(query)) {
-        return true;
-      }
-      if (card.address.toLowerCase().includes(query)) {
-        return true;
-      }
+    const terms = query.split(/\s+/).filter((t) => t.length > 0);
+    const filtered = cards.filter((card) => {
+      const itemNames = card.items.map((item) => item.accessoryName);
+      const customerName = (card.customerName ?? '').toLowerCase();
+      const address = (card.address ?? '').toLowerCase();
+      const phoneRaw = (card.phone ?? '').toLowerCase();
       const phoneDigits = this.normalizePhone(card.phone);
-      if (digitsQuery && phoneDigits.includes(digitsQuery)) {
+      const orderIds = card.orders.map((o) => String(o.id));
+      const itemNamesLower = card.items.map((item) => (item.accessoryName ?? '').toLowerCase());
+      const assignedCodes = card.items.flatMap((item) =>
+        (item.assignedSerialCodes ?? []).map((c) => c.toLowerCase())
+      );
+      const itemCodes = card.items.flatMap((item) => (item.codes ?? []).map((c) => c.toLowerCase()));
+
+      // Full phrase search is strict contiguous match in the two primary textual fields.
+      const phraseMatch = customerName.includes(query) || itemNamesLower.some((name) => name.includes(query));
+
+      if (phraseMatch) {
         return true;
       }
-      if (card.phone.toLowerCase().includes(query)) {
-        return true;
-      }
-      if (card.orders.some((o) => String(o.id).includes(query) || String(o.id).includes(digitsQuery))) {
-        return true;
-      }
-      return card.items.some((item) => {
-        if (item.accessoryName.toLowerCase().includes(query)) {
-          return true;
-        }
-        if (item.isOneTimeItem && 'חד-פעמי'.includes(query)) {
-          return true;
-        }
-        return (
-          item.assignedSerialCodes.some((c) => c.toLowerCase().includes(query)) ||
-          item.codes.some((c) => c.toLowerCase().includes(query))
-        );
+
+      // AND across terms, OR across fields per term.
+      return terms.every((term) => {
+        const digitsTerm = term.replace(/\D/g, '');
+        const termMatches =
+          customerName.includes(term) ||
+          address.includes(term) ||
+          phoneRaw.includes(term) ||
+          (digitsTerm.length > 0 && phoneDigits.includes(digitsTerm)) ||
+          orderIds.some((id) => id.includes(term) || (digitsTerm.length > 0 && id.includes(digitsTerm))) ||
+          itemNamesLower.some((name) => name.includes(term)) ||
+          assignedCodes.some((c) => c.includes(term)) ||
+          itemCodes.some((c) => c.includes(term));
+
+        return termMatches;
       });
     });
+    return filtered;
   }
 
   private customerCardKey(row: Pick<ActiveLoanRow, 'customerName' | 'phone'>): string {

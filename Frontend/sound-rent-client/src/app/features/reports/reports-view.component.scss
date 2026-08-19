@@ -470,6 +470,17 @@ $date-control-height: 2.5rem;
   min-width: 0;
 }
 
+.reports-modal-panel--cancelled {
+  overflow: visible;
+  max-height: min(90vh, 52rem);
+}
+
+.reports-modal-form-scroll {
+  max-height: min(70vh, 40rem);
+  overflow-y: auto;
+  padding-inline-end: 0.25rem;
+}
+
 @media (max-width: 640px) {
   .hebrew-date-picker-group {
     flex-wrap: wrap;

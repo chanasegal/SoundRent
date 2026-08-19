@@ -346,6 +346,54 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         await _repository.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<InventoryDefinitionDto> SetSerialStatusAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        AccessorySerialPhysicalStatus status,
+        CancellationToken cancellationToken = default)
+    {
+        var code = (serialCode ?? string.Empty).Trim();
+        if (inventoryDefinitionId <= 0 || code.Length == 0)
+        {
+            throw new ValidationException("יש להזין קוד פריט");
+        }
+
+        if (status is not AccessorySerialPhysicalStatus.InWarehouse
+            and not AccessorySerialPhysicalStatus.InRepair)
+        {
+            throw new ValidationException("סטטוס לא נתמך לעדכון ידני");
+        }
+
+        var entity = await _repository.GetByIdWithSerialsAsync(inventoryDefinitionId, cancellationToken)
+            ?? throw new NotFoundException("פריט המלאי לא נמצא");
+
+        if (entity.LinkedEquipmentType is LoanedEquipmentType linked)
+        {
+            await _accessorySerials.SetPhysicalStatusAsync(
+                linked,
+                code,
+                status,
+                cancellationToken);
+            await _accessorySerials.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            var existing = entity.SerialCodes.FirstOrDefault(s =>
+                string.Equals(s.SerialCode, code, StringComparison.OrdinalIgnoreCase));
+            if (existing is null)
+            {
+                throw new ValidationException("קוד הפריט לא נמצא במלאי");
+            }
+            existing.PhysicalStatus = status;
+            entity.UpdatedAt = DateTime.UtcNow;
+            await _repository.SaveChangesAsync(cancellationToken);
+        }
+
+        var all = await GetAllAsync(cancellationToken);
+        return all.FirstOrDefault(d => d.Id == inventoryDefinitionId)
+            ?? throw new NotFoundException("פריט המלאי לא נמצא");
+    }
+
     public async Task ValidateOrderCatalogSerialsAsync(
         IReadOnlyCollection<OrderLoanedEquipmentDto> items,
         int? excludeOrderId,
@@ -437,7 +485,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 var unavailableByStatus =
                     statusByCode.TryGetValue(entry.Code, out var status)
                     && status is AccessorySerialPhysicalStatus.LoanedOut
-                        or AccessorySerialPhysicalStatus.Missing;
+                        or AccessorySerialPhysicalStatus.Missing
+                        or AccessorySerialPhysicalStatus.InRepair;
                 var unavailableByActiveLoan = active.Contains(entry.Code);
 
                 if ((unavailableByStatus || unavailableByActiveLoan) && !reserved.Contains(entry.Code))
@@ -1236,6 +1285,12 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             return AccessorySerialPhysicalStatus.Missing;
         }
 
+        if (holders.Any(h => h.Status == AccessorySerialPhysicalStatus.InRepair)
+            || units.Any(u => u.PhysicalStatus == AccessorySerialPhysicalStatus.InRepair))
+        {
+            return AccessorySerialPhysicalStatus.InRepair;
+        }
+
         if (holders.Any(h => h.Status == AccessorySerialPhysicalStatus.LoanedOut)
             || units.Any(u => u.PhysicalStatus == AccessorySerialPhysicalStatus.LoanedOut))
         {
@@ -1280,14 +1335,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
     private static string StatusLabel(AccessorySerialPhysicalStatus status) => status switch
     {
         AccessorySerialPhysicalStatus.LoanedOut => "מושאל",
-        AccessorySerialPhysicalStatus.Missing => "חסר / לא הוחזר",
+        AccessorySerialPhysicalStatus.Missing => "מושאל",
+        AccessorySerialPhysicalStatus.InRepair => "בתיקון",
         _ => "במלאי"
     };
 
     private static string AggregateStatusLabel(AccessorySerialPhysicalStatus status) => status switch
     {
         AccessorySerialPhysicalStatus.LoanedOut => "בהשאלה",
-        AccessorySerialPhysicalStatus.Missing => "חסר / לא הוחזר",
+        AccessorySerialPhysicalStatus.Missing => "בהשאלה",
+        AccessorySerialPhysicalStatus.InRepair => "בתיקון",
         _ => "זמין"
     };
 

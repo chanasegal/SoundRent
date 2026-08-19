@@ -57,6 +57,7 @@ import {
   InventoryDefinitionCreateDto,
   InventoryDefinitionEnsureDto,
   InventoryDefinitionDto,
+  InventoryDefinitionSerialStatusUpdateDto,
   InventoryDefinitionSerialsUpdateDto,
   InventoryDefinitionUpdateDto
 } from '../models/inventory-definition.model';
@@ -1047,6 +1048,20 @@ export class DataService {
   ): Observable<InventoryDefinitionDto | null> {
     return this.http
       .put<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}/serials`, payload)
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
+  }
+
+  updateInventoryDefinitionSerialStatus(
+    id: number,
+    payload: InventoryDefinitionSerialStatusUpdateDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http
+      .patch<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}/serial-status`, payload)
       .pipe(
         catchError((err) => {
           this.notifyHttpError(err);

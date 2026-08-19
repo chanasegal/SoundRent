@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
+using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Controllers;
 
@@ -70,6 +71,27 @@ public class InventoryDefinitionsController : ControllerBase
         CancellationToken cancellationToken)
     {
         return Ok(await _service.ReplaceSerialsAsync(id, dto, cancellationToken));
+    }
+
+    [HttpPatch("{id:int}/serial-status")]
+    public async Task<ActionResult<InventoryDefinitionDto>> UpdateSerialStatus(
+        int id,
+        [FromBody] InventoryDefinitionSerialStatusUpdateDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _service.SetSerialStatusAsync(
+                id,
+                dto.SerialCode,
+                dto.Status,
+                cancellationToken);
+            return Ok(updated);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("batch")]

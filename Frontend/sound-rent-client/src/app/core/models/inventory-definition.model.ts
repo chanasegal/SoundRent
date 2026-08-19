@@ -1,4 +1,4 @@
-export type InventorySerialPhysicalStatus = 'InWarehouse' | 'LoanedOut' | 'Missing';
+export type InventorySerialPhysicalStatus = 'InWarehouse' | 'LoanedOut' | 'Missing' | 'InRepair';
 
 export interface InventorySerialUnitDto {
   serialCode: string;
@@ -56,6 +56,11 @@ export interface InventoryDefinitionUpdateDto {
 
 export interface InventoryDefinitionSerialsUpdateDto {
   serialCodes: string[];
+}
+
+export interface InventoryDefinitionSerialStatusUpdateDto {
+  serialCode: string;
+  status: InventorySerialPhysicalStatus;
 }
 
 export interface InventoryDefinitionTypeUpdateDto {

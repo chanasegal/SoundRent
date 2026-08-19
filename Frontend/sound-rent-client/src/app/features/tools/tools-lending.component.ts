@@ -285,7 +285,10 @@ export class ToolsLendingComponent implements OnInit {
       const phoneDigits = (row.phone ?? '').replace(/\D/g, '');
       const nameHit = name.includes(needleText);
       const phoneHit = needleDigits.length > 0 && phoneDigits.includes(needleDigits);
-      return nameHit || phoneHit;
+      const toolNameHit = (row.item.toolName ?? '').toLowerCase().includes(raw);
+      const serialHit = (row.item.serialCode ?? '').toLowerCase().includes(raw) ||
+        (row.activeSerialCodes ?? []).some((c) => c.toLowerCase().includes(raw));
+      return nameHit || phoneHit || toolNameHit || serialHit;
     });
   });
 
@@ -299,7 +302,6 @@ export class ToolsLendingComponent implements OnInit {
     this.loadDefinitions();
     this.customers.load().subscribe();
     this.wireTimeLimitHours();
-    this.wireActiveLoansSearch();
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
     this.refreshAccessoryLoans();
@@ -1215,12 +1217,50 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
-  protected onToolQueryKeydown(formId: string, lineId: string, event: KeyboardEvent): void {
-    if (event.key !== 'Enter') {
+  protected onToolQueryEnter(formId: string, lineId: string, event: Event): void {
+    console.log('[ToolsLending] Enter pressed on tool name', {
+      action: 'Enter pressed on tool name',
+      formId,
+      lineId,
+      event
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitLineAndAddNext(formId, lineId);
+  }
+
+  protected onCodesEnter(formId: string, lineId: string, event: Event): void {
+    console.log('[ToolsLending] Enter pressed on codes', {
+      action: 'Enter pressed on codes',
+      formId,
+      lineId,
+      event
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitLineAndAddNext(formId, lineId);
+  }
+
+  protected onAddToolLineClick(formId: string, event: Event): void {
+    const form = this.forms().find((f) => f.id === formId);
+    const activeLineId = this.activeLineIdForForm(formId);
+    const activeRowIndex =
+      activeLineId && form ? form.toolLines.findIndex((l) => l.id === activeLineId) : -1;
+    console.log('[ToolsLending] + button clicked', {
+      action: '+ button clicked',
+      formId,
+      lineId: activeLineId,
+      activeRowIndex,
+      event
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeLineId) {
+      this.commitLineAndAddNext(formId, activeLineId);
       return;
     }
-    event.preventDefault();
-    this.commitToolLineFromText(formId, lineId);
+    // Graceful fallback: if nothing is focused, always append a fresh row to the end.
+    this.addToolLine(formId);
   }
 
   protected selectTool(formId: string, lineId: string, tool: ToolDefinitionDto): void {
@@ -1604,62 +1644,81 @@ export class ToolsLendingComponent implements OnInit {
       toolQuery = parsed.tool.displayName;
 
       if (parsed.codes.length === 0) {
-        this.forms.update((list) =>
-          list.map((f) => {
-            if (f.id !== formId) {
-              return f;
+        if (line.selectedCodes.length > 0) {
+          const availableCodes = this.availableByTool().get(parsed.tool.id) ?? [];
+          for (const code of line.selectedCodes) {
+            if (!this.findCodeMatch(parsed.tool.serialCodes ?? [], code)) {
+              this.toast.error(`הקוד "${code}" לא שייך לכלי "${parsed.tool.displayName}"`);
+              this.focusToolLineInput(lineId);
+              return;
             }
-            return {
-              ...f,
-              toolLines: f.toolLines.map((l) =>
-                l.id !== lineId
-                  ? l
-                  : {
-                      ...l,
-                      toolId,
-                      toolQuery,
-                      selectedCodes: [],
-                      isTemporary: false,
-                      toolSuggestOpen: false,
-                      codesOpen: false
-                    }
-              )
-            };
-          })
+            if (!this.findCodeMatch(availableCodes, code)) {
+              this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+              this.focusToolLineInput(lineId);
+              return;
+            }
+          }
+          selectedCodes = [...line.selectedCodes];
+        } else {
+          this.forms.update((list) =>
+            list.map((f) => {
+              if (f.id !== formId) {
+                return f;
+              }
+              return {
+                ...f,
+                toolLines: f.toolLines.map((l) =>
+                  l.id !== lineId
+                    ? l
+                    : {
+                        ...l,
+                        toolId,
+                        toolQuery,
+                        selectedCodes: [],
+                        isTemporary: false,
+                        toolSuggestOpen: false,
+                        codesOpen: false
+                      }
+                )
+              };
+            })
+          );
+          this.focusToolLineInput(lineId);
+          return;
+        }
+      }
+
+      if (parsed.codes.length > 0) {
+        const canonicalToolCodes = parsed.codes.map((code) =>
+          this.findCodeMatch(parsed.tool.serialCodes ?? [], code)
         );
-        this.focusToolLineInput(lineId);
-        return;
-      }
+        const invalidCodeIndex = canonicalToolCodes.findIndex((code) => !code);
+        if (invalidCodeIndex >= 0) {
+          const badCode = parsed.codes[invalidCodeIndex];
+          this.toast.error(`הקוד "${badCode}" לא שייך לכלי "${parsed.tool.displayName}"`);
+          this.focusToolLineInput(lineId);
+          return;
+        }
 
-      const canonicalToolCodes = parsed.codes.map((code) =>
-        this.findCodeMatch(parsed.tool.serialCodes ?? [], code)
-      );
-      const invalidCodeIndex = canonicalToolCodes.findIndex((code) => !code);
-      if (invalidCodeIndex >= 0) {
-        const badCode = parsed.codes[invalidCodeIndex];
-        this.toast.error(`הקוד "${badCode}" לא שייך לכלי "${parsed.tool.displayName}"`);
-        this.focusToolLineInput(lineId);
-        return;
-      }
+        const availableCodes = this.availableByTool().get(parsed.tool.id) ?? [];
+        const canonicalAvailableCodes = parsed.codes.map((code) =>
+          this.findCodeMatch(availableCodes, code)
+        );
+        const unavailableCodeIndex = canonicalAvailableCodes.findIndex((code) => !code);
+        if (unavailableCodeIndex >= 0) {
+          const missingCode =
+            canonicalToolCodes[unavailableCodeIndex] ?? parsed.codes[unavailableCodeIndex];
+          this.toast.warning(`הקוד "${missingCode}" אינו זמין כרגע להשאלה`);
+          this.focusToolLineInput(lineId);
+          return;
+        }
 
-      const availableCodes = this.availableByTool().get(parsed.tool.id) ?? [];
-      const canonicalAvailableCodes = parsed.codes.map((code) =>
-        this.findCodeMatch(availableCodes, code)
-      );
-      const unavailableCodeIndex = canonicalAvailableCodes.findIndex((code) => !code);
-      if (unavailableCodeIndex >= 0) {
-        const missingCode =
-          canonicalToolCodes[unavailableCodeIndex] ?? parsed.codes[unavailableCodeIndex];
-        this.toast.warning(`הקוד "${missingCode}" אינו זמין כרגע להשאלה`);
-        this.focusToolLineInput(lineId);
-        return;
+        toolId = parsed.tool.id;
+        toolQuery = parsed.tool.displayName;
+        selectedCodes = [
+          ...new Set(canonicalAvailableCodes.filter((code): code is string => !!code))
+        ];
       }
-
-      toolId = parsed.tool.id;
-      toolQuery = parsed.tool.displayName;
-      selectedCodes = [
-        ...new Set(canonicalAvailableCodes.filter((code): code is string => !!code))
-      ];
     } else {
       const temporary = this.parseTemporaryToolEntry(line.toolQuery);
       if (temporary) {
@@ -1741,6 +1800,25 @@ export class ToolsLendingComponent implements OnInit {
       })
     );
     this.scheduleFocusToolLineInput(nextLineId);
+  }
+
+  private commitLineAndAddNext(formId: string, lineId: string): void {
+    this.commitToolLineFromText(formId, lineId);
+  }
+
+  private activeLineIdForForm(formId: string): string | null {
+    const active = this.document.activeElement as HTMLElement | null;
+    if (!active) {
+      return null;
+    }
+    const holder = active.closest<HTMLElement>('[data-line-id][data-form-id]');
+    if (!holder) {
+      return null;
+    }
+    if (holder.dataset['formId'] !== formId) {
+      return null;
+    }
+    return holder.dataset['lineId'] ?? null;
   }
 
   private parseFreeTextToolEntry(raw: string): { tool: ToolDefinitionDto; codes: string[] } | null {
@@ -2059,11 +2137,14 @@ export class ToolsLendingComponent implements OnInit {
       });
   }
 
-  /** Debounced local filter only — no HTTP while typing. */
-  private wireActiveLoansSearch(): void {
-    this.activeSearchInput.valueChanges
-      .pipe(debounceTime(150), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
-      .subscribe((q) => this.activeSearchQuery.set(q));
+  /** Called directly from (input)/(search) DOM events — reliable in zoneless apps. */
+  protected onActiveSearchInput(value: string): void {
+    this.activeSearchQuery.set(value);
+  }
+
+  protected clearActiveSearch(): void {
+    this.activeSearchInput.setValue('');
+    this.activeSearchQuery.set('');
   }
 
   private recomputeAllDeadlines(): void {

@@ -1,0 +1,266 @@
+<div class="mx-auto max-w-6xl px-4 py-6">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
+      <p class="mt-1 text-sm text-slate-600">חובות פתוחים – כלי העבודה</p>
+    </div>
+  </div>
+
+  <section class="reports-panel" role="region" aria-label="חובות פתוחים">
+    <div class="reports-panel__toolbar">
+      <div class="reports-panel__title-row">
+        <h2 class="text-lg font-bold text-[#002244]">חובות פתוחים (לא שולם)</h2>
+        <button
+          type="button"
+          class="reports-export-btn"
+          [disabled]="exportUnpaidInProgress() || filteredOpenDebts().length === 0"
+          (click)="exportUnpaidToExcel()"
+          title="הורדת רשימת חובות פתוחים ל-Excel"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v11"></path>
+            <path d="m8 10 4 4 4-4"></path>
+            <path d="M5 17v2h14v-2"></path>
+          </svg>
+          {{ exportUnpaidInProgress() ? 'מייצא…' : 'הורדה ל-Excel' }}
+        </button>
+        <button
+          type="button"
+          class="reports-add-btn"
+          (click)="openAddDebt()"
+        >
+          הוסף חוב חדש
+        </button>
+      </div>
+      <div class="reports-panel__filters">
+        <span class="text-sm text-slate-500">מציג: כלי עבודה בלבד</span>
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          [disabled]="loadingUnpaid()"
+          (click)="loadUnpaid()"
+        >
+          רענון
+        </button>
+      </div>
+    </div>
+
+    @if (loadingUnpaid()) {
+      <p class="reports-empty">טוען…</p>
+    } @else if (filteredOpenDebts().length === 0) {
+      <p class="reports-empty">אין חובות פתוחים 🎉</p>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="reports-table">
+          <thead>
+            <tr>
+              <th>שם לקוח</th>
+              <th>טלפון</th>
+              <th>ציוד</th>
+              <th>פיקדון</th>
+              <th>תאריך חיוב</th>
+              <th>סכום כולל</th>
+              <th class="text-center">פעולה</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (group of filteredOpenDebts(); track group.groupKey) {
+              <tr>
+                <td>{{ group.customerName || '—' }}</td>
+                <td class="font-mono text-xs" dir="ltr">{{ group.phone }}</td>
+                <td>{{ group.equipmentSummary || '—' }}</td>
+                <td>{{ group.deposit || '—' }}</td>
+                <td>{{ sessionHebrewDate(group) }}</td>
+                <td class="font-semibold text-[#002244]">{{ formatGroupAmount(group) }}</td>
+                <td class="text-center">
+                  <button
+                    type="button"
+                    class="reports-mark-paid-btn"
+                    [disabled]="markingPaidKey() === group.groupKey"
+                    (click)="markGroupAsPaid(group)"
+                    title="סמן כשולם"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5"></path>
+                    </svg>
+                    סמן כשולם
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</div>
+
+@if (addDebtOpen()) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-label="הוסף חוב חדש"
+    (click)="closeAddDebt()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש – כלי עבודה</h2>
+      <form [formGroup]="debtForm" (ngSubmit)="submitAddDebt()" class="space-y-4">
+
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+        >
+          <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
+          <input
+            formControlName="customerName"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+            (focus)="onCustomerSuggestFocus('name')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'name')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+            <ul class="reports-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="reports-suggest-item"
+                    [class.reports-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div
+          class="relative"
+          (appClickOutside)="closeCustomerSuggestions()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+        >
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            טלפון <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="tel"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            formControlName="phone"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            dir="ltr"
+            maxlength="10"
+            appIsraeliPhoneInput
+            autocomplete="off"
+            (focus)="onCustomerSuggestFocus('phone')"
+            (blur)="onCustomerSuggestBlur()"
+            (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+          />
+          @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+            <ul class="reports-suggest-list" role="listbox">
+              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="reports-suggest-item"
+                    [class.reports-suggest-item--active]="customerSuggestIndex() === i"
+                    (mousedown)="selectCustomerSuggestion(c, $event)"
+                  >
+                    {{ customerSuggestLabel(c) }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          @if (debtForm.controls.phone.touched && debtForm.controls.phone.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+          @if (debtForm.controls.phone.touched && debtForm.controls.phone.errors?.['israeliPhone']) {
+            <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <input
+            formControlName="address"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="300"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">קטגוריה</label>
+          <input
+            type="text"
+            value="כלי עבודה"
+            disabled
+            class="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">ציוד / תיאור פריט</label>
+          <input
+            formControlName="itemDescription"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="300"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון</label>
+          <input
+            formControlName="deposit"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="500"
+            placeholder="פרטי פיקדון"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">
+            סכום (₪) <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="number"
+            formControlName="amount"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            min="0.01"
+            step="1"
+            inputmode="decimal"
+          />
+          @if (debtForm.controls.amount.touched && debtForm.controls.amount.errors) {
+            <p class="mt-1 text-xs text-rose-600">יש להזין סכום גדול מאפס</p>
+          }
+        </div>
+
+        <div class="flex flex-wrap justify-end gap-2 pt-2">
+          <button
+            type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+            (click)="closeAddDebt()"
+          >
+            ביטול
+          </button>
+          <button
+            type="submit"
+            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
+            [disabled]="savingDebt()"
+          >
+            {{ savingDebt() ? 'שומר…' : 'שמירה' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

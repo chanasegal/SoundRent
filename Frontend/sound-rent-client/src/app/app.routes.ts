@@ -65,6 +65,11 @@ const toolsChildren: Routes = [
     path: 'customers',
     loadComponent: () =>
       import('./features/admin/customers-admin.component').then((m) => m.CustomersAdminComponent)
+  },
+  {
+    path: 'reports',
+    loadComponent: () =>
+      import('./features/tools/tools-reports.component').then((m) => m.ToolsReportsComponent)
   }
 ];
 

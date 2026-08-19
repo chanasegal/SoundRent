@@ -123,7 +123,8 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
         var query = _db.AccessorySerialInventory.AsNoTracking()
             .Where(r =>
                 r.PhysicalStatus == AccessorySerialPhysicalStatus.LoanedOut
-                || r.PhysicalStatus == AccessorySerialPhysicalStatus.Missing);
+                || r.PhysicalStatus == AccessorySerialPhysicalStatus.Missing
+                || r.PhysicalStatus == AccessorySerialPhysicalStatus.InRepair);
 
         if (typesFilter is { Count: > 0 })
         {
@@ -266,7 +267,7 @@ public class AccessorySerialInventoryRepository : IAccessorySerialInventoryRepos
                 CustomerName = missingMatch?.CustomerName,
                 Phone = missingMatch?.Phone,
                 Address = missingMatch?.Address,
-                Notes = "חסר / לא הוחזר",
+                Notes = "מושאל",
                 LoanDate = missingMatch is null
                     ? null
                     : DateOnly.FromDateTime(missingMatch.CreatedAt.ToUniversalTime())

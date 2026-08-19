@@ -146,6 +146,32 @@ export class LibraryReturnsComponent implements OnInit {
     this.historyMode() ? this.historyRows() : this.allCompletedRows()
   );
 
+  protected readonly returnSearchQuery = signal('');
+
+  protected readonly filteredRows = computed(() => {
+    const raw = this.returnSearchQuery().trim().toLowerCase();
+    const all = this.rows();
+    if (!raw) {
+      return all;
+    }
+    const needleDigits = raw.replace(/\D/g, '');
+    return all.filter((row) => {
+      if ((row.clientName ?? '').toLowerCase().includes(raw)) {
+        return true;
+      }
+      if (needleDigits && (row.phone ?? '').replace(/\D/g, '').includes(needleDigits)) {
+        return true;
+      }
+      if ((row.item.bookTitle ?? '').toLowerCase().includes(raw)) {
+        return true;
+      }
+      if ((row.item.copyNumber ?? '').toLowerCase().includes(raw)) {
+        return true;
+      }
+      return false;
+    });
+  });
+
   ngOnInit(): void {
     this.booksStore.load().subscribe();
     this.refresh();

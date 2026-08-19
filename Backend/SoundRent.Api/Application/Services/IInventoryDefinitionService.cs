@@ -47,6 +47,13 @@ public interface IInventoryDefinitionService
         string serialCode,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Sets a serial physical status (currently used for InWarehouse / InRepair toggles).</summary>
+    Task<InventoryDefinitionDto> SetSerialStatusAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        Domain.Enums.AccessorySerialPhysicalStatus status,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Validates serial codes on custom (unlinked) catalog loan lines:
     /// registered on the matching definition, unique, and not already loaned out.
