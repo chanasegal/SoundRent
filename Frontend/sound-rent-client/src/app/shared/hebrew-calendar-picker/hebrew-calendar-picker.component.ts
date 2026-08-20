@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   inject,
   input,
@@ -33,6 +34,7 @@ interface HebrewCalendarView {
 })
 export class HebrewCalendarPickerComponent {
   private readonly hebrew = inject(HebrewDateService);
+  private readonly elRef = inject(ElementRef);
 
   readonly year = model.required<number>();
   readonly month = model.required<number>();
@@ -42,6 +44,7 @@ export class HebrewCalendarPickerComponent {
   readonly dialogLabel = input('בחירת תאריך');
 
   protected readonly open = signal(false);
+  protected readonly popupStyle = signal<Record<string, string>>({});
   protected readonly calendarWeekdays = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'] as const;
 
   private readonly calendarView = signal<HebrewCalendarView>({ year: 0, month: 0 });
@@ -67,7 +70,36 @@ export class HebrewCalendarPickerComponent {
     }
 
     this.calendarView.set({ year: this.year(), month: this.month() });
+    this.updatePopupPosition();
     this.open.set(true);
+  }
+
+  private updatePopupPosition(): void {
+    const trigger: HTMLElement | null = this.elRef.nativeElement.querySelector('.hebrew-calendar-trigger');
+    if (!trigger) {
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const popupHeight = 320;
+
+    const style: Record<string, string> = { position: 'fixed' };
+
+    if (spaceBelow >= popupHeight || spaceBelow >= spaceAbove) {
+      style['top'] = `${rect.bottom + 5}px`;
+    } else {
+      style['bottom'] = `${window.innerHeight - rect.top + 5}px`;
+    }
+
+    const isRtl = document.documentElement.dir === 'rtl' || getComputedStyle(trigger).direction === 'rtl';
+    if (isRtl) {
+      style['right'] = `${window.innerWidth - rect.right}px`;
+    } else {
+      style['left'] = `${rect.left}px`;
+    }
+
+    this.popupStyle.set(style);
   }
 
   protected close(): void {

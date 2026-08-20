@@ -1073,24 +1073,25 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
 
-    const hasShiftOnDay = (updated.shifts ?? []).some((shift) => shift.orderDate === iso);
+    // Only keep/add orders whose loan starts on the selected day (not mid-span days).
+    const startsOnDay = this.isOrderStartDate(updated, iso);
     const alreadyListed = this.orders().some((order) => order.id === updated.id);
 
-    if (!hasShiftOnDay && !alreadyListed) {
+    if (!startsOnDay && !alreadyListed) {
       return;
     }
 
     this.orders.update((list) => {
       const index = list.findIndex((order) => order.id === updated.id);
       if (index >= 0) {
-        if (!hasShiftOnDay) {
+        if (!startsOnDay) {
           return list.filter((order) => order.id !== updated.id);
         }
         const next = [...list];
         next[index] = updated;
         return next;
       }
-      return hasShiftOnDay ? [...list, updated] : list;
+      return startsOnDay ? [...list, updated] : list;
     });
 
     this.accessoryAvailabilityByRow.update((map) => {
@@ -1136,10 +1137,9 @@ export class DailyEquipmentReportComponent implements OnInit {
   private buildReport(iso: string, orders: OrderDto[]): DailyEquipmentReport {
     // Accessory-only loans (Quick Loan / cables-only) have no main equipment slots —
     // exclude them so the report only shows orders with at least one system booking.
+    // Multi-day loans appear only on their start date (earliest shift), not mid-span days.
     const ordersOnDay = orders.filter(
-      (order) =>
-        (order.shifts ?? []).some((shift) => shift.orderDate === iso) &&
-        this.hasMainEquipment(order)
+      (order) => this.isOrderStartDate(order, iso) && this.hasMainEquipment(order)
     );
     const duplicateOrderIds = this.buildSameDayLastNameDuplicateOrderIds(ordersOnDay, iso);
 
@@ -1284,6 +1284,17 @@ export class DailyEquipmentReportComponent implements OnInit {
     return (order.equipmentDefinitionIds ?? []).some((id) => id.trim().length > 0);
   }
 
+  /** Earliest shift date (yyyy-MM-dd), i.e. the loan start date. */
+  private firstShiftDate(order: OrderDto): string | null {
+    const shifts = [...(order.shifts ?? [])].sort((a, b) => a.orderDate.localeCompare(b.orderDate));
+    return shifts[0]?.orderDate ?? null;
+  }
+
+  /** True when `iso` is the loan's start date (first day only — not mid-loan days). */
+  private isOrderStartDate(order: OrderDto, iso: string): boolean {
+    return this.firstShiftDate(order) === iso;
+  }
+
   private mergeSystemSlotIds(group: CustomerBreakdown, order: OrderDto): void {
     const known = new Set(group.systemSlotIds);
     for (const slotId of order.equipmentDefinitionIds ?? []) {
@@ -1347,8 +1358,7 @@ export class DailyEquipmentReportComponent implements OnInit {
     const buckets = new Map<string, Map<string, Set<number>>>();
 
     for (const order of orders) {
-      const hasShiftOnDay = (order.shifts ?? []).some((shift) => shift.orderDate === iso);
-      if (!hasShiftOnDay) {
+      if (!this.isOrderStartDate(order, iso)) {
         continue;
       }
       const lastNameKey = this.customerLastNameKey(order.customerName);

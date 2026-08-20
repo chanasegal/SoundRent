@@ -23,7 +23,7 @@
       aria-label="סגור לוח שנה"
       tabindex="-1"
     ></button>
-    <div class="hebrew-calendar-popup" role="dialog" [attr.aria-label]="dialogLabel()">
+    <div class="hebrew-calendar-popup" role="dialog" [attr.aria-label]="dialogLabel()" [ngStyle]="popupStyle()">
       <div class="hebrew-calendar-popup__header">
         <button type="button" class="hebrew-calendar-popup__nav" (click)="prevMonth()" aria-label="חודש קודם">‹</button>
         <span class="hebrew-calendar-popup__title">{{ calendarHeaderLabel() }}</span>
