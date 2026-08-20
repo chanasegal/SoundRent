@@ -26,6 +26,7 @@ import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 
@@ -121,9 +122,9 @@ export class LibraryInventoryComponent implements OnInit, OnDestroy {
   protected copiesForSearchType(): string[] {
     const id = this.serialSearchForm.controls.bookId.value;
     if (id == null) {
-      return this.definitions().flatMap((d) => d.copies);
+      return sortNumericCodes(this.definitions().flatMap((d) => d.copies));
     }
-    return this.definitions().find((d) => d.id === id)?.copies ?? [];
+    return sortNumericCodes(this.definitions().find((d) => d.id === id)?.copies ?? []);
   }
 
   protected refresh(): void {

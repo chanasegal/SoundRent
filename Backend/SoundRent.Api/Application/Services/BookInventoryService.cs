@@ -1,4 +1,4 @@
-ο»Ώusing ClosedXML.Excel;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
@@ -61,17 +61,17 @@ public class BookInventoryService : IBookInventoryService
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("Χ™Χ© ΧΧ”Χ–Χ™Χ Χ©Χ Χ΅Χ¤Χ¨");
+            throw new ValidationException("ιω μδζιο ων ρτψ");
         }
 
         if (displayName.Length > 200)
         {
-            throw new ValidationException("Χ©Χ Χ”Χ΅Χ¤Χ¨ ΧΧ¨Χ•Χ ΧΧ“Χ™");
+            throw new ValidationException("ων δρτψ ΰψεκ ξγι");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName, cancellationToken))
         {
-            throw new ValidationException($"Χ¤Χ¨Χ™Χ Χ‘Χ©Χ \"{displayName}\" Χ›Χ‘Χ¨ Χ§Χ™Χ™Χ Χ‘ΧΧΧΧ™");
+            throw new ValidationException($"τψιθ αων \"{displayName}\" λαψ χιιν αξμΰι");
         }
 
         var quantity = dto.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
@@ -102,13 +102,13 @@ public class BookInventoryService : IBookInventoryService
     {
         if (file == null || file.Length == 0)
         {
-            throw new ValidationException("Χ™Χ© ΧΧ‘Χ—Χ•Χ¨ Χ§Χ•Χ‘Χ¥ ΧΧ™Χ™Χ‘Χ•Χ");
+            throw new ValidationException("ιω μαηεψ χεαυ μιιαεΰ");
         }
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (extension is not (".xlsx" or ".xlsm" or ".csv"))
         {
-            throw new ValidationException("Χ Χ™ΧªΧ ΧΧ™Χ™Χ‘Χ Χ§Χ‘Χ¦Χ™ Excel (.xlsx) ΧΧ• CSV Χ‘ΧΧ‘Χ“");
+            throw new ValidationException("πιϊο μιιαΰ χαφι Excel (.xlsx) ΰε CSV αμαγ");
         }
 
         List<ImportRow> rows;
@@ -125,7 +125,7 @@ public class BookInventoryService : IBookInventoryService
             {
                 ImportedCount = 0,
                 SkippedCount = 0,
-                Message = "ΧΧ Χ ΧΧ¦ΧΧ• Χ©Χ•Χ¨Χ•Χª ΧªΧ§Χ™Χ Χ•Χª ΧΧ™Χ™Χ‘Χ•Χ"
+                Message = "μΰ πξφΰε ωεψεϊ ϊχιπεϊ μιιαεΰ"
             };
         }
 
@@ -219,8 +219,8 @@ public class BookInventoryService : IBookInventoryService
             ImportedCount = toCreate.Count,
             SkippedCount = skipped,
             Message = toCreate.Count == 0
-                ? "ΧΧ Χ™Χ•Χ‘ΧΧ• Χ΅Χ¤Χ¨Χ™Χ Χ—Χ“Χ©Χ™Χ"
-                : $"Χ™Χ™Χ‘Χ•Χ Χ”Χ•Χ©ΧΧ Χ‘Χ”Χ¦ΧΧ—Χ”! Χ”Χ•Χ›Χ Χ΅Χ• {toCreate.Count} Χ΅Χ¤Χ¨Χ™Χ"
+                ? "μΰ ιεαΰε ρτψιν ηγωιν"
+                : $"ιιαεΰ δεωμν αδφμηδ! δελπρε {toCreate.Count} ρτψιν"
         };
     }
 
@@ -232,17 +232,17 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("Χ”Χ΅Χ¤Χ¨ ΧΧ Χ ΧΧ¦Χ");
+            ?? throw new NotFoundException("δρτψ μΰ πξφΰ");
 
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("Χ™Χ© ΧΧ”Χ–Χ™Χ Χ©Χ Χ΅Χ¤Χ¨");
+            throw new ValidationException("ιω μδζιο ων ρτψ");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName && t.Id != id, cancellationToken))
         {
-            throw new ValidationException($"Χ¤Χ¨Χ™Χ Χ‘Χ©Χ \"{displayName}\" Χ›Χ‘Χ¨ Χ§Χ™Χ™Χ Χ‘ΧΧΧΧ™");
+            throw new ValidationException($"τψιθ αων \"{displayName}\" λαψ χιιν αξμΰι");
         }
 
         entity.Title = displayName;
@@ -256,7 +256,7 @@ public class BookInventoryService : IBookInventoryService
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _db.Books.FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("Χ”Χ΅Χ¤Χ¨ ΧΧ Χ ΧΧ¦Χ");
+            ?? throw new NotFoundException("δρτψ μΰ πξφΰ");
 
             var activeLoan = await _db.BookLoanItems
             .AsNoTracking()
@@ -266,7 +266,7 @@ public class BookInventoryService : IBookInventoryService
 
         if (activeLoan)
         {
-            throw new ValidationException("ΧΧ Χ Χ™ΧªΧ ΧΧΧ—Χ•Χ§ Χ¤Χ¨Χ™Χ ΧΆΧ Χ”Χ©ΧΧΧ•Χª Χ¤ΧΆΧ™ΧΧ•Χª");
+            throw new ValidationException("μΰ πιϊο μξηεχ τψιθ ςν δωΰμεϊ τςιμεϊ");
         }
 
         _db.Books.Remove(entity);
@@ -281,7 +281,7 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("Χ”Χ΅Χ¤Χ¨ ΧΧ Χ ΧΧ¦Χ");
+            ?? throw new NotFoundException("δρτψ μΰ πξφΰ");
 
         ReplaceSerialCollection(entity, NormalizeCodes(dto.Copies));
         entity.UpdatedAt = DateTime.UtcNow;
@@ -302,7 +302,7 @@ public class BookInventoryService : IBookInventoryService
                 var entity = await _db.Books
                     .Include(t => t.Copies)
                     .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
-                    ?? throw new NotFoundException($"Χ”Χ΅Χ¤Χ¨ #{item.Id} ΧΧ Χ ΧΧ¦Χ");
+                    ?? throw new NotFoundException($"δρτψ #{item.Id} μΰ πξφΰ");
 
                 ReplaceSerialCollection(entity, NormalizeCodes(item.Copies));
                 entity.UpdatedAt = DateTime.UtcNow;
@@ -328,7 +328,7 @@ public class BookInventoryService : IBookInventoryService
         var code = (copyNumber ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(code))
         {
-            throw new ValidationException("Χ™Χ© ΧΧ”Χ–Χ™Χ Χ§Χ•Χ“ ΧΆΧ•ΧªΧ§");
+            throw new ValidationException("ιω μδζιο χεγ ςεϊχ");
         }
 
         var serialQuery = _db.BookCopies
@@ -440,7 +440,7 @@ public class BookInventoryService : IBookInventoryService
             return codes
                 .Where(c => !borrowedSet.Contains(c))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
         }
 
@@ -464,14 +464,14 @@ public class BookInventoryService : IBookInventoryService
             .Where(c => !borrowedKeys.Contains($"{c.BookId}|{c.CopyNumber.ToLowerInvariant()}"))
             .Select(c => c.CopyNumber)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, NumericStringComparer.Instance)
             .ToList();
     }
 
     public async Task<List<BookAvailableCopiesGroupDto>> GetAllAvailableSerialsGroupedAsync(
         CancellationToken cancellationToken = default)
     {
-        // Two AsNoTracking reads only β€” no per-tool round trips / connection fan-out.
+        // Two AsNoTracking reads only — no per-tool round trips / connection fan-out.
         var allCodes = await _db.BookCopies
             .AsNoTracking()
             .Select(s => new { s.BookId, s.CopyNumber })
@@ -496,7 +496,7 @@ public class BookInventoryService : IBookInventoryService
                 Copies = g
                     .Select(x => x.CopyNumber)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => c, NumericStringComparer.Instance)
                     .ToList()
             })
             .OrderBy(g => g.BookId)
@@ -542,7 +542,7 @@ public class BookInventoryService : IBookInventoryService
 
             if (code.Length > 100)
             {
-                throw new ValidationException("Χ§Χ•Χ“ ΧΆΧ•ΧªΧ§ ΧΧ¨Χ•Χ ΧΧ“Χ™");
+                throw new ValidationException("χεγ ςεϊχ ΰψεκ ξγι");
             }
 
             result.Add(code);
@@ -555,7 +555,7 @@ public class BookInventoryService : IBookInventoryService
     {
         var codes = entity.Copies
             .Select(s => s.CopyNumber)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, NumericStringComparer.Instance)
             .ToList();
 
         return new BookDto
@@ -574,7 +574,7 @@ public class BookInventoryService : IBookInventoryService
     {
         using var workbook = new XLWorkbook(stream);
         var worksheet = workbook.Worksheets.FirstOrDefault()
-            ?? throw new ValidationException("Χ”Χ§Χ•Χ‘Χ¥ ΧΧ™Χ Χ• ΧΧ›Χ™Χ Χ’Χ™ΧΧ™Χ•Χ Χ ΧªΧ•Χ Χ™Χ");
+            ?? throw new ValidationException("δχεαυ ΰιπε ξλιμ βιμιεο πϊεπιν");
 
         var used = worksheet.RangeUsed();
         if (used == null)
@@ -599,13 +599,13 @@ public class BookInventoryService : IBookInventoryService
 
         if (headers.Count == 0)
         {
-            throw new ValidationException("Χ—Χ΅Χ¨Χ” Χ©Χ•Χ¨Χª Χ›Χ•ΧªΧ¨Χ•Χª Χ‘Χ§Χ•Χ‘Χ¥");
+            throw new ValidationException("ηρψδ ωεψϊ λεϊψεϊ αχεαυ");
         }
 
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("Χ—Χ΅Χ¨Χ” ΧΆΧΧ•Χ“Χª Χ΅Χ¤Χ¨ / Χ©Χ Χ΅Χ¤Χ¨ Χ‘Χ§Χ•Χ‘Χ¥");
+            throw new ValidationException("ηρψδ ςξεγϊ ρτψ / ων ρτψ αχεαυ");
         }
 
         var rows = new List<ImportRow>();
@@ -658,7 +658,7 @@ public class BookInventoryService : IBookInventoryService
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("Χ—Χ΅Χ¨Χ” ΧΆΧΧ•Χ“Χª Χ΅Χ¤Χ¨ / Χ©Χ Χ΅Χ¤Χ¨ Χ‘Χ§Χ•Χ‘Χ¥");
+            throw new ValidationException("ηρψδ ςξεγϊ ρτψ / ων ρτψ αχεαυ");
         }
 
         var rows = new List<ImportRow>();
@@ -770,13 +770,13 @@ public class BookInventoryService : IBookInventoryService
         header.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("_", string.Empty);
 
     private static bool IsTitleHeader(string h) =>
-        h is "Χ΅Χ¤Χ¨" or "Χ©ΧΧ΅Χ¤Χ¨" or "title" or "book" or "booktitle";
+        h is "ρτψ" or "ωνρτψ" or "title" or "book" or "booktitle";
 
     private static bool IsQuantityHeader(string h) =>
-        h is "Χ›ΧΧ•Χª" or "quantity" or "qty";
+        h is "λξεϊ" or "quantity" or "qty";
 
     private static bool IsBarcodeHeader(string h) =>
-        h is "Χ‘Χ¨Χ§Χ•Χ“" or "barcode" or "barcodes";
+        h is "αψχεγ" or "barcode" or "barcodes";
 
     private static char DetectCsvDelimiter(string headerLine)
     {

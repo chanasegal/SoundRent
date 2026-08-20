@@ -28,8 +28,10 @@ import { DataService } from '../../core/services/data.service';
 import { EquipmentDefinitionsStore } from '../../core/services/equipment-definitions.store';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   israeliPhoneValidator
@@ -50,6 +52,7 @@ type DebtCategoryFilter = 'all' | 'כלי עבודה' | 'הגברה' | 'ספרי
 })
 export class ReportsViewComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly exportSvc = inject(ExportService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
@@ -148,6 +151,26 @@ export class ReportsViewComponent implements OnInit {
     this.wireCancelledDateForm();
     this.loadCancelled();
     this.loadUnpaid();
+
+    this.ordersSync.debtChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadUnpaid());
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => {
+        if (this.activeTab() === 'unpaid') {
+          this.loadUnpaid();
+        }
+      },
+      {
+        skipWhen: () =>
+          this.loadingUnpaid() ||
+          this.savingDebt() ||
+          this.markingPaidKey() != null ||
+          this.addDebtOpen()
+      }
+    );
   }
 
   protected switchTab(tab: ReportsTab): void {
@@ -242,6 +265,7 @@ export class ReportsViewComponent implements OnInit {
             const without = list.filter((g) => g.groupKey !== created.group.groupKey);
             return [created.group, ...without];
           });
+          this.ordersSync.notifyDebtChanged();
           this.closeAddDebt();
           this.toast.success('החוב נוסף בהצלחה');
         }
@@ -564,6 +588,7 @@ export class ReportsViewComponent implements OnInit {
             return;
           }
           this.openDebtGroups.update((list) => list.filter((g) => g.groupKey !== group.groupKey));
+          this.ordersSync.notifyDebtChanged();
           this.toast.success('החובות בקבוצה סומנו כשולמו');
         }
       });

@@ -38,6 +38,7 @@ import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-d
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
+import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface EquipmentLine {
@@ -230,7 +231,7 @@ export class DailyEquipmentReportComponent implements OnInit {
     if (row.serialCodes.length === 0) {
       return '';
     }
-    return row.serialCodes.join(', ');
+    return sortNumericCodes(row.serialCodes).join(', ');
   }
 
   protected isSerialReturned(row: CustomerAccessoryLine, code: string): boolean {
@@ -514,7 +515,8 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   protected serialOptionsForRow(row: CustomerAccessoryLine): AccessorySerialOptionDto[] {
-    return this.accessoryAvailabilityByRow().get(row.rowKey) ?? [];
+    const options = this.accessoryAvailabilityByRow().get(row.rowKey) ?? [];
+    return [...options].sort((a, b) => compareNumericCodes(a.serialCode, b.serialCode));
   }
 
   protected isSerialSelected(row: CustomerAccessoryLine, code: string): boolean {
@@ -611,7 +613,7 @@ export class DailyEquipmentReportComponent implements OnInit {
           'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
           פריט: item.label,
           כמות: item.quantity,
-          'קודי פריט': item.serialCodes.join(', ')
+          'קודי פריט': sortNumericCodes(item.serialCodes).join(', ')
         };
         if (includeReturnTime) {
           row['שעת החזרה'] = customer.returnTimeLabel ?? '';
@@ -1277,14 +1279,18 @@ export class DailyEquipmentReportComponent implements OnInit {
           : String(le.loanedEquipmentType);
       const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
       const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
-      const serialCodes = (le.notes ?? [])
-        .slice()
-        .sort((a, b) => a.ordinal - b.ordinal)
-        .map((n) => (n.content ?? '').trim())
-        .filter((c) => c.length > 0);
-      const returnedSerialCodes = (le.notes ?? [])
-        .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
-        .map((n) => (n.content ?? '').trim());
+      const serialCodes = sortNumericCodes(
+        (le.notes ?? [])
+          .slice()
+          .sort((a, b) => a.ordinal - b.ordinal)
+          .map((n) => (n.content ?? '').trim())
+          .filter((c) => c.length > 0)
+      );
+      const returnedSerialCodes = sortNumericCodes(
+        (le.notes ?? [])
+          .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+          .map((n) => (n.content ?? '').trim())
+      );
       const loanedEquipmentType = le.isCustomItem
         ? null
         : (le.loanedEquipmentType as LoanedEquipmentType);

@@ -299,7 +299,7 @@ public class ToolInventoryService : IToolInventoryService
             return codes
                 .Where(c => !borrowedSet.Contains(c))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
         }
 
@@ -323,7 +323,7 @@ public class ToolInventoryService : IToolInventoryService
             .Where(c => !borrowedKeys.Contains($"{c.ToolDefinitionId}|{c.SerialCode.ToLowerInvariant()}"))
             .Select(c => c.SerialCode)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, NumericStringComparer.Instance)
             .ToList();
     }
 
@@ -355,7 +355,7 @@ public class ToolInventoryService : IToolInventoryService
                 SerialCodes = g
                     .Select(x => x.SerialCode)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => c, NumericStringComparer.Instance)
                     .ToList()
             })
             .OrderBy(g => g.ToolDefinitionId)
@@ -414,7 +414,7 @@ public class ToolInventoryService : IToolInventoryService
     {
         var codes = entity.SerialCodes
             .Select(s => s.SerialCode)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, NumericStringComparer.Instance)
             .ToList();
 
         return new ToolDefinitionDto

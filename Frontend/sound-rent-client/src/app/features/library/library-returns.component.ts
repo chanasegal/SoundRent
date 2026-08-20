@@ -2,6 +2,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   HostListener,
   OnInit,
@@ -11,6 +12,7 @@ import {
   signal,
   viewChild
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
@@ -24,6 +26,7 @@ import {
 import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import {
@@ -31,6 +34,8 @@ import {
   formatLibraryDuration,
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { isShabbatOrChag, logBillableDays } from '../../core/utils/tools-billable-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
@@ -71,10 +76,12 @@ interface CompletedLoanRowView {
 })
 export class LibraryReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly booksStore = inject(BooksStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
@@ -100,9 +107,7 @@ export class LibraryReturnsComponent implements OnInit {
       return [] as string[];
     }
     const def = this.definitions().find((d) => d.id === bookId);
-    return [...(def?.copies ?? [])].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
-    );
+    return sortNumericCodes(def?.copies ?? []);
   });
 
   protected readonly allCompletedRows = computed(() => {
@@ -175,6 +180,21 @@ export class LibraryReturnsComponent implements OnInit {
   ngOnInit(): void {
     this.booksStore.load().subscribe();
     this.refresh();
+
+    this.ordersSync.loanChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
+    this.ordersSync.debtChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
+
+    startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
+      skipWhen: () =>
+        this.loading() ||
+        this.markingDebtId() != null ||
+        this.undoingRowKey() != null ||
+        this.deletingLoanId() != null
+    });
 
     if (isDevMode()) {
       (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
@@ -463,6 +483,8 @@ export class LibraryReturnsComponent implements OnInit {
           return;
         }
         this.removeReturnedRowLocally(row);
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });
   }
@@ -477,6 +499,8 @@ export class LibraryReturnsComponent implements OnInit {
           return;
         }
         this.removeLoanLocally(row.loanId);
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('רשומת ההשאלה נמחקה');
       });
   }
@@ -535,6 +559,7 @@ export class LibraryReturnsComponent implements OnInit {
           return;
         }
         this.applyPaidLocally(row);
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('החוב סומן כשולם');
       });
   }

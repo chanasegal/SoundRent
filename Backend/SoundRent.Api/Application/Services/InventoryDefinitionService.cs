@@ -1188,11 +1188,11 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         else
         {
             codes = entity.SerialCodes
-                .OrderBy(s => s.Id)
+                .OrderBy(s => s.SerialCode, NumericStringComparer.Instance)
                 .Select(s => s.SerialCode)
                 .ToList();
             units = entity.SerialCodes
-                .OrderBy(s => s.Id)
+                .OrderBy(s => s.SerialCode, NumericStringComparer.Instance)
                 .Select(s =>
                 {
                     var code = s.SerialCode;

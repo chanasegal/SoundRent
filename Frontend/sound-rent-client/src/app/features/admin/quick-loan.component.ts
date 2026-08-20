@@ -41,6 +41,7 @@ import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
+import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -607,7 +608,7 @@ export class QuickLoanComponent implements OnInit {
 
   protected serialOptionsForRow(row: QuickLoanAccessoryRow): AccessorySerialOptionDto[] {
     if (row.type) {
-      return this.availabilityByType().get(row.type) ?? [];
+      return this.sortSerialOptions(this.availabilityByType().get(row.type) ?? []);
     }
     // Custom (unlinked) catalog rows — serials come from the shared inventory store.
     const def = this.inventoryStore.byId(row.inventoryDefinitionId);
@@ -624,21 +625,29 @@ export class QuickLoanComponent implements OnInit {
 
     const units = def.serialUnits ?? [];
     if (units.length > 0) {
-      return units.map((unit) => {
-        const serialCode = unit.serialCode.trim();
-        const status = unit.physicalStatus;
-        const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
-        return {
-          serialCode,
-          isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
-        };
-      });
+      return this.sortSerialOptions(
+        units.map((unit) => {
+          const serialCode = unit.serialCode.trim();
+          const status = unit.physicalStatus;
+          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
+          return {
+            serialCode,
+            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+          };
+        })
+      );
     }
 
-    return (def.serialCodes ?? []).map((serialCode) => ({
-      serialCode,
-      isAvailable: true
-    }));
+    return this.sortSerialOptions(
+      (def.serialCodes ?? []).map((serialCode) => ({
+        serialCode,
+        isAvailable: true
+      }))
+    );
+  }
+
+  private sortSerialOptions(options: AccessorySerialOptionDto[]): AccessorySerialOptionDto[] {
+    return [...options].sort((a, b) => compareNumericCodes(a.serialCode, b.serialCode));
   }
 
   protected serialPanelState(row: QuickLoanAccessoryRow): 'loading' | 'no-inventory' | 'all-booked' | 'options' {
@@ -1246,13 +1255,17 @@ export class QuickLoanComponent implements OnInit {
     const rows: ReturnModalRow[] = (order.loanedEquipments ?? [])
       .filter((row) => row.quantity > 0 && row.id != null && row.id > 0)
       .map((row) => {
-        const assignedSerialCodes = (row.notes ?? [])
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
+        const assignedSerialCodes = sortNumericCodes(
+          (row.notes ?? [])
+            .map((n) => (n.content ?? '').trim())
+            .filter((c) => c.length > 0)
+        );
         const isCustomItem = !!row.isCustomItem;
-        const lockedReturnedSerialCodes = (row.notes ?? [])
-          .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
-          .map((n) => (n.content ?? '').trim());
+        const lockedReturnedSerialCodes = sortNumericCodes(
+          (row.notes ?? [])
+            .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+            .map((n) => (n.content ?? '').trim())
+        );
         const alreadyReturnedQuantity = Math.min(
           Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
           row.quantity

@@ -26,6 +26,7 @@ import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
 
@@ -120,9 +121,9 @@ export class ToolsInventoryComponent implements OnInit, OnDestroy {
   protected serialCodesForSearchType(): string[] {
     const id = this.serialSearchForm.controls.toolDefinitionId.value;
     if (id == null) {
-      return this.definitions().flatMap((d) => d.serialCodes);
+      return sortNumericCodes(this.definitions().flatMap((d) => d.serialCodes));
     }
-    return this.definitions().find((d) => d.id === id)?.serialCodes ?? [];
+    return sortNumericCodes(this.definitions().find((d) => d.id === id)?.serialCodes ?? []);
   }
 
   protected refresh(): void {

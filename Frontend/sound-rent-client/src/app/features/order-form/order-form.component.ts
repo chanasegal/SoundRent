@@ -19,6 +19,7 @@ import {
   distinctUntilChanged,
   EMPTY,
   finalize,
+  forkJoin,
   from,
   groupBy,
   map,
@@ -69,6 +70,13 @@ import {
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
+import {
+  buildCustomerRiskAlertSnapshot,
+  CustomerRiskAlertSnapshot,
+  EMPTY_CUSTOMER_RISK_ALERTS
+} from '../../core/utils/customer-risk-alerts';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -355,6 +363,9 @@ export class OrderFormComponent implements OnInit {
   /** Active (unresolved) forgotten-equipment rows matching this order's customer. */
   protected readonly activeLostEquipment = signal<LostEquipmentDto[]>([]);
 
+  /** Cancelled-debt / open-debt / unreturned alerts for the selected customer. */
+  protected readonly customerRiskAlerts = signal<CustomerRiskAlertSnapshot>(EMPTY_CUSTOMER_RISK_ALERTS);
+
   /** Report unreturned equipment modal (דווח על ציוד שלא חזר). */
   protected readonly unreturnedReportOpen = signal(false);
   protected readonly unreturnedReportSaving = signal(false);
@@ -382,8 +393,22 @@ export class OrderFormComponent implements OnInit {
       .slice(0, 3);
     const extra = items.length > descriptions.length ? ` (+${items.length - descriptions.length})` : '';
     const detail = descriptions.length > 0 ? ` — ${descriptions.join(', ')}${extra}` : '';
-    return `ים לב: ללקוח זה יש ציוד שנשכח!${detail}`;
+    return `שים לב: ללקוח זה יש ציוד שנשכח!${detail}`;
   });
+  protected readonly showCancelledDebtAlert = computed(
+    () => this.customerRiskAlerts().cancelledDebtAmount > 0
+  );
+  protected readonly cancelledDebtAlertMessage = computed(
+    () => this.customerRiskAlerts().cancelledDebtMessage
+  );
+  protected readonly showOpenDebtAlert = computed(() => this.customerRiskAlerts().openDebtAmount > 0);
+  protected readonly openDebtAlertMessage = computed(() => this.customerRiskAlerts().openDebtMessage);
+  protected readonly showUnreturnedItemsAlert = computed(
+    () => this.customerRiskAlerts().unreturnedItems.length > 0
+  );
+  protected readonly unreturnedItemsAlertMessage = computed(
+    () => this.customerRiskAlerts().unreturnedMessage
+  );
   protected readonly canRecordReturn = computed(() => {
     if (!this.isEdit() || this.orderCancelled()) {
       return false;
@@ -809,7 +834,7 @@ export class OrderFormComponent implements OnInit {
     const group = this.getRowGroup(rowIndex);
     const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
     if (type) {
-      return this.accessoryAvailabilityByType().get(type) ?? [];
+      return this.sortSerialOptions(this.accessoryAvailabilityByType().get(type) ?? []);
     }
     const inventoryDefinitionId = Number(group.get('inventoryDefinitionId')?.value);
     const def = Number.isFinite(inventoryDefinitionId)
@@ -830,21 +855,29 @@ export class OrderFormComponent implements OnInit {
 
     const units = def.serialUnits ?? [];
     if (units.length > 0) {
-      return units.map((unit) => {
-        const serialCode = unit.serialCode.trim();
-        const status = unit.physicalStatus;
-        const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
-        return {
-          serialCode,
-          isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
-        };
-      });
+      return this.sortSerialOptions(
+        units.map((unit) => {
+          const serialCode = unit.serialCode.trim();
+          const status = unit.physicalStatus;
+          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
+          return {
+            serialCode,
+            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+          };
+        })
+      );
     }
 
-    return (def.serialCodes ?? []).map((serialCode) => ({
-      serialCode,
-      isAvailable: true
-    }));
+    return this.sortSerialOptions(
+      (def.serialCodes ?? []).map((serialCode) => ({
+        serialCode,
+        isAvailable: true
+      }))
+    );
+  }
+
+  private sortSerialOptions(options: AccessorySerialOptionDto[]): AccessorySerialOptionDto[] {
+    return [...options].sort((a, b) => compareNumericCodes(a.serialCode, b.serialCode));
   }
 
   protected toggleAccessorySerialDropdown(rowIndex: number): void {
@@ -1109,6 +1142,8 @@ export class OrderFormComponent implements OnInit {
     this.wireAccessorySerialAvailability();
     this.wireCustomerAutocomplete();
     this.wireLostEquipmentAlertLookup();
+    this.wireCustomerRiskAlertLookup();
+    this.wireOpsAlertLiveSync();
     this.wireInstitutionConflictCheck();
     this.wireInstitutionAutocomplete();
 
@@ -1228,6 +1263,7 @@ export class OrderFormComponent implements OnInit {
         this.phone1DigitsSig.set(OrderFormComponent.digitsOnly(phone));
       }
       this.refreshLostEquipmentAlert();
+      this.refreshCustomerRiskAlerts();
     }
 
     const booking = this.bookingGroup(0);
@@ -1423,6 +1459,7 @@ export class OrderFormComponent implements OnInit {
     this.loadCustomerDirectoryNotes(c.phone1);
     this.toast.show(toastMessage, 'info');
     this.refreshLostEquipmentAlert();
+    this.refreshCustomerRiskAlerts();
   }
 
   /** Fetch full profile once for Notes toast after filling from lean suggest. */
@@ -1786,13 +1823,17 @@ export class OrderFormComponent implements OnInit {
 
   /** Build a return-modal row, hydrating any previously recorded returns. */
   private toReturnModalRow(row: OrderLoanedEquipmentDto): ReturnModalRow {
-    const assignedSerialCodes = (row.notes ?? [])
-      .map((n) => (n.content ?? '').trim())
-      .filter((c) => c.length > 0);
+    const assignedSerialCodes = sortNumericCodes(
+      (row.notes ?? [])
+        .map((n) => (n.content ?? '').trim())
+        .filter((c) => c.length > 0)
+    );
     const isCustomItem = !!row.isCustomItem;
-    const lockedReturnedSerialCodes = (row.notes ?? [])
-      .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
-      .map((n) => (n.content ?? '').trim());
+    const lockedReturnedSerialCodes = sortNumericCodes(
+      (row.notes ?? [])
+        .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
+        .map((n) => (n.content ?? '').trim())
+    );
     const alreadyReturnedQuantity = Math.min(
       Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
       row.quantity
@@ -2745,6 +2786,36 @@ export class OrderFormComponent implements OnInit {
   }
 
   /**
+   * Same-tab + cross-device refresh for customer risk / forgotten-equipment alerts
+   * so tablet/desktop stay aligned without a full page reload.
+   */
+  private wireOpsAlertLiveSync(): void {
+    merge(
+      this.ordersSync.debtChanged$,
+      this.ordersSync.unreturnedChanged$,
+      this.ordersSync.lostEquipmentChanged$,
+      this.ordersSync.orderChanged$,
+      this.ordersSync.loanChanged$
+    )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.refreshLostEquipmentAlert();
+        this.refreshCustomerRiskAlerts();
+      });
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => {
+        this.refreshLostEquipmentAlert();
+        this.refreshCustomerRiskAlerts();
+      },
+      {
+        skipWhen: () => this.submitting() || this.returnSaving()
+      }
+    );
+  }
+
+  /**
    * Watches Name / Phone1 and loads unresolved forgotten-equipment rows for this customer.
    * Matches primarily by phone digits; falls back to exact customer-name match when phone is empty.
    */
@@ -2813,6 +2884,70 @@ export class OrderFormComponent implements OnInit {
         }
       }
       return false;
+    });
+  }
+
+  /**
+   * Watches Name / Phone1 and loads cancelled-debt, open-debt, and unreturned-item alerts.
+   */
+  private wireCustomerRiskAlertLookup(): void {
+    const name$ = this.form.controls['customerName'].valueChanges.pipe(
+      startWith(this.form.controls['customerName'].value),
+      map((v) => String(v ?? '').trim())
+    );
+    const phone$ = this.form.controls['phone'].valueChanges.pipe(
+      startWith(this.form.controls['phone'].value),
+      map((v) => OrderFormComponent.digitsOnly(String(v ?? '')))
+    );
+
+    merge(
+      name$.pipe(
+        map((customerName) => ({
+          customerName,
+          phone: OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''))
+        }))
+      ),
+      phone$.pipe(
+        map((phone) => ({
+          phone,
+          customerName: String(this.form.controls['customerName'].value ?? '').trim()
+        }))
+      )
+    )
+      .pipe(
+        debounceTime(350),
+        distinctUntilChanged(
+          (a, b) => a.phone === b.phone && a.customerName === b.customerName
+        ),
+        switchMap(({ phone, customerName }) => this.loadCustomerRiskAlerts$(phone, customerName)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((snapshot) => this.customerRiskAlerts.set(snapshot));
+  }
+
+  private loadCustomerRiskAlerts$(phoneDigits: string, customerName: string) {
+    if (phoneDigits.length < 7 && customerName.length < 2) {
+      this.customerRiskAlerts.set(EMPTY_CUSTOMER_RISK_ALERTS);
+      return EMPTY;
+    }
+    return forkJoin({
+      cancelled: this.data.getCancelledOrdersReport(),
+      openDebts: this.data.getOpenDebtGroupsReport(),
+      unreturned: this.data.getUnreturnedItems()
+    }).pipe(
+      map(({ cancelled, openDebts, unreturned }) =>
+        buildCustomerRiskAlertSnapshot(cancelled, openDebts, unreturned, phoneDigits, customerName)
+      )
+    );
+  }
+
+  /** Re-check after silent form patches (order load / customer fill use emitEvent: false). */
+  private refreshCustomerRiskAlerts(): void {
+    const phone = OrderFormComponent.digitsOnly(String(this.form.controls['phone'].value ?? ''));
+    const customerName = String(this.form.controls['customerName'].value ?? '').trim();
+    this.loadCustomerRiskAlerts$(phone, customerName).subscribe({
+      next: (snapshot) => this.customerRiskAlerts.set(snapshot),
+      error: () => this.customerRiskAlerts.set(EMPTY_CUSTOMER_RISK_ALERTS)
     });
   }
 
@@ -3461,6 +3596,7 @@ export class OrderFormComponent implements OnInit {
     }
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
+    this.refreshCustomerRiskAlerts();
     this.institutionConflictTrigger$.next();
     queueMicrotask(() => this.resetScrollForOrderForm());
 
@@ -3667,6 +3803,7 @@ export class OrderFormComponent implements OnInit {
 
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
+    this.refreshCustomerRiskAlerts();
     this.institutionConflictTrigger$.next();
   }
 

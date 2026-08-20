@@ -25,6 +25,8 @@ import { InventoryDefinitionsStore } from '../../core/services/inventory-definit
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import {
@@ -107,6 +109,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
+
+    startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
+      skipWhen: () =>
+        this.loading() || this.savingMissing() || this.removingKeys().size > 0
+    });
   }
 
   protected refresh(): void {
@@ -387,6 +394,10 @@ export class UnreturnedItemsAdminComponent implements OnInit {
 
   protected hasMissingSerialCodes(row: UnreturnedItemDto): boolean {
     return (row.missingSerialCodes ?? []).length > 0;
+  }
+
+  protected sortedMissingSerialCodes(row: UnreturnedItemDto): string[] {
+    return sortNumericCodes(row.missingSerialCodes ?? []);
   }
 
   protected quickReturn(row: UnreturnedItemDto): void {

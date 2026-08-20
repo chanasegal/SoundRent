@@ -232,6 +232,12 @@
     opacity: 0.85;
   }
 
+  .customer-risk-alert + .customer-risk-alert,
+  .lost-equipment-alert + .customer-risk-alert,
+  .customer-risk-alert + .lost-equipment-alert {
+    margin-top: -0.35rem;
+  }
+
   .lost-equipment-report {
     margin-top: 0;
     padding: 1rem 1.25rem;

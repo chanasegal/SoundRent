@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SoundRent.Api.Application;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
@@ -449,7 +450,7 @@ public class OrderRepository : IOrderRepository
                     .Select(n => (n.Content ?? string.Empty).Trim())
                     .Where(c => c.Length > 0)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => c, NumericStringComparer.Instance)
                     .ToList();
 
                 return new ActiveOneTimeAccessoryLoanDto
@@ -554,7 +555,7 @@ public class OrderRepository : IOrderRepository
                 .Select(n => (n.Content ?? string.Empty).Trim())
                 .Where(c => c.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
 
             var missingSerialCodes = r.Notes
@@ -562,7 +563,7 @@ public class OrderRepository : IOrderRepository
                 .Select(n => (n.Content ?? string.Empty).Trim())
                 .Where(c => c.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
 
             var equipmentName = OrderMapper.GetLoanedEquipmentDisplayName(r.Line);

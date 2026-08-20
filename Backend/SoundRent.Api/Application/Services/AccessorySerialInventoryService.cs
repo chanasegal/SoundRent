@@ -84,7 +84,7 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
                     EquipmentType = kv.Key,
                     Options = kv.Value
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(c => c, NumericStringComparer.Instance)
                         .Select(code => new AccessorySerialOptionDto
                         {
                             SerialCode = code,
@@ -427,7 +427,7 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
         EquipmentType = type,
         Label = LoanedEquipmentTypeLabels.GetLabel(type),
         TotalQuantity = codes.Count,
-        SerialCodes = codes
+        SerialCodes = codes.OrderBy(c => c, NumericStringComparer.Instance).ToList()
     };
 
     private static List<string> NormalizeCodes(LoanedEquipmentType equipmentType, IEnumerable<string> rawCodes)
@@ -456,6 +456,6 @@ public class AccessorySerialInventoryService : IAccessorySerialInventoryService
             result.Add(trimmed);
         }
 
-        return result.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList();
+        return result.OrderBy(c => c, NumericStringComparer.Instance).ToList();
     }
 }

@@ -616,7 +616,7 @@ public class OrderService : IOrderService
                 {
                     // No explicit codes — take the last N assigned codes as missing.
                     missingCodes = assignedCodes
-                        .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(c => c, NumericStringComparer.Instance)
                         .TakeLast(item.MissingQuantity)
                         .ToList();
                 }

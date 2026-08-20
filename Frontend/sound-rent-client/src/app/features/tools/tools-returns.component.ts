@@ -2,12 +2,14 @@ import { CommonModule, DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   isDevMode,
   signal
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
@@ -21,9 +23,12 @@ import {
 } from '../../core/models/tools-workspace.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
   formatCalendarDuration,
   isNonBillableDay
@@ -105,11 +110,13 @@ interface ActiveLoanRowView {
 })
 export class ToolsReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly document = inject(DOCUMENT);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   protected readonly loading = signal(true);
@@ -140,9 +147,7 @@ export class ToolsReturnsComponent implements OnInit {
       return [] as string[];
     }
     const def = this.definitions().find((d) => d.id === toolId);
-    return [...(def?.serialCodes ?? [])].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
-    );
+    return sortNumericCodes(def?.serialCodes ?? []);
   });
 
   protected readonly quickReturnCodes = computed(() => {
@@ -175,7 +180,7 @@ export class ToolsReturnsComponent implements OnInit {
     }
 
     const query = this.quickReturnCode().trim().toLowerCase();
-    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const list = sortNumericCodes([...codes]);
     if (!query) {
       return list;
     }
@@ -251,6 +256,34 @@ export class ToolsReturnsComponent implements OnInit {
     this.toolStore.load().subscribe();
     this.refresh();
     this.refreshActiveLoans();
+
+    this.ordersSync.loanChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.refresh();
+        this.refreshActiveLoans();
+      });
+    this.ordersSync.debtChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => {
+        this.refresh();
+        this.refreshActiveLoans();
+      },
+      {
+        skipWhen: () =>
+          this.loading() ||
+          this.quickReturnSaving() ||
+          this.quickReturnSearching() ||
+          this.markingDebtId() != null ||
+          this.undoingRowKey() != null ||
+          this.deletingLoanId() != null ||
+          this.quickReturnSession() != null
+      }
+    );
 
     if (isDevMode()) {
       (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
@@ -578,6 +611,7 @@ export class ToolsReturnsComponent implements OnInit {
         this.quickReturnSession.set(null);
         this.quickReturnCode.set('');
         this.quickReturnCharge.set('');
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refresh();
         queueMicrotask(() => this.focusQuickReturnCodeInput());
@@ -794,6 +828,8 @@ export class ToolsReturnsComponent implements OnInit {
           return;
         }
         this.removeReturnedRowLocally(row);
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });
   }
@@ -808,6 +844,8 @@ export class ToolsReturnsComponent implements OnInit {
           return;
         }
         this.removeLoanLocally(row.loanId);
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('רשומת ההשאלה נמחקה');
       });
   }
@@ -866,6 +904,7 @@ export class ToolsReturnsComponent implements OnInit {
           return;
         }
         this.applyPaidLocally(row);
+        this.ordersSync.notifyDebtChanged();
         this.toast.success('החוב סומן כשולם');
       });
   }

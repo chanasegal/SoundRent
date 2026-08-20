@@ -81,6 +81,48 @@
       </div>
     }
 
+    @if (showCancelledDebtAlert()) {
+      <div class="lost-equipment-alert customer-risk-alert" role="alert">
+        <svg class="lost-equipment-alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+          />
+        </svg>
+        <div class="lost-equipment-alert__body">
+          <p class="lost-equipment-alert__title">{{ cancelledDebtAlertMessage() }}</p>
+        </div>
+      </div>
+    }
+
+    @if (showOpenDebtAlert()) {
+      <div class="lost-equipment-alert customer-risk-alert" role="alert">
+        <svg class="lost-equipment-alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+          />
+        </svg>
+        <div class="lost-equipment-alert__body">
+          <p class="lost-equipment-alert__title">{{ openDebtAlertMessage() }}</p>
+        </div>
+      </div>
+    }
+
+    @if (showUnreturnedItemsAlert()) {
+      <div class="lost-equipment-alert customer-risk-alert" role="alert">
+        <svg class="lost-equipment-alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+          />
+        </svg>
+        <div class="lost-equipment-alert__body">
+          <p class="lost-equipment-alert__title">{{ unreturnedItemsAlertMessage() }}</p>
+        </div>
+      </div>
+    }
+
     <!-- Customer section (always first) -->
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">פרטי הלקוח</h2>

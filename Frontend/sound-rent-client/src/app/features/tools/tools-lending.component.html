@@ -195,6 +195,27 @@
                   </button>
                 </div>
               }
+              @if (form.clientRiskAlerts.cancelledDebtMessage) {
+                <div class="client-alert client-alert--risk" role="alert">
+                  <div class="client-alert__body">
+                    <span>{{ form.clientRiskAlerts.cancelledDebtMessage }}</span>
+                  </div>
+                </div>
+              }
+              @if (form.clientRiskAlerts.openDebtMessage) {
+                <div class="client-alert client-alert--risk" role="alert">
+                  <div class="client-alert__body">
+                    <span>{{ form.clientRiskAlerts.openDebtMessage }}</span>
+                  </div>
+                </div>
+              }
+              @if (form.clientRiskAlerts.unreturnedMessage) {
+                <div class="client-alert client-alert--risk" role="alert">
+                  <div class="client-alert__body">
+                    <span>{{ form.clientRiskAlerts.unreturnedMessage }}</span>
+                  </div>
+                </div>
+              }
               <div class="client-grid">
                 <div class="relative">
                   <input

@@ -35,8 +35,11 @@ import {
   OrderDraftService,
   WorkspaceLendingDraftPayload
 } from '../../core/services/order-draft.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
   addDaysToDate,
   endOfLocalDay,
@@ -114,6 +117,7 @@ interface ActiveLoanCustomerCard {
 })
 export class LibraryLendingComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly booksStore = inject(BooksStore);
   private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
@@ -176,9 +180,7 @@ export class LibraryLendingComponent implements OnInit {
       return [] as string[];
     }
     const def = this.definitions().find((d) => d.id === bookId);
-    return [...(def?.copies ?? [])].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
-    );
+    return sortNumericCodes(def?.copies ?? []);
   });
 
   protected readonly timeLimitForm = this.fb.group({
@@ -256,9 +258,24 @@ export class LibraryLendingComponent implements OnInit {
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
     this.tryRestoreMinimizedDraft();
+    this.ordersSync.loanChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshActiveLoans());
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.nowTick.set(Date.now()));
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => this.refreshActiveLoans(),
+      {
+        skipWhen: () =>
+          this.submittingId() != null ||
+          this.returningItemId() != null ||
+          this.returningCustomerKey() != null ||
+          this.quickReturning()
+      }
+    );
   }
 
   /** Global wedge scan when no input is focused — routes to return or loan. */
@@ -458,6 +475,7 @@ export class LibraryLendingComponent implements OnInit {
             return next;
           });
         }
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refreshAvailability();
         this.focusBarcodeField();
@@ -703,6 +721,7 @@ export class LibraryLendingComponent implements OnInit {
           delete next[row.itemId];
           return next;
         });
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
@@ -772,6 +791,7 @@ export class LibraryLendingComponent implements OnInit {
           }
           return next;
         });
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
@@ -876,7 +896,7 @@ export class LibraryLendingComponent implements OnInit {
     }
     // Local filter only — from the single bulk cache loaded at page init.
     const inStock = this.availableByBook().get(line.bookId) ?? [];
-    return [...inStock].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return sortNumericCodes(inStock);
   }
 
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
@@ -1120,6 +1140,7 @@ export class LibraryLendingComponent implements OnInit {
         this.formOpen.set(false);
         this.loanScanCode.set('');
         this.forms.set([this.createDraftForm()]);
+        this.ordersSync.notifyLoanChanged();
         this.refreshAvailability();
         this.refreshActiveLoans();
         this.focusBarcodeField();

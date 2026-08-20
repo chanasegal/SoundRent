@@ -29,6 +29,8 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 
 interface ActiveLoanRow {
   key: string;
@@ -200,7 +202,7 @@ export class ActiveLoansComponent implements OnInit {
     }
 
     const query = this.quickReturnCode().trim().toLowerCase();
-    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const list = sortNumericCodes([...codes]);
     if (!query) {
       return list;
     }
@@ -219,6 +221,20 @@ export class ActiveLoansComponent implements OnInit {
     this.ordersSync.unreturnedChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.loadActiveLoans());
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => this.loadActiveLoans(),
+      {
+        skipWhen: () =>
+          this.activeLoading() ||
+          this.returningLineKey() != null ||
+          this.removingLineKeys().size > 0 ||
+          this.quickReturnSaving() ||
+          this.quickReturnSearching() ||
+          this.quickReturnSession() != null
+      }
+    );
   }
 
   protected formatPhone(phone: string | null | undefined): string {
@@ -1127,13 +1143,17 @@ export class ActiveLoansComponent implements OnInit {
         if (returned >= le.quantity) {
           continue;
         }
-        const codes = (le.notes ?? [])
-          .filter((n) => !n.isReturned)
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
-        const allCodes = (le.notes ?? [])
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
+        const codes = sortNumericCodes(
+          (le.notes ?? [])
+            .filter((n) => !n.isReturned)
+            .map((n) => (n.content ?? '').trim())
+            .filter((c) => c.length > 0)
+        );
+        const allCodes = sortNumericCodes(
+          (le.notes ?? [])
+            .map((n) => (n.content ?? '').trim())
+            .filter((c) => c.length > 0)
+        );
         const accessoryName = le.isCustomItem
           ? (le.customItemName?.trim() || 'פריט נוסף')
           : le.loanedEquipmentType

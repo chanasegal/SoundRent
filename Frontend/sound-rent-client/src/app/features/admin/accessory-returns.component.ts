@@ -19,6 +19,7 @@ import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 
 interface ReturnedAccessoryRow extends ReturnedAccessoryHistoryDto {
   rowKey: string;
@@ -76,6 +77,10 @@ export class AccessoryReturnsComponent implements OnInit {
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
+
+    startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
+      skipWhen: () => this.loading() || this.actionsBusy()
+    });
   }
 
   protected refresh(): void {

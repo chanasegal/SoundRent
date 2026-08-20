@@ -15,8 +15,8 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { finalize, forkJoin, interval, Subject, EMPTY } from 'rxjs';
-import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
+import { finalize, forkJoin, interval, merge, Subject, EMPTY } from 'rxjs';
+import { debounceTime, distinctUntilChanged, groupBy, map, mergeMap, switchMap } from 'rxjs/operators';
 
 import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { LOANED_EQUIPMENT_LABELS, DEPOSIT_TYPE_LABELS, DepositType, SystemType } from '../../core/models/enums';
@@ -40,6 +40,14 @@ import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { formatCalendarDuration } from '../../core/utils/tools-billable-duration';
+import {
+  buildCustomerRiskAlertSnapshot,
+  CustomerRiskAlertSnapshot,
+  digitsOnlyPhone,
+  EMPTY_CUSTOMER_RISK_ALERTS
+} from '../../core/utils/customer-risk-alerts';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
@@ -69,6 +77,7 @@ interface LendingDraftForm {
   deposit: string;
   notes: string;
   clientAlertNotes: string | null;
+  clientRiskAlerts: CustomerRiskAlertSnapshot;
   deadlineAt: Date | null;
 }
 
@@ -195,6 +204,12 @@ export class ToolsLendingComponent implements OnInit {
     q: string;
   }>();
 
+  private readonly customerRiskLookup$ = new Subject<{
+    formId: string;
+    phone: string;
+    customerName: string;
+  }>();
+
   protected readonly institutionSuggestions = signal<InstitutionDto[]>([]);
   protected readonly institutionSuggestOpen = signal(false);
   protected readonly institutionSuggestFormId = signal<string | null>(null);
@@ -242,7 +257,7 @@ export class ToolsLendingComponent implements OnInit {
     }
 
     const query = this.quickReturnCode().trim().toLowerCase();
-    const list = [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const list = sortNumericCodes([...codes]);
     if (!query) {
       return list;
     }
@@ -303,15 +318,50 @@ export class ToolsLendingComponent implements OnInit {
     this.customers.load().subscribe();
     this.wireTimeLimitHours();
     this.wireCustomerSuggestDebounce();
+    this.wireCustomerRiskAlertLookup();
     this.refreshActiveLoans();
     this.refreshAccessoryLoans();
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshAccessoryLoans());
+    this.ordersSync.loanChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshActiveLoans());
+    merge(
+      this.ordersSync.debtChanged$,
+      this.ordersSync.unreturnedChanged$,
+      this.ordersSync.lostEquipmentChanged$
+    )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        for (const form of this.forms()) {
+          this.queueCustomerRiskLookup(form.id);
+        }
+      });
     this.tryRestoreMinimizedDraft();
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.nowTick.set(Date.now()));
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => {
+        this.refreshActiveLoans();
+        this.refreshAccessoryLoans();
+        for (const form of this.forms()) {
+          this.queueCustomerRiskLookup(form.id);
+        }
+      },
+      {
+        skipWhen: () =>
+          this.submittingId() != null ||
+          this.returningItemId() != null ||
+          this.returningAccessoryKey() != null ||
+          this.returningCustomerKey() != null ||
+          this.quickReturnSaving() ||
+          this.quickReturnSession() != null
+      }
+    );
   }
 
   protected closeFormPanel(): void {
@@ -353,11 +403,15 @@ export class ToolsLendingComponent implements OnInit {
         notes: String(raw['notes'] ?? ''),
         clientAlertNotes:
           typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
+        clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,
         deadlineAt: raw['deadlineAt'] ? new Date(String(raw['deadlineAt'])) : null
       }));
       this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
       this.timeLimitForm.controls.hours.setValue(payload.timeLimitValue || 2, { emitEvent: false });
       this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+      for (const form of this.forms()) {
+        this.queueCustomerRiskLookup(form.id);
+      }
     } catch {
       this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
     }
@@ -632,6 +686,7 @@ export class ToolsLendingComponent implements OnInit {
         this.quickReturnSession.set(null);
         this.quickReturnCode.set('');
         this.quickReturnCharge.set('');
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refreshAvailability();
         queueMicrotask(() => this.focusQuickReturnCodeInput());
@@ -883,6 +938,7 @@ export class ToolsLendingComponent implements OnInit {
           delete next[itemId];
           return next;
         });
+        this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
@@ -1036,6 +1092,9 @@ export class ToolsLendingComponent implements OnInit {
             this.ordersSync.notifyOrderUpdated(order as OrderDto);
           }
         }
+        if (toolRows.length > 0) {
+          this.ordersSync.notifyLoanChanged();
+        }
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
@@ -1168,7 +1227,7 @@ export class ToolsLendingComponent implements OnInit {
     }
     // Local filter only — from the single bulk cache loaded at page init.
     const inStock = this.availableByTool().get(line.toolId) ?? [];
-    return [...inStock].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return sortNumericCodes(inStock);
   }
 
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
@@ -1346,6 +1405,7 @@ export class ToolsLendingComponent implements OnInit {
         | 'deposit'
         | 'notes'
         | 'clientAlertNotes'
+        | 'clientRiskAlerts'
       >
     >
   ): void {
@@ -1353,17 +1413,27 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onClientNameInput(formId: string, value: string): void {
-    this.patchForm(formId, { clientName: value, clientAlertNotes: null });
+    this.patchForm(formId, {
+      clientName: value,
+      clientAlertNotes: null,
+      clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS
+    });
     this.openCustomerSuggest(formId, 'name', value);
+    this.queueCustomerRiskLookup(formId);
   }
 
   protected onPhoneInput(formId: string, value: string): void {
     const digits = clampIsraeliPhoneDigits(value);
-    this.patchForm(formId, { phone: digits, clientAlertNotes: null });
+    this.patchForm(formId, {
+      phone: digits,
+      clientAlertNotes: null,
+      clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS
+    });
     this.openCustomerSuggest(formId, 'phone', digits);
     if (digits.length >= 9) {
       this.lookupClientNotesByPhone(formId, digits);
     }
+    this.queueCustomerRiskLookup(formId);
   }
 
   protected onPhone2Input(formId: string, value: string): void {
@@ -1473,10 +1543,12 @@ export class ToolsLendingComponent implements OnInit {
       clientName: customer.fullName ?? '',
       phone: customer.phone1,
       phone2: customer.phone2 ?? '',
-      address: customer.address ?? ''
+      address: customer.address ?? '',
+      clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS
     });
     this.closeCustomerSuggest();
     this.lookupClientNotesByPhone(formId, customer.phone1);
+    this.queueCustomerRiskLookup(formId);
   }
 
   protected dismissClientAlert(formId: string): void {
@@ -1563,6 +1635,7 @@ export class ToolsLendingComponent implements OnInit {
         this.toast.success('ההשאלה נשמרה');
         this.orderDraft.clearIfKind('tools-loan');
         this.forms.set([this.createDraftForm()]);
+        this.ordersSync.notifyLoanChanged();
         this.refreshAvailability();
         this.refreshActiveLoans();
       });
@@ -1585,6 +1658,59 @@ export class ToolsLendingComponent implements OnInit {
         this.applyClientNotesAlert(formId, match.notes);
       }
     });
+  }
+
+  private queueCustomerRiskLookup(formId: string): void {
+    const form = this.forms().find((f) => f.id === formId);
+    if (!form) {
+      return;
+    }
+    this.customerRiskLookup$.next({
+      formId,
+      phone: digitsOnlyPhone(form.phone),
+      customerName: form.clientName.trim()
+    });
+  }
+
+  private wireCustomerRiskAlertLookup(): void {
+    this.customerRiskLookup$
+      .pipe(
+        groupBy((req) => req.formId),
+        mergeMap((perForm$) =>
+          perForm$.pipe(
+            debounceTime(350),
+            distinctUntilChanged(
+              (a, b) => a.phone === b.phone && a.customerName === b.customerName
+            ),
+            switchMap(({ formId, phone, customerName }) => {
+              if (phone.length < 7 && customerName.length < 2) {
+                this.patchForm(formId, { clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS });
+                return EMPTY;
+              }
+              return forkJoin({
+                cancelled: this.data.getCancelledOrdersReport(),
+                openDebts: this.data.getOpenDebtGroupsReport(),
+                unreturned: this.data.getUnreturnedItems()
+              }).pipe(
+                map(({ cancelled, openDebts, unreturned }) => ({
+                  formId,
+                  snapshot: buildCustomerRiskAlertSnapshot(
+                    cancelled,
+                    openDebts,
+                    unreturned,
+                    phone,
+                    customerName
+                  )
+                }))
+              );
+            })
+          )
+        ),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(({ formId, snapshot }) => {
+        this.patchForm(formId, { clientRiskAlerts: snapshot });
+      });
   }
 
   private closeToolUi(): void {
@@ -2115,6 +2241,7 @@ export class ToolsLendingComponent implements OnInit {
     if (pending.phone.replace(/\D/g, '').length >= 9) {
       this.lookupClientNotesByPhone(draft.id, pending.phone.replace(/\D/g, ''));
     }
+    this.queueCustomerRiskLookup(draft.id);
   }
 
   private refreshAvailability(): void {
@@ -2199,6 +2326,7 @@ export class ToolsLendingComponent implements OnInit {
       deposit: '',
       notes: '',
       clientAlertNotes: null,
+      clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,
       deadlineAt: timeLimitOn ? this.computeDeadline(createdAt, hours) : null
     };
   }

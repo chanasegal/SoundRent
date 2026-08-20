@@ -83,6 +83,8 @@ export class HebrewCalendarPickerComponent {
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
     const popupHeight = 320;
+    const popupWidth = Math.min(17.5 * 16, window.innerWidth - 16);
+    const margin = 8;
 
     const style: Record<string, string> = { position: 'fixed' };
 
@@ -93,11 +95,21 @@ export class HebrewCalendarPickerComponent {
     }
 
     const isRtl = document.documentElement.dir === 'rtl' || getComputedStyle(trigger).direction === 'rtl';
+
+    // Prefer opening toward the form (rightward in RTL, where the date control
+    // sits on the left of the row). Clamp so the popup is not clipped.
+    let left = rect.left;
     if (isRtl) {
-      style['right'] = `${window.innerWidth - rect.right}px`;
-    } else {
-      style['left'] = `${rect.left}px`;
+      if (left + popupWidth > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - popupWidth - margin);
+      }
+    } else if (left + popupWidth > window.innerWidth - margin) {
+      left = Math.max(margin, rect.right - popupWidth);
     }
+    if (left < margin) {
+      left = margin;
+    }
+    style['left'] = `${left}px`;
 
     this.popupStyle.set(style);
   }
@@ -123,6 +135,12 @@ export class HebrewCalendarPickerComponent {
     const view = this.calendarView();
     this.year.set(view.year);
     this.month.set(view.month);
+    // Model signals skip Object.is-equal writes. Re-selecting the already-bound
+    // day (e.g. today while the parent text field is still empty) must still
+    // emit dayChange — briefly clear, then set the real day in the same turn.
+    if (this.day() === day) {
+      this.day.set(0);
+    }
     this.day.set(day);
     this.close();
   }

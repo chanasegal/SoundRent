@@ -21,8 +21,10 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -48,6 +50,7 @@ import {
 })
 export class LostEquipmentAdminComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly exportSvc = inject(ExportService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
@@ -91,6 +94,23 @@ export class LostEquipmentAdminComponent implements OnInit {
   ngOnInit(): void {
     this.wireCustomerAutocomplete();
     this.refresh();
+
+    this.ordersSync.lostEquipmentChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => this.refresh(),
+      {
+        skipWhen: () =>
+          this.loading() ||
+          this.saving() ||
+          this.deletingId() != null ||
+          this.statusUpdatingId() != null ||
+          this.addForm.dirty
+      }
+    );
   }
 
   protected refresh(): void {
@@ -213,6 +233,7 @@ export class LostEquipmentAdminComponent implements OnInit {
             return;
           }
           this.toast.success('הפריט נוסף לרשימת הציוד שנשכח');
+          this.ordersSync.notifyLostEquipmentChanged();
           this.addForm.reset({
             customerName: '',
             phone: '',
@@ -249,6 +270,7 @@ export class LostEquipmentAdminComponent implements OnInit {
             return;
           }
           this.rows.update((list) => list.map((r) => (r.id === updated.id ? updated : r)));
+          this.ordersSync.notifyLostEquipmentChanged();
           this.toast.success('הסטטוס עודכן');
         }
       });
@@ -270,6 +292,7 @@ export class LostEquipmentAdminComponent implements OnInit {
             return;
           }
           this.rows.update((list) => list.filter((r) => r.id !== row.id));
+          this.ordersSync.notifyLostEquipmentChanged();
           this.toast.success('הרשומה נמחקה');
         }
       });

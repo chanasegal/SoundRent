@@ -2,6 +2,11 @@
 
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.0.4.
 
+## Cross-device data sync
+
+Operational screens stay aligned across desktop/tablet without full page reloads.
+See [docs/data-sync.md](docs/data-sync.md) for the API-write + same-tab bus + live refresh model.
+
 ## Development server
 
 To start a local development server, run:

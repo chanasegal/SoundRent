@@ -62,6 +62,7 @@ import {
 } from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
 const nonEmptyStringArrayValidator: ValidatorFn = (
@@ -284,7 +285,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         merged.set(key, trimmed);
       }
     }
-    return [...merged.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return [...merged.values()].sort(compareNumericCodes);
   });
 
   protected readonly deletingInventoryId = signal<number | null>(null);
@@ -348,9 +349,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     const id = this.serialSearchForm.controls.inventoryDefinitionId.value;
     if (id != null) {
       const def = this.inventoryStore.byId(id);
-      return [...(def?.serialCodes ?? [])].sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      );
+      return sortNumericCodes(def?.serialCodes ?? []);
     }
 
     const oneTimeName = this.selectedOneTimeTypeName().trim().toLowerCase();
@@ -362,7 +361,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .flatMap((l) => l.serialCodes ?? [])
       .map((c) => (c ?? '').trim())
       .filter((c) => c.length > 0);
-    return [...new Set(codes)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return sortNumericCodes([...new Set(codes)]);
   }
 
   protected selectedSerialTypeLabel(): string {
@@ -1230,9 +1229,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       }
       return {
         ...def,
-        serialCodes: [...merged.values()].sort((a, b) =>
-          a.localeCompare(b, undefined, { numeric: true })
-        )
+        serialCodes: sortNumericCodes([...merged.values()])
       };
     });
   }
@@ -1474,12 +1471,10 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     const codes = (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
     const linked = def.linkedEquipmentType ?? null;
     const quantity = Math.max(def.totalQuantity ?? 0, codes.length);
-    // Linked types keep one code input per unit; custom/unlinked rows only show codes that exist.
-    const codeControls = linked
-      ? Array.from({ length: quantity }, (_, i) =>
-          this.fb.nonNullable.control(codes[i] ?? '', [Validators.maxLength(100)])
-        )
-      : codes.map((code) => this.fb.nonNullable.control(code, [Validators.maxLength(100)]));
+    // One code input per unit for every catalog row (linked system types and custom alike).
+    const codeControls = Array.from({ length: quantity }, (_, i) =>
+      this.fb.nonNullable.control(codes[i] ?? '', [Validators.maxLength(100)])
+    );
     const codesFa = this.fb.array<FormControl<string>>(codeControls);
     return this.fb.group({
       id: this.fb.nonNullable.control(def.id),
@@ -1521,12 +1516,6 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
-    const linked = group.get('linkedEquipmentType')?.value;
-    // Custom / unlinked rows track quantity without forcing empty serial inputs.
-    if (!linked) {
-      return;
-    }
-
     while (codes.length < length) {
       codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
     }
@@ -1564,12 +1553,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       const quantity = this.toNonNegativeInteger(group.get('quantity')?.value);
       const codesFa = this.customInventoryCodesArray(i);
       const serialCodes: string[] = [];
+      const hasAnyCode = codesFa.controls.some((c) => String(c.value ?? '').trim().length > 0);
 
       for (let c = 0; c < codesFa.length; c++) {
         const raw = String(codesFa.at(c).value ?? '').trim();
         if (raw.length === 0) {
-          // Linked types still require a code per unit; custom rows allow blank/omitted codes.
-          if (linked) {
+          // Quantity-only rows (no codes filled) stay allowed; once any unit is coded, fill every slot.
+          if (linked || hasAnyCode) {
             this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
             return;
           }
@@ -1581,6 +1571,10 @@ export class EquipmentSlotsAdminComponent implements OnInit {
               ? `קוד מיקרופון לא תקין (#${c + 1}): אותיות, ספרות ומקף בלבד`
               : `קוד לא תקין עבור ${label} (#${c + 1}): ספרות בלבד`
           );
+          return;
+        }
+        if (raw.length > 100) {
+          this.toast.error(`קוד פריט ארוך מדי עבור ${label} (#${c + 1})`);
           return;
         }
         if (serialCodes.some((existing) => existing.localeCompare(raw, undefined, { sensitivity: 'accent' }) === 0)) {
@@ -1599,7 +1593,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         items: payloads.map((p) => ({
           id: p.id,
           serialCodes: p.codes,
-          quantity: p.linked ? p.codes.length : p.quantity
+          // Serialized rows: quantity follows code count. Quantity-only custom rows keep the typed qty.
+          quantity: p.codes.length > 0 ? p.codes.length : p.quantity
         }))
       })
       .pipe(finalize(() => this.accessorySaving.set(false)))
