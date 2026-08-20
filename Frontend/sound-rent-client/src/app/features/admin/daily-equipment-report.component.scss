@@ -740,3 +740,54 @@ $date-control-height: 2.5rem;
   white-space: nowrap;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
+
+.report-block {
+  &__title {
+    margin: 0 0 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+
+    &--outbound {
+      color: #002244;
+    }
+
+    &--returns {
+      color: #9a3412;
+    }
+  }
+
+  &__hint {
+    margin: 0 0 1rem;
+    font-size: 0.875rem;
+    color: #64748b;
+  }
+}
+
+.summary-badge--returns {
+  border-color: #fed7aa;
+  background: #fff7ed;
+
+  .summary-badge__qty {
+    background: #c2410c;
+  }
+}
+
+.customer-breakdown-card--returns {
+  border-color: #fed7aa;
+  background: #fffaf5;
+}
+
+.return-time-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid #fdba74;
+  background: #ffedd5;
+  color: #9a3412;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  white-space: nowrap;
+}

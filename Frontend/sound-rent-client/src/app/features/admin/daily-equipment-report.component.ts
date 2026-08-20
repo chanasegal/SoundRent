@@ -19,7 +19,8 @@ import {
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
   LOANED_EQUIPMENT_ORDER,
-  LoanedEquipmentType
+  LoanedEquipmentType,
+  ReturnTimeType
 } from '../../core/models/enums';
 import {
   LoanedEquipmentNoteDto,
@@ -67,12 +68,19 @@ interface CustomerBreakdown {
   systemSlotIds: string[];
   accessoryRows: CustomerAccessoryLine[];
   hasLastNameDuplicate: boolean;
+  /** Present on return-section groups — e.g. "ראשון בלילה" / "עד 14:00". */
+  returnTimeLabel?: string;
+}
+
+interface ReportSection {
+  summary: EquipmentLine[];
+  customers: CustomerBreakdown[];
 }
 
 interface DailyEquipmentReport {
   selectedIso: string;
-  summary: EquipmentLine[];
-  customers: CustomerBreakdown[];
+  outbound: ReportSection;
+  returns: ReportSection;
 }
 
 const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה על שם זהה היום';
@@ -539,7 +547,13 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   protected exportToExcel(): void {
     const report = this.report();
-    if (!report || (report.summary.length === 0 && report.customers.length === 0)) {
+    if (
+      !report ||
+      (report.outbound.summary.length === 0 &&
+        report.outbound.customers.length === 0 &&
+        report.returns.summary.length === 0 &&
+        report.returns.customers.length === 0)
+    ) {
       this.toast.show('אין נתונים לייצוא לתאריך הנבחר', 'info');
       return;
     }
@@ -549,52 +563,84 @@ export class DailyEquipmentReportComponent implements OnInit {
 
     this.exportInProgress.set(true);
     const iso = report.selectedIso;
-    const summaryRows = report.summary.map((line) => ({
+
+    void this.exportSvc
+      .exportMultiSheetExcel(
+        [
+          {
+            sheetName: 'השאלה - סיכום',
+            rows: this.sectionSummaryRows(report.outbound)
+          },
+          {
+            sheetName: 'השאלה - פירוט',
+            rows: this.sectionBreakdownRows(report.outbound, false)
+          },
+          {
+            sheetName: 'החזרה - סיכום',
+            rows: this.sectionSummaryRows(report.returns)
+          },
+          {
+            sheetName: 'החזרה - פירוט',
+            rows: this.sectionBreakdownRows(report.returns, true)
+          }
+        ],
+        `equipment_report_${iso.replace(/-/g, '')}.xlsx`
+      )
+      .then(() => this.toast.success('קובץ Excel הורד'))
+      .finally(() => this.exportInProgress.set(false));
+  }
+
+  private sectionSummaryRows(section: ReportSection): Record<string, unknown>[] {
+    return section.summary.map((line) => ({
       פריט: line.label,
       כמות: line.quantity
     }));
-    const breakdownRows: Record<string, unknown>[] = [];
-    for (const customer of report.customers) {
+  }
+
+  private sectionBreakdownRows(
+    section: ReportSection,
+    includeReturnTime: boolean
+  ): Record<string, unknown>[] {
+    const rows: Record<string, unknown>[] = [];
+    for (const customer of section.customers) {
       for (const item of customer.accessoryRows) {
-        breakdownRows.push({
+        const row: Record<string, unknown> = {
           לקוח: customer.customerName || '—',
           טלפון: customer.phone,
           'מספר הזמנה': item.orderId,
           'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
           פריט: item.label,
           כמות: item.quantity,
-          'קודי פריט': item.serialCodes.join(', '),
-          'אזהרת שם משפחה': customer.hasLastNameDuplicate
-            ? 'יש עוד הזמנה על שם משפחה זהה'
-            : ''
-        });
+          'קודי פריט': item.serialCodes.join(', ')
+        };
+        if (includeReturnTime) {
+          row['שעת החזרה'] = customer.returnTimeLabel ?? '';
+        }
+        row['אזהרת שם משפחה'] = customer.hasLastNameDuplicate
+          ? 'יש עוד הזמנה על שם משפחה זהה'
+          : '';
+        rows.push(row);
       }
       if (customer.accessoryRows.length === 0) {
-        breakdownRows.push({
+        const row: Record<string, unknown> = {
           לקוח: customer.customerName || '—',
           טלפון: customer.phone,
           'מספר הזמנה': customer.orderIds.join(', '),
           'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
           פריט: '(ללא ציוד מושאל)',
           כמות: 0,
-          'קודי פריט': '',
-          'אזהרת שם משפחה': customer.hasLastNameDuplicate
-            ? 'יש עוד הזמנה על שם משפחה זהה'
-            : ''
-        });
+          'קודי פריט': ''
+        };
+        if (includeReturnTime) {
+          row['שעת החזרה'] = customer.returnTimeLabel ?? '';
+        }
+        row['אזהרת שם משפחה'] = customer.hasLastNameDuplicate
+          ? 'יש עוד הזמנה על שם משפחה זהה'
+          : '';
+        rows.push(row);
       }
     }
-
-    void this.exportSvc
-      .exportMultiSheetExcel(
-        [
-          { sheetName: 'סיכום יומי', rows: summaryRows },
-          { sheetName: 'פירוט לפי לקוח', rows: breakdownRows }
-        ],
-        `equipment_report_${iso.replace(/-/g, '')}.xlsx`
-      )
-      .then(() => this.toast.success('קובץ Excel הורד'))
-      .finally(() => this.exportInProgress.set(false));
+    return rows;
   }
 
   private loadSerialAvailability(row: CustomerAccessoryLine): void {
@@ -1073,25 +1119,26 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
 
-    // Only keep/add orders whose loan starts on the selected day (not mid-span days).
-    const startsOnDay = this.isOrderStartDate(updated, iso);
+    // Keep orders relevant to either outbound (start day) or returns (effective return day).
+    const relevantForDay =
+      this.isOrderStartDate(updated, iso) || this.isOrderReturnDate(updated, iso);
     const alreadyListed = this.orders().some((order) => order.id === updated.id);
 
-    if (!startsOnDay && !alreadyListed) {
+    if (!relevantForDay && !alreadyListed) {
       return;
     }
 
     this.orders.update((list) => {
       const index = list.findIndex((order) => order.id === updated.id);
       if (index >= 0) {
-        if (!startsOnDay) {
+        if (!relevantForDay) {
           return list.filter((order) => order.id !== updated.id);
         }
         const next = [...list];
         next[index] = updated;
         return next;
       }
-      return startsOnDay ? [...list, updated] : list;
+      return relevantForDay ? [...list, updated] : list;
     });
 
     this.accessoryAvailabilityByRow.update((map) => {
@@ -1117,9 +1164,12 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
 
+    // Include previous calendar day so LateNight / NextMorning returns (end+1) are available.
+    const rangeStart = this.addDaysIso(iso, -1) ?? iso;
+
     this.loading.set(true);
     this.data
-      .getWeeklyOrders(iso, iso)
+      .getWeeklyOrders(rangeStart, iso)
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
         next: (list) => {
@@ -1137,10 +1187,22 @@ export class DailyEquipmentReportComponent implements OnInit {
   private buildReport(iso: string, orders: OrderDto[]): DailyEquipmentReport {
     // Accessory-only loans (Quick Loan / cables-only) have no main equipment slots —
     // exclude them so the report only shows orders with at least one system booking.
-    // Multi-day loans appear only on their start date (earliest shift), not mid-span days.
-    const ordersOnDay = orders.filter(
-      (order) => this.isOrderStartDate(order, iso) && this.hasMainEquipment(order)
-    );
+    const withMain = orders.filter((order) => this.hasMainEquipment(order));
+    const outboundOrders = withMain.filter((order) => this.isOrderStartDate(order, iso));
+    const returnOrders = withMain.filter((order) => this.isOrderReturnDate(order, iso));
+
+    return {
+      selectedIso: iso,
+      outbound: this.buildSection(outboundOrders, iso, false),
+      returns: this.buildSection(returnOrders, iso, true)
+    };
+  }
+
+  private buildSection(
+    ordersOnDay: OrderDto[],
+    iso: string,
+    forReturns: boolean
+  ): ReportSection {
     const duplicateOrderIds = this.buildSameDayLastNameDuplicateOrderIds(ordersOnDay, iso);
 
     const summaryMap = new Map<string, EquipmentLine>();
@@ -1152,7 +1214,9 @@ export class DailyEquipmentReportComponent implements OnInit {
         this.mergeEquipmentLine(summaryMap, line);
       }
 
-      const customerKey = `${(order.customerName ?? '').trim()}|${order.phone}`;
+      const customerKey = forReturns
+        ? `${(order.customerName ?? '').trim()}|${order.phone}|${order.id}`
+        : `${(order.customerName ?? '').trim()}|${order.phone}`;
       let group = customerGroups.get(customerKey);
       if (!group) {
         group = {
@@ -1161,7 +1225,8 @@ export class DailyEquipmentReportComponent implements OnInit {
           orderIds: [],
           systemSlotIds: [],
           accessoryRows: [],
-          hasLastNameDuplicate: false
+          hasLastNameDuplicate: false,
+          returnTimeLabel: forReturns ? this.returnTimeDisplayLabel(order) : undefined
         };
         customerGroups.set(customerKey, group);
       }
@@ -1171,7 +1236,8 @@ export class DailyEquipmentReportComponent implements OnInit {
         group.hasLastNameDuplicate = true;
       }
 
-      const accessoryRows = this.orderAccessoryLines(order, iso);
+      const accessoryDayIso = forReturns ? (this.lastShiftDate(order) ?? iso) : iso;
+      const accessoryRows = this.orderAccessoryLines(order, accessoryDayIso);
       group.accessoryRows.push(...accessoryRows);
       group.accessoryRows = this.sortAccessoryRows(group.accessoryRows);
     }
@@ -1189,7 +1255,6 @@ export class DailyEquipmentReportComponent implements OnInit {
     });
 
     return {
-      selectedIso: iso,
       summary: this.sortEquipmentLines(summaryMap),
       customers
     };
@@ -1290,9 +1355,75 @@ export class DailyEquipmentReportComponent implements OnInit {
     return shifts[0]?.orderDate ?? null;
   }
 
+  /** Latest shift date (yyyy-MM-dd), i.e. the loan end date. */
+  private lastShiftDate(order: OrderDto): string | null {
+    const shifts = [...(order.shifts ?? [])].sort((a, b) => a.orderDate.localeCompare(b.orderDate));
+    return shifts.length > 0 ? shifts[shifts.length - 1]!.orderDate : null;
+  }
+
   /** True when `iso` is the loan's start date (first day only — not mid-loan days). */
   private isOrderStartDate(order: OrderDto, iso: string): boolean {
     return this.firstShiftDate(order) === iso;
+  }
+
+  /**
+   * Effective report date for returns:
+   * - LateNight / NextMorning → end date + 1 day
+   * - SpecificTime (custom "עד") → end date as-is
+   */
+  private effectiveReturnDate(order: OrderDto): string | null {
+    const endDate = this.lastShiftDate(order);
+    if (!endDate) {
+      return null;
+    }
+    if (
+      order.returnTimeType === ReturnTimeType.LateNight ||
+      order.returnTimeType === ReturnTimeType.NextMorning
+    ) {
+      return this.addDaysIso(endDate, 1);
+    }
+    return endDate;
+  }
+
+  private isOrderReturnDate(order: OrderDto, iso: string): boolean {
+    return this.effectiveReturnDate(order) === iso;
+  }
+
+  /**
+   * Display text for the returns section.
+   * LateNight / NextMorning use the loan end-day name (e.g. "ראשון בלילה").
+   * SpecificTime shows the custom hour.
+   */
+  private returnTimeDisplayLabel(order: OrderDto): string {
+    const endDate = this.lastShiftDate(order);
+    const endDayName = endDate ? this.dayNameForIso(endDate) : '';
+
+    switch (order.returnTimeType) {
+      case ReturnTimeType.NextMorning:
+        // Shown on end+1 report; label keeps the loan end-day name for clarity.
+        return endDayName ? `${endDayName} עד 8:00` : 'עד 8:00';
+      case ReturnTimeType.SpecificTime: {
+        const custom = (order.customReturnTime ?? '').trim();
+        return custom ? `עד ${custom}` : 'עד';
+      }
+      case ReturnTimeType.LateNight:
+      default:
+        return endDayName ? `${endDayName} בלילה` : 'עד הלילה';
+    }
+  }
+
+  private dayNameForIso(iso: string): string {
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.dayOfWeekHebrew(date) : '';
+  }
+
+  private addDaysIso(iso: string, days: number): string | null {
+    const date = this.hebrew.parseIso(iso);
+    if (!date) {
+      return null;
+    }
+    date.setDate(date.getDate() + days);
+    return this.hebrew.toIso(date);
   }
 
   private mergeSystemSlotIds(group: CustomerBreakdown, order: OrderDto): void {
@@ -1352,15 +1483,12 @@ export class DailyEquipmentReportComponent implements OnInit {
     });
   }
 
-  private buildSameDayLastNameDuplicateOrderIds(orders: OrderDto[], iso: string): Set<number> {
+  private buildSameDayLastNameDuplicateOrderIds(orders: OrderDto[], _iso: string): Set<number> {
     // lastName → customerIdentity → orderIds
-    // Flag only when 2+ distinct customers (name+phone) share a last name that day.
+    // Flag only when 2+ distinct customers (name+phone) share a last name in this section.
     const buckets = new Map<string, Map<string, Set<number>>>();
 
     for (const order of orders) {
-      if (!this.isOrderStartDate(order, iso)) {
-        continue;
-      }
       const lastNameKey = this.customerLastNameKey(order.customerName);
       if (!lastNameKey) {
         continue;
