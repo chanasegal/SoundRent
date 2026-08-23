@@ -171,6 +171,17 @@ app.MapControllers();
 // --- Database migration & admin seed -------------------------------------
 try
 {
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var startupLogger = scope.ServiceProvider
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Startup");
+
+        startupLogger.LogInformation("Applying pending Entity Framework migrations…");
+        await db.Database.MigrateAsync();
+    }
+
     await DbInitializer.InitializeAsync(app.Services);
 }
 catch (InvalidOperationException ex)

@@ -21,10 +21,9 @@ public static class DbInitializer
         try
         {
             logger.LogInformation(
-                "Connecting to database{HostHint} and applying migrations…",
+                "Connecting to database{HostHint} for seeding…",
                 string.IsNullOrEmpty(hostHint) ? string.Empty : $" (Host={hostHint})");
 
-            await db.Database.MigrateAsync();
             await equipmentService.EnsureAllEquipmentRowsExistAsync();
 
             await SeedAdminIfNeededAsync(db, configuration, logger);
