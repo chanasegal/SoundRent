@@ -27,9 +27,6 @@ public static class DbInitializer
             await db.Database.MigrateAsync();
             await equipmentService.EnsureAllEquipmentRowsExistAsync();
 
-            var inventoryDefinitions = scope.ServiceProvider.GetRequiredService<IInventoryDefinitionService>();
-            await inventoryDefinitions.EnsureSystemTypesSeededAsync();
-
             await SeedAdminIfNeededAsync(db, configuration, logger);
 
             logger.LogInformation("Database initialization completed successfully.");

@@ -4,10 +4,9 @@ using SoundRent.Api.Domain.Enums;
 namespace SoundRent.Api.Domain.Entities;
 
 /// <summary>
-/// Standalone accessory / inventory catalog item (warehouse tracking).
+/// Permanent accessory / inventory catalog item (warehouse tracking).
 /// Not used as a weekly-board booking column — those live in <see cref="EquipmentDefinition"/>.
-/// When <see cref="LinkedEquipmentType"/> is set, unit codes are stored in AccessorySerialInventory
-/// so loan / quick-loan flows keep working.
+/// Physical units are stored in <see cref="SerialCodes"/>.
 /// </summary>
 public class InventoryDefinition
 {
@@ -19,20 +18,10 @@ public class InventoryDefinition
 
     public int SortOrder { get; set; }
 
-    /// <summary>
-    /// Tracked stock quantity. For custom (unlinked) rows this can be set without serial codes.
-    /// For linked system types this mirrors the serial-code count.
-    /// </summary>
+    /// <summary>Tracked stock quantity — mirrors serial-code count when serials are assigned.</summary>
     public int Quantity { get; set; }
 
-    /// <summary>
-    /// When set, this row is the editable catalog entry for a system <see cref="LoanedEquipmentType"/>.
-    /// </summary>
-    public LoanedEquipmentType? LinkedEquipmentType { get; set; }
-
-    /// <summary>
-    /// Soft-delete flag. Inactive rows stay in the DB so system types are not re-seeded on load.
-    /// </summary>
+    /// <summary>Soft-delete flag for catalog rows removed from active inventory.</summary>
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

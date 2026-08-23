@@ -444,7 +444,13 @@
                         aria-label="יש יחידות עם ציוד נלווה קבוע"
                       ></i>
                     }
-                    <span>{{ row.def.displayName }}</span>
+                    <input
+                      type="text"
+                      maxlength="200"
+                      formControlName="displayName"
+                      class="inventory-name-input"
+                      [class.inventory-name-input--readonly]="!isInventoryRowEditing(row.def.id)"
+                    />
                   </span>
                 </td>
                 <td class="px-3 py-2 align-middle text-center">
@@ -467,35 +473,18 @@
                     <div class="note-row" formArrayName="codes">
                       @for (idx of codeIndicesForCustomInventoryRow(row.formIndex); track idx) {
                         <div class="unit-code-cell">
-                          @if (isMicrophoneInventoryRow(row.formIndex) || !isLinkedInventoryRow(row.formIndex)) {
-                            <input
-                              type="text"
-                              maxlength="100"
-                              [formControlName]="idx"
-                              class="note-input"
-                              [class.note-input--in-repair]="isSerialInRepair(row.def, customInventoryCodeValue(row.formIndex, idx))"
-                              [attr.data-serial-nav]="'1'"
-                              [attr.placeholder]="'#' + (idx + 1)"
-                              (keydown.enter)="focusNextSerialInput($event)"
-                              (contextmenu)="openSerialStatusMenu(row.def, customInventoryCodeValue(row.formIndex, idx), $event)"
-                            />
-                          } @else {
-                            <input
-                              type="text"
-                              maxlength="100"
-                              inputmode="numeric"
-                              pattern="[0-9]*"
-                              appIntegerOnly
-                              [formControlName]="idx"
-                              class="note-input"
-                              [class.note-input--in-repair]="isSerialInRepair(row.def, customInventoryCodeValue(row.formIndex, idx))"
-                              [attr.data-serial-nav]="'1'"
-                              [attr.placeholder]="'#' + (idx + 1)"
-                              (keydown.enter)="focusNextSerialInput($event)"
-                              (contextmenu)="openSerialStatusMenu(row.def, customInventoryCodeValue(row.formIndex, idx), $event)"
-                            />
-                          }
-                          @if (supportsDefaultAccessories(row.def) && row.def.linkedEquipmentType) {
+                          <input
+                            type="text"
+                            maxlength="100"
+                            [formControlName]="idx"
+                            class="note-input"
+                            [class.note-input--in-repair]="isSerialInRepair(row.def, customInventoryCodeValue(row.formIndex, idx))"
+                            [attr.data-serial-nav]="'1'"
+                            [attr.placeholder]="'#' + (idx + 1)"
+                            (keydown.enter)="focusNextSerialInput($event)"
+                            (contextmenu)="openSerialStatusMenu(row.def, customInventoryCodeValue(row.formIndex, idx), $event)"
+                          />
+                          @if (supportsDefaultAccessories(row.def)) {
                             <button
                               type="button"
                               class="default-acc-unit-btn"
@@ -517,7 +506,7 @@
                               <span class="default-acc-unit-btn__count">
                                 {{
                                   defaultAccessoryCountForUnit(
-                                    row.def.linkedEquipmentType,
+                                    'Mixer',
                                     customInventoryCodeValue(row.formIndex, idx)
                                   )
                                 }}
@@ -531,21 +520,41 @@
                 </td>
                 <td class="px-3 py-2 align-middle">
                   <div class="slot-actions">
-                    <button
-                      type="button"
-                      class="slot-action-btn slot-action-btn--edit"
-                      (click)="openEditInventoryItem(row.def)"
-                    >
-                      עריכה
-                    </button>
-                    <button
-                      type="button"
-                      class="slot-action-btn slot-action-btn--delete"
-                      [disabled]="deletingInventoryId() === row.def.id"
-                      (click)="deleteInventoryItem(row.def, row.formIndex)"
-                    >
-                      {{ deletingInventoryId() === row.def.id ? 'מוחק…' : 'מחק' }}
-                    </button>
+                    @if (isInventoryRowEditing(row.def.id)) {
+                      <button
+                        type="button"
+                        class="slot-action-btn slot-action-btn--edit"
+                        [disabled]="savingInventoryRowId() === row.def.id"
+                        (click)="saveInventoryRow(row.def, row.formIndex)"
+                      >
+                        {{ savingInventoryRowId() === row.def.id ? 'שומר…' : 'שמור' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="slot-action-btn slot-action-btn--delete"
+                        [disabled]="savingInventoryRowId() === row.def.id"
+                        (click)="cancelEditInventoryRow(row.def, row.formIndex)"
+                      >
+                        ביטול
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="slot-action-btn slot-action-btn--edit"
+                        [disabled]="editingInventoryRowId() !== null"
+                        (click)="startEditInventoryRow(row.def, row.formIndex)"
+                      >
+                        עריכה
+                      </button>
+                      <button
+                        type="button"
+                        class="slot-action-btn slot-action-btn--delete"
+                        [disabled]="deletingInventoryId() === row.def.id || editingInventoryRowId() !== null"
+                        (click)="deleteInventoryItem(row.def, row.formIndex)"
+                      >
+                        {{ deletingInventoryId() === row.def.id ? 'מוחק…' : 'מחק' }}
+                      </button>
+                    }
                   </div>
                 </td>
               </tr>
@@ -556,17 +565,6 @@
             }
           </tbody>
         </table>
-      </div>
-
-      <div class="mt-4 flex justify-end">
-        <button
-          type="button"
-          class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
-          [disabled]="accessorySaving()"
-          (click)="saveAccessoryInventory()"
-        >
-          {{ accessorySaving() ? 'שומר…' : 'שמירת מלאי אביזרים' }}
-        </button>
       </div>
     }
   </section>
@@ -778,58 +776,6 @@
             [disabled]="inventorySaving() || addInventoryForm.invalid"
           >
             {{ inventorySaving() ? 'שומר…' : 'הוסף למלאי' }}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-}
-
-@if (editInventoryOpen()) {
-  <div
-    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="inventory-edit-modal-title"
-    (click)="closeEditInventoryItem()"
-  >
-    <div
-      class="app-modal-panel w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 28rem"
-      (click)="$event.stopPropagation()"
-    >
-      <div class="border-b border-slate-200 px-5 py-4">
-        <h2 id="inventory-edit-modal-title" class="text-lg font-bold text-[#002244]">עריכת שם פריט</h2>
-        <p class="mt-1 text-sm text-slate-600">עדכון שם קטגוריית המלאי בלבד — ללא שינוי בלוח השבועי.</p>
-      </div>
-      <form [formGroup]="editInventoryForm" (ngSubmit)="saveEditInventoryItem()" class="space-y-4 px-5 py-4">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700" for="edit-inventory-name">
-            שם הפריט <span class="text-rose-500">*</span>
-          </label>
-          <input
-            id="edit-inventory-name"
-            formControlName="displayName"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            autocomplete="off"
-          />
-          @if (editInventoryForm.controls.displayName.touched && editInventoryForm.controls.displayName.errors?.['required']) {
-            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-          }
-        </div>
-        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
-          <button
-            type="button"
-            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
-            (click)="closeEditInventoryItem()"
-          >
-            ביטול
-          </button>
-          <button
-            type="submit"
-            class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366] disabled:opacity-50"
-            [disabled]="editInventorySaving() || editInventoryForm.invalid"
-          >
-            {{ editInventorySaving() ? 'שומר…' : 'שמור' }}
           </button>
         </div>
       </form>

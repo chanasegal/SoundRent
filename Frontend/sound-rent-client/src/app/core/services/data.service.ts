@@ -57,6 +57,7 @@ import {
   InventoryDefinitionCreateDto,
   InventoryDefinitionEnsureDto,
   InventoryDefinitionDto,
+  InventoryDefinitionRowUpdateDto,
   InventoryDefinitionSerialStatusUpdateDto,
   InventoryDefinitionSerialsUpdateDto,
   InventoryDefinitionUpdateDto
@@ -937,24 +938,36 @@ export class DataService {
   getAccessorySerialAvailability(
     request: AccessorySerialAvailabilityRequestDto
   ): Observable<AccessorySerialAvailabilityGroupDto[]> {
+    const payload = {
+      excludeOrderId: request.excludeOrderId ?? null,
+      inventoryDefinitionIds: request.inventoryDefinitionIds ?? []
+    };
     return this.http
-      .post<AccessorySerialAvailabilityGroupDto[]>(`${this.accessoryInventoryBase}/availability`, request)
+      .post<AccessorySerialAvailabilityGroupDto[]>(`${this.inventoryDefinitionsBase}/availability`, payload)
       .pipe(catchError(() => of([])));
   }
 
   getAccessorySerialLocation(
-    equipmentType: LoanedEquipmentType,
+    inventoryDefinitionId: number,
     serialCode: string
   ): Observable<AccessorySerialLocationDto | null> {
     const params = new HttpParams()
-      .set('equipmentType', equipmentType)
+      .set('inventoryDefinitionId', String(inventoryDefinitionId))
       .set('serialCode', serialCode.trim());
-    return this.http.get<AccessorySerialLocationDto>(`${this.accessoryInventoryBase}/location`, { params }).pipe(
+    return this.http.get<AccessorySerialLocationDto>(`${this.inventoryDefinitionsBase}/location`, { params }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
       })
     );
+  }
+
+  /** @deprecated Legacy signature — resolves catalog id from equipment type label when possible. */
+  getAccessorySerialLocationByType(
+    equipmentType: LoanedEquipmentType,
+    serialCode: string
+  ): Observable<AccessorySerialLocationDto | null> {
+    return this.getAccessorySerialLocation(0, serialCode);
   }
 
   getInventoryDefinitions(): Observable<InventoryDefinitionDto[]> {
@@ -1025,6 +1038,18 @@ export class DataService {
     payload: InventoryDefinitionUpdateDto
   ): Observable<InventoryDefinitionDto | null> {
     return this.http.put<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateInventoryDefinitionRow(
+    id: number,
+    payload: InventoryDefinitionRowUpdateDto
+  ): Observable<InventoryDefinitionDto | null> {
+    return this.http.put<InventoryDefinitionDto>(`${this.inventoryDefinitionsBase}/${id}/row`, payload).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);

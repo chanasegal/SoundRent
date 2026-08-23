@@ -19,6 +19,7 @@ import {
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
   LOANED_EQUIPMENT_ORDER,
+  LOANED_EQUIPMENT_LABELS,
   LoanedEquipmentType,
   ReturnTimeType
 } from '../../core/models/enums';
@@ -321,9 +322,13 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
 
     return this.inventoryStore.definitions().filter((def) => {
-      const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-      if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
-        return !usedTypes.has(linked);
+      const linkedType = LOANED_EQUIPMENT_ORDER.find(
+        (type) =>
+          def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', { sensitivity: 'accent' }) ===
+          0
+      );
+      if (linkedType) {
+        return !usedTypes.has(linkedType);
       }
       return !usedCustomNames.has(def.displayName.trim().toLowerCase());
     });
@@ -659,7 +664,6 @@ export class DailyEquipmentReportComponent implements OnInit {
               .definitions()
               .find(
                 (d) =>
-                  !d.linkedEquipmentType &&
                   d.displayName.localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
               );
       const options = (() => {
@@ -891,9 +895,10 @@ export class DailyEquipmentReportComponent implements OnInit {
     const order = this.orders().find((o) => o.id === orderId);
     const iso = this.selectedIso() ?? '';
     const shiftsOnDay = (order?.shifts ?? []).filter((shift) => shift.orderDate === iso);
-    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-    const type =
-      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
+    const type = LOANED_EQUIPMENT_ORDER.find(
+      (t) =>
+        def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[t], 'he', { sensitivity: 'accent' }) === 0
+    ) ?? null;
     const typeIndex = type ? LOANED_EQUIPMENT_ORDER.indexOf(type) : -1;
 
     return {
@@ -906,7 +911,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       sortKey: type ? 1000 + (typeIndex >= 0 ? typeIndex : 99) : 2500,
       loanedEquipmentType: type,
       inventoryDefinitionId: def.id,
-      isCustomItem: type == null,
+      isCustomItem: false,
       serialCodes: [],
       returnedSerialCodes: [],
       hasRecordedReturns: order?.isReturnProcessed === true,
@@ -1295,16 +1300,12 @@ export class DailyEquipmentReportComponent implements OnInit {
         ? null
         : (le.loanedEquipmentType as LoanedEquipmentType);
       const inventoryDefinitionId = le.isCustomItem
-        ? this.inventoryStore
-            .definitions()
-            .find(
-              (d) =>
-                !d.linkedEquipmentType &&
-                d.displayName.localeCompare(label, 'he', { sensitivity: 'accent' }) === 0
-            )?.id ?? null
-        : this.inventoryStore
-            .definitions()
-            .find((d) => d.linkedEquipmentType === loanedEquipmentType)?.id ?? null;
+        ? null
+        : le.inventoryDefinitionId != null && le.inventoryDefinitionId > 0
+          ? le.inventoryDefinitionId
+          : loanedEquipmentType != null
+            ? this.inventoryStore.definitionIdForType(loanedEquipmentType)
+            : null;
       const rowKey = le.isCustomItem
         ? `${order.id}|custom|${label}`
         : `${order.id}|${loanedEquipmentType}`;

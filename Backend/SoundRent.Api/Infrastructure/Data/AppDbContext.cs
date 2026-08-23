@@ -27,7 +27,6 @@ public class AppDbContext : DbContext
     public DbSet<GeneralMemo> GeneralMemos => Set<GeneralMemo>();
     public DbSet<LostEquipment> LostEquipments => Set<LostEquipment>();
     public DbSet<BlockedDate> BlockedDates => Set<BlockedDate>();
-    public DbSet<AccessorySerialInventory> AccessorySerialInventory => Set<AccessorySerialInventory>();
     public DbSet<EquipmentDefaultAccessory> EquipmentDefaultAccessories => Set<EquipmentDefaultAccessory>();
     public DbSet<InventoryDefinition> InventoryDefinitions => Set<InventoryDefinition>();
     public DbSet<InventorySerialCode> InventorySerialCodes => Set<InventorySerialCode>();

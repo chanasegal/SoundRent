@@ -10,8 +10,15 @@ public class OrderLoanedEquipment
     public int OrderId { get; set; }
     public Order Order { get; set; } = null!;
 
+    /// <summary>True one-time / free-text accessory (not in permanent catalog).</summary>
     public bool IsCustomItem { get; set; }
 
+    /// <summary>Permanent catalog row when this line references warehouse inventory.</summary>
+    public int? InventoryDefinitionId { get; set; }
+
+    public InventoryDefinition? InventoryDefinition { get; set; }
+
+    /// <summary>Legacy enum link — retained for historical rows; prefer <see cref="InventoryDefinitionId"/>.</summary>
     public LoanedEquipmentType? LoanedEquipmentType { get; set; }
 
     [MaxLength(200)]

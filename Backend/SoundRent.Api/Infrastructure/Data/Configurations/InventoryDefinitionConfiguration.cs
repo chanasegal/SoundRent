@@ -38,11 +38,6 @@ public class InventoryDefinitionConfiguration : IEntityTypeConfiguration<Invento
         builder.HasIndex(e => e.IsActive)
             .HasDatabaseName("IX_InventoryDefinitions_IsActive");
 
-        builder.HasIndex(e => e.LinkedEquipmentType)
-            .IsUnique()
-            .HasFilter("\"LinkedEquipmentType\" IS NOT NULL")
-            .HasDatabaseName("IX_InventoryDefinitions_LinkedEquipmentType");
-
         builder.HasMany(e => e.SerialCodes)
             .WithOne(s => s.InventoryDefinition)
             .HasForeignKey(s => s.InventoryDefinitionId)

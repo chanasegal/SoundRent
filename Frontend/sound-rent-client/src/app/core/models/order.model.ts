@@ -9,6 +9,7 @@ export interface LoanedEquipmentNoteDto {
 
 export interface OrderLoanedEquipmentDto {
   id?: number;
+  inventoryDefinitionId?: number | null;
   isCustomItem?: boolean;
   loanedEquipmentType?: LoanedEquipmentType | null;
   customItemName?: string | null;

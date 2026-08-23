@@ -357,6 +357,32 @@ tr.row-in-maintenance:hover {
   }
 }
 
+.inventory-name-input {
+  min-width: 8rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  padding: 0.2rem 0.35rem;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+
+  &:focus {
+    border-color: #0ea5e9;
+    background: #ffffff;
+    outline: none;
+  }
+
+  &:disabled,
+  &--readonly:disabled {
+    border-color: transparent;
+    background: transparent;
+    color: inherit;
+    cursor: default;
+    opacity: 1;
+  }
+}
+
 .note-row {
   display: flex;
   flex-wrap: wrap;

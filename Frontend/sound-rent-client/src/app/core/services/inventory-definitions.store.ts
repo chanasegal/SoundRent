@@ -84,9 +84,28 @@ export class InventoryDefinitionsStore {
     return this.definitions().find((d) => d.id === id);
   }
 
+  /** Resolve a catalog row by legacy enum label (display-name match). */
+  definitionForType(type: LoanedEquipmentType): InventoryDefinitionDto | undefined {
+    const label = LOANED_EQUIPMENT_LABELS[type];
+    if (!label) {
+      return undefined;
+    }
+    return this.definitions().find(
+      (d) =>
+        d.displayName.trim().localeCompare(label, 'he', { sensitivity: 'accent' }) === 0
+    );
+  }
+
+  definitionIdForType(type: LoanedEquipmentType): number | null {
+    return this.definitionForType(type)?.id ?? null;
+  }
+
   displayLabelForType(type: LoanedEquipmentType): string {
-    const linked = this.definitions().find((d) => d.linkedEquipmentType === type);
-    return linked?.displayName?.trim() || LOANED_EQUIPMENT_LABELS[type] || String(type);
+    return (
+      this.definitionForType(type)?.displayName?.trim() ||
+      LOANED_EQUIPMENT_LABELS[type] ||
+      String(type)
+    );
   }
 
   /**
@@ -96,38 +115,17 @@ export class InventoryDefinitionsStore {
   private buildLinkedTypeOptions(defs: InventoryDefinitionDto[]): LinkedAccessoryTypeOption[] {
     const byType = new Map<LoanedEquipmentType, LinkedAccessoryTypeOption>();
 
-    for (const def of defs) {
-      const linked = def.linkedEquipmentType;
-      if (!linked || !LOANED_EQUIPMENT_ORDER.includes(linked as LoanedEquipmentType)) {
-        continue;
-      }
-      const type = linked as LoanedEquipmentType;
+    for (const type of LOANED_EQUIPMENT_ORDER) {
+      const label = LOANED_EQUIPMENT_LABELS[type];
+      const def = defs.find(
+        (d) =>
+          d.displayName.trim().localeCompare(label, 'he', { sensitivity: 'accent' }) === 0
+      );
       byType.set(type, {
         type,
-        label: def.displayName?.trim() || LOANED_EQUIPMENT_LABELS[type],
-        inventoryDefinitionId: def.id
+        label: def?.displayName?.trim() || label,
+        inventoryDefinitionId: def?.id ?? null
       });
-    }
-
-    if (byType.size === 0) {
-      return [...LOANED_EQUIPMENT_ORDER]
-        .map((type) => ({
-          type,
-          label: LOANED_EQUIPMENT_LABELS[type],
-          inventoryDefinitionId: null as number | null
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'he'));
-    }
-
-    // Ensure every system type is represented even if a seed row is missing.
-    for (const type of LOANED_EQUIPMENT_ORDER) {
-      if (!byType.has(type)) {
-        byType.set(type, {
-          type,
-          label: LOANED_EQUIPMENT_LABELS[type],
-          inventoryDefinitionId: null
-        });
-      }
     }
 
     return [...byType.values()].sort((a, b) => a.label.localeCompare(b.label, 'he'));

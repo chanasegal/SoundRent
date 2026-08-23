@@ -44,9 +44,10 @@ public static class OrderMapper
     public static string GetLoanedEquipmentDisplayName(OrderLoanedEquipment le) =>
         le.IsCustomItem
             ? (le.CustomItemName ?? string.Empty)
-            : le.LoanedEquipmentType is { } type
-                ? LoanedEquipmentTypeLabels.GetLabel(type)
-                : string.Empty;
+            : le.InventoryDefinition?.DisplayName
+              ?? (le.LoanedEquipmentType is { } type
+                  ? LoanedEquipmentTypeLabels.GetLabel(type)
+                  : string.Empty);
 
     public static OrderShiftDto ToDto(OrderShift shift) => new()
     {
@@ -57,6 +58,7 @@ public static class OrderMapper
     public static OrderLoanedEquipmentDto ToDto(OrderLoanedEquipment le) => new()
     {
         Id = le.Id,
+        InventoryDefinitionId = le.InventoryDefinitionId,
         IsCustomItem = le.IsCustomItem,
         LoanedEquipmentType = le.LoanedEquipmentType,
         CustomItemName = le.CustomItemName,
@@ -124,7 +126,9 @@ public static class OrderMapper
             var customEntity = new OrderLoanedEquipment
             {
                 IsCustomItem = true,
+                InventoryDefinitionId = null,
                 CustomItemName = NullIfBlank(dto.CustomItemName),
+                LoanedEquipmentType = null,
                 Quantity = Math.Max(0, dto.Quantity),
                 ReturnedQuantity = 0,
                 ExpectedNoteCount = customExpected,
@@ -136,19 +140,20 @@ public static class OrderMapper
         }
 
         var expected = Math.Max(0, dto.ExpectedNoteCount);
-        var entity = new OrderLoanedEquipment
+        var catalogEntity = new OrderLoanedEquipment
         {
             IsCustomItem = false,
-            LoanedEquipmentType = dto.LoanedEquipmentType
-                ?? throw new InvalidOperationException("Loaned equipment type is required for standard items"),
+            InventoryDefinitionId = dto.InventoryDefinitionId,
+            CustomItemName = NullIfBlank(dto.CustomItemName),
+            LoanedEquipmentType = dto.LoanedEquipmentType,
             Quantity = dto.Quantity,
             ReturnedQuantity = 0,
             ExpectedNoteCount = expected,
             Notes = new List<LoanedEquipmentNote>()
         };
 
-        AddLoanedEquipmentNotesFromDto(entity.Notes, dto, expected);
-        return entity;
+        AddLoanedEquipmentNotesFromDto(catalogEntity.Notes, dto, expected);
+        return catalogEntity;
     }
 
     public static void ApplyTo(OrderCreateUpdateDto dto, Order entity)

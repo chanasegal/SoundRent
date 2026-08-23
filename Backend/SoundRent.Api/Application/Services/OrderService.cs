@@ -17,7 +17,6 @@ public class OrderService : IOrderService
     private readonly IInventoryDefinitionService _inventoryDefinitions;
     private readonly ICustomerService _customerService;
     private readonly IBlockedDateRepository _blockedDates;
-    private readonly IAccessorySerialInventoryService _accessorySerialInventory;
     private readonly IInstitutionRepository _institutions;
 
     public OrderService(
@@ -26,7 +25,6 @@ public class OrderService : IOrderService
         IInventoryDefinitionService inventoryDefinitions,
         ICustomerService customerService,
         IBlockedDateRepository blockedDates,
-        IAccessorySerialInventoryService accessorySerialInventory,
         IInstitutionRepository institutions)
     {
         _orderRepository = orderRepository;
@@ -34,7 +32,6 @@ public class OrderService : IOrderService
         _inventoryDefinitions = inventoryDefinitions;
         _customerService = customerService;
         _blockedDates = blockedDates;
-        _accessorySerialInventory = accessorySerialInventory;
         _institutions = institutions;
     }
 
@@ -77,12 +74,7 @@ public class OrderService : IOrderService
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
-        await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
-            dto.LoanedEquipments,
-            shifts,
-            excludeOrderId: null,
-            cancellationToken);
-        await _inventoryDefinitions.ValidateOrderCatalogSerialsAsync(
+        await _inventoryDefinitions.ValidateOrderInventorySerialsAsync(
             dto.LoanedEquipments,
             excludeOrderId: null,
             cancellationToken);
@@ -101,13 +93,8 @@ public class OrderService : IOrderService
 
         var entity = OrderMapper.ToEntity(dto);
         await _orderRepository.AddAsync(entity, cancellationToken);
-        await _accessorySerialInventory.SyncPhysicalStatusForOrderAsync(
-            0,
-            new Dictionary<LoanedEquipmentType, HashSet<string>>(),
-            dto.LoanedEquipments,
-            cancellationToken);
-        await _inventoryDefinitions.SyncCatalogSerialStatusForOrderAsync(
-            new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase),
+        await _inventoryDefinitions.SyncInventorySerialStatusForOrderAsync(
+            new Dictionary<int, HashSet<string>>(),
             dto.LoanedEquipments,
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -128,20 +115,9 @@ public class OrderService : IOrderService
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
         MergeReturnedSerialStateFromExisting(existing, dto.LoanedEquipments);
-        await _accessorySerialInventory.ValidateOrderLoanedSerialsAsync(
-            dto.LoanedEquipments,
-            shifts,
-            excludeOrderId: id,
-            cancellationToken);
-        await _inventoryDefinitions.ValidateOrderCatalogSerialsAsync(
+        await _inventoryDefinitions.ValidateOrderInventorySerialsAsync(
             dto.LoanedEquipments,
             excludeOrderId: id,
-            cancellationToken);
-        await _accessorySerialInventory.ValidateReturnedSerialGuardrailsAsync(
-            id,
-            existing.IsReturnProcessed,
-            ExtractReturnedSerialCodesByType(existing),
-            dto.LoanedEquipments,
             cancellationToken);
         var priorEquipmentIds = OrderMapper
             .NormalizeEquipmentDefinitionIds(existing.Equipments.Select(e => e.EquipmentDefinitionId))
@@ -160,8 +136,7 @@ public class OrderService : IOrderService
             systemType: dto.SystemType,
             cancellationToken);
 
-        var priorAssignedSerials = ExtractAssignedSerialCodesByType(existing);
-        var priorAssignedCatalogSerials = ExtractAssignedCatalogSerialCodesByName(existing);
+        var priorAssignedSerials = ExtractAssignedSerialCodesByDefinitionId(existing);
 
         OrderMapper.ApplyTo(dto, existing);
         existing.SystemType = dto.SystemType;
@@ -183,13 +158,8 @@ public class OrderService : IOrderService
             .ToDictionary(le => le.Id, le => le.ReturnedQuantity);
         SyncLoanedEquipments(existing, dto.LoanedEquipments, priorReturns);
 
-        await _accessorySerialInventory.SyncPhysicalStatusForOrderAsync(
-            id,
+        await _inventoryDefinitions.SyncInventorySerialStatusForOrderAsync(
             priorAssignedSerials,
-            dto.LoanedEquipments,
-            cancellationToken);
-        await _inventoryDefinitions.SyncCatalogSerialStatusForOrderAsync(
-            priorAssignedCatalogSerials,
             dto.LoanedEquipments,
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -202,8 +172,7 @@ public class OrderService : IOrderService
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
-        await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
-        await _inventoryDefinitions.ReleaseAllOrderCatalogSerialsAsync(id, cancellationToken);
+        await _inventoryDefinitions.ReleaseAllOrderInventorySerialsAsync(id, cancellationToken);
         _orderRepository.Remove(existing);
         await _orderRepository.SaveChangesAsync(cancellationToken);
     }
@@ -374,8 +343,7 @@ public class OrderService : IOrderService
         }
 
         existing.IsCancelled = true;
-        await _accessorySerialInventory.ReleaseAllOrderSerialsAsync(id, cancellationToken);
-        await _inventoryDefinitions.ReleaseAllOrderCatalogSerialsAsync(id, cancellationToken);
+        await _inventoryDefinitions.ReleaseAllOrderInventorySerialsAsync(id, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -491,8 +459,7 @@ public class OrderService : IOrderService
         }
 
         var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
-        var returnedSerials = new List<(LoanedEquipmentType EquipmentType, string SerialCode)>();
-        var returnedCatalogSerials = new List<(string ItemName, string SerialCode)>();
+        var returnedInventorySerials = new List<(int InventoryDefinitionId, string SerialCode)>();
 
         foreach (var item in items)
         {
@@ -530,24 +497,13 @@ public class OrderService : IOrderService
 
                 ApplyReturnedSerialCodes(line, assignedCodes, mergedReturned);
                 line.ReturnedQuantity = mergedReturned.Count;
-                if (line.LoanedEquipmentType is LoanedEquipmentType equipmentType)
+                if (line.InventoryDefinitionId is int definitionId and > 0)
                 {
                     foreach (var code in returnedCodes)
                     {
                         if (!previouslyReturned.Contains(code))
                         {
-                            returnedSerials.Add((equipmentType, code));
-                        }
-                    }
-                }
-                else if (line.IsCustomItem && !string.IsNullOrWhiteSpace(line.CustomItemName))
-                {
-                    var itemName = line.CustomItemName.Trim();
-                    foreach (var code in returnedCodes)
-                    {
-                        if (!previouslyReturned.Contains(code))
-                        {
-                            returnedCatalogSerials.Add((itemName, code));
+                            returnedInventorySerials.Add((definitionId, code));
                         }
                     }
                 }
@@ -566,8 +522,7 @@ public class OrderService : IOrderService
 
         existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
             le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
-        await _accessorySerialInventory.ReleaseReturnedSerialsAsync(returnedSerials, cancellationToken);
-        await _inventoryDefinitions.ReleaseReturnedCatalogSerialsAsync(returnedCatalogSerials, cancellationToken);
+        await _inventoryDefinitions.ReleaseReturnedInventorySerialsAsync(returnedInventorySerials, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }
@@ -745,8 +700,7 @@ public class OrderService : IOrderService
         var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
         var assignedCodes = GetAssignedSerialCodes(line);
         var serialCode = (request.SerialCode ?? string.Empty).Trim();
-        var reloanTyped = new List<(LoanedEquipmentType EquipmentType, string SerialCode)>();
-        var reloanCatalog = new List<(string ItemName, string SerialCode)>();
+        var reloanInventory = new List<(int InventoryDefinitionId, string SerialCode)>();
 
         if (assignedCodes.Count > 0)
         {
@@ -770,13 +724,9 @@ public class OrderService : IOrderService
             note.IsReturned = false;
             line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - 1);
 
-            if (line.LoanedEquipmentType is LoanedEquipmentType equipmentType)
+            if (line.InventoryDefinitionId is int definitionId and > 0)
             {
-                reloanTyped.Add((equipmentType, serialCode));
-            }
-            else if (line.IsCustomItem && !string.IsNullOrWhiteSpace(line.CustomItemName))
-            {
-                reloanCatalog.Add((line.CustomItemName.Trim(), serialCode));
+                reloanInventory.Add((definitionId, serialCode));
             }
         }
         else
@@ -795,29 +745,10 @@ public class OrderService : IOrderService
         existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
             le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
 
-        foreach (var (type, code) in reloanTyped)
+        if (reloanInventory.Count > 0)
         {
-            var location = await _accessorySerialInventory.GetSerialCodeLocationAsync(
-                type,
-                code,
-                cancellationToken);
-            if (location is { OrderId: int holderId } && holderId != id)
-            {
-                throw new ValidationException(
-                    $"לא ניתן לבטל החזרה — קוד {code} כבר מושאל בהשאלה אחרת");
-            }
-
-            await _accessorySerialInventory.SetPhysicalStatusAsync(
-                type,
-                code,
-                AccessorySerialPhysicalStatus.LoanedOut,
-                cancellationToken);
-        }
-
-        if (reloanCatalog.Count > 0)
-        {
-            await _inventoryDefinitions.MarkCatalogSerialsLoanedOutAsync(
-                reloanCatalog,
+            await _inventoryDefinitions.MarkInventorySerialsLoanedOutAsync(
+                reloanInventory,
                 excludeOrderId: id,
                 cancellationToken);
         }
@@ -943,23 +874,12 @@ public class OrderService : IOrderService
         }
 
         var code = (dto.ItemCode ?? string.Empty).Trim();
-        if (code.Length > 0)
+        if (code.Length > 0 && dto.InventoryDefinitionId is > 0)
         {
-            if (dto.LoanedEquipmentType is LoanedEquipmentType linked)
-            {
-                await _accessorySerialInventory.SetPhysicalStatusAsync(
-                    linked,
-                    code,
-                    AccessorySerialPhysicalStatus.Missing,
-                    cancellationToken);
-            }
-            else if (dto.InventoryDefinitionId is > 0)
-            {
-                await _inventoryDefinitions.MarkSerialMissingAsync(
-                    dto.InventoryDefinitionId.Value,
-                    code,
-                    cancellationToken);
-            }
+            await _inventoryDefinitions.MarkSerialMissingAsync(
+                dto.InventoryDefinitionId.Value,
+                code,
+                cancellationToken);
         }
 
         return created;
@@ -985,16 +905,6 @@ public class OrderService : IOrderService
             return;
         }
 
-        if (match.LoanedEquipmentType is LoanedEquipmentType linked)
-        {
-            await _accessorySerialInventory.SetPhysicalStatusAsync(
-                linked,
-                code,
-                AccessorySerialPhysicalStatus.InWarehouse,
-                cancellationToken);
-            return;
-        }
-
         if (match.InventoryDefinitionId is > 0)
         {
             await _inventoryDefinitions.RestoreSerialAsync(
@@ -1004,55 +914,20 @@ public class OrderService : IOrderService
         }
     }
 
-    private static Dictionary<LoanedEquipmentType, HashSet<string>> ExtractAssignedSerialCodesByType(Order order)
+    private static Dictionary<int, HashSet<string>> ExtractAssignedSerialCodesByDefinitionId(Order order)
     {
-        var result = new Dictionary<LoanedEquipmentType, HashSet<string>>();
+        var result = new Dictionary<int, HashSet<string>>();
         foreach (var line in order.LoanedEquipments)
         {
-            if (line.IsCustomItem || line.LoanedEquipmentType is not LoanedEquipmentType type)
+            if (line.InventoryDefinitionId is not int definitionId || definitionId <= 0)
             {
                 continue;
             }
 
-            if (!result.TryGetValue(type, out var codes))
+            if (!result.TryGetValue(definitionId, out var codes))
             {
                 codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                result[type] = codes;
-            }
-
-            foreach (var note in line.Notes)
-            {
-                if (note.IsReturned)
-                {
-                    continue;
-                }
-
-                var code = (note.Content ?? string.Empty).Trim();
-                if (code.Length > 0)
-                {
-                    codes.Add(code);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    private static Dictionary<string, HashSet<string>> ExtractAssignedCatalogSerialCodesByName(Order order)
-    {
-        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var line in order.LoanedEquipments)
-        {
-            if (!line.IsCustomItem || string.IsNullOrWhiteSpace(line.CustomItemName))
-            {
-                continue;
-            }
-
-            var name = line.CustomItemName.Trim();
-            if (!result.TryGetValue(name, out var codes))
-            {
-                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                result[name] = codes;
+                result[definitionId] = codes;
             }
 
             foreach (var note in line.Notes)
@@ -1294,6 +1169,12 @@ public class OrderService : IOrderService
                 line = order.LoanedEquipments.FirstOrDefault(l => l.Id == dto.Id);
             }
 
+            if (line is null && !dto.IsCustomItem && dto.InventoryDefinitionId is int defId and > 0)
+            {
+                line = order.LoanedEquipments.FirstOrDefault(l =>
+                    !l.IsCustomItem && l.InventoryDefinitionId == defId);
+            }
+
             if (line is null && !dto.IsCustomItem && dto.LoanedEquipmentType is LoanedEquipmentType type)
             {
                 line = order.LoanedEquipments.FirstOrDefault(l => !l.IsCustomItem && l.LoanedEquipmentType == type);
@@ -1339,6 +1220,7 @@ public class OrderService : IOrderService
         if (dto.IsCustomItem)
         {
             line.IsCustomItem = true;
+            line.InventoryDefinitionId = null;
             line.CustomItemName = dto.CustomItemName?.Trim();
             line.LoanedEquipmentType = null;
             line.Quantity = dto.Quantity;
@@ -1352,7 +1234,8 @@ public class OrderService : IOrderService
         }
 
         line.IsCustomItem = false;
-        line.CustomItemName = null;
+        line.InventoryDefinitionId = dto.InventoryDefinitionId;
+        line.CustomItemName = dto.CustomItemName?.Trim();
         line.LoanedEquipmentType = dto.LoanedEquipmentType;
         line.Quantity = dto.Quantity;
         line.ExpectedNoteCount = Math.Max(0, dto.ExpectedNoteCount);

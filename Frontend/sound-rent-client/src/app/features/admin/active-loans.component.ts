@@ -18,7 +18,8 @@ import {
   DEPOSIT_TYPE_LABELS,
   DepositType,
   LoanedEquipmentType,
-  LOANED_EQUIPMENT_ORDER
+  LOANED_EQUIPMENT_ORDER,
+  LOANED_EQUIPMENT_LABELS
 } from '../../core/models/enums';
 import { OrderDto } from '../../core/models/order.model';
 import { DataService } from '../../core/services/data.service';
@@ -1072,11 +1073,10 @@ export class ActiveLoansComponent implements OnInit {
     ) {
       return true;
     }
-    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-    if (linked && LOANED_EQUIPMENT_ORDER.includes(linked)) {
-      const linkedLabel = this.inventoryStore.displayLabelForType(linked);
+    for (const type of LOANED_EQUIPMENT_ORDER) {
+      const linkedLabel = LOANED_EQUIPMENT_LABELS[type];
       if (
-        linkedLabel &&
+        def.displayName.trim().localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0 &&
         row.accessoryName.localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0
       ) {
         return true;

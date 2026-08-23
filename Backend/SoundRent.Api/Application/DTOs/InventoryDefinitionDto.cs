@@ -25,9 +25,62 @@ public class InventoryDefinitionDto
 
     /// <summary>Active loan / missing holders for this catalog row.</summary>
     public List<InventoryHolderDto> ActiveHolders { get; set; } = [];
+}
 
-    /// <summary>When set, this catalog row backs a system loaned-equipment type.</summary>
-    public LoanedEquipmentType? LinkedEquipmentType { get; set; }
+public class InventoryDefinitionRowUpdateDto
+{
+    public string DisplayName { get; set; } = string.Empty;
+
+    public int? Quantity { get; set; }
+
+    public List<string>? SerialCodes { get; set; }
+}
+
+public class InventorySerialAvailabilityRequestDto
+{
+    public int? ExcludeOrderId { get; set; }
+
+    public List<int>? InventoryDefinitionIds { get; set; }
+}
+
+public class InventorySerialAvailabilityGroupDto
+{
+    public int InventoryDefinitionId { get; set; }
+
+    public string Label { get; set; } = string.Empty;
+
+    public List<AccessorySerialOptionDto> Options { get; set; } = [];
+}
+
+public class InventorySerialLocationDto
+{
+    public int InventoryDefinitionId { get; set; }
+
+    public string Label { get; set; } = string.Empty;
+
+    public string SerialCode { get; set; } = string.Empty;
+
+    public bool IsRegistered { get; set; }
+
+    public bool IsInWarehouse { get; set; }
+
+    public bool IsMissing { get; set; }
+
+    public int? OrderId { get; set; }
+
+    public string? CustomerName { get; set; }
+
+    public string? Phone { get; set; }
+
+    public string? Phone2 { get; set; }
+
+    public string? Address { get; set; }
+
+    public string? Deposit { get; set; }
+
+    public string? Notes { get; set; }
+
+    public DateOnly? LoanDate { get; set; }
 }
 
 public class InventorySerialUnitDto

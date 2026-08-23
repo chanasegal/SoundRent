@@ -776,8 +776,6 @@ public class OrderRepository : IOrderRepository
             {
                 itemName = def.DisplayName.Trim();
             }
-
-            linkedType ??= def.LinkedEquipmentType;
         }
 
         if (itemName.Length == 0 && linkedType.HasValue)

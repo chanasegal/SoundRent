@@ -34,15 +34,19 @@ export interface InventoryDefinitionDto {
   aggregateStatus?: InventorySerialPhysicalStatus;
   aggregateStatusLabel?: string;
   activeHolders?: InventoryHolderDto[];
-  /** When set, this row backs a system LoanedEquipmentType (serials in AccessorySerialInventory). */
-  linkedEquipmentType?: string | null;
+}
+
+export interface InventoryDefinitionRowUpdateDto {
+  displayName: string;
+  quantity?: number | null;
+  serialCodes?: string[];
 }
 
 export interface InventoryDefinitionCreateDto {
   displayName: string;
   /** Optional; null/undefined/empty → 0. When > 0, that many units are tracked. */
   quantity?: number | null;
-  /** Optional; blank entries are ignored for custom items (no auto-generated codes). */
+  /** Optional; blank slots auto-generate sequential codes (1, 2, 3…). */
   serialCodes?: string[];
 }
 

@@ -22,39 +22,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.AccessorySerialInventory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("EquipmentType")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PhysicalStatus")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
-                    b.Property<string>("SerialCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EquipmentType", "PhysicalStatus")
-                        .HasDatabaseName("IX_AccessorySerialInventory_Type_PhysicalStatus");
-
-                    b.HasIndex("EquipmentType", "SerialCode")
-                        .IsUnique()
-                        .HasDatabaseName("IX_AccessorySerialInventory_Type_Code");
-
-                    b.ToTable("AccessorySerialInventory", (string)null);
-                });
-
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.BlockedDate", b =>
                 {
                     b.Property<int>("Id")
@@ -658,9 +625,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(true);
 
-                    b.Property<int?>("LinkedEquipmentType")
-                        .HasColumnType("integer");
-
                     b.Property<int>("Quantity")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -682,11 +646,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("IX_InventoryDefinitions_IsActive");
-
-                    b.HasIndex("LinkedEquipmentType")
-                        .IsUnique()
-                        .HasDatabaseName("IX_InventoryDefinitions_LinkedEquipmentType")
-                        .HasFilter("\"LinkedEquipmentType\" IS NOT NULL");
 
                     b.HasIndex("SortOrder")
                         .HasDatabaseName("IX_InventoryDefinitions_SortOrder");
@@ -1055,6 +1014,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int>("ExpectedNoteCount")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("InventoryDefinitionId")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsCustomItem")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1075,6 +1037,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InventoryDefinitionId")
+                        .HasDatabaseName("IX_OrderLoanedEquipments_InventoryDefinitionId");
 
                     b.HasIndex("OrderId")
                         .HasDatabaseName("IX_OrderLoanedEquipments_OrderId");
@@ -1547,11 +1512,18 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderLoanedEquipment", b =>
                 {
+                    b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
+                        .WithMany()
+                        .HasForeignKey("InventoryDefinitionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
                         .WithMany("LoanedEquipments")
                         .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("InventoryDefinition");
 
                     b.Navigation("Order");
                 });

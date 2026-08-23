@@ -47,7 +47,6 @@ DECLARE
     'BlockedDates',
     'GeneralMemos',
     -- Accessory / serial inventory
-    'AccessorySerialInventory',
     'EquipmentDefaultAccessories',
     'InventoryDefinitions',
     'InventorySerialCodes',

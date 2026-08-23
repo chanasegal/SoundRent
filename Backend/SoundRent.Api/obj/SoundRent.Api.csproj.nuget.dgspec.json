@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj": {}
+    "c:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj": {}
   },
   "projects": {
-    "C:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj": {
+    "c:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj",
+        "projectUniqueName": "c:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj",
         "projectName": "SoundRent.Api",
-        "projectPath": "C:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj",
-        "packagesPath": "C:\\Users\\user1\\.nuget\\packages\\",
-        "outputPath": "C:\\SoundRent\\Backend\\SoundRent.Api\\obj\\",
+        "projectPath": "c:\\SoundRent\\Backend\\SoundRent.Api\\SoundRent.Api.csproj",
+        "packagesPath": "C:\\Users\\user1\\AppData\\Local\\Temp\\cursor-sandbox-cache\\de5ca6b4a38a95b41dd369af102b94c5\\nuget",
+        "outputPath": "c:\\SoundRent\\Backend\\SoundRent.Api\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

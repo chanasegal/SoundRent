@@ -519,9 +519,9 @@ export class OrderFormComponent implements OnInit {
 
   /** Pulse triggered when a booking's shifts change and equipment availability should be re-fetched. */
   private readonly availabilityFetchTrigger$ = new Subject<number>();
-  private readonly accessoryAvailabilityByType = signal<Map<LoanedEquipmentType, AccessorySerialOptionDto[]>>(
-    new Map()
-  );
+  private readonly accessoryAvailabilityByDefinitionId = signal<
+    Map<number, AccessorySerialOptionDto[]>
+  >(new Map());
   protected readonly accessorySerialDropdownRow = signal<number | null>(null);
   protected readonly accessorySerialQuickEntry = signal('');
 
@@ -601,19 +601,15 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-    const type =
-      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
-
     this.equipmentList.push(
       this.buildDynamicEquipmentRow({
         inventoryDefinitionId: def.id,
-        loanedEquipmentType: type,
+        loanedEquipmentType: null,
         label: def.displayName,
         quantity: 1,
         selectedCodes: [],
         lineId: null,
-        isCustomItem: type == null
+        isCustomItem: false
       })
     );
     this.addAccessoryOpen.set(false);
@@ -755,12 +751,12 @@ export class OrderFormComponent implements OnInit {
     }
 
     let rowIndex = this.equipmentList.controls.findIndex(
-      (c) => (c as FormGroup).get('loanedEquipmentType')?.value === type
+      (c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value) ===
+        (this.inventoryStore.definitionIdForType(type) ?? -1)
     );
 
     if (rowIndex < 0) {
-      const def =
-        this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type) ?? null;
+      const def = this.inventoryStore.definitionForType(type);
       if (!def) {
         return false;
       }
@@ -832,11 +828,14 @@ export class OrderFormComponent implements OnInit {
 
   protected serialOptionsForRow(rowIndex: number): AccessorySerialOptionDto[] {
     const group = this.getRowGroup(rowIndex);
-    const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
-    if (type) {
-      return this.sortSerialOptions(this.accessoryAvailabilityByType().get(type) ?? []);
-    }
     const inventoryDefinitionId = Number(group.get('inventoryDefinitionId')?.value);
+    if (Number.isFinite(inventoryDefinitionId) && inventoryDefinitionId > 0) {
+      const fromApi = this.accessoryAvailabilityByDefinitionId().get(inventoryDefinitionId);
+      if (fromApi?.length) {
+        return this.sortSerialOptions(fromApi);
+      }
+    }
+
     const def = Number.isFinite(inventoryDefinitionId)
       ? this.inventoryStore.byId(inventoryDefinitionId)
       : undefined;
@@ -2604,22 +2603,30 @@ export class OrderFormComponent implements OnInit {
   private refreshAccessorySerialAvailability(): void {
     const dates = this.orderReservationDates();
     if (dates.length === 0) {
-      this.accessoryAvailabilityByType.set(new Map());
+      this.accessoryAvailabilityByDefinitionId.set(new Map());
       return;
     }
+
+    const definitionIds = this.equipmentList.controls
+      .map((c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value))
+      .filter((id) => Number.isFinite(id) && id > 0);
 
     const excludeOrderId = this.editingId();
     this.data
       .getAccessorySerialAvailability({
         dates,
+        inventoryDefinitionIds: [...new Set(definitionIds)],
         excludeOrderId: excludeOrderId ?? null
       })
       .subscribe((groups) => {
-        const map = new Map<LoanedEquipmentType, AccessorySerialOptionDto[]>();
+        const map = new Map<number, AccessorySerialOptionDto[]>();
         for (const group of groups) {
-          map.set(group.equipmentType, group.options);
+          const id = group.inventoryDefinitionId;
+          if (id != null && id > 0) {
+            map.set(id, group.options);
+          }
         }
-        this.accessoryAvailabilityByType.set(map);
+        this.accessoryAvailabilityByDefinitionId.set(map);
       });
   }
 
@@ -3049,7 +3056,7 @@ export class OrderFormComponent implements OnInit {
         return;
       }
       inventoryDefinitionId = def.id;
-      loanedEquipmentType = (def.linkedEquipmentType as LoanedEquipmentType | null) ?? null;
+      loanedEquipmentType = null;
       itemName = def.displayName;
     }
 
@@ -3750,7 +3757,6 @@ export class OrderFormComponent implements OnInit {
     this.accessoryTypeQuery.set('');
     this.accessorySerialDropdownRow.set(null);
 
-    const catalog = this.inventoryStore.definitions();
     for (const row of order.loanedEquipments ?? []) {
       if (row.quantity <= 0) {
         continue;
@@ -3763,17 +3769,11 @@ export class OrderFormComponent implements OnInit {
 
       if (row.isCustomItem) {
         const name = (row.customItemName ?? '').trim();
-        const def =
-          catalog.find(
-            (d) =>
-              !d.linkedEquipmentType &&
-              d.displayName.localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
-          ) ?? null;
         this.equipmentList.push(
           this.buildDynamicEquipmentRow({
-            inventoryDefinitionId: def?.id ?? null,
+            inventoryDefinitionId: null,
             loanedEquipmentType: null,
-            label: def?.displayName ?? (name || 'פריט נוסף'),
+            label: name || 'פריט נוסף',
             quantity: Math.max(row.quantity, codes.length, 1),
             selectedCodes: codes,
             lineId: row.id ?? null,
@@ -3783,16 +3783,20 @@ export class OrderFormComponent implements OnInit {
         continue;
       }
 
-      if (row.loanedEquipmentType == null) {
-        continue;
-      }
-      const type = row.loanedEquipmentType;
-      const def = catalog.find((d) => d.linkedEquipmentType === type) ?? null;
+      const definitionId =
+        row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0
+          ? row.inventoryDefinitionId
+          : row.loanedEquipmentType != null
+            ? this.inventoryStore.definitionIdForType(row.loanedEquipmentType)
+            : null;
+      const def =
+        definitionId != null ? this.inventoryStore.byId(definitionId) ?? null : null;
+
       this.equipmentList.push(
         this.buildDynamicEquipmentRow({
-          inventoryDefinitionId: def?.id ?? null,
-          loanedEquipmentType: type,
-          label: def?.displayName ?? this.inventoryStore.displayLabelForType(type),
+          inventoryDefinitionId: def?.id ?? definitionId,
+          loanedEquipmentType: row.loanedEquipmentType ?? null,
+          label: def?.displayName ?? row.customItemName ?? this.inventoryStore.displayLabelForType(row.loanedEquipmentType!),
           quantity: Math.max(row.quantity, codes.length, 1),
           selectedCodes: codes,
           lineId: row.id ?? null,
@@ -3888,9 +3892,10 @@ export class OrderFormComponent implements OnInit {
         continue;
       }
 
-      const isCustomItem = !!row['isCustomItem'] || row['loanedEquipmentType'] == null;
+      const isCustomItem = !!row['isCustomItem'];
       const lineId = row['lineId'];
       const label = String(row['label'] ?? '').trim();
+      const inventoryDefinitionId = Number(row['inventoryDefinitionId']);
 
       if (isCustomItem) {
         result.push({
@@ -3898,6 +3903,7 @@ export class OrderFormComponent implements OnInit {
           isCustomItem: true,
           customItemName: label || 'פריט נוסף',
           loanedEquipmentType: null,
+          inventoryDefinitionId: null,
           quantity,
           expectedNoteCount: quantity,
           notes: selectedCodes.map((code, ordinal) => ({
@@ -3909,17 +3915,22 @@ export class OrderFormComponent implements OnInit {
         continue;
       }
 
-      const type = row['loanedEquipmentType'] as LoanedEquipmentType;
+      if (!Number.isFinite(inventoryDefinitionId) || inventoryDefinitionId <= 0) {
+        continue;
+      }
+
+      const type = (row['loanedEquipmentType'] as LoanedEquipmentType | null) ?? null;
       result.push({
         ...(typeof lineId === 'number' && lineId > 0 ? { id: lineId } : {}),
         isCustomItem: false,
+        inventoryDefinitionId,
         loanedEquipmentType: type,
         quantity,
         expectedNoteCount: quantity,
         notes: selectedCodes.map((code, ordinal) => ({
           ordinal,
           content: code,
-          ...(this.isReturnedSerialCode(type, code) ? { isReturned: true } : {})
+          ...(type && this.isReturnedSerialCode(type, code) ? { isReturned: true } : {})
         }))
       });
     }

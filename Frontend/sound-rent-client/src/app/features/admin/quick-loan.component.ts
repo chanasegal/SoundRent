@@ -141,9 +141,9 @@ export class QuickLoanComponent implements OnInit {
   protected readonly accessoryTypeQuery = signal('');
   private nextOneTimeAccessoryId = -1;
 
-  private readonly availabilityByType = signal<Map<LoanedEquipmentType, AccessorySerialOptionDto[]>>(
-    new Map()
-  );
+  private readonly availabilityByDefinitionId = signal<
+    Map<number, AccessorySerialOptionDto[]>
+  >(new Map());
   private readonly availabilityLoading = signal(false);
   protected readonly openSerialDropdownId = signal<number | null>(null);
   protected readonly serialQuickEntry = signal('');
@@ -346,13 +346,9 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const linked = def.linkedEquipmentType as LoanedEquipmentType | null | undefined;
-    const type =
-      linked && LOANED_EQUIPMENT_ORDER.includes(linked) ? linked : null;
-
     const row: QuickLoanAccessoryRow = {
       inventoryDefinitionId: def.id,
-      type,
+      type: null,
       label: def.displayName,
       quantity: 1,
       selectedCodes: []
@@ -549,9 +545,9 @@ export class QuickLoanComponent implements OnInit {
       return { rows, changed: false };
     }
 
-    const index = rows.findIndex((r) => r.type === type);
+    const index = rows.findIndex((r) => r.inventoryDefinitionId === this.inventoryStore.definitionIdForType(type));
     if (index < 0) {
-      const def = this.inventoryStore.definitions().find((d) => d.linkedEquipmentType === type);
+      const def = this.inventoryStore.definitionForType(type);
       if (!def) {
         return { rows, changed: false };
       }
@@ -607,8 +603,11 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected serialOptionsForRow(row: QuickLoanAccessoryRow): AccessorySerialOptionDto[] {
-    if (row.type) {
-      return this.sortSerialOptions(this.availabilityByType().get(row.type) ?? []);
+    if (row.inventoryDefinitionId > 0) {
+      const fromApi = this.availabilityByDefinitionId().get(row.inventoryDefinitionId);
+      if (fromApi?.length) {
+        return this.sortSerialOptions(fromApi);
+      }
     }
     // Custom (unlinked) catalog rows — serials come from the shared inventory store.
     const def = this.inventoryStore.byId(row.inventoryDefinitionId);
@@ -1179,16 +1178,10 @@ export class QuickLoanComponent implements OnInit {
 
       if (le.isCustomItem) {
         const name = (le.customItemName ?? '').trim() || 'פריט נוסף';
-        const def =
-          catalog.find(
-            (d) =>
-              !d.linkedEquipmentType &&
-              d.displayName.localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
-          ) ?? null;
         rows.push({
-          inventoryDefinitionId: def?.id ?? this.nextOneTimeAccessoryId--,
+          inventoryDefinitionId: this.nextOneTimeAccessoryId--,
           type: null,
-          label: def?.displayName ?? name,
+          label: name,
           quantity: Math.max(le.quantity, codes.length, 1),
           selectedCodes: codes,
           initialCodes: [...codes],
@@ -1197,14 +1190,15 @@ export class QuickLoanComponent implements OnInit {
         continue;
       }
 
-      if (le.loanedEquipmentType == null) {
-        continue;
-      }
-      const type = le.loanedEquipmentType;
-      const def =
-        catalog.find((d) => d.linkedEquipmentType === type) ??
-        null;
-      if (!def) {
+      const definitionId =
+        le.inventoryDefinitionId != null && le.inventoryDefinitionId > 0
+          ? le.inventoryDefinitionId
+          : le.loanedEquipmentType != null
+            ? this.inventoryStore.definitionIdForType(le.loanedEquipmentType)
+            : null;
+      const def = definitionId != null ? this.inventoryStore.byId(definitionId) ?? null : null;
+      const type = le.loanedEquipmentType ?? null;
+      if (!def && definitionId == null && type != null) {
         // Fallback: synthesize a row keyed by a negative pseudo-id so edit still works
         // until the catalog finishes loading.
         rows.push({
@@ -1217,10 +1211,13 @@ export class QuickLoanComponent implements OnInit {
         });
         continue;
       }
+      if (definitionId == null && !def) {
+        continue;
+      }
       rows.push({
-        inventoryDefinitionId: def.id,
+        inventoryDefinitionId: def?.id ?? definitionId ?? this.nextOneTimeAccessoryId--,
         type,
-        label: def.displayName,
+        label: def?.displayName ?? (type ? LOANED_EQUIPMENT_LABELS[type] : String(type)),
         quantity: Math.max(le.quantity, codes.length, 1),
         selectedCodes: codes,
         lineId: le.id
@@ -1835,28 +1832,27 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const shifts: OrderShiftDto[] = [
-      {
-        orderDate: iso,
-        timeSlot: this.defaultTimeSlot
-      }
-    ];
+    const definitionIds = this.accessoryRows()
+      .map((r) => r.inventoryDefinitionId)
+      .filter((id) => Number.isFinite(id) && id > 0);
 
     this.availabilityLoading.set(true);
     this.data
       .getAccessorySerialAvailability({
         dates: [iso],
-        shifts,
-        equipmentTypes: [...LOANED_EQUIPMENT_ORDER],
+        inventoryDefinitionIds: [...new Set(definitionIds)],
         excludeOrderId: this.editingId()
       })
       .pipe(finalize(() => this.availabilityLoading.set(false)))
       .subscribe((groups) => {
-        const map = new Map<LoanedEquipmentType, AccessorySerialOptionDto[]>();
+        const map = new Map<number, AccessorySerialOptionDto[]>();
         for (const group of groups) {
-          map.set(group.equipmentType, group.options ?? []);
+          const id = group.inventoryDefinitionId;
+          if (id != null && id > 0) {
+            map.set(id, group.options ?? []);
+          }
         }
-        this.availabilityByType.set(map);
+        this.availabilityByDefinitionId.set(map);
       });
   }
 

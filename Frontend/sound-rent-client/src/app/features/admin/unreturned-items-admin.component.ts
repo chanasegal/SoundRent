@@ -271,7 +271,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         return;
       }
       inventoryDefinitionId = def.id;
-      loanedEquipmentType = (def.linkedEquipmentType as LoanedEquipmentType | null) ?? null;
+      loanedEquipmentType = null;
       itemName = def.displayName;
     }
 

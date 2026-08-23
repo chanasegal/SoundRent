@@ -36,5 +36,13 @@ public class OrderLoanedEquipmentConfiguration : IEntityTypeConfiguration<OrderL
             .IsUnique()
             .HasFilter("\"IsCustomItem\" = false")
             .HasDatabaseName("IX_OrderLoanedEquipments_Order_Type_Unique");
+
+        builder.HasOne(le => le.InventoryDefinition)
+            .WithMany()
+            .HasForeignKey(le => le.InventoryDefinitionId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(le => le.InventoryDefinitionId)
+            .HasDatabaseName("IX_OrderLoanedEquipments_InventoryDefinitionId");
     }
 }

@@ -3,12 +3,11 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
-using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Controllers;
 
 /// <summary>
-/// Standalone inventory catalog (warehouse / quantity matrix).
+/// Permanent inventory catalog (warehouse / quantity matrix).
 /// Does not create weekly-board columns — those use EquipmentDefinitions.
 /// </summary>
 [ApiController]
@@ -38,7 +37,6 @@ public class InventoryDefinitionsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, created);
     }
 
-    /// <summary>Find or create a catalog row by display name (used for free-text accessory lending).</summary>
     [HttpPost("ensure")]
     public async Task<ActionResult<InventoryDefinitionDto>> Ensure(
         [FromBody] InventoryDefinitionEnsureDto dto,
@@ -62,6 +60,15 @@ public class InventoryDefinitionsController : ControllerBase
         CancellationToken cancellationToken)
     {
         return Ok(await _service.UpdateAsync(id, dto, cancellationToken));
+    }
+
+    [HttpPut("{id:int}/row")]
+    public async Task<ActionResult<InventoryDefinitionDto>> UpdateRow(
+        int id,
+        [FromBody] InventoryDefinitionRowUpdateDto dto,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.UpdateRowAsync(id, dto, cancellationToken));
     }
 
     [HttpPut("{id:int}/serials")]
@@ -94,12 +101,21 @@ public class InventoryDefinitionsController : ControllerBase
         }
     }
 
-    [HttpPut("batch")]
-    public async Task<ActionResult<List<InventoryDefinitionDto>>> ReplaceSerialsBatch(
-        [FromBody] InventoryDefinitionBatchUpdateDto dto,
+    [HttpPost("availability")]
+    public async Task<ActionResult<List<InventorySerialAvailabilityGroupDto>>> GetAvailability(
+        [FromBody] InventorySerialAvailabilityRequestDto request,
         CancellationToken cancellationToken)
     {
-        return Ok(await _service.ReplaceSerialsBatchAsync(dto, cancellationToken));
+        return Ok(await _service.GetAvailabilityAsync(request, cancellationToken));
+    }
+
+    [HttpGet("location")]
+    public async Task<ActionResult<InventorySerialLocationDto>> GetLocation(
+        [FromQuery] int inventoryDefinitionId,
+        [FromQuery] string serialCode,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetSerialLocationAsync(inventoryDefinitionId, serialCode, cancellationToken));
     }
 
     [HttpDelete("{id:int}")]

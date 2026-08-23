@@ -6,7 +6,13 @@ namespace SoundRent.Api.Application.DTOs;
 public class OrderLoanedEquipmentDto
 {
     public int Id { get; set; }
+
+    /// <summary>Permanent catalog row id — preferred link for warehouse accessories.</summary>
+    public int? InventoryDefinitionId { get; set; }
+
+    /// <summary>True for free-text one-time items only (not in permanent catalog).</summary>
     public bool IsCustomItem { get; set; }
+
     public LoanedEquipmentType? LoanedEquipmentType { get; set; }
 
     [MaxLength(200)]
