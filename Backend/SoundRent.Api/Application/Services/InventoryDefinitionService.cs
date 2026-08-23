@@ -361,6 +361,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var definitions = await LoadDefinitionsByIdsAsync(allIds, tracked: true, cancellationToken);
+        // Any loaned unit can be a mixer parent — cascade by InventorySerialCodes.MixerId, not by display name.
+        var nextParentSerialIds = ResolveAssignedSerialIds(definitions, nextAssigned);
+        var priorParentSerialIds = ResolveAssignedSerialIds(definitions, priorAssignedByDefinitionId);
         var changed = false;
 
         foreach (var definitionId in allIds)
@@ -385,11 +388,42 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             foreach (var code in next.Except(prior, StringComparer.OrdinalIgnoreCase))
             {
+                var serial = FindSerial(def, code);
+                if (serial is not null
+                    && serial.MixerId is int attachedMixerId
+                    && !nextParentSerialIds.Contains(attachedMixerId))
+                {
+                    // Direct accessory rental (parent mixer not on this order) disconnects attachment.
+                    serial.MixerId = null;
+                    changed = true;
+                }
+
                 if (SetSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
                 {
                     changed = true;
                 }
             }
+        }
+
+        // Cascade to all accessories attached to any currently loaned parent on this order
+        // (not only newly loaned — also heals accessories missed by earlier syncs).
+        if (await CascadeMixerAttachedStatusAsync(
+                nextParentSerialIds,
+                AccessorySerialPhysicalStatus.LoanedOut,
+                keepAssignedOnOrder: nextAssigned,
+                cancellationToken))
+        {
+            changed = true;
+        }
+
+        var releasedParents = priorParentSerialIds.Except(nextParentSerialIds).ToHashSet();
+        if (await CascadeMixerAttachedStatusAsync(
+                releasedParents,
+                AccessorySerialPhysicalStatus.InWarehouse,
+                keepAssignedOnOrder: nextAssigned,
+                cancellationToken))
+        {
+            changed = true;
         }
 
         if (changed)
@@ -419,6 +453,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var definitions = await LoadDefinitionsByIdsAsync(byDef.Keys.ToList(), tracked: true, cancellationToken);
+        var releasedParentIds = ResolveAssignedSerialIds(definitions, byDef);
         var changed = false;
         foreach (var (definitionId, codes) in byDef)
         {
@@ -434,6 +469,15 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     changed = true;
                 }
             }
+        }
+
+        if (await CascadeMixerAttachedStatusAsync(
+                releasedParentIds,
+                AccessorySerialPhysicalStatus.InWarehouse,
+                keepAssignedOnOrder: null,
+                cancellationToken))
+        {
+            changed = true;
         }
 
         if (changed)
@@ -476,6 +520,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var definitions = await LoadDefinitionsByIdsAsync(byDef.Keys.ToList(), tracked: true, cancellationToken);
+        var markedParentIds = ResolveAssignedSerialIds(definitions, byDef);
         var changed = false;
         foreach (var (definitionId, codes) in byDef)
         {
@@ -486,11 +531,29 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             foreach (var code in codes)
             {
+                var serial = FindSerial(def, code);
+                if (serial is not null
+                    && serial.MixerId is int attachedMixerId
+                    && !markedParentIds.Contains(attachedMixerId))
+                {
+                    serial.MixerId = null;
+                    changed = true;
+                }
+
                 if (SetSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
                 {
                     changed = true;
                 }
             }
+        }
+
+        if (await CascadeMixerAttachedStatusAsync(
+                markedParentIds,
+                AccessorySerialPhysicalStatus.LoanedOut,
+                keepAssignedOnOrder: null,
+                cancellationToken))
+        {
+            changed = true;
         }
 
         if (changed)
@@ -542,14 +605,23 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 InventoryDefinitionId = def.Id,
                 Label = def.DisplayName,
                 Options = def.SerialCodes
-                    .Select(s => s.SerialCode.Trim())
-                    .Where(c => c.Length > 0)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(c => c, NumericStringComparer.Instance)
-                    .Select(code => new AccessorySerialOptionDto
+                    .Select(s => new { Code = s.SerialCode.Trim(), s.PhysicalStatus })
+                    .Where(s => s.Code.Length > 0)
+                    .GroupBy(s => s.Code, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .OrderBy(s => s.Code, NumericStringComparer.Instance)
+                    .Select(s =>
                     {
-                        SerialCode = code,
-                        IsAvailable = !loanedOut.Contains(code) || reserved.Contains(code)
+                        var unavailableByStatus = s.PhysicalStatus is AccessorySerialPhysicalStatus.LoanedOut
+                            or AccessorySerialPhysicalStatus.Missing
+                            or AccessorySerialPhysicalStatus.InRepair;
+                        var unavailableByActiveLoan = loanedOut.Contains(s.Code);
+                        var isReserved = reserved.Contains(s.Code);
+                        return new AccessorySerialOptionDto
+                        {
+                            SerialCode = s.Code,
+                            IsAvailable = isReserved || (!unavailableByStatus && !unavailableByActiveLoan)
+                        };
                     })
                     .ToList()
             };
@@ -587,23 +659,32 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             };
         }
 
-        var holder = await FindActiveHolderAsync(def.Id, code, cancellationToken);
+        var holder = await FindActiveHolderAsync(def.Id, def.DisplayName, code, cancellationToken);
+        holder ??= await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
+        var missing = holder is null
+            ? await FindMissingHolderAsync(def.Id, code, cancellationToken)
+            : null;
+        var snapshot = holder ?? missing;
+
         return new InventorySerialLocationDto
         {
             InventoryDefinitionId = def.Id,
             Label = def.DisplayName,
             SerialCode = serial.SerialCode,
             IsRegistered = true,
-            IsInWarehouse = serial.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
-            IsMissing = serial.PhysicalStatus == AccessorySerialPhysicalStatus.Missing,
+            IsInWarehouse = holder is null
+                && missing is null
+                && serial.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
+            IsMissing = holder is null
+                && (missing is not null || serial.PhysicalStatus == AccessorySerialPhysicalStatus.Missing),
             OrderId = holder?.OrderId,
-            CustomerName = holder?.CustomerName,
-            Phone = holder?.Phone,
-            Phone2 = holder?.Phone2,
-            Address = holder?.Address,
-            Deposit = holder?.Deposit,
-            Notes = holder?.Notes,
-            LoanDate = holder?.LoanDate
+            CustomerName = snapshot?.CustomerName,
+            Phone = snapshot?.Phone,
+            Phone2 = snapshot?.Phone2,
+            Address = snapshot?.Address,
+            Deposit = snapshot?.Deposit ?? holder?.Deposit,
+            Notes = snapshot?.Notes ?? holder?.Notes,
+            LoanDate = snapshot?.LoanDate
         };
     }
 
@@ -794,11 +875,12 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 continue;
             }
 
-            if (item.LoanedEquipmentType is not null && !string.IsNullOrWhiteSpace(item.CustomItemName))
+            if (item.LoanedEquipmentType is LoanedEquipmentType type)
             {
-                namesToResolve.Add(item.CustomItemName.Trim());
+                namesToResolve.Add(LoanedEquipmentTypeLabels.GetLabel(type));
             }
-            else if (!string.IsNullOrWhiteSpace(item.CustomItemName))
+
+            if (!string.IsNullOrWhiteSpace(item.CustomItemName))
             {
                 namesToResolve.Add(item.CustomItemName.Trim());
             }
@@ -809,9 +891,14 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             return result;
         }
 
-        var byName = await _db.InventoryDefinitions.AsNoTracking()
-            .Where(d => d.IsActive && namesToResolve.Contains(d.DisplayName))
-            .ToDictionaryAsync(d => d.DisplayName, d => d.Id, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var catalogRows = await _db.InventoryDefinitions.AsNoTracking()
+            .Where(d => d.IsActive)
+            .Select(d => new { d.Id, d.DisplayName })
+            .ToListAsync(cancellationToken);
+
+        var byName = catalogRows
+            .GroupBy(d => d.DisplayName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items ?? [])
         {
@@ -820,10 +907,25 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 continue;
             }
 
-            var name = (item.CustomItemName ?? string.Empty).Trim();
-            if (name.Length > 0 && byName.TryGetValue(name, out var id))
+            var candidates = new List<string>();
+            if (item.LoanedEquipmentType is LoanedEquipmentType type)
             {
-                result.Add((id, item));
+                candidates.Add(LoanedEquipmentTypeLabels.GetLabel(type));
+            }
+
+            var customName = (item.CustomItemName ?? string.Empty).Trim();
+            if (customName.Length > 0)
+            {
+                candidates.Add(customName);
+            }
+
+            foreach (var name in candidates)
+            {
+                if (byName.TryGetValue(name, out var id))
+                {
+                    result.Add((id, item));
+                    break;
+                }
             }
         }
 
@@ -899,17 +1001,26 @@ public class InventoryDefinitionService : IInventoryDefinitionService
     private async Task<Dictionary<int, Dictionary<string, InventoryHolderDto>>> LoadActiveLoanHoldersByDefinitionAsync(
         CancellationToken cancellationToken)
     {
+        var definitionIdsByName = await _db.InventoryDefinitions.AsNoTracking()
+            .Where(d => d.IsActive)
+            .Select(d => new { d.Id, d.DisplayName })
+            .ToDictionaryAsync(
+                d => d.DisplayName.Trim(),
+                d => d.Id,
+                StringComparer.OrdinalIgnoreCase,
+                cancellationToken);
+
         var rows = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
-                  && le.InventoryDefinitionId != null
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
             select new
             {
-                DefinitionId = le.InventoryDefinitionId!.Value,
+                le.InventoryDefinitionId,
+                le.CustomItemName,
                 Code = note.Content!,
                 order.Id,
                 order.CustomerName,
@@ -928,10 +1039,19 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 continue;
             }
 
-            if (!result.TryGetValue(row.DefinitionId, out var byCode))
+            var definitionId = ResolveInventoryDefinitionId(
+                row.InventoryDefinitionId,
+                row.CustomItemName,
+                definitionIdsByName);
+            if (definitionId is null)
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(definitionId.Value, out var byCode))
             {
                 byCode = new Dictionary<string, InventoryHolderDto>(StringComparer.OrdinalIgnoreCase);
-                result[row.DefinitionId] = byCode;
+                result[definitionId.Value] = byCode;
             }
 
             byCode.TryAdd(code, new InventoryHolderDto
@@ -947,37 +1067,228 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             });
         }
 
+        await EnrichHoldersFromAttachedMixersAsync(result, cancellationToken);
         return result;
+    }
+
+    private async Task EnrichHoldersFromAttachedMixersAsync(
+        Dictionary<int, Dictionary<string, InventoryHolderDto>> holdersByDefinition,
+        CancellationToken cancellationToken)
+    {
+        // Accessories attached via MixerId whose parent mixer has an active loan holder.
+        var attached = await _db.InventorySerialCodes.AsNoTracking()
+            .Where(s => s.MixerId != null)
+            .Select(s => new
+            {
+                s.InventoryDefinitionId,
+                s.SerialCode,
+                MixerId = s.MixerId!.Value
+            })
+            .ToListAsync(cancellationToken);
+
+        var pending = new List<(int DefinitionId, string SerialCode, int MixerInventoryDefinitionId, string MixerSerialCode)>();
+
+        if (attached.Count > 0)
+        {
+            var mixerIds = attached.Select(a => a.MixerId).Distinct().ToList();
+            var mixers = await _db.InventorySerialCodes.AsNoTracking()
+                .Where(s => mixerIds.Contains(s.Id))
+                .Select(s => new { s.Id, s.InventoryDefinitionId, s.SerialCode })
+                .ToListAsync(cancellationToken);
+            var mixerById = mixers.ToDictionary(m => m.Id);
+
+            foreach (var row in attached)
+            {
+                if (!mixerById.TryGetValue(row.MixerId, out var mixer))
+                {
+                    continue;
+                }
+
+                pending.Add((row.InventoryDefinitionId, row.SerialCode, mixer.InventoryDefinitionId, mixer.SerialCode));
+            }
+        }
+
+        // Fallback: kit rows without MixerId still inherit the parent mixer's loan holder.
+        var kitRows = await (
+            from kit in _db.EquipmentDefaultAccessories.AsNoTracking()
+            where kit.ParentEquipmentType == LoanedEquipmentType.Mixer
+                  && kit.InventoryDefinitionId != null
+            select new
+            {
+                ParentSerialCode = kit.ParentSerialCode,
+                DefinitionId = kit.InventoryDefinitionId!.Value,
+                AccessorySerialCode = kit.AccessorySerialCode
+            }).ToListAsync(cancellationToken);
+
+        if (kitRows.Count > 0)
+        {
+            var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
+            var mixerDefId = await _db.InventoryDefinitions.AsNoTracking()
+                .Where(d => d.IsActive && d.DisplayName == mixerLabel)
+                .Select(d => (int?)d.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (mixerDefId is int mid)
+            {
+                foreach (var kit in kitRows)
+                {
+                    pending.Add((kit.DefinitionId, kit.AccessorySerialCode, mid, kit.ParentSerialCode));
+                }
+            }
+        }
+
+        foreach (var row in pending)
+        {
+            var accessoryCode = row.SerialCode.Trim();
+            if (accessoryCode.Length == 0)
+            {
+                continue;
+            }
+
+            if (holdersByDefinition.TryGetValue(row.DefinitionId, out var existingByCode)
+                && existingByCode.ContainsKey(accessoryCode))
+            {
+                continue;
+            }
+
+            if (!holdersByDefinition.TryGetValue(row.MixerInventoryDefinitionId, out var mixerHolders)
+                || !mixerHolders.TryGetValue(row.MixerSerialCode.Trim(), out var mixerHolder))
+            {
+                continue;
+            }
+
+            if (!holdersByDefinition.TryGetValue(row.DefinitionId, out var byCode))
+            {
+                byCode = new Dictionary<string, InventoryHolderDto>(StringComparer.OrdinalIgnoreCase);
+                holdersByDefinition[row.DefinitionId] = byCode;
+            }
+
+            byCode.TryAdd(accessoryCode, new InventoryHolderDto
+            {
+                SerialCode = accessoryCode,
+                Status = AccessorySerialPhysicalStatus.LoanedOut,
+                StatusLabel = AggregateStatusLabel(AccessorySerialPhysicalStatus.LoanedOut),
+                CustomerName = mixerHolder.CustomerName,
+                Phone = mixerHolder.Phone,
+                Address = mixerHolder.Address,
+                EventDate = mixerHolder.EventDate,
+                OrderId = mixerHolder.OrderId
+            });
+        }
     }
 
     private async Task<SerialHolderSnapshot?> FindActiveHolderAsync(
         int inventoryDefinitionId,
+        string inventoryDisplayName,
         string serialCode,
         CancellationToken cancellationToken)
     {
-        var row = await (
+        var normalizedCode = (serialCode ?? string.Empty).Trim();
+        if (normalizedCode.Length == 0)
+        {
+            return null;
+        }
+
+        var catalogName = (inventoryDisplayName ?? string.Empty).Trim();
+        var candidates = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
-                  && le.InventoryDefinitionId == inventoryDefinitionId
-                  && note.Content != null
-                  && note.Content.ToLower() == serialCode.ToLower()
+                  && note.Content != null && note.Content != ""
                   && !note.IsReturned
-            select new SerialHolderSnapshot
+                  && (
+                      le.InventoryDefinitionId == inventoryDefinitionId
+                      || (le.InventoryDefinitionId == null
+                          && le.CustomItemName != null
+                          && le.CustomItemName.ToLower() == catalogName.ToLower()))
+            select new
             {
-                OrderId = order.Id,
-                CustomerName = order.CustomerName,
-                Phone = order.Phone,
-                Phone2 = order.Phone2,
-                Address = order.Address,
-                Deposit = order.DepositOnName,
-                Notes = order.Notes,
+                NoteContent = note.Content!,
+                order.Id,
+                order.CustomerName,
+                order.Phone,
+                order.Phone2,
+                order.Address,
+                order.DepositOnName,
+                order.Notes,
                 LoanDate = _db.OrderShifts.Where(s => s.OrderId == order.Id).OrderBy(s => s.OrderDate)
                     .Select(s => (DateOnly?)s.OrderDate).FirstOrDefault()
-            }).FirstOrDefaultAsync(cancellationToken);
+            }).ToListAsync(cancellationToken);
 
-        return row;
+        var row = candidates.FirstOrDefault(candidate =>
+            string.Equals(candidate.NoteContent.Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return null;
+        }
+
+        return new SerialHolderSnapshot
+        {
+            OrderId = row.Id,
+            CustomerName = row.CustomerName,
+            Phone = row.Phone,
+            Phone2 = row.Phone2,
+            Address = row.Address,
+            Deposit = row.DepositOnName,
+            Notes = row.Notes,
+            LoanDate = row.LoanDate
+        };
+    }
+
+    private async Task<SerialHolderSnapshot?> FindMissingHolderAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCode = (serialCode ?? string.Empty).Trim();
+        if (normalizedCode.Length == 0)
+        {
+            return null;
+        }
+
+        var rows = await _db.ManualUnreturnedItems.AsNoTracking()
+            .Where(m =>
+                !m.IsResolved
+                && m.InventoryDefinitionId == inventoryDefinitionId
+                && m.ItemCode != null
+                && m.ItemCode != "")
+            .OrderByDescending(m => m.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var match = rows.FirstOrDefault(row =>
+            string.Equals((row.ItemCode ?? string.Empty).Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase));
+        if (match is null)
+        {
+            return null;
+        }
+
+        return new SerialHolderSnapshot
+        {
+            CustomerName = match.CustomerName,
+            Phone = match.Phone,
+            Address = match.Address,
+            LoanDate = DateOnly.FromDateTime(match.CreatedAt.ToUniversalTime())
+        };
+    }
+
+    private static int? ResolveInventoryDefinitionId(
+        int? inventoryDefinitionId,
+        string? customItemName,
+        IReadOnlyDictionary<string, int> definitionIdsByName)
+    {
+        if (inventoryDefinitionId is int id and > 0)
+        {
+            return id;
+        }
+
+        var name = (customItemName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            return null;
+        }
+
+        return definitionIdsByName.TryGetValue(name, out var resolvedId) ? resolvedId : null;
     }
 
     private async Task<Dictionary<int, HashSet<string>>> ExtractAssignedCodesByDefinitionIdAsync(
@@ -1006,6 +1317,272 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         return result;
     }
 
+    private async Task<SerialHolderSnapshot?> FindHolderViaAttachedMixerAsync(
+        InventorySerialCode serial,
+        CancellationToken cancellationToken)
+    {
+        if (serial.MixerId is int mixerId)
+        {
+            var mixer = await _db.InventorySerialCodes.AsNoTracking()
+                .Include(s => s.InventoryDefinition)
+                .FirstOrDefaultAsync(s => s.Id == mixerId, cancellationToken);
+
+            if (mixer?.InventoryDefinition is not null)
+            {
+                var viaFk = await FindActiveHolderAsync(
+                    mixer.InventoryDefinitionId,
+                    mixer.InventoryDefinition.DisplayName,
+                    mixer.SerialCode,
+                    cancellationToken);
+                if (viaFk is not null)
+                {
+                    return viaFk;
+                }
+            }
+        }
+
+        // Fallback via default-accessory kit when MixerId is not set yet.
+        var accessoryCode = serial.SerialCode.Trim();
+        var kit = await _db.EquipmentDefaultAccessories.AsNoTracking()
+            .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
+                        && e.InventoryDefinitionId == serial.InventoryDefinitionId
+                        && e.AccessorySerialCode == accessoryCode)
+            .Select(e => new { e.ParentSerialCode })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (kit is null)
+        {
+            return null;
+        }
+
+        var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
+        var mixerDefinition = await _db.InventoryDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(
+                d => d.IsActive && d.DisplayName == mixerLabel,
+                cancellationToken);
+
+        if (mixerDefinition is null)
+        {
+            return null;
+        }
+
+        return await FindActiveHolderAsync(
+            mixerDefinition.Id,
+            mixerDefinition.DisplayName,
+            kit.ParentSerialCode,
+            cancellationToken);
+    }
+
+    private async Task<bool> CascadeMixerAttachedStatusAsync(
+        IReadOnlyCollection<int> parentSerialIds,
+        AccessorySerialPhysicalStatus status,
+        IReadOnlyDictionary<int, HashSet<string>>? keepAssignedOnOrder,
+        CancellationToken cancellationToken)
+    {
+        if (parentSerialIds.Count == 0)
+        {
+            return false;
+        }
+
+        var parentIdList = parentSerialIds.Distinct().ToList();
+        var parents = await _db.InventorySerialCodes
+            .Where(s => parentIdList.Contains(s.Id))
+            .Select(s => new { s.Id, SerialCode = s.SerialCode.Trim() })
+            .ToListAsync(cancellationToken);
+
+        if (parents.Count == 0)
+        {
+            return false;
+        }
+
+        var attachedById = new Dictionary<int, InventorySerialCode>();
+
+        foreach (var serial in await _db.InventorySerialCodes
+                     .Where(s => s.MixerId != null && parentIdList.Contains(s.MixerId.Value))
+                     .ToListAsync(cancellationToken))
+        {
+            attachedById[serial.Id] = serial;
+        }
+
+        // Fallback: kit mappings may exist without MixerId (pre-migration / unsynced rows).
+        var parentCodes = parents
+            .Where(p => p.SerialCode.Length > 0)
+            .Select(p => p.SerialCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (parentCodes.Count > 0)
+        {
+            var kitRows = await _db.EquipmentDefaultAccessories.AsNoTracking()
+                .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
+                            && e.InventoryDefinitionId != null
+                            && parentCodes.Contains(e.ParentSerialCode))
+                .Select(e => new
+                {
+                    ParentSerialCode = e.ParentSerialCode.Trim(),
+                    DefinitionId = e.InventoryDefinitionId!.Value,
+                    AccessorySerialCode = e.AccessorySerialCode.Trim()
+                })
+                .ToListAsync(cancellationToken);
+
+            if (kitRows.Count > 0)
+            {
+                var parentIdByCode = parents
+                    .Where(p => p.SerialCode.Length > 0)
+                    .GroupBy(p => p.SerialCode, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
+
+                var kitDefIds = kitRows.Select(k => k.DefinitionId).Distinct().ToList();
+                var kitCodes = kitRows
+                    .Where(k => k.AccessorySerialCode.Length > 0)
+                    .Select(k => k.AccessorySerialCode)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var kitSerials = await _db.InventorySerialCodes
+                    .Where(s => kitDefIds.Contains(s.InventoryDefinitionId)
+                                && kitCodes.Contains(s.SerialCode))
+                    .ToListAsync(cancellationToken);
+
+                var kitLookup = kitSerials
+                    .GroupBy(
+                        s => $"{s.InventoryDefinitionId}:{s.SerialCode.Trim()}",
+                        StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+                foreach (var kit in kitRows)
+                {
+                    if (kit.AccessorySerialCode.Length == 0
+                        || !parentIdByCode.TryGetValue(kit.ParentSerialCode, out var parentId))
+                    {
+                        continue;
+                    }
+
+                    var key = $"{kit.DefinitionId}:{kit.AccessorySerialCode}";
+                    if (!kitLookup.TryGetValue(key, out var accessory))
+                    {
+                        continue;
+                    }
+
+                    // Heal MixerId when unset; never steal an accessory already attached to another mixer.
+                    if (accessory.MixerId is int existing && existing != parentId)
+                    {
+                        continue;
+                    }
+
+                    if (accessory.MixerId is null)
+                    {
+                        accessory.MixerId = parentId;
+                    }
+
+                    attachedById[accessory.Id] = accessory;
+                }
+            }
+        }
+
+        if (attachedById.Count == 0)
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<int, HashSet<string>>? stillAssigned = keepAssignedOnOrder;
+        if (status == AccessorySerialPhysicalStatus.InWarehouse && stillAssigned is null)
+        {
+            stillAssigned = await GetActiveAssignedCodesAsync(excludeOrderId: null, cancellationToken);
+        }
+
+        var changed = false;
+        foreach (var serial in attachedById.Values)
+        {
+            if (status == AccessorySerialPhysicalStatus.InWarehouse
+                && stillAssigned is not null
+                && stillAssigned.TryGetValue(serial.InventoryDefinitionId, out var keepCodes)
+                && keepCodes.Contains(serial.SerialCode))
+            {
+                continue;
+            }
+
+            var entry = _db.Entry(serial);
+            if (entry.Property(s => s.MixerId).IsModified)
+            {
+                changed = true;
+            }
+
+            if (serial.PhysicalStatus == status)
+            {
+                continue;
+            }
+
+            serial.PhysicalStatus = status;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Resolves <see cref="InventorySerialCode.Id"/> values for all assigned codes on the order.
+    /// Cascade uses these ids to find accessories where <c>MixerId</c> points at a loaned parent.
+    /// </summary>
+    private static HashSet<int> ResolveAssignedSerialIds(
+        IReadOnlyDictionary<int, InventoryDefinition> definitions,
+        IReadOnlyDictionary<int, HashSet<string>> assignedByDefinitionId)
+    {
+        var result = new HashSet<int>();
+
+        foreach (var (definitionId, codes) in assignedByDefinitionId)
+        {
+            if (!definitions.TryGetValue(definitionId, out var def))
+            {
+                continue;
+            }
+
+            foreach (var code in codes)
+            {
+                var serial = FindSerial(def, code);
+                if (serial is not null)
+                {
+                    result.Add(serial.Id);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static InventorySerialCode? FindSerial(InventoryDefinition definition, string serialCode)
+    {
+        var code = serialCode.Trim();
+        if (code.Length == 0)
+        {
+            return null;
+        }
+
+        return definition.SerialCodes.FirstOrDefault(s =>
+            string.Equals(s.SerialCode, code, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool SetSerialStatus(
+        InventoryDefinition definition,
+        string serialCode,
+        AccessorySerialPhysicalStatus status)
+    {
+        var existing = FindSerial(definition, serialCode);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        if (existing.PhysicalStatus == status)
+        {
+            return false;
+        }
+
+        existing.PhysicalStatus = status;
+        definition.UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
     private static Dictionary<int, HashSet<string>> GroupCodesByDefinitionId(
         IEnumerable<(int DefinitionId, string Code)> pairs)
     {
@@ -1028,34 +1605,6 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         return result;
-    }
-
-    private static bool SetSerialStatus(
-        InventoryDefinition definition,
-        string serialCode,
-        AccessorySerialPhysicalStatus status)
-    {
-        var code = serialCode.Trim();
-        if (code.Length == 0)
-        {
-            return false;
-        }
-
-        var existing = definition.SerialCodes.FirstOrDefault(s =>
-            string.Equals(s.SerialCode, code, StringComparison.OrdinalIgnoreCase));
-        if (existing is null)
-        {
-            return false;
-        }
-
-        if (existing.PhysicalStatus == status)
-        {
-            return false;
-        }
-
-        existing.PhysicalStatus = status;
-        definition.UpdatedAt = DateTime.UtcNow;
-        return true;
     }
 
     private async Task<Dictionary<string, ManualUnreturnedItem>> LoadUnresolvedMissingByKeyAsync(
@@ -1258,7 +1807,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
     {
         public int OrderId { get; init; }
         public string? CustomerName { get; init; }
-        public string Phone { get; init; } = string.Empty;
+        public string? Phone { get; init; }
         public string? Phone2 { get; init; }
         public string? Address { get; init; }
         public string? Deposit { get; init; }

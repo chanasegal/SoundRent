@@ -27,5 +27,13 @@ public class InventorySerialCodeConfiguration : IEntityTypeConfiguration<Invento
 
         builder.HasIndex(e => e.InventoryDefinitionId)
             .HasDatabaseName("IX_InventorySerialCodes_InventoryDefinitionId");
+
+        builder.HasIndex(e => e.MixerId)
+            .HasDatabaseName("IX_InventorySerialCodes_MixerId");
+
+        builder.HasOne(e => e.Mixer)
+            .WithMany(e => e.AttachedAccessories)
+            .HasForeignKey(e => e.MixerId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

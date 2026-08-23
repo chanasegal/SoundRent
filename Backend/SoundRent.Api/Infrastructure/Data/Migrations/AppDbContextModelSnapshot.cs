@@ -664,6 +664,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int>("InventoryDefinitionId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MixerId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("PhysicalStatus")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -678,6 +681,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("InventoryDefinitionId")
                         .HasDatabaseName("IX_InventorySerialCodes_InventoryDefinitionId");
+
+                    b.HasIndex("MixerId")
+                        .HasDatabaseName("IX_InventorySerialCodes_MixerId");
 
                     b.HasIndex("InventoryDefinitionId", "SerialCode")
                         .IsUnique()
@@ -1439,7 +1445,14 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("SoundRent.Api.Domain.Entities.InventorySerialCode", "Mixer")
+                        .WithMany("AttachedAccessories")
+                        .HasForeignKey("MixerId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("InventoryDefinition");
+
+                    b.Navigation("Mixer");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.LoanedEquipmentNote", b =>
@@ -1608,6 +1621,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventoryDefinition", b =>
                 {
                     b.Navigation("SerialCodes");
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.InventorySerialCode", b =>
+                {
+                    b.Navigation("AttachedAccessories");
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>

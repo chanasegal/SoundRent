@@ -1,139 +1,5 @@
 [
   {
-    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
-    "Method": "GetAll",
-    "RelativePath": "api/accessoryinventory",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [],
-    "ReturnTypes": [
-      {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.AccessoryInventoryGroupDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
-    "Method": "UpdateType",
-    "RelativePath": "api/accessoryinventory/{equipmentType}",
-    "HttpMethod": "PUT",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "equipmentType",
-        "Type": "System.String",
-        "IsRequired": true
-      },
-      {
-        "Name": "dto",
-        "Type": "SoundRent.Api.Application.DTOs.AccessoryInventoryUpdateDto",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "SoundRent.Api.Application.DTOs.AccessoryInventoryGroupDto",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
-    "Method": "GetAvailability",
-    "RelativePath": "api/accessoryinventory/availability",
-    "HttpMethod": "POST",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "request",
-        "Type": "SoundRent.Api.Application.DTOs.AccessorySerialAvailabilityRequestDto",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.AccessorySerialAvailabilityGroupDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
-    "Method": "UpdateBatch",
-    "RelativePath": "api/accessoryinventory/batch",
-    "HttpMethod": "PUT",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "dto",
-        "Type": "SoundRent.Api.Application.DTOs.AccessoryInventoryBatchUpdateDto",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.AccessoryInventoryGroupDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
-    "ContainingType": "SoundRent.Api.Controllers.AccessoryInventoryController",
-    "Method": "GetSerialCodeLocation",
-    "RelativePath": "api/accessoryinventory/location",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "equipmentType",
-        "Type": "System.String",
-        "IsRequired": false
-      },
-      {
-        "Name": "serialCode",
-        "Type": "System.String",
-        "IsRequired": false
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "SoundRent.Api.Application.DTOs.AccessorySerialLocationDto",
-        "MediaTypes": [
-          "text/plain",
-          "application/json",
-          "text/json"
-        ],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
     "ContainingType": "SoundRent.Api.Controllers.AuthController",
     "Method": "Login",
     "RelativePath": "api/Auth/login",
@@ -1705,6 +1571,37 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
+    "Method": "UpdateRow",
+    "RelativePath": "api/inventory-definitions/{id}/row",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionRowUpdateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
     "Method": "UpdateSerialStatus",
     "RelativePath": "api/inventory-definitions/{id}/serial-status",
     "HttpMethod": "PATCH",
@@ -1767,21 +1664,21 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
-    "Method": "ReplaceSerialsBatch",
-    "RelativePath": "api/inventory-definitions/batch",
-    "HttpMethod": "PUT",
+    "Method": "GetAvailability",
+    "RelativePath": "api/inventory-definitions/availability",
+    "HttpMethod": "POST",
     "IsController": true,
     "Order": 0,
     "Parameters": [
       {
-        "Name": "dto",
-        "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionBatchUpdateDto",
+        "Name": "request",
+        "Type": "SoundRent.Api.Application.DTOs.InventorySerialAvailabilityRequestDto",
         "IsRequired": true
       }
     ],
     "ReturnTypes": [
       {
-        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.InventoryDefinitionDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.InventorySerialAvailabilityGroupDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
         "MediaTypes": [
           "text/plain",
           "application/json",
@@ -1808,6 +1705,37 @@
     "ReturnTypes": [
       {
         "Type": "SoundRent.Api.Application.DTOs.InventoryDefinitionDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.InventoryDefinitionsController",
+    "Method": "GetLocation",
+    "RelativePath": "api/inventory-definitions/location",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "inventoryDefinitionId",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "serialCode",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.InventorySerialLocationDto",
         "MediaTypes": [
           "text/plain",
           "application/json",

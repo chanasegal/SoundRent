@@ -778,7 +778,8 @@ tr.row-in-maintenance:hover {
   max-width: min(90vw, 28rem);
   max-height: min(85vh, 90dvh);
   margin: auto;
-  overflow: hidden;
+  /* visible so the self-appended code picker is not clipped */
+  overflow: visible;
   border-radius: 1rem;
   background: #fff;
   box-shadow:
@@ -794,7 +795,9 @@ tr.row-in-maintenance:hover {
 .default-acc-modal__header {
   flex-shrink: 0;
   border-bottom: 1px solid #e2e8f0;
+  border-radius: 1rem 1rem 0 0;
   padding: 0.75rem 1rem;
+  background: #fff;
 }
 
 .default-acc-modal__form {
@@ -802,26 +805,44 @@ tr.row-in-maintenance:hover {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  overflow: visible;
 }
 
 .default-acc-modal__body {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
+  overflow: visible;
+}
+
+.default-acc-modal__assigned {
+  flex: 1 1 auto;
+  min-height: 4rem;
+  max-height: min(36vh, 14rem);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
 
-.default-acc-modal__assigned {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-
 .default-acc-modal__fields {
+  position: relative;
+  z-index: 2;
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
+  overflow: visible;
+}
+
+.default-acc-codes-field {
+  position: relative;
+  z-index: 3;
+  overflow: visible;
 }
 
 .default-acc-modal__footer {
@@ -830,6 +851,7 @@ tr.row-in-maintenance:hover {
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid #e2e8f0;
+  border-radius: 0 0 1rem 1rem;
   padding: 0.75rem 1rem;
   background: #fff;
   box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
@@ -951,6 +973,7 @@ tr.row-in-maintenance:hover {
 
 :host ::ng-deep .default-acc-multiselect.p-multiselect,
 :host ::ng-deep .p-multiselect.default-acc-multiselect {
+  position: relative;
   width: 100%;
   min-height: 2.5rem;
   border-radius: 0.5rem;
@@ -962,7 +985,8 @@ tr.row-in-maintenance:hover {
   border-color: #94a3b8;
 }
 
-:host ::ng-deep .default-acc-multiselect.p-multiselect.p-focus {
+:host ::ng-deep .default-acc-multiselect.p-multiselect.p-focus,
+:host ::ng-deep .default-acc-multiselect.p-multiselect.p-multiselect-open {
   border-color: #002244;
   box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
 }
@@ -974,4 +998,49 @@ tr.row-in-maintenance:hover {
 :host ::ng-deep .default-acc-multiselect .p-multiselect-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
+}
+
+/* Contained panel (appendTo=self) — no body teleport / page scroll jump. */
+:host ::ng-deep .default-acc-multiselect .p-multiselect-overlay,
+:host ::ng-deep .default-acc-multiselect-panel.p-multiselect-overlay {
+  z-index: 20;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+
+:host ::ng-deep .default-acc-multiselect-panel .p-multiselect-list-container {
+  max-height: min(var(--sr-menu-max-height, 250px), 40vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+:host ::ng-deep .default-acc-multiselect-panel .p-multiselect-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+:host ::ng-deep .default-acc-multiselect-panel .p-multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+}
+
+:host ::ng-deep .default-acc-multiselect-panel .p-multiselect-option .p-checkbox,
+:host ::ng-deep .default-acc-multiselect-panel .p-multiselect-header .p-checkbox {
+  flex-shrink: 0;
+  margin: 0;
+  align-self: center;
+}
+
+:host ::ng-deep .default-acc-multiselect-panel .p-checkbox-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }

@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using SoundRent.Api.Infrastructure.Data;
 
 #nullable disable
 
@@ -7,8 +9,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations;
 /// <summary>
 /// Consolidates AccessorySerialInventory into InventorySerialCodes and links order lines to catalog rows by id.
 /// </summary>
+[DbContext(typeof(AppDbContext))]
+[Migration("20260823120000_UnifyInventorySerialStorage")]
 public partial class UnifyInventorySerialStorage : Migration
 {
+    /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         // Copy linked-type serials from AccessorySerialInventory into InventorySerialCodes.
@@ -79,6 +84,7 @@ public partial class UnifyInventorySerialStorage : Migration
             table: "InventoryDefinitions");
     }
 
+    /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<int>(

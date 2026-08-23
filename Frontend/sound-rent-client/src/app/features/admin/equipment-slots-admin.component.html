@@ -991,7 +991,6 @@
                   id="default-acc-type"
                   formControlName="inventoryDefinitionId"
                   class="default-acc-select"
-                  [disabled]="defaultAccessoryCatalogLoading() || defaultAccessoryCatalogLoadFailed()"
                   (change)="onDefaultAccessoryTypeChange()"
                 >
                   <option [ngValue]="null">בחרו סוג…</option>
@@ -1013,7 +1012,7 @@
                   <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
                 }
               </div>
-              <div>
+              <div class="default-acc-codes-field">
                 <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-codes">
                   קוד פריט <span class="text-rose-500">*</span>
                 </label>
@@ -1029,14 +1028,9 @@
                   [showClear]="true"
                   [showToggleAll]="true"
                   [resetFilterOnHide]="true"
-                  [appendTo]="'body'"
+                  [appendTo]="'self'"
                   [fluid]="true"
                   [loading]="defaultAccessoryCatalogLoading()"
-                  [disabled]="
-                    defaultAccessoryCatalogLoading() ||
-                    defaultAccessoryCatalogLoadFailed() ||
-                    defaultAccessorySelectedDefinitionId() == null
-                  "
                   selectedItemsLabel="{0} קודים נבחרו"
                   emptyMessage="אין קודי פריט"
                   emptyFilterMessage="לא נמצאו קודים"

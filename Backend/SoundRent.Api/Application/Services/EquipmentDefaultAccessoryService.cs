@@ -162,6 +162,29 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             throw new ValidationException("כל קודי הפריט שנבחרו כבר משויכים כציוד נלווה קבוע ליחידה זו");
         }
 
+        if (dto.ParentEquipmentType == LoanedEquipmentType.Mixer && parentDefinition is not null)
+        {
+            var parentMixerSerial = await _db.InventorySerialCodes
+                .FirstAsync(
+                    s => s.InventoryDefinitionId == parentDefinition.Id && s.SerialCode == parentCode,
+                    cancellationToken);
+
+            var accessorySerials = await _db.InventorySerialCodes
+                .Where(s => s.InventoryDefinitionId == definitionId && toAdd.Contains(s.SerialCode))
+                .ToListAsync(cancellationToken);
+
+            foreach (var serial in accessorySerials)
+            {
+                if (serial.MixerId is int attachedMixerId && attachedMixerId != parentMixerSerial.Id)
+                {
+                    throw new ValidationException(
+                        $"קוד {serial.SerialCode} כבר משויך למיקסר אחר ולא ניתן לשייך אותו ליותר ממיקסר אחד");
+                }
+
+                serial.MixerId = parentMixerSerial.Id;
+            }
+        }
+
         var entities = toAdd.Select(code => new EquipmentDefaultAccessory
         {
             ParentEquipmentType = dto.ParentEquipmentType,
@@ -185,6 +208,40 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         if (entity == null)
         {
             throw new ValidationException("שיוך הציוד הנלווה לא נמצא");
+        }
+
+        if (entity.ParentEquipmentType == LoanedEquipmentType.Mixer
+            && entity.InventoryDefinitionId is int accessoryDefinitionId)
+        {
+            var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
+            var mixerDefinitionId = await _db.InventoryDefinitions.AsNoTracking()
+                .Where(d => d.IsActive && d.DisplayName == mixerLabel)
+                .Select(d => (int?)d.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (mixerDefinitionId is int mixerDefId)
+            {
+                var mixerSerialId = await _db.InventorySerialCodes.AsNoTracking()
+                    .Where(s => s.InventoryDefinitionId == mixerDefId
+                                && s.SerialCode == entity.ParentSerialCode)
+                    .Select(s => (int?)s.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (mixerSerialId is int mixerId)
+                {
+                    var accessorySerial = await _db.InventorySerialCodes
+                        .FirstOrDefaultAsync(
+                            s => s.InventoryDefinitionId == accessoryDefinitionId
+                                 && s.SerialCode == entity.AccessorySerialCode
+                                 && s.MixerId == mixerId,
+                            cancellationToken);
+
+                    if (accessorySerial is not null)
+                    {
+                        accessorySerial.MixerId = null;
+                    }
+                }
+            }
         }
 
         _db.EquipmentDefaultAccessories.Remove(entity);

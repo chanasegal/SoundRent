@@ -190,10 +190,11 @@ public class ToolInventoryService : IToolInventoryService
             throw new ValidationException("יש להזין קוד פריט");
         }
 
+        var normalizedCode = code.ToLowerInvariant();
         var serialQuery = _db.ToolSerialCodes
             .AsNoTracking()
             .Include(s => s.ToolDefinition)
-            .Where(s => s.SerialCode == code);
+            .Where(s => s.SerialCode.ToLower() == normalizedCode);
 
         if (toolDefinitionId is int scopedToolId)
         {
@@ -231,7 +232,7 @@ public class ToolInventoryService : IToolInventoryService
             .AsNoTracking()
             .Include(i => i.ToolLoan)
             .Where(i =>
-                i.SerialCode == code &&
+                i.SerialCode.ToLower() == normalizedCode &&
                 i.ToolDefinitionId == serial.ToolDefinitionId &&
                 i.ReturnedAt == null)
             .OrderByDescending(i => i.ToolLoan.LentAt)

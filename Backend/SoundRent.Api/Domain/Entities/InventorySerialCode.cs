@@ -17,4 +17,14 @@ public class InventorySerialCode
     public string SerialCode { get; set; } = string.Empty;
 
     public AccessorySerialPhysicalStatus PhysicalStatus { get; set; } = AccessorySerialPhysicalStatus.InWarehouse;
+
+    /// <summary>
+    /// When set, this accessory unit is attached to the mixer serial with this id.
+    /// Null means the unit is in general inventory (not attached to any mixer).
+    /// </summary>
+    public int? MixerId { get; set; }
+
+    public InventorySerialCode? Mixer { get; set; }
+
+    public ICollection<InventorySerialCode> AttachedAccessories { get; set; } = new List<InventorySerialCode>();
 }

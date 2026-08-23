@@ -61,17 +61,17 @@ public class BookInventoryService : IBookInventoryService
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("יש להזין שם ספר");
+            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿ ÿÿÿ");
         }
 
         if (displayName.Length > 200)
         {
-            throw new ValidationException("שם הספר ארוך מדי");
+            throw new ValidationException("ÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿ");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName, cancellationToken))
         {
-            throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
+            throw new ValidationException($"ÿÿÿÿ ÿÿÿ \"{displayName}\" ÿÿÿ ÿÿÿÿ ÿÿÿÿÿ");
         }
 
         var quantity = dto.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
@@ -102,13 +102,13 @@ public class BookInventoryService : IBookInventoryService
     {
         if (file == null || file.Length == 0)
         {
-            throw new ValidationException("יש לבחור קובץ לייבוא");
+            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ");
         }
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (extension is not (".xlsx" or ".xlsm" or ".csv"))
         {
-            throw new ValidationException("ניתן לייבא קבצי Excel (.xlsx) או CSV בלבד");
+            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿ Excel (.xlsx) ÿÿ CSV ÿÿÿÿ");
         }
 
         List<ImportRow> rows;
@@ -125,7 +125,7 @@ public class BookInventoryService : IBookInventoryService
             {
                 ImportedCount = 0,
                 SkippedCount = 0,
-                Message = "לא נמצאו שורות תקינות לייבוא"
+                Message = "ÿÿ ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ"
             };
         }
 
@@ -219,8 +219,8 @@ public class BookInventoryService : IBookInventoryService
             ImportedCount = toCreate.Count,
             SkippedCount = skipped,
             Message = toCreate.Count == 0
-                ? "לא יובאו ספרים חדשים"
-                : $"ייבוא הושלם בהצלחה! הוכנסו {toCreate.Count} ספרים"
+                ? "ÿÿ ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿ"
+                : $"ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿÿ! ÿÿÿÿÿÿ {toCreate.Count} ÿÿÿÿÿ"
         };
     }
 
@@ -232,17 +232,17 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("הספר לא נמצא");
+            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
 
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("יש להזין שם ספר");
+            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿ ÿÿÿ");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName && t.Id != id, cancellationToken))
         {
-            throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
+            throw new ValidationException($"ÿÿÿÿ ÿÿÿ \"{displayName}\" ÿÿÿ ÿÿÿÿ ÿÿÿÿÿ");
         }
 
         entity.Title = displayName;
@@ -256,7 +256,7 @@ public class BookInventoryService : IBookInventoryService
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _db.Books.FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("הספר לא נמצא");
+            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
 
             var activeLoan = await _db.BookLoanItems
             .AsNoTracking()
@@ -266,7 +266,7 @@ public class BookInventoryService : IBookInventoryService
 
         if (activeLoan)
         {
-            throw new ValidationException("לא ניתן למחוק פריט עם השאלות פעילות");
+            throw new ValidationException("ÿÿ ÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿ ÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ");
         }
 
         _db.Books.Remove(entity);
@@ -281,7 +281,7 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("הספר לא נמצא");
+            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
 
         ReplaceSerialCollection(entity, NormalizeCodes(dto.Copies));
         entity.UpdatedAt = DateTime.UtcNow;
@@ -302,7 +302,7 @@ public class BookInventoryService : IBookInventoryService
                 var entity = await _db.Books
                     .Include(t => t.Copies)
                     .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
-                    ?? throw new NotFoundException($"הספר #{item.Id} לא נמצא");
+                    ?? throw new NotFoundException($"ÿÿÿÿ #{item.Id} ÿÿ ÿÿÿÿ");
 
                 ReplaceSerialCollection(entity, NormalizeCodes(item.Copies));
                 entity.UpdatedAt = DateTime.UtcNow;
@@ -328,13 +328,14 @@ public class BookInventoryService : IBookInventoryService
         var code = (copyNumber ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(code))
         {
-            throw new ValidationException("יש להזין קוד עותק");
+            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿÿ ÿÿÿÿ");
         }
 
+        var normalizedCode = code.ToLowerInvariant();
         var serialQuery = _db.BookCopies
             .AsNoTracking()
             .Include(s => s.Book)
-            .Where(s => s.CopyNumber == code);
+            .Where(s => s.CopyNumber.ToLower() == normalizedCode);
 
         if (bookId is int scopedToolId)
         {
@@ -372,7 +373,7 @@ public class BookInventoryService : IBookInventoryService
             .AsNoTracking()
             .Include(i => i.BookLoan)
             .Where(i =>
-                i.CopyNumber == code &&
+                i.CopyNumber.ToLower() == normalizedCode &&
                 i.BookId == serial.BookId &&
                 i.ReturnedAt == null)
             .OrderByDescending(i => i.BookLoan.LentAt)
@@ -471,7 +472,7 @@ public class BookInventoryService : IBookInventoryService
     public async Task<List<BookAvailableCopiesGroupDto>> GetAllAvailableSerialsGroupedAsync(
         CancellationToken cancellationToken = default)
     {
-        // Two AsNoTracking reads only — no per-tool round trips / connection fan-out.
+        // Two AsNoTracking reads only ÿ no per-tool round trips / connection fan-out.
         var allCodes = await _db.BookCopies
             .AsNoTracking()
             .Select(s => new { s.BookId, s.CopyNumber })
@@ -542,7 +543,7 @@ public class BookInventoryService : IBookInventoryService
 
             if (code.Length > 100)
             {
-                throw new ValidationException("קוד עותק ארוך מדי");
+                throw new ValidationException("ÿÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿ");
             }
 
             result.Add(code);
@@ -574,7 +575,7 @@ public class BookInventoryService : IBookInventoryService
     {
         using var workbook = new XLWorkbook(stream);
         var worksheet = workbook.Worksheets.FirstOrDefault()
-            ?? throw new ValidationException("הקובץ אינו מכיל גיליון נתונים");
+            ?? throw new ValidationException("ÿÿÿÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ");
 
         var used = worksheet.RangeUsed();
         if (used == null)
@@ -599,13 +600,13 @@ public class BookInventoryService : IBookInventoryService
 
         if (headers.Count == 0)
         {
-            throw new ValidationException("חסרה שורת כותרות בקובץ");
+            throw new ValidationException("ÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿ");
         }
 
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("חסרה עמודת ספר / שם ספר בקובץ");
+            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿ / ÿÿ ÿÿÿ ÿÿÿÿÿ");
         }
 
         var rows = new List<ImportRow>();
@@ -658,7 +659,7 @@ public class BookInventoryService : IBookInventoryService
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("חסרה עמודת ספר / שם ספר בקובץ");
+            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿ / ÿÿ ÿÿÿ ÿÿÿÿÿ");
         }
 
         var rows = new List<ImportRow>();
@@ -770,13 +771,13 @@ public class BookInventoryService : IBookInventoryService
         header.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("_", string.Empty);
 
     private static bool IsTitleHeader(string h) =>
-        h is "ספר" or "שםספר" or "title" or "book" or "booktitle";
+        h is "ÿÿÿ" or "ÿÿÿÿÿ" or "title" or "book" or "booktitle";
 
     private static bool IsQuantityHeader(string h) =>
-        h is "כמות" or "quantity" or "qty";
+        h is "ÿÿÿÿ" or "quantity" or "qty";
 
     private static bool IsBarcodeHeader(string h) =>
-        h is "ברקוד" or "barcode" or "barcodes";
+        h is "ÿÿÿÿÿ" or "barcode" or "barcodes";
 
     private static char DetectCsvDelimiter(string headerLine)
     {

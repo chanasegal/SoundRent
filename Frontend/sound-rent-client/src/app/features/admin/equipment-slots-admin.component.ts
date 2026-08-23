@@ -1042,7 +1042,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       inventoryDefinitionId: null,
       accessorySerialCodes: []
     });
-    this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
+    this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: true, codesEnabled: false });
     this.defaultAccessoriesList.set([]);
     this.defaultAccessoryCatalog.set([]);
     this.defaultAccessoriesOpen.set(true);
@@ -1061,6 +1061,38 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       inventoryDefinitionId: null,
       accessorySerialCodes: []
     });
+    this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: false, codesEnabled: false });
+  }
+
+  /**
+   * Drive disabled state via FormControl APIs only (never [disabled] + formControlName).
+   * Avoids Angular reactive-forms warnings and change-detection churn.
+   */
+  private syncDefaultAccessoryFormDisabledState(opts?: {
+    catalogBlocked?: boolean;
+    codesEnabled?: boolean;
+  }): void {
+    const typeCtrl = this.defaultAccessoryForm.controls.inventoryDefinitionId;
+    const codesCtrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
+    const catalogBlocked =
+      opts?.catalogBlocked ??
+      (this.defaultAccessoryCatalogLoading() || this.defaultAccessoryCatalogLoadFailed());
+    const codesEnabled =
+      opts?.codesEnabled ??
+      (!catalogBlocked && this.defaultAccessorySelectedDefinitionId() != null);
+
+    if (catalogBlocked) {
+      typeCtrl.disable({ emitEvent: false });
+      codesCtrl.disable({ emitEvent: false });
+      return;
+    }
+
+    typeCtrl.enable({ emitEvent: false });
+    if (codesEnabled) {
+      codesCtrl.enable({ emitEvent: false });
+    } else {
+      codesCtrl.disable({ emitEvent: false });
+    }
   }
 
   /** Loads assigned defaults + fresh inventory catalog from the server on every open. */
@@ -1073,6 +1105,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.defaultAccessoryCatalogLoadFailed.set(false);
     this.defaultAccessoriesList.set([]);
     this.defaultAccessoryCatalog.set([]);
+    this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: true, codesEnabled: false });
 
     forkJoin({
       catalog: this.data.fetchInventoryDefinitionsCatalog(),
@@ -1082,6 +1115,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         finalize(() => {
           this.defaultAccessoriesLoading.set(false);
           this.defaultAccessoryCatalogLoading.set(false);
+          this.syncDefaultAccessoryFormDisabledState();
         })
       )
       .subscribe({
@@ -1101,12 +1135,15 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           ) {
             this.defaultAccessoryForm.patchValue({ inventoryDefinitionId: null });
             this.onDefaultAccessoryTypeChange();
+          } else {
+            this.syncDefaultAccessoryFormDisabledState();
           }
         },
         error: () => {
           this.defaultAccessoryCatalogLoadFailed.set(true);
           this.defaultAccessoriesList.set([]);
           this.defaultAccessoryCatalog.set([]);
+          this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: true, codesEnabled: false });
           this.toast.error('טעינת מלאי האביזרים נכשלה');
         }
       });
@@ -1185,11 +1222,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     );
     const codesCtrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
     codesCtrl.setValue([]);
-    if (defId != null) {
-      codesCtrl.enable({ emitEvent: false });
-    } else {
-      codesCtrl.disable({ emitEvent: false });
-    }
+    this.syncDefaultAccessoryFormDisabledState();
   }
 
   protected addDefaultAccessory(): void {
@@ -1237,7 +1270,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             inventoryDefinitionId: null,
             accessorySerialCodes: []
           });
-          this.defaultAccessoryForm.controls.accessorySerialCodes.disable({ emitEvent: false });
+          this.syncDefaultAccessoryFormDisabledState({ codesEnabled: false });
           this.loadDefaultAccessoriesModalData(parent, parentSerial);
         }
       });
