@@ -141,6 +141,30 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// --- Database migration (before pipeline — fixes missing-column errors on deploy) ---
+try
+{
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var startupLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Startup");
+
+    startupLogger.LogInformation("Applying pending Entity Framework migrations…");
+    dbContext.Database.Migrate();
+    startupLogger.LogInformation("Entity Framework migrations applied successfully.");
+
+    await DbInitializer.InitializeAsync(app.Services);
+}
+catch (Exception ex)
+{
+    var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    startupLogger.LogCritical(
+        ex,
+        "Startup aborted: database migration or initialization failed.");
+    return;
+}
+
 // --- Pipeline ------------------------------------------------------------
 if (app.Environment.IsDevelopment())
 {
@@ -167,32 +191,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
-// --- Database migration & admin seed -------------------------------------
-try
-{
-    using (var scope = app.Services.CreateScope())
-    {
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var startupLogger = scope.ServiceProvider
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger("Startup");
-
-        startupLogger.LogInformation("Applying pending Entity Framework migrations…");
-        await db.Database.MigrateAsync();
-    }
-
-    await DbInitializer.InitializeAsync(app.Services);
-}
-catch (InvalidOperationException ex)
-{
-    var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-    startupLogger.LogCritical(
-        "Startup aborted: database initialization failed. {Message}",
-        ex.Message);
-    // Exit without an opaque unhandled SocketException — check DbInitializer logs above.
-    return;
-}
 
 app.Run();
 
