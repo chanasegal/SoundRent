@@ -162,16 +162,26 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             throw new ValidationException("כל קודי הפריט שנבחרו כבר משויכים כציוד נלווה קבוע ליחידה זו");
         }
 
+        var accessorySerials = await _db.InventorySerialCodes
+            .Where(s => s.InventoryDefinitionId == definitionId && toAdd.Contains(s.SerialCode))
+            .ToListAsync(cancellationToken);
+
+        foreach (var serial in accessorySerials)
+        {
+            if (serial.PhysicalStatus is AccessorySerialPhysicalStatus.LoanedOut
+                or AccessorySerialPhysicalStatus.Missing
+                or AccessorySerialPhysicalStatus.InRepair)
+            {
+                throw new ValidationException($"קוד {serial.SerialCode} תפוס ואינו זמין לשיוך");
+            }
+        }
+
         if (dto.ParentEquipmentType == LoanedEquipmentType.Mixer && parentDefinition is not null)
         {
             var parentMixerSerial = await _db.InventorySerialCodes
                 .FirstAsync(
                     s => s.InventoryDefinitionId == parentDefinition.Id && s.SerialCode == parentCode,
                     cancellationToken);
-
-            var accessorySerials = await _db.InventorySerialCodes
-                .Where(s => s.InventoryDefinitionId == definitionId && toAdd.Contains(s.SerialCode))
-                .ToListAsync(cancellationToken);
 
             foreach (var serial in accessorySerials)
             {

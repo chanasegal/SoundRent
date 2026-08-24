@@ -300,6 +300,11 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   protected availableAccessoryDefsForOrder(orderId: number): InventoryDefinitionDto[] {
     const order = this.orders().find((o) => o.id === orderId);
+    const usedDefIds = new Set<number>(
+      (order?.loanedEquipments ?? [])
+        .map((le) => le.inventoryDefinitionId)
+        .filter((id): id is number => typeof id === 'number' && id > 0)
+    );
     const usedTypes = new Set(
       (order?.loanedEquipments ?? [])
         .filter((le) => !le.isCustomItem && (le.quantity ?? 0) > 0 && le.loanedEquipmentType != null)
@@ -313,6 +318,9 @@ export class DailyEquipmentReportComponent implements OnInit {
     );
     const pending = this.pendingAccessoryRows().filter((row) => row.orderId === orderId);
     for (const row of pending) {
+      if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
+        usedDefIds.add(row.inventoryDefinitionId);
+      }
       if (row.loanedEquipmentType != null) {
         usedTypes.add(row.loanedEquipmentType);
       }
@@ -322,6 +330,9 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
 
     return this.inventoryStore.definitions().filter((def) => {
+      if (usedDefIds.has(def.id)) {
+        return false;
+      }
       const linkedType = LOANED_EQUIPMENT_ORDER.find(
         (type) =>
           def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', { sensitivity: 'accent' }) ===
@@ -441,7 +452,7 @@ export class DailyEquipmentReportComponent implements OnInit {
 
     const alreadySelected = this.isSerialSelected(row, match.serialCode);
     if (!alreadySelected && !match.isAvailable) {
-      this.toast.warning(`קוד "${match.serialCode}" אינו זמין`);
+      this.toast.warning(`קוד "${match.serialCode}" כרגע תפוס ואינו זמין`);
       return;
     }
 
@@ -538,6 +549,16 @@ export class DailyEquipmentReportComponent implements OnInit {
     if (!checked && this.isSerialEditLocked(row, code)) {
       this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
       return;
+    }
+
+    if (checked) {
+      const match = this.serialOptionsForRow(row).find(
+        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable && !this.isSerialSelected(row, code)) {
+        this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה`);
+        return;
+      }
     }
 
     let next = [...this.getDraftCodes(row)];
@@ -651,51 +672,18 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   private loadSerialAvailability(row: CustomerAccessoryLine): void {
-    const iso = this.selectedIso();
-    if (!iso) {
-      return;
-    }
+    const defId = this.resolveRowInventoryDefinitionId(row);
+    const reserved = new Set(
+      (row.serialCodes ?? [])
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+        .map((c) => c.toLowerCase())
+    );
 
-    if (row.loanedEquipmentType == null) {
-      const def =
-        row.inventoryDefinitionId != null
-          ? this.inventoryStore.byId(row.inventoryDefinitionId)
-          : this.inventoryStore
-              .definitions()
-              .find(
-                (d) =>
-                  d.displayName.localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
-              );
-      const options = (() => {
-        if (!def) {
-          return [] as AccessorySerialOptionDto[];
-        }
-        const reserved = new Set(
-          (row.serialCodes ?? [])
-            .map((c) => c.trim())
-            .filter((c) => c.length > 0)
-            .map((c) => c.toLowerCase())
-        );
-        const units = def.serialUnits ?? [];
-        if (units.length > 0) {
-          return units.map((unit) => {
-            const serialCode = unit.serialCode.trim();
-            const status = unit.physicalStatus;
-            const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
-            return {
-              serialCode,
-              isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
-            };
-          });
-        }
-        return (def.serialCodes ?? []).map((serialCode) => ({
-          serialCode,
-          isAvailable: true
-        }));
-      })();
+    if (defId == null) {
       this.accessoryAvailabilityByRow.update((map) => {
         const next = new Map(map);
-        next.set(row.rowKey, options);
+        next.set(row.rowKey, []);
         return next;
       });
       return;
@@ -704,20 +692,64 @@ export class DailyEquipmentReportComponent implements OnInit {
     this.setSerialAvailabilityLoading(row.rowKey, true);
     this.data
       .getAccessorySerialAvailability({
-        dates: [iso],
-        shifts: row.shiftsOnDay,
-        equipmentTypes: [row.loanedEquipmentType],
+        inventoryDefinitionIds: [defId],
         excludeOrderId: row.orderId
       })
       .pipe(finalize(() => this.setSerialAvailabilityLoading(row.rowKey, false)))
       .subscribe((groups) => {
-        const group = groups.find((g) => g.equipmentType === row.loanedEquipmentType);
+        const group = groups.find((g) => g.inventoryDefinitionId === defId);
+        const baseOptions = group?.options?.length
+          ? group.options
+          : this.fallbackSerialOptions(defId, reserved);
+        const options = baseOptions.map((opt) => ({
+          serialCode: opt.serialCode,
+          isAvailable: opt.isAvailable || reserved.has(opt.serialCode.trim().toLowerCase())
+        }));
         this.accessoryAvailabilityByRow.update((map) => {
           const next = new Map(map);
-          next.set(row.rowKey, group?.options ?? []);
+          next.set(row.rowKey, options);
           return next;
         });
       });
+  }
+
+  private resolveRowInventoryDefinitionId(row: CustomerAccessoryLine): number | null {
+    if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
+      return row.inventoryDefinitionId;
+    }
+    if (row.loanedEquipmentType != null) {
+      return this.inventoryStore.definitionIdForType(row.loanedEquipmentType);
+    }
+    const byName = this.inventoryStore
+      .definitions()
+      .find((d) => d.displayName.localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0);
+    return byName?.id ?? null;
+  }
+
+  private fallbackSerialOptions(
+    definitionId: number,
+    reserved: Set<string>
+  ): AccessorySerialOptionDto[] {
+    const def = this.inventoryStore.byId(definitionId);
+    if (!def) {
+      return [];
+    }
+    const units = def.serialUnits ?? [];
+    if (units.length > 0) {
+      return units.map((unit) => {
+        const serialCode = unit.serialCode.trim();
+        const status = unit.physicalStatus;
+        const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
+        return {
+          serialCode,
+          isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+        };
+      });
+    }
+    return (def.serialCodes ?? []).map((serialCode) => ({
+      serialCode,
+      isAvailable: reserved.has(serialCode.trim().toLowerCase())
+    }));
   }
 
   protected onSerialDropdownOutside(row: CustomerAccessoryLine): void {
@@ -865,10 +897,24 @@ export class DailyEquipmentReportComponent implements OnInit {
 
     this.savingSerialRowKey.set(row.rowKey);
 
+    const taken = this.findTakenSerialInDraft(row, codes);
+    if (taken) {
+      this.savingSerialRowKey.set(null);
+      this.toast.warning(`קוד "${taken}" כרגע תפוס ואינו זמין לבחירה`);
+      return;
+    }
+
+    const def = this.inventoryStore.byId(this.resolveRowInventoryDefinitionId(row) ?? -1);
+    const hasRegisteredSerials =
+      (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
+    if (hasRegisteredSerials && codes.length === 0) {
+      this.savingSerialRowKey.set(null);
+      this.toast.warning(`יש לבחור קוד פריט עבור "${row.label}"`);
+      return;
+    }
+
     const loanedEquipments = this.isPendingAccessoryRow(row)
-      ? row.isCustomItem || row.loanedEquipmentType == null
-        ? this.appendOrPatchCustomAccessory(order, row.label, codes)
-        : this.appendOrPatchAccessory(order, row.loanedEquipmentType!, codes)
+      ? this.appendOrPatchAccessoryLine(order, row, codes)
       : this.patchOrderLoanedSerials(order, row, codes);
     const payload = this.orderToUpdatePayload(order, loanedEquipments);
     const wasPending = this.isPendingAccessoryRow(row);
@@ -919,19 +965,60 @@ export class DailyEquipmentReportComponent implements OnInit {
     };
   }
 
-  private appendOrPatchAccessory(
+  private findTakenSerialInDraft(row: CustomerAccessoryLine, codes: string[]): string | null {
+    const reserved = new Set(
+      this.getSavedCodes(row)
+        .map((c) => c.trim().toLowerCase())
+        .filter((c) => c.length > 0)
+    );
+    const options = this.serialOptionsForRow(row);
+    for (const code of codes) {
+      const key = code.trim().toLowerCase();
+      if (reserved.has(key)) {
+        continue;
+      }
+      const match = options.find(
+        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable) {
+        return code;
+      }
+    }
+    return null;
+  }
+
+  private appendOrPatchAccessoryLine(
     order: OrderDto,
-    type: LoanedEquipmentType,
+    row: CustomerAccessoryLine,
+    codes: string[]
+  ): OrderLoanedEquipmentDto[] {
+    const definitionId = this.resolveRowInventoryDefinitionId(row);
+    if (definitionId != null && definitionId > 0 && !row.isCustomItem) {
+      return this.appendOrPatchCatalogAccessory(order, row, definitionId, codes);
+    }
+    return this.appendOrPatchCustomAccessory(order, row.label, codes);
+  }
+
+  private appendOrPatchCatalogAccessory(
+    order: OrderDto,
+    row: CustomerAccessoryLine,
+    definitionId: number,
     codes: string[]
   ): OrderLoanedEquipmentDto[] {
     const existing = order.loanedEquipments ?? [];
-    const matchIndex = existing.findIndex((le) => !le.isCustomItem && le.loanedEquipmentType === type);
+    const matchIndex = existing.findIndex(
+      (le) =>
+        !le.isCustomItem &&
+        (le.inventoryDefinitionId === definitionId ||
+          (row.loanedEquipmentType != null && le.loanedEquipmentType === row.loanedEquipmentType))
+    );
     const existingLine = matchIndex >= 0 ? existing[matchIndex] : undefined;
     const notes = this.buildAccessoryNotes(codes, existingLine?.notes);
     const nextLine: OrderLoanedEquipmentDto = {
       ...(matchIndex >= 0 && existing[matchIndex]?.id ? { id: existing[matchIndex].id } : {}),
       isCustomItem: false,
-      loanedEquipmentType: type,
+      inventoryDefinitionId: definitionId,
+      loanedEquipmentType: row.loanedEquipmentType,
       quantity: codes.length,
       expectedNoteCount: codes.length,
       notes
@@ -999,10 +1086,13 @@ export class DailyEquipmentReportComponent implements OnInit {
     codes: string[]
   ): OrderLoanedEquipmentDto[] {
     return (order.loanedEquipments ?? []).map((le) => {
-      const isMatch = row.isCustomItem
-        ? !!le.isCustomItem &&
-          (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
-        : !le.isCustomItem && le.loanedEquipmentType === row.loanedEquipmentType;
+      const isMatch =
+        row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0
+          ? !le.isCustomItem && le.inventoryDefinitionId === row.inventoryDefinitionId
+          : row.isCustomItem
+            ? !!le.isCustomItem &&
+              (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
+            : !le.isCustomItem && le.loanedEquipmentType === row.loanedEquipmentType;
       if (!isMatch) {
         return le;
       }
@@ -1010,6 +1100,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       const notes = this.buildAccessoryNotes(codes, le.notes);
       return {
         ...le,
+        inventoryDefinitionId: row.inventoryDefinitionId ?? le.inventoryDefinitionId,
         quantity: codes.length > 0 ? codes.length : le.quantity,
         expectedNoteCount: codes.length > 0 ? codes.length : le.expectedNoteCount,
         notes

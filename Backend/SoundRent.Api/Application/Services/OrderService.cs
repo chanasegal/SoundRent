@@ -1134,9 +1134,26 @@ public class OrderService : IOrderService
                 continue;
             }
 
+            // Catalog lines need either a permanent inventory definition id or a legacy enum type.
+            // Accessories added from the catalog often have InventoryDefinitionId only.
+            if (item.InventoryDefinitionId is int defId and > 0)
+            {
+                if (item.Quantity < 1)
+                {
+                    throw new ValidationException("כמות ציוד מושאל חייבת להיות לפחות 1");
+                }
+
+                continue;
+            }
+
             if (item.LoanedEquipmentType is null)
             {
                 throw new ValidationException("סוג ציוד מושאל חסר");
+            }
+
+            if (item.Quantity < 1)
+            {
+                throw new ValidationException("כמות ציוד מושאל חייבת להיות לפחות 1");
             }
         }
     }

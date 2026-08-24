@@ -101,6 +101,12 @@ public class InventorySerialUnitDto
 
     /// <summary>Date the unit was marked missing / loaned (yyyy-MM-dd).</summary>
     public DateOnly? MarkedMissingAt { get; set; }
+
+    /// <summary>Parent mixer serial id when this accessory is attached; otherwise null.</summary>
+    public int? MixerId { get; set; }
+
+    /// <summary>Parent mixer unit code when <see cref="MixerId"/> is set.</summary>
+    public string? MixerSerialCode { get; set; }
 }
 
 public class InventoryHolderDto

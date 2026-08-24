@@ -9,6 +9,10 @@ export interface InventorySerialUnitDto {
   holderAddress?: string | null;
   /** yyyy-MM-dd when marked missing / loaned. */
   markedMissingAt?: string | null;
+  /** Parent mixer serial id when this accessory is attached. */
+  mixerId?: number | null;
+  /** Parent mixer unit code when mixerId is set. */
+  mixerSerialCode?: string | null;
 }
 
 export interface InventoryHolderDto {

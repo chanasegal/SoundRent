@@ -346,9 +346,17 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
+    const linkedType =
+      LOANED_EQUIPMENT_ORDER.find(
+        (type) =>
+          def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+            sensitivity: 'accent'
+          }) === 0
+      ) ?? null;
+
     const row: QuickLoanAccessoryRow = {
       inventoryDefinitionId: def.id,
-      type: null,
+      type: linkedType,
       label: def.displayName,
       quantity: 1,
       selectedCodes: []
@@ -356,6 +364,7 @@ export class QuickLoanComponent implements OnInit {
     this.accessoryRows.update((rows) => [...rows, row]);
     this.addAccessoryOpen.set(false);
     this.accessoryTypeQuery.set('');
+    this.refreshAvailability();
   }
 
   protected onCustomAccessoryTypeChosen(): void {
@@ -499,6 +508,19 @@ export class QuickLoanComponent implements OnInit {
           ? this.mergeDefaultAccessoryCodesIntoRows(rows, type, codes)
           : { rows, changed: false };
       }
+      const available = this.filterAvailableCodesForQuickLoan(
+        {
+          inventoryDefinitionId: def.id,
+          type,
+          label: def.displayName,
+          quantity: 0,
+          selectedCodes: []
+        },
+        codes
+      );
+      if (available.length === 0) {
+        return { rows, changed: false };
+      }
       return {
         rows: [
           ...rows,
@@ -506,8 +528,8 @@ export class QuickLoanComponent implements OnInit {
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
-            quantity: codes.length,
-            selectedCodes: [...codes]
+            quantity: available.length,
+            selectedCodes: [...available]
           }
         ],
         changed: true
@@ -515,9 +537,10 @@ export class QuickLoanComponent implements OnInit {
     }
 
     const existing = rows[index];
+    const available = this.filterAvailableCodesForQuickLoan(existing, codes);
     const merged = [...existing.selectedCodes];
     let changed = false;
-    for (const code of codes) {
+    for (const code of available) {
       if (!merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
         merged.push(code);
         changed = true;
@@ -551,6 +574,19 @@ export class QuickLoanComponent implements OnInit {
       if (!def) {
         return { rows, changed: false };
       }
+      const available = this.filterAvailableCodesForQuickLoan(
+        {
+          inventoryDefinitionId: def.id,
+          type,
+          label: def.displayName,
+          quantity: 0,
+          selectedCodes: []
+        },
+        codes
+      );
+      if (available.length === 0) {
+        return { rows, changed: false };
+      }
       return {
         rows: [
           ...rows,
@@ -558,8 +594,8 @@ export class QuickLoanComponent implements OnInit {
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
-            quantity: codes.length,
-            selectedCodes: [...codes]
+            quantity: available.length,
+            selectedCodes: [...available]
           }
         ],
         changed: true
@@ -567,9 +603,10 @@ export class QuickLoanComponent implements OnInit {
     }
 
     const existing = rows[index];
+    const available = this.filterAvailableCodesForQuickLoan(existing, codes);
     const merged = [...existing.selectedCodes];
     let changed = false;
-    for (const code of codes) {
+    for (const code of available) {
       if (!merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
         merged.push(code);
         changed = true;
@@ -588,6 +625,34 @@ export class QuickLoanComponent implements OnInit {
     return { rows: next, changed: true };
   }
 
+  private filterAvailableCodesForQuickLoan(
+    row: QuickLoanAccessoryRow,
+    codes: string[]
+  ): string[] {
+    const options = this.serialOptionsForRow(row);
+    const available: string[] = [];
+    for (const code of codes) {
+      const trimmed = code.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (row.selectedCodes.some((c) => c.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0)) {
+        continue;
+      }
+      const match = options.find(
+        (opt) => opt.serialCode.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable) {
+        continue;
+      }
+      if (!match && this.availabilityByDefinitionId().has(row.inventoryDefinitionId)) {
+        continue;
+      }
+      available.push(trimmed);
+    }
+    return available;
+  }
+
   protected removeAccessoryRow(row: QuickLoanAccessoryRow): void {
     this.accessoryRows.update((rows) =>
       rows.filter((r) => r.inventoryDefinitionId !== row.inventoryDefinitionId)
@@ -596,6 +661,7 @@ export class QuickLoanComponent implements OnInit {
       this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
     }
+    this.refreshAvailability();
   }
 
   protected isSerialDropdownOpen(row: QuickLoanAccessoryRow): boolean {
@@ -604,9 +670,9 @@ export class QuickLoanComponent implements OnInit {
 
   protected serialOptionsForRow(row: QuickLoanAccessoryRow): AccessorySerialOptionDto[] {
     if (row.inventoryDefinitionId > 0) {
-      const fromApi = this.availabilityByDefinitionId().get(row.inventoryDefinitionId);
-      if (fromApi?.length) {
-        return this.sortSerialOptions(fromApi);
+      const availabilityMap = this.availabilityByDefinitionId();
+      if (availabilityMap.has(row.inventoryDefinitionId)) {
+        return this.sortSerialOptions(availabilityMap.get(row.inventoryDefinitionId) ?? []);
       }
     }
     // Custom (unlinked) catalog rows — serials come from the shared inventory store.
@@ -640,7 +706,7 @@ export class QuickLoanComponent implements OnInit {
     return this.sortSerialOptions(
       (def.serialCodes ?? []).map((serialCode) => ({
         serialCode,
-        isAvailable: true
+        isAvailable: reserved.has(serialCode.trim().toLowerCase())
       }))
     );
   }
@@ -689,6 +755,12 @@ export class QuickLoanComponent implements OnInit {
 
     this.openSerialDropdownId.set(row.inventoryDefinitionId);
     this.serialQuickEntry.set('');
+    if (
+      row.inventoryDefinitionId > 0 &&
+      !this.availabilityByDefinitionId().has(row.inventoryDefinitionId)
+    ) {
+      this.refreshAvailability();
+    }
     queueMicrotask(() => this.focusSerialQuickEntry());
   }
 
@@ -697,6 +769,16 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected toggleSerialSelection(row: QuickLoanAccessoryRow, code: string, checked: boolean): void {
+    if (checked) {
+      const match = this.serialOptionsForRow(row).find(
+        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable && !this.isSerialSelected(row, code)) {
+        this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה`);
+        return;
+      }
+    }
+
     this.accessoryRows.update((rows) =>
       rows.map((r) => {
         if (r.inventoryDefinitionId !== row.inventoryDefinitionId) {
@@ -740,7 +822,7 @@ export class QuickLoanComponent implements OnInit {
 
     const alreadySelected = this.isSerialSelected(row, match.serialCode);
     if (!alreadySelected && !match.isAvailable) {
-      this.toast.warning(`קוד "${match.serialCode}" אינו זמין `);
+      this.toast.warning(`קוד "${match.serialCode}" כרגע תפוס ואינו זמין `);
       return;
     }
 
@@ -1178,6 +1260,29 @@ export class QuickLoanComponent implements OnInit {
 
       if (le.isCustomItem) {
         const name = (le.customItemName ?? '').trim() || 'פריט נוסף';
+        // Legacy quick-loan saved catalog rows as custom — rematch by display name.
+        const catalogMatch = catalog.find(
+          (d) => d.displayName.trim().localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
+        );
+        if (catalogMatch) {
+          const linkedType =
+            LOANED_EQUIPMENT_ORDER.find(
+              (type) =>
+                catalogMatch.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+                  sensitivity: 'accent'
+                }) === 0
+            ) ?? null;
+          rows.push({
+            inventoryDefinitionId: catalogMatch.id,
+            type: linkedType,
+            label: catalogMatch.displayName,
+            quantity: Math.max(le.quantity, codes.length, 1),
+            selectedCodes: codes,
+            initialCodes: [...codes],
+            lineId: le.id
+          });
+          continue;
+        }
         rows.push({
           inventoryDefinitionId: this.nextOneTimeAccessoryId--,
           type: null,
@@ -1536,38 +1641,75 @@ export class QuickLoanComponent implements OnInit {
       .filter((row) => row.quantity > 0)
       .map((row) => {
         const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
-        if (row.type) {
+        const notes = codes.map((code, ordinal) => ({
+          ordinal,
+          content: code,
+          isReturned: false
+        }));
+
+        // Catalog rows (positive definition id) must never be saved as custom —
+        // otherwise availability ignores them via IsCustomItem.
+        if (row.inventoryDefinitionId > 0) {
+          const linkedType =
+            row.type ??
+            LOANED_EQUIPMENT_ORDER.find(
+              (type) =>
+                row.label.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+                  sensitivity: 'accent'
+                }) === 0
+            ) ??
+            null;
           return {
             ...(row.lineId ? { id: row.lineId } : {}),
             isCustomItem: false,
-            loanedEquipmentType: row.type,
+            inventoryDefinitionId: row.inventoryDefinitionId,
+            loanedEquipmentType: linkedType,
+            customItemName: null,
             quantity: row.quantity,
             expectedNoteCount: row.quantity,
-            notes: codes.map((code, ordinal) => ({
-              ordinal,
-              content: code,
-              isReturned: false
-            }))
+            notes
           };
         }
+
         return {
           ...(row.lineId ? { id: row.lineId } : {}),
           isCustomItem: true,
           customItemName: row.label,
           loanedEquipmentType: null,
+          inventoryDefinitionId: null,
           quantity: row.quantity,
           expectedNoteCount: row.quantity,
-          notes: codes.map((code, ordinal) => ({
-            ordinal,
-            content: code,
-            isReturned: false
-          }))
+          notes
         };
       });
 
     if (loanedEquipments.length === 0) {
       this.toast.warning('יש להוסיף לפחות אביזר אחד עם כמות');
       return;
+    }
+
+    for (const row of this.accessoryRows()) {
+      if (row.quantity <= 0) {
+        continue;
+      }
+      const def = this.inventoryStore.byId(row.inventoryDefinitionId);
+      const hasRegisteredSerials =
+        (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
+      const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
+      if (hasRegisteredSerials && codes.length !== row.quantity) {
+        this.toast.warning(`יש לבחור קוד לכל יחידה עבור "${row.label}"`);
+        return;
+      }
+      const options = this.serialOptionsForRow(row);
+      for (const code of codes) {
+        const match = options.find(
+          (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+        );
+        if (match && !match.isAvailable) {
+          this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה (${row.label})`);
+          return;
+        }
+      }
     }
 
     const shifts: OrderShiftDto[] = [
@@ -1832,15 +1974,18 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
-    const definitionIds = this.accessoryRows()
-      .map((r) => r.inventoryDefinitionId)
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const definitionIds = this.collectFormInventoryDefinitionIds();
+    if (definitionIds.length === 0) {
+      this.availabilityByDefinitionId.set(new Map());
+      this.availabilityLoading.set(false);
+      return;
+    }
 
     this.availabilityLoading.set(true);
     this.data
       .getAccessorySerialAvailability({
         dates: [iso],
-        inventoryDefinitionIds: [...new Set(definitionIds)],
+        inventoryDefinitionIds: definitionIds,
         excludeOrderId: this.editingId()
       })
       .pipe(finalize(() => this.availabilityLoading.set(false)))
@@ -1854,6 +1999,24 @@ export class QuickLoanComponent implements OnInit {
         }
         this.availabilityByDefinitionId.set(map);
       });
+  }
+
+  /** Positive catalog ids for rows currently on the quick-loan form. */
+  private collectFormInventoryDefinitionIds(): number[] {
+    const ids = new Set<number>();
+    for (const row of this.accessoryRows()) {
+      if (Number.isFinite(row.inventoryDefinitionId) && row.inventoryDefinitionId > 0) {
+        ids.add(row.inventoryDefinitionId);
+        continue;
+      }
+      if (row.type != null) {
+        const fromType = this.inventoryStore.definitionIdForType(row.type);
+        if (fromType != null && fromType > 0) {
+          ids.add(fromType);
+        }
+      }
+    }
+    return [...ids];
   }
 
   private syncDayOptions(): void {

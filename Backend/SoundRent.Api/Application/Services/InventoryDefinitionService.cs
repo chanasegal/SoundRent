@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
@@ -16,13 +17,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 {
     private readonly IInventoryDefinitionRepository _repository;
     private readonly AppDbContext _db;
+    private readonly ILogger<InventoryDefinitionService> _logger;
 
     public InventoryDefinitionService(
         IInventoryDefinitionRepository repository,
-        AppDbContext db)
+        AppDbContext db,
+        ILogger<InventoryDefinitionService> logger)
     {
         _repository = repository;
         _db = db;
+        _logger = logger;
     }
 
     public Task<List<InventoryDefinitionDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
@@ -274,10 +278,27 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         int? excludeOrderId,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation(
+            "[SerialAvailability] ValidateOrderInventorySerials START excludeOrderId={ExcludeOrderId} itemCount={ItemCount} items={Items}",
+            excludeOrderId,
+            items.Count,
+            string.Join("; ", items.Select(i =>
+                $"type={i.LoanedEquipmentType}/custom={i.CustomItemName}/defId={i.InventoryDefinitionId}/qty={i.Quantity}/notes=[{string.Join(",", (i.Notes ?? []).Select(n => $"{n.Content}{(n.IsReturned ? ":R" : "")}"))}]")));
+
         var catalogLines = await ResolveCatalogLinesAsync(items, cancellationToken);
         if (catalogLines.Count == 0)
         {
+            _logger.LogInformation(
+                "[SerialAvailability] ValidateOrderInventorySerials SKIP — no catalog lines resolved (all custom/unmapped?)");
             return;
+        }
+
+        foreach (var (definitionId, item) in catalogLines)
+        {
+            if (item.InventoryDefinitionId is not int stamped || stamped <= 0)
+            {
+                item.InventoryDefinitionId = definitionId;
+            }
         }
 
         var definitionIds = catalogLines.Select(x => x.DefinitionId).Distinct().ToList();
@@ -286,6 +307,13 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             ? await GetAssignedCodesForOrderAsync(orderId, cancellationToken)
             : new Dictionary<int, HashSet<string>>();
         var activeByDef = await GetActiveAssignedCodesAsync(excludeOrderId, cancellationToken);
+        var claimedInRequest = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _logger.LogInformation(
+            "[SerialAvailability] ValidateOrderInventorySerials catalogLines={Lines} activeTaken={Active} reservedOnOrder={Reserved}",
+            string.Join("; ", catalogLines.Select(x => $"defId={x.DefinitionId}")),
+            FormatTakenMap(activeByDef),
+            FormatTakenMap(reservedByDef));
 
         foreach (var (definitionId, item) in catalogLines)
         {
@@ -306,7 +334,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             var selectedCodes = ExtractSelectedCodes(item);
 
-            if (selectedCodes.Count > 0 && selectedCodes.Count != item.Quantity)
+            if (allowedCodes.Count > 0 && selectedCodes.Count != item.Quantity)
             {
                 throw new ValidationException($"יש לבחור קוד לכל יחידה עבור \"{label}\"");
             }
@@ -330,7 +358,17 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
                 if (entry.IsReturned)
                 {
+                    _logger.LogInformation(
+                        "[SerialAvailability] Validate SKIP returned code defId={DefId} label={Label} code={Code}",
+                        definitionId, label, entry.Code);
                     continue;
+                }
+
+                var claimKey = $"{definitionId}|{entry.Code}";
+                if (!claimedInRequest.Add(claimKey))
+                {
+                    throw new ValidationException(
+                        $"הקוד \"{entry.Code}\" נבחר יותר מפעם אחת בהשאלה זו ({label})");
                 }
 
                 var unavailableByStatus = statusByCode.TryGetValue(entry.Code, out var status)
@@ -338,14 +376,28 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                         or AccessorySerialPhysicalStatus.Missing
                         or AccessorySerialPhysicalStatus.InRepair;
                 var unavailableByActiveLoan = active.Contains(entry.Code);
+                var isReserved = reserved.Contains(entry.Code);
+
+                _logger.LogInformation(
+                    "[SerialAvailability] Validate CHECK defId={DefId} label={Label} code={Code} status={Status} unavailableByStatus={ByStatus} unavailableByActiveLoan={ByLoan} isReservedOnOrder={Reserved} → {Decision}",
+                    definitionId,
+                    label,
+                    entry.Code,
+                    statusByCode.TryGetValue(entry.Code, out var st) ? st.ToString() : "(missing)",
+                    unavailableByStatus,
+                    unavailableByActiveLoan,
+                    isReserved,
+                    (unavailableByStatus || unavailableByActiveLoan) && !isReserved ? "REJECT taken" : "ALLOW");
 
                 if ((unavailableByStatus || unavailableByActiveLoan) && !reserved.Contains(entry.Code))
                 {
                     throw new ValidationException(
-                        $"הקוד \"{entry.Code}\" כרגע בחוץ (מושאל) ואינו זמין לבחירה ({label})");
+                        $"הקוד \"{entry.Code}\" כרגע בחוץ (תפוס) ואינו זמין לבחירה ({label})");
                 }
             }
         }
+
+        _logger.LogInformation("[SerialAvailability] ValidateOrderInventorySerials PASS");
     }
 
     public async Task SyncInventorySerialStatusForOrderAsync(
@@ -579,6 +631,11 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             ? request.InventoryDefinitionIds.Distinct().ToList()
             : null;
 
+        _logger.LogInformation(
+            "[SerialAvailability] GetAvailability START excludeOrderId={ExcludeOrderId} inventoryDefinitionIds=[{Ids}]",
+            request.ExcludeOrderId,
+            idsFilter is null ? "(all active)" : string.Join(",", idsFilter));
+
         var query = _db.InventoryDefinitions.AsNoTracking()
             .Include(d => d.SerialCodes)
             .Where(d => d.IsActive);
@@ -593,39 +650,73 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             ? await GetAssignedCodesForOrderAsync(orderId, cancellationToken)
             : new Dictionary<int, HashSet<string>>();
 
-        return definitions.Select(def =>
+        _logger.LogInformation(
+            "[SerialAvailability] GetAvailability takenFromActiveLoans={Taken} reservedOnExcludedOrder={Reserved} definitionCount={DefCount}",
+            FormatTakenMap(loanedOutByDef),
+            FormatTakenMap(reservedByDef),
+            definitions.Count);
+
+        var result = definitions.Select(def =>
         {
             loanedOutByDef.TryGetValue(def.Id, out var loanedOut);
             loanedOut ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             reservedByDef.TryGetValue(def.Id, out var reserved);
             reserved ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            var options = def.SerialCodes
+                .Select(s => new { Code = s.SerialCode.Trim(), s.PhysicalStatus })
+                .Where(s => s.Code.Length > 0)
+                .GroupBy(s => s.Code, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(s => s.Code, NumericStringComparer.Instance)
+                .Select(s =>
+                {
+                    var unavailableByStatus = s.PhysicalStatus is AccessorySerialPhysicalStatus.LoanedOut
+                        or AccessorySerialPhysicalStatus.Missing
+                        or AccessorySerialPhysicalStatus.InRepair;
+                    var unavailableByActiveLoan = loanedOut.Contains(s.Code);
+                    var isReserved = reserved.Contains(s.Code);
+                    var isAvailable = isReserved || (!unavailableByStatus && !unavailableByActiveLoan);
+
+                    if (!isAvailable || unavailableByStatus || unavailableByActiveLoan || isReserved)
+                    {
+                        _logger.LogInformation(
+                            "[SerialAvailability] GetAvailability OPTION defId={DefId} label={Label} code={Code} status={Status} byStatus={ByStatus} byActiveLoan={ByLoan} reserved={Reserved} → isAvailable={Available}",
+                            def.Id,
+                            def.DisplayName,
+                            s.Code,
+                            s.PhysicalStatus,
+                            unavailableByStatus,
+                            unavailableByActiveLoan,
+                            isReserved,
+                            isAvailable);
+                    }
+
+                    return new AccessorySerialOptionDto
+                    {
+                        SerialCode = s.Code,
+                        IsAvailable = isAvailable
+                    };
+                })
+                .ToList();
+
+            var takenCodes = options.Where(o => !o.IsAvailable).Select(o => o.SerialCode).ToList();
+            _logger.LogInformation(
+                "[SerialAvailability] GetAvailability GROUP defId={DefId} label={Label} totalOptions={Total} taken=[{Taken}]",
+                def.Id,
+                def.DisplayName,
+                options.Count,
+                string.Join(",", takenCodes));
+
             return new InventorySerialAvailabilityGroupDto
             {
                 InventoryDefinitionId = def.Id,
                 Label = def.DisplayName,
-                Options = def.SerialCodes
-                    .Select(s => new { Code = s.SerialCode.Trim(), s.PhysicalStatus })
-                    .Where(s => s.Code.Length > 0)
-                    .GroupBy(s => s.Code, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .OrderBy(s => s.Code, NumericStringComparer.Instance)
-                    .Select(s =>
-                    {
-                        var unavailableByStatus = s.PhysicalStatus is AccessorySerialPhysicalStatus.LoanedOut
-                            or AccessorySerialPhysicalStatus.Missing
-                            or AccessorySerialPhysicalStatus.InRepair;
-                        var unavailableByActiveLoan = loanedOut.Contains(s.Code);
-                        var isReserved = reserved.Contains(s.Code);
-                        return new AccessorySerialOptionDto
-                        {
-                            SerialCode = s.Code,
-                            IsAvailable = isReserved || (!unavailableByStatus && !unavailableByActiveLoan)
-                        };
-                    })
-                    .ToList()
+                Options = options
             };
         }).ToList();
+
+        return result;
     }
 
     public async Task<InventorySerialLocationDto> GetSerialLocationAsync(
@@ -712,7 +803,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         var missingByKey = await LoadUnresolvedMissingByKeyAsync(cancellationToken);
         var missingByDefinition = await LoadUnresolvedMissingByDefinitionAsync(cancellationToken);
         var loanHolders = await LoadActiveLoanHoldersByDefinitionAsync(cancellationToken);
-        return rows.Select(r => ToDto(r, missingByKey, missingByDefinition, loanHolders)).ToList();
+        var mixerSerialCodes = await LoadMixerSerialCodesAsync(rows, cancellationToken);
+        return rows.Select(r => ToDto(r, missingByKey, missingByDefinition, loanHolders, mixerSerialCodes)).ToList();
     }
 
     private async Task<InventoryDefinitionDto> ToDtoAsync(
@@ -722,7 +814,28 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         var missingByKey = await LoadUnresolvedMissingByKeyAsync(cancellationToken);
         var missingByDefinition = await LoadUnresolvedMissingByDefinitionAsync(cancellationToken);
         var loanHolders = await LoadActiveLoanHoldersByDefinitionAsync(cancellationToken);
-        return ToDto(entity, missingByKey, missingByDefinition, loanHolders);
+        var mixerSerialCodes = await LoadMixerSerialCodesAsync([entity], cancellationToken);
+        return ToDto(entity, missingByKey, missingByDefinition, loanHolders, mixerSerialCodes);
+    }
+
+    private async Task<IReadOnlyDictionary<int, string>> LoadMixerSerialCodesAsync(
+        IEnumerable<InventoryDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
+        var mixerIds = definitions
+            .SelectMany(d => d.SerialCodes)
+            .Where(s => s.MixerId != null)
+            .Select(s => s.MixerId!.Value)
+            .Distinct()
+            .ToList();
+        if (mixerIds.Count == 0)
+        {
+            return new Dictionary<int, string>();
+        }
+
+        return await _db.InventorySerialCodes.AsNoTracking()
+            .Where(s => mixerIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.SerialCode, cancellationToken);
     }
 
     private async Task<InventoryDefinition> RequireActiveAsync(int id, CancellationToken cancellationToken) =>
@@ -864,11 +977,12 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         foreach (var item in items ?? [])
         {
-            if (item.Quantity <= 0 || item.IsCustomItem)
+            if (item.Quantity <= 0)
             {
                 continue;
             }
 
+            // Prefer explicit catalog id even when a client wrongly flagged IsCustomItem.
             if (item.InventoryDefinitionId is int id and > 0)
             {
                 result.Add((id, item));
@@ -902,7 +1016,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         foreach (var item in items ?? [])
         {
-            if (item.Quantity <= 0 || item.IsCustomItem || item.InventoryDefinitionId is int and > 0)
+            if (item.Quantity <= 0 || item.InventoryDefinitionId is int and > 0)
             {
                 continue;
             }
@@ -962,32 +1076,68 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         int orderId,
         CancellationToken cancellationToken)
     {
+        // Include IsCustomItem rows: legacy quick-loan saved catalog accessories as custom
+        // with CustomItemName = display name. ResolveInventoryDefinitionId maps those back.
         var rows = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where le.OrderId == orderId
-                  && le.InventoryDefinitionId != null
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
-            select new { DefinitionId = le.InventoryDefinitionId!.Value, Code = note.Content! }
+            select new
+            {
+                le.InventoryDefinitionId,
+                le.LoanedEquipmentType,
+                le.CustomItemName,
+                le.IsCustomItem,
+                Code = note.Content!
+            }
         ).ToListAsync(cancellationToken);
 
-        return GroupCodesByDefinitionId(rows.Select(r => (r.DefinitionId, r.Code)));
+        var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
+        var mappedPairs = new List<(int DefinitionId, string Code)>();
+        foreach (var r in rows)
+        {
+            var resolvedId = ResolveInventoryDefinitionId(
+                r.InventoryDefinitionId,
+                r.LoanedEquipmentType,
+                r.CustomItemName,
+                lookup);
+            if (resolvedId is not int defId || defId <= 0)
+            {
+                continue;
+            }
+
+            mappedPairs.Add((defId, r.Code));
+        }
+
+        var result = GroupCodesByDefinitionId(mappedPairs);
+        await EnrichActiveAssignedFromAttachedMixersAsync(result, cancellationToken);
+        return result;
     }
 
     private async Task<Dictionary<int, HashSet<string>>> GetActiveAssignedCodesAsync(
         int? excludeOrderId,
         CancellationToken cancellationToken)
     {
+        // Do not filter IsCustomItem: quick-loan historically persisted catalog units
+        // (e.g. Mixer #90) as custom lines with CustomItemName only.
         var query =
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
-                  && le.InventoryDefinitionId != null
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
-            select new { le.OrderId, DefinitionId = le.InventoryDefinitionId!.Value, Code = note.Content! };
+            select new
+            {
+                le.OrderId,
+                le.InventoryDefinitionId,
+                le.LoanedEquipmentType,
+                le.CustomItemName,
+                le.IsCustomItem,
+                Code = note.Content!
+            };
 
         if (excludeOrderId is int excluded)
         {
@@ -995,7 +1145,202 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var rows = await query.ToListAsync(cancellationToken);
-        return GroupCodesByDefinitionId(rows.Select(r => (r.DefinitionId, r.Code)));
+        var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "[SerialAvailability] GetActiveAssignedCodes rawUnreturnedNotes={Count} excludeOrderId={ExcludeOrderId}",
+            rows.Count,
+            excludeOrderId);
+
+        var mappedPairs = new List<(int DefinitionId, string Code)>();
+        foreach (var r in rows)
+        {
+            var resolvedId = ResolveInventoryDefinitionId(
+                r.InventoryDefinitionId,
+                r.LoanedEquipmentType,
+                r.CustomItemName,
+                lookup);
+            if (resolvedId is not int defId || defId <= 0)
+            {
+                _logger.LogWarning(
+                    "[SerialAvailability] GetActiveAssignedCodes UNMAPPED → NOT in taken list. OrderId={OrderId} InventoryDefinitionId={RawDefId} Type={Type} CustomName={Custom} IsCustom={IsCustom} Code={Code}",
+                    r.OrderId,
+                    r.InventoryDefinitionId,
+                    r.LoanedEquipmentType?.ToString() ?? "(null)",
+                    r.CustomItemName ?? "(null)",
+                    r.IsCustomItem,
+                    r.Code);
+                continue;
+            }
+
+            _logger.LogInformation(
+                "[SerialAvailability] GetActiveAssignedCodes TAKEN OrderId={OrderId} DefinitionId={DefId} Code={Code} (rawDefId={RawDefId} type={Type} isCustom={IsCustom})",
+                r.OrderId,
+                defId,
+                r.Code.Trim(),
+                r.InventoryDefinitionId,
+                r.LoanedEquipmentType?.ToString() ?? "(null)",
+                r.IsCustomItem);
+            mappedPairs.Add((defId, r.Code));
+        }
+
+        var result = GroupCodesByDefinitionId(mappedPairs);
+        await EnrichActiveAssignedFromAttachedMixersAsync(result, cancellationToken);
+
+        _logger.LogInformation(
+            "[SerialAvailability] GetActiveAssignedCodes FINAL taken map (after kit cascade)={Taken}",
+            FormatTakenMap(result));
+        return result;
+    }
+
+    private async Task<(
+        Dictionary<int, int> ById,
+        Dictionary<LoanedEquipmentType, int> ByType,
+        Dictionary<string, int> ByName)> LoadCatalogDefinitionLookupAsync(
+        CancellationToken cancellationToken)
+    {
+        var defs = await _db.InventoryDefinitions.AsNoTracking()
+            .Where(d => d.IsActive)
+            .Select(d => new { d.Id, d.DisplayName })
+            .ToListAsync(cancellationToken);
+
+        var byId = defs.ToDictionary(d => d.Id, d => d.Id);
+        var byName = defs
+            .GroupBy(d => d.DisplayName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
+        var byType = new Dictionary<LoanedEquipmentType, int>();
+        foreach (LoanedEquipmentType type in Enum.GetValues<LoanedEquipmentType>())
+        {
+            var label = LoanedEquipmentTypeLabels.GetLabel(type);
+            if (byName.TryGetValue(label, out var id))
+            {
+                byType[type] = id;
+            }
+        }
+
+        return (byId, byType, byName);
+    }
+
+    private async Task EnrichActiveAssignedFromAttachedMixersAsync(
+        Dictionary<int, HashSet<string>> activeByDef,
+        CancellationToken cancellationToken)
+    {
+        if (activeByDef.Count == 0)
+        {
+            _logger.LogInformation(
+                "[SerialAvailability] KitCascade SKIP — no active assigned codes to cascade from");
+            return;
+        }
+
+        var attached = await _db.InventorySerialCodes.AsNoTracking()
+            .Where(s => s.MixerId != null)
+            .Select(s => new
+            {
+                s.InventoryDefinitionId,
+                s.SerialCode,
+                MixerId = s.MixerId!.Value
+            })
+            .ToListAsync(cancellationToken);
+
+        if (attached.Count > 0)
+        {
+            var mixerIds = attached.Select(a => a.MixerId).Distinct().ToList();
+            var mixers = await _db.InventorySerialCodes.AsNoTracking()
+                .Where(s => mixerIds.Contains(s.Id))
+                .Select(s => new { s.Id, s.InventoryDefinitionId, s.SerialCode })
+                .ToListAsync(cancellationToken);
+            var mixerById = mixers.ToDictionary(m => m.Id);
+
+            foreach (var row in attached)
+            {
+                if (!mixerById.TryGetValue(row.MixerId, out var mixer))
+                {
+                    continue;
+                }
+
+                if (!activeByDef.TryGetValue(mixer.InventoryDefinitionId, out var mixerCodes)
+                    || !mixerCodes.Contains(mixer.SerialCode.Trim()))
+                {
+                    continue;
+                }
+
+                _logger.LogInformation(
+                    "[SerialAvailability] KitCascade MixerId-link → TAKEN accessoryDefId={DefId} code={Code} because mixer defId={MixerDefId} code={MixerCode} is loaned",
+                    row.InventoryDefinitionId,
+                    row.SerialCode.Trim(),
+                    mixer.InventoryDefinitionId,
+                    mixer.SerialCode.Trim());
+                AddActiveAssignedCode(activeByDef, row.InventoryDefinitionId, row.SerialCode);
+            }
+        }
+
+        var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
+        var mixerDefId = await _db.InventoryDefinitions.AsNoTracking()
+            .Where(d => d.IsActive && d.DisplayName == mixerLabel)
+            .Select(d => (int?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (mixerDefId is not int mid || !activeByDef.TryGetValue(mid, out var activeMixerCodes))
+        {
+            return;
+        }
+
+        var kitRows = await _db.EquipmentDefaultAccessories.AsNoTracking()
+            .Where(k => k.ParentEquipmentType == LoanedEquipmentType.Mixer && k.InventoryDefinitionId != null)
+            .Select(k => new
+            {
+                k.ParentSerialCode,
+                DefinitionId = k.InventoryDefinitionId!.Value,
+                k.AccessorySerialCode
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var kit in kitRows)
+        {
+            if (!activeMixerCodes.Contains(kit.ParentSerialCode.Trim()))
+            {
+                continue;
+            }
+
+            _logger.LogInformation(
+                "[SerialAvailability] KitCascade DefaultAccessory → TAKEN accessoryDefId={DefId} code={Code} because mixer #{Parent} is loaned",
+                kit.DefinitionId,
+                kit.AccessorySerialCode.Trim(),
+                kit.ParentSerialCode.Trim());
+            AddActiveAssignedCode(activeByDef, kit.DefinitionId, kit.AccessorySerialCode);
+        }
+    }
+
+    private static string FormatTakenMap(IReadOnlyDictionary<int, HashSet<string>> map)
+    {
+        if (map.Count == 0)
+        {
+            return "(empty)";
+        }
+
+        return string.Join(
+            " | ",
+            map.OrderBy(kv => kv.Key)
+                .Select(kv => $"defId={kv.Key}:[{string.Join(",", kv.Value.OrderBy(c => c))}]"));
+    }
+
+    private static void AddActiveAssignedCode(
+        Dictionary<int, HashSet<string>> activeByDef,
+        int definitionId,
+        string serialCode)
+    {
+        var code = (serialCode ?? string.Empty).Trim();
+        if (definitionId <= 0 || code.Length == 0)
+        {
+            return;
+        }
+
+        if (!activeByDef.TryGetValue(definitionId, out var codes))
+        {
+            codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            activeByDef[definitionId] = codes;
+        }
+
+        codes.Add(code);
     }
 
     private async Task<Dictionary<int, Dictionary<string, InventoryHolderDto>>> LoadActiveLoanHoldersByDefinitionAsync(
@@ -1270,6 +1615,34 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             Address = match.Address,
             LoanDate = DateOnly.FromDateTime(match.CreatedAt.ToUniversalTime())
         };
+    }
+
+    private static int? ResolveInventoryDefinitionId(
+        int? inventoryDefinitionId,
+        LoanedEquipmentType? loanedEquipmentType,
+        string? customItemName,
+        (
+            Dictionary<int, int> ById,
+            Dictionary<LoanedEquipmentType, int> ByType,
+            Dictionary<string, int> ByName) lookup)
+    {
+        if (inventoryDefinitionId is int id and > 0 && lookup.ById.ContainsKey(id))
+        {
+            return id;
+        }
+
+        if (loanedEquipmentType is LoanedEquipmentType type && lookup.ByType.TryGetValue(type, out var byTypeId))
+        {
+            return byTypeId;
+        }
+
+        var name = (customItemName ?? string.Empty).Trim();
+        if (name.Length > 0 && lookup.ByName.TryGetValue(name, out var byNameId))
+        {
+            return byNameId;
+        }
+
+        return inventoryDefinitionId is int fallback and > 0 ? fallback : null;
     }
 
     private static int? ResolveInventoryDefinitionId(
@@ -1650,7 +2023,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         InventoryDefinition entity,
         IReadOnlyDictionary<string, ManualUnreturnedItem>? missingByKey,
         IReadOnlyDictionary<int, List<ManualUnreturnedItem>>? missingByDefinition,
-        IReadOnlyDictionary<int, Dictionary<string, InventoryHolderDto>>? loanHolders)
+        IReadOnlyDictionary<int, Dictionary<string, InventoryHolderDto>>? loanHolders,
+        IReadOnlyDictionary<int, string>? mixerSerialCodes = null)
     {
         var holders = new List<InventoryHolderDto>();
         Dictionary<string, InventoryHolderDto>? holdersByCode = null;
@@ -1683,7 +2057,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     status = AccessorySerialPhysicalStatus.LoanedOut;
                 }
 
-                var unit = BuildSerialUnit(code, status, missing, loan);
+                var mixerId = s.MixerId;
+                string? mixerSerialCode = null;
+                if (mixerId is int mid
+                    && mixerSerialCodes is not null
+                    && mixerSerialCodes.TryGetValue(mid, out var mixerCode))
+                {
+                    mixerSerialCode = mixerCode;
+                }
+
+                var unit = BuildSerialUnit(code, status, missing, loan, mixerId, mixerSerialCode);
                 if (status is AccessorySerialPhysicalStatus.Missing or AccessorySerialPhysicalStatus.LoanedOut)
                 {
                     holders.Add(ToHolder(unit, loan?.OrderId));
@@ -1774,7 +2157,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         string code,
         AccessorySerialPhysicalStatus status,
         ManualUnreturnedItem? missing,
-        InventoryHolderDto? loan) => new()
+        InventoryHolderDto? loan,
+        int? mixerId = null,
+        string? mixerSerialCode = null) => new()
     {
         SerialCode = code,
         PhysicalStatus = status,
@@ -1784,7 +2169,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         HolderAddress = missing?.Address ?? loan?.Address,
         MarkedMissingAt = missing is not null
             ? DateOnly.FromDateTime(missing.CreatedAt.ToUniversalTime())
-            : loan?.EventDate
+            : loan?.EventDate,
+        MixerId = mixerId,
+        MixerSerialCode = mixerSerialCode
     };
 
     private static string StatusLabel(AccessorySerialPhysicalStatus status) => status switch

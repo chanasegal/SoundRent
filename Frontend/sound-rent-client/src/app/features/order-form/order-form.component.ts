@@ -35,6 +35,7 @@ import {
 import {
   DEPOSIT_TYPE_LABELS,
   DepositType,
+  LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType,
   RETURN_TIME_TYPE_LABELS,
@@ -601,10 +602,18 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
+    const linkedType =
+      LOANED_EQUIPMENT_ORDER.find(
+        (type) =>
+          def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+            sensitivity: 'accent'
+          }) === 0
+      ) ?? null;
+
     this.equipmentList.push(
       this.buildDynamicEquipmentRow({
         inventoryDefinitionId: def.id,
-        loanedEquipmentType: null,
+        loanedEquipmentType: linkedType,
         label: def.displayName,
         quantity: 1,
         selectedCodes: [],
@@ -704,17 +713,27 @@ export class OrderFormComponent implements OnInit {
       if (!def) {
         return type ? this.mergeDefaultAccessoryCodes(type, codes) : false;
       }
+      const filtered = this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes);
+      if (filtered.available.length === 0) {
+        if (filtered.skippedTaken > 0) {
+          this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+        }
+        return false;
+      }
       this.equipmentList.push(
         this.buildDynamicEquipmentRow({
           inventoryDefinitionId: def.id,
           loanedEquipmentType: type,
           label: def.displayName,
-          quantity: codes.length,
-          selectedCodes: [...codes],
+          quantity: filtered.available.length,
+          selectedCodes: [...filtered.available],
           lineId: null,
           isCustomItem: type == null
         })
       );
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
       return true;
     }
 
@@ -724,14 +743,18 @@ export class OrderFormComponent implements OnInit {
 
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = [...(ctrl.value ?? [])];
+    const filtered = this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes, current);
     let changed = false;
-    for (const code of codes) {
+    for (const code of filtered.available) {
       if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
         current.push(code);
         changed = true;
       }
     }
     if (!changed) {
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
       return false;
     }
 
@@ -741,6 +764,9 @@ export class OrderFormComponent implements OnInit {
       { quantity: Math.max(current.length, 1) },
       { emitEvent: false }
     );
+    if (filtered.skippedTaken > 0) {
+      this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+    }
     return true;
   }
 
@@ -760,17 +786,27 @@ export class OrderFormComponent implements OnInit {
       if (!def) {
         return false;
       }
+      const filtered = this.filterAvailableCodesForDefinition(def.id, codes);
+      if (filtered.available.length === 0) {
+        if (filtered.skippedTaken > 0) {
+          this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+        }
+        return false;
+      }
       this.equipmentList.push(
         this.buildDynamicEquipmentRow({
           inventoryDefinitionId: def.id,
           loanedEquipmentType: type,
           label: def.displayName,
-          quantity: codes.length,
-          selectedCodes: [...codes],
+          quantity: filtered.available.length,
+          selectedCodes: [...filtered.available],
           lineId: null,
           isCustomItem: false
         })
       );
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
       return true;
     }
 
@@ -778,16 +814,21 @@ export class OrderFormComponent implements OnInit {
       return false;
     }
 
+    const defId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = [...(ctrl.value ?? [])];
+    const filtered = this.filterAvailableCodesForDefinition(defId, codes, current);
     let changed = false;
-    for (const code of codes) {
+    for (const code of filtered.available) {
       if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
         current.push(code);
         changed = true;
       }
     }
     if (!changed) {
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
       return false;
     }
 
@@ -797,7 +838,85 @@ export class OrderFormComponent implements OnInit {
       { quantity: Math.max(current.length, 1) },
       { emitEvent: false }
     );
+    if (filtered.skippedTaken > 0) {
+      this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+    }
     return true;
+  }
+
+  private filterAvailableCodesForDefinition(
+    inventoryDefinitionId: number,
+    codes: string[],
+    alreadySelected: string[] = []
+  ): { available: string[]; skippedTaken: number } {
+    const selectedKeys = new Set(
+      alreadySelected.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
+    );
+    const options = this.serialOptionsForDefinition(inventoryDefinitionId, alreadySelected);
+    const available: string[] = [];
+    let skippedTaken = 0;
+    for (const code of codes) {
+      const trimmed = code.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const key = trimmed.toLowerCase();
+      if (selectedKeys.has(key)) {
+        continue;
+      }
+      const match = options.find(
+        (opt) => opt.serialCode.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable) {
+        skippedTaken++;
+        continue;
+      }
+      // If the code is not in options yet, keep it only when we have no availability data.
+      if (!match && this.accessoryAvailabilityByDefinitionId().has(inventoryDefinitionId)) {
+        skippedTaken++;
+        continue;
+      }
+      available.push(trimmed);
+      selectedKeys.add(key);
+    }
+    return { available, skippedTaken };
+  }
+
+  private serialOptionsForDefinition(
+    inventoryDefinitionId: number,
+    alreadySelected: string[] = []
+  ): AccessorySerialOptionDto[] {
+    const availabilityMap = this.accessoryAvailabilityByDefinitionId();
+    if (availabilityMap.has(inventoryDefinitionId)) {
+      return this.sortSerialOptions(availabilityMap.get(inventoryDefinitionId) ?? []);
+    }
+    const def = this.inventoryStore.byId(inventoryDefinitionId);
+    if (!def) {
+      return [];
+    }
+    const reserved = new Set(
+      alreadySelected.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
+    );
+    const units = def.serialUnits ?? [];
+    if (units.length > 0) {
+      return this.sortSerialOptions(
+        units.map((unit) => {
+          const serialCode = unit.serialCode.trim();
+          const status = unit.physicalStatus;
+          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
+          return {
+            serialCode,
+            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+          };
+        })
+      );
+    }
+    return this.sortSerialOptions(
+      (def.serialCodes ?? []).map((serialCode) => ({
+        serialCode,
+        isAvailable: reserved.has(serialCode.trim().toLowerCase())
+      }))
+    );
   }
 
   protected removeAccessoryRow(index: number): void {
@@ -815,6 +934,7 @@ export class OrderFormComponent implements OnInit {
     } else if ((this.accessorySerialDropdownRow() ?? -1) > index) {
       this.accessorySerialDropdownRow.update((cur) => (cur == null ? null : cur - 1));
     }
+    this.refreshAccessorySerialAvailability();
   }
 
   protected updateAccessoryQuantity(rowIndex: number, raw: string): void {
@@ -830,9 +950,9 @@ export class OrderFormComponent implements OnInit {
     const group = this.getRowGroup(rowIndex);
     const inventoryDefinitionId = Number(group.get('inventoryDefinitionId')?.value);
     if (Number.isFinite(inventoryDefinitionId) && inventoryDefinitionId > 0) {
-      const fromApi = this.accessoryAvailabilityByDefinitionId().get(inventoryDefinitionId);
-      if (fromApi?.length) {
-        return this.sortSerialOptions(fromApi);
+      const availabilityMap = this.accessoryAvailabilityByDefinitionId();
+      if (availabilityMap.has(inventoryDefinitionId)) {
+        return this.sortSerialOptions(availabilityMap.get(inventoryDefinitionId) ?? []);
       }
     }
 
@@ -867,10 +987,11 @@ export class OrderFormComponent implements OnInit {
       );
     }
 
+    // Without live availability / unit status, do not treat bare codes as free.
     return this.sortSerialOptions(
       (def.serialCodes ?? []).map((serialCode) => ({
         serialCode,
-        isAvailable: true
+        isAvailable: reserved.has(serialCode.trim().toLowerCase())
       }))
     );
   }
@@ -889,6 +1010,14 @@ export class OrderFormComponent implements OnInit {
       return next;
     });
     if (this.accessorySerialDropdownRow() === rowIndex) {
+      const defId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
+      if (
+        Number.isFinite(defId) &&
+        defId > 0 &&
+        !this.accessoryAvailabilityByDefinitionId().has(defId)
+      ) {
+        this.refreshAccessorySerialAvailability();
+      }
       queueMicrotask(() => {
         const input = this.document.querySelector<HTMLInputElement>(
           `.loaned-serial-select .multi-select__quick-input`
@@ -1032,6 +1161,20 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
+    if (checked) {
+      const match = this.serialOptionsForRow(rowIndex).find(
+        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (match && !match.isAvailable && !this.isAccessorySerialSelected(rowIndex, code)) {
+        this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה`);
+        return;
+      }
+      if (this.isSerialClaimedOnAnotherRow(rowIndex, code)) {
+        this.toast.warning(`קוד "${code}" כבר נבחר בשורה אחרת בהשאלה זו`);
+        return;
+      }
+    }
+
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = ctrl.value ?? [];
     const next = checked
@@ -1056,6 +1199,26 @@ export class OrderFormComponent implements OnInit {
         this.applyMixerDefaultAccessories(code);
       }
     }
+  }
+
+  private isSerialClaimedOnAnotherRow(rowIndex: number, code: string): boolean {
+    const currentDefId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
+    if (!Number.isFinite(currentDefId) || currentDefId <= 0) {
+      return false;
+    }
+    for (let i = 0; i < this.equipmentList.length; i++) {
+      if (i === rowIndex) {
+        continue;
+      }
+      const defId = Number(this.getRowGroup(i).get('inventoryDefinitionId')?.value);
+      if (defId !== currentDefId) {
+        continue;
+      }
+      if (this.isAccessorySerialSelected(i, code)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   protected selectedAccessorySerialSummary(rowIndex: number): string {
@@ -1367,7 +1530,52 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
+    const serialError = this.validateSelectedSerialAvailability();
+    if (serialError) {
+      this.toast.error(serialError);
+      return;
+    }
+
     this.sendSaveWithConflictOverride();
+  }
+
+  private validateSelectedSerialAvailability(): string | null {
+    const claimed = new Set<string>();
+    for (let i = 0; i < this.equipmentList.length; i++) {
+      const group = this.getRowGroup(i);
+      const defId = Number(group.get('inventoryDefinitionId')?.value);
+      if (!Number.isFinite(defId) || defId <= 0) {
+        continue;
+      }
+      const def = this.inventoryStore.byId(defId);
+      const hasRegisteredSerials =
+        (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
+      const selected = (group.get('selectedCodes')?.value as string[] | null) ?? [];
+      const codes = selected.map((c) => String(c).trim()).filter((c) => c.length > 0);
+      const quantity = Number(group.get('quantity')?.value) || 0;
+      const label = String(group.get('label')?.value ?? def?.displayName ?? 'פריט');
+
+      if (hasRegisteredSerials && quantity > 0 && codes.length !== quantity) {
+        return `יש לבחור קוד לכל יחידה עבור "${label}"`;
+      }
+
+      const options = this.serialOptionsForRow(i);
+      for (const code of codes) {
+        const claimKey = `${defId}|${code.toLowerCase()}`;
+        if (claimed.has(claimKey)) {
+          return `הקוד "${code}" נבחר יותר מפעם אחת בהשאלה זו (${label})`;
+        }
+        claimed.add(claimKey);
+
+        const match = options.find(
+          (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+        );
+        if (match && !match.isAvailable) {
+          return `הקוד "${code}" כרגע תפוס ואינו זמין לבחירה (${label})`;
+        }
+      }
+    }
+    return null;
   }
 
   protected applyExistingCustomerFill(): void {
@@ -2607,15 +2815,17 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    const definitionIds = this.equipmentList.controls
-      .map((c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value))
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const definitionIds = this.collectFormInventoryDefinitionIds();
+    if (definitionIds.length === 0) {
+      this.accessoryAvailabilityByDefinitionId.set(new Map());
+      return;
+    }
 
     const excludeOrderId = this.editingId();
     this.data
       .getAccessorySerialAvailability({
         dates,
-        inventoryDefinitionIds: [...new Set(definitionIds)],
+        inventoryDefinitionIds: definitionIds,
         excludeOrderId: excludeOrderId ?? null
       })
       .subscribe((groups) => {
@@ -2628,6 +2838,27 @@ export class OrderFormComponent implements OnInit {
         }
         this.accessoryAvailabilityByDefinitionId.set(map);
       });
+  }
+
+  /** Positive catalog ids for accessory rows currently on the order form. */
+  private collectFormInventoryDefinitionIds(): number[] {
+    const ids = new Set<number>();
+    for (const control of this.equipmentList.controls) {
+      const group = control as FormGroup;
+      const rawId = Number(group.get('inventoryDefinitionId')?.value);
+      if (Number.isFinite(rawId) && rawId > 0) {
+        ids.add(rawId);
+        continue;
+      }
+      const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+      if (type != null) {
+        const fromType = this.inventoryStore.definitionIdForType(type);
+        if (fromType != null && fromType > 0) {
+          ids.add(fromType);
+        }
+      }
+    }
+    return [...ids];
   }
 
   private generateContinuousShifts(
@@ -3919,7 +4150,13 @@ export class OrderFormComponent implements OnInit {
         continue;
       }
 
-      const type = (row['loanedEquipmentType'] as LoanedEquipmentType | null) ?? null;
+      const type =
+        (row['loanedEquipmentType'] as LoanedEquipmentType | null) ??
+        LOANED_EQUIPMENT_ORDER.find(
+          (t) =>
+            label.localeCompare(LOANED_EQUIPMENT_LABELS[t], 'he', { sensitivity: 'accent' }) === 0
+        ) ??
+        null;
       result.push({
         ...(typeof lineId === 'number' && lineId > 0 ? { id: lineId } : {}),
         isCustomItem: false,

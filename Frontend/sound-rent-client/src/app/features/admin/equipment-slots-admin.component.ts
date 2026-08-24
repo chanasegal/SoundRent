@@ -25,7 +25,6 @@ import {
   Validators
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MultiSelect } from 'primeng/multiselect';
 import { forkJoin } from 'rxjs';
 import { finalize } from 'rxjs';
 import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
@@ -41,6 +40,7 @@ import {
 import {
   InventoryDefinitionDto,
   InventorySerialPhysicalStatus,
+  InventorySerialUnitDto,
   InventoryHolderDto
 } from '../../core/models/inventory-definition.model';
 import {
@@ -75,10 +75,16 @@ const nonEmptyStringArrayValidator: ValidatorFn = (
   return null;
 };
 
+interface DefaultAccessoryCodeOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+
 @Component({
   selector: 'app-equipment-slots-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, RouterLink, MultiSelect],
+  imports: [CommonModule, ReactiveFormsModule, IntegerOnlyDirective, RouterLink],
   templateUrl: './equipment-slots-admin.component.html',
   styleUrl: './equipment-slots-admin.component.scss'
 })
@@ -203,6 +209,16 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     rows: this.fb.array<FormGroup>([])
   });
 
+  protected readonly anyModalOpen = computed(
+    () =>
+      this.addSlotOpen() ||
+      this.addInventoryOpen() ||
+      this.editOpen() ||
+      this.futureOrdersModal() !== null ||
+      this.defaultAccessoriesOpen() ||
+      this.oneTimeLoanDetails() !== null
+  );
+
   constructor() {
     effect(() => {
       const v = this.maintenanceSync.version();
@@ -210,6 +226,35 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         return;
       }
       untracked(() => this.refresh());
+    });
+
+    effect(() => {
+      if (typeof document !== 'undefined') {
+        document.body.classList.toggle('modal-open-lock', this.anyModalOpen());
+      }
+    });
+
+    this.destroyRef.onDestroy(() => {
+      if (typeof document !== 'undefined') {
+        document.body.classList.remove('modal-open-lock');
+      }
+    });
+
+    this.defaultAccessoryForm.controls.accessorySerialCodes.addValidators(
+      this.noTakenAccessoryCodesValidator
+    );
+
+    effect(() => {
+      const taken = this.defaultAccessoryTakenCodeKeys();
+      untracked(() => {
+        const ctrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
+        const current = ctrl.value ?? [];
+        const next = current.filter((c) => !taken.has(String(c).trim().toLowerCase()));
+        if (next.length !== current.length) {
+          ctrl.setValue(next);
+        }
+        ctrl.updateValueAndValidity({ emitEvent: false });
+      });
     });
   }
 
@@ -250,6 +295,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   /** Selected catalog row id — drives code options reactively. */
   protected readonly defaultAccessorySelectedDefinitionId = signal<number | null>(null);
+  protected readonly defaultAccessoryCodesPickerOpen = signal(false);
+  protected readonly defaultAccessoryCodeFilter = signal('');
 
   /**
    * Full inventory master-table list for the type dropdown.
@@ -259,11 +306,12 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.buildDefaultAccessoryTypeOptions(this.defaultAccessoryCatalog())
   );
 
-  protected readonly defaultAccessoryCodeOptions = computed(() => {
+  protected readonly defaultAccessoryCodeOptions = computed((): DefaultAccessoryCodeOption[] => {
     const defId = this.defaultAccessorySelectedDefinitionId();
     if (defId == null) {
-      return [] as string[];
+      return [];
     }
+    const parentSerial = this.defaultAccessoriesParentSerial().trim();
     const fromCatalog = this.serialCodesForDefinitionId(defId, this.defaultAccessoryCatalog());
     const fromLiveForm = this.liveFormSerialCodesForDefinitionId(defId);
     const assigned = new Set(
@@ -282,8 +330,46 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         merged.set(key, trimmed);
       }
     }
-    return [...merged.values()].sort(compareNumericCodes);
+    return [...merged.values()]
+      .sort(compareNumericCodes)
+      .map((value) => {
+        const disabled = this.isAccessoryCodeUnavailable(defId, value, parentSerial);
+        return {
+          value,
+          label: disabled ? `${value} (תפוס)` : value,
+          disabled
+        };
+      });
   });
+
+  protected readonly filteredDefaultAccessoryCodeOptions = computed(() => {
+    const query = this.defaultAccessoryCodeFilter().trim().toLowerCase();
+    const options = this.defaultAccessoryCodeOptions();
+    if (!query) {
+      return options;
+    }
+    return options.filter((opt) => opt.value.toLowerCase().includes(query));
+  });
+
+  protected readonly defaultAccessoryTakenCodeKeys = computed(() => {
+    const taken = new Set<string>();
+    for (const opt of this.defaultAccessoryCodeOptions()) {
+      if (opt.disabled) {
+        taken.add(opt.value.trim().toLowerCase());
+      }
+    }
+    return taken;
+  });
+
+  private readonly noTakenAccessoryCodesValidator: ValidatorFn = (control) => {
+    const value = control.value;
+    if (!Array.isArray(value) || value.length === 0) {
+      return null;
+    }
+    const taken = this.defaultAccessoryTakenCodeKeys();
+    const blocked = value.some((c) => taken.has(String(c).trim().toLowerCase()));
+    return blocked ? { taken: true } : null;
+  };
 
   protected readonly deletingInventoryId = signal<number | null>(null);
   protected readonly editingId = signal<string | null>(null);
@@ -997,10 +1083,14 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       });
   }
 
-  @HostListener('document:click')
+  @HostListener('document:click', ['$event'])
   @HostListener('document:contextmenu')
-  protected onDocumentPointerCloseMenu(): void {
+  protected onDocumentPointerCloseMenu(event?: MouseEvent): void {
     this.closeSerialStatusMenu();
+    const target = event?.target as HTMLElement | null;
+    if (!target?.closest('.default-acc-code-picker')) {
+      this.closeDefaultAccessoryCodesPicker();
+    }
   }
 
   protected formatMissingMarkedAt(iso: string | null | undefined): string {
@@ -1043,6 +1133,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       accessorySerialCodes: []
     });
     this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: true, codesEnabled: false });
+    this.closeDefaultAccessoryCodesPicker();
     this.defaultAccessoriesList.set([]);
     this.defaultAccessoryCatalog.set([]);
     this.defaultAccessoriesOpen.set(true);
@@ -1061,6 +1152,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       inventoryDefinitionId: null,
       accessorySerialCodes: []
     });
+    this.closeDefaultAccessoryCodesPicker();
     this.syncDefaultAccessoryFormDisabledState({ catalogBlocked: false, codesEnabled: false });
   }
 
@@ -1173,6 +1265,39 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .filter((c) => c.length > 0);
   }
 
+  private serialUnitForCode(
+    definitionId: number,
+    code: string
+  ): InventorySerialUnitDto | undefined {
+    const def = this.defaultAccessoryCatalog().find((d) => d.id === definitionId);
+    const key = code.trim().toLowerCase();
+    return (def?.serialUnits ?? []).find((u) => u.serialCode.trim().toLowerCase() === key);
+  }
+
+  private isAccessoryCodeUnavailable(
+    definitionId: number,
+    code: string,
+    parentSerial: string
+  ): boolean {
+    const unit = this.serialUnitForCode(definitionId, code);
+    if (!unit) {
+      return false;
+    }
+
+    const status: InventorySerialPhysicalStatus | undefined = unit.physicalStatus;
+    if (status === 'LoanedOut' || status === 'Missing' || status === 'InRepair') {
+      return true;
+    }
+
+    if (unit.mixerId == null) {
+      return false;
+    }
+
+    const mixerCode = (unit.mixerSerialCode ?? '').trim().toLowerCase();
+    const currentMixer = parentSerial.trim().toLowerCase();
+    return mixerCode.length === 0 || mixerCode !== currentMixer;
+  }
+
   /** Serial codes currently typed in the inventory table for a catalog row. */
   private liveFormSerialCodesForDefinitionId(definitionId: number): string[] {
     const rows = this.customInventoryRows();
@@ -1222,7 +1347,65 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     );
     const codesCtrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
     codesCtrl.setValue([]);
+    this.closeDefaultAccessoryCodesPicker();
     this.syncDefaultAccessoryFormDisabledState();
+  }
+
+  protected closeDefaultAccessoryCodesPicker(): void {
+    this.defaultAccessoryCodesPickerOpen.set(false);
+    this.defaultAccessoryCodeFilter.set('');
+  }
+
+  protected toggleDefaultAccessoryCodesPicker(): void {
+    if (this.defaultAccessoryForm.controls.accessorySerialCodes.disabled) {
+      return;
+    }
+    const next = !this.defaultAccessoryCodesPickerOpen();
+    this.defaultAccessoryCodesPickerOpen.set(next);
+    if (next) {
+      this.defaultAccessoryCodeFilter.set('');
+      queueMicrotask(() => {
+        document
+          .getElementById('default-acc-codes')
+          ?.closest('.default-acc-codes-field')
+          ?.scrollIntoView({ block: 'nearest' });
+      });
+    } else {
+      this.defaultAccessoryCodeFilter.set('');
+    }
+  }
+
+  protected isDefaultAccessoryCodeSelected(code: string): boolean {
+    const selected = this.defaultAccessoryForm.controls.accessorySerialCodes.value ?? [];
+    const key = code.trim().toLowerCase();
+    return selected.some((c) => String(c).trim().toLowerCase() === key);
+  }
+
+  protected toggleDefaultAccessoryCode(option: DefaultAccessoryCodeOption, checked: boolean): void {
+    if (option.disabled) {
+      return;
+    }
+    const ctrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
+    const current = [...(ctrl.value ?? [])];
+    const key = option.value.trim().toLowerCase();
+    const next = checked
+      ? current.some((c) => String(c).trim().toLowerCase() === key)
+        ? current
+        : [...current, option.value]
+      : current.filter((c) => String(c).trim().toLowerCase() !== key);
+    ctrl.setValue(next);
+    ctrl.markAsTouched();
+    ctrl.updateValueAndValidity();
+  }
+
+  protected removeDefaultAccessoryCodeChip(code: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const ctrl = this.defaultAccessoryForm.controls.accessorySerialCodes;
+    const key = code.trim().toLowerCase();
+    ctrl.setValue((ctrl.value ?? []).filter((c) => String(c).trim().toLowerCase() !== key));
+    ctrl.markAsTouched();
+    ctrl.updateValueAndValidity();
   }
 
   protected addDefaultAccessory(): void {
@@ -1249,6 +1432,15 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       return;
     }
 
+    const taken = this.defaultAccessoryTakenCodeKeys();
+    const blocked = accessorySerialCodes.filter((c) => taken.has(c.toLowerCase()));
+    if (blocked.length > 0) {
+      this.defaultAccessoryForm.controls.accessorySerialCodes.setErrors({ taken: true });
+      this.defaultAccessoryForm.controls.accessorySerialCodes.markAsTouched();
+      this.toast.error('לא ניתן לבחור פריט תפוס');
+      return;
+    }
+
     this.defaultAccessoriesSaving.set(true);
     this.data
       .createEquipmentDefaultAccessoriesBatch({
@@ -1270,6 +1462,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             inventoryDefinitionId: null,
             accessorySerialCodes: []
           });
+          this.closeDefaultAccessoryCodesPicker();
           this.syncDefaultAccessoryFormDisabledState({ codesEnabled: false });
           this.loadDefaultAccessoriesModalData(parent, parentSerial);
         }

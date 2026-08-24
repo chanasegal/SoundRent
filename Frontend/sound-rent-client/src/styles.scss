@@ -19,6 +19,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+body.modal-open-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 /* Scrollbar (matches the royal-blue theme) */
 ::-webkit-scrollbar {
   width: 10px;
@@ -60,9 +66,9 @@ body {
 .p-select-overlay .p-select-list-container,
 .p-select-overlay .p-select-list,
 .p-select-overlay .p-virtualscroller,
-.p-multiselect-overlay .p-multiselect-list-container,
-.p-multiselect-overlay .p-multiselect-list,
-.p-multiselect-overlay .p-virtualscroller {
+.p-multiselect-overlay:not(.default-acc-multiselect-panel) .p-multiselect-list-container,
+.p-multiselect-overlay:not(.default-acc-multiselect-panel) .p-multiselect-list,
+.p-multiselect-overlay:not(.default-acc-multiselect-panel) .p-virtualscroller {
   max-height: var(--sr-menu-max-height) !important;
 }
 
@@ -98,62 +104,6 @@ body {
   z-index: 40;
   inset-inline: 0;
   top: calc(100% + 0.15rem);
-}
-
-/* Mixer default-accessories multi-select panel (appendTo=self, stays in modal). */
-.p-multiselect-overlay.default-acc-multiselect-panel,
-.default-acc-multiselect-panel.p-multiselect-overlay {
-  z-index: 20;
-  min-width: 0;
-  max-width: 100%;
-  box-sizing: border-box;
-  overscroll-behavior: contain;
-}
-
-.default-acc-multiselect-panel .p-multiselect-list-container,
-.default-acc-multiselect-panel .p-multiselect-list,
-.default-acc-multiselect-panel .p-virtualscroller {
-  max-height: var(--sr-menu-max-height) !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.default-acc-multiselect-panel .p-multiselect-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.default-acc-multiselect-panel .p-multiselect-option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  direction: rtl;
-  text-align: right;
-  box-sizing: border-box;
-}
-
-.default-acc-multiselect-panel .p-multiselect-option .p-checkbox,
-.default-acc-multiselect-panel .p-multiselect-header .p-checkbox {
-  flex-shrink: 0;
-  margin: 0;
-  align-self: center;
-}
-
-.default-acc-multiselect-panel .p-checkbox-box {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.default-acc-multiselect-panel .p-multiselect-option-label,
-.default-acc-multiselect-panel .p-multiselect-list {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.875rem;
-  direction: ltr;
-  unicode-bidi: plaintext;
 }
 
 /* Shared responsive modal shell (custom overlays — no MatDialog). */

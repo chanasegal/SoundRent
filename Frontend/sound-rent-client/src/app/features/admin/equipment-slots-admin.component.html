@@ -914,13 +914,17 @@
 
 @if (defaultAccessoriesOpen()) {
   <div
-    class="default-acc-overlay"
+    class="app-modal-backdrop default-acc-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
     aria-labelledby="default-acc-modal-title"
     (click)="closeDefaultAccessories()"
   >
-    <div class="default-acc-modal" (click)="$event.stopPropagation()">
+    <div
+      class="app-modal-panel default-acc-modal w-full"
+      style="--app-modal-max-w: 28rem"
+      (click)="$event.stopPropagation()"
+    >
       <div class="default-acc-modal__header">
         <h2 id="default-acc-modal-title" class="text-base font-bold text-[#002244]">
           ציוד נלווה קבוע — {{ defaultAccessoriesParentLabel() }}
@@ -1016,26 +1020,90 @@
                 <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-codes">
                   קוד פריט <span class="text-rose-500">*</span>
                 </label>
-                <p-multiSelect
-                  inputId="default-acc-codes"
-                  class="default-acc-multiselect"
-                  formControlName="accessorySerialCodes"
-                  [options]="defaultAccessoryCodeOptions()"
-                  [filter]="true"
-                  filterPlaceHolder="חיפוש קוד…"
-                  placeholder="בחרו קוד…"
-                  [display]="'chip'"
-                  [showClear]="true"
-                  [showToggleAll]="true"
-                  [resetFilterOnHide]="true"
-                  [appendTo]="'self'"
-                  [fluid]="true"
-                  [loading]="defaultAccessoryCatalogLoading()"
-                  selectedItemsLabel="{0} קודים נבחרו"
-                  emptyMessage="אין קודי פריט"
-                  emptyFilterMessage="לא נמצאו קודים"
-                  panelStyleClass="default-acc-multiselect-panel"
-                />
+                <div class="default-acc-code-picker" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    id="default-acc-codes"
+                    class="default-acc-code-picker__trigger"
+                    [disabled]="defaultAccessoryForm.controls.accessorySerialCodes.disabled"
+                    [attr.aria-expanded]="defaultAccessoryCodesPickerOpen()"
+                    aria-haspopup="listbox"
+                    (click)="toggleDefaultAccessoryCodesPicker()"
+                  >
+                    <span class="default-acc-code-picker__value">
+                      @if (defaultAccessoryForm.controls.accessorySerialCodes.value.length === 0) {
+                        <span class="default-acc-code-picker__placeholder">בחרו קוד…</span>
+                      } @else {
+                        @for (code of defaultAccessoryForm.controls.accessorySerialCodes.value; track code) {
+                          <span class="default-acc-code-picker__chip">
+                            <span dir="ltr">{{ code }}</span>
+                            <span
+                              class="default-acc-code-picker__chip-remove"
+                              role="button"
+                              tabindex="0"
+                              aria-label="הסר קוד"
+                              (click)="removeDefaultAccessoryCodeChip(code, $event)"
+                            >
+                              ×
+                            </span>
+                          </span>
+                        }
+                      }
+                    </span>
+                    <i
+                      class="pi default-acc-code-picker__chevron"
+                      [class.pi-chevron-up]="defaultAccessoryCodesPickerOpen()"
+                      [class.pi-chevron-down]="!defaultAccessoryCodesPickerOpen()"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+
+                  @if (defaultAccessoryCodesPickerOpen()) {
+                    <div class="default-acc-code-picker__panel" role="listbox">
+                      <div class="default-acc-code-picker__search">
+                        <i class="pi pi-search" aria-hidden="true"></i>
+                        <input
+                          type="text"
+                          class="default-acc-code-picker__search-input"
+                          placeholder="חיפוש קוד…"
+                          [value]="defaultAccessoryCodeFilter()"
+                          (input)="defaultAccessoryCodeFilter.set($any($event.target).value)"
+                        />
+                      </div>
+                      <ul class="default-acc-code-picker__list">
+                        @for (opt of filteredDefaultAccessoryCodeOptions(); track opt.value) {
+                          <li>
+                            <label
+                              class="default-acc-code-picker__option"
+                              [class.default-acc-code-picker__option--taken]="opt.disabled"
+                              [class.default-acc-code-picker__option--checked]="isDefaultAccessoryCodeSelected(opt.value)"
+                            >
+                              <input
+                                type="checkbox"
+                                class="default-acc-code-picker__checkbox"
+                                [checked]="isDefaultAccessoryCodeSelected(opt.value)"
+                                [disabled]="opt.disabled"
+                                (change)="toggleDefaultAccessoryCode(opt, $any($event.target).checked)"
+                              />
+                              <span class="default-acc-code-picker__code" dir="ltr">{{ opt.value }}</span>
+                              @if (opt.disabled) {
+                                <span class="default-acc-taken-badge">תפוס</span>
+                              }
+                            </label>
+                          </li>
+                        } @empty {
+                          <li class="default-acc-code-picker__empty">
+                            {{
+                              defaultAccessoryCodeFilter().trim()
+                                ? 'לא נמצאו קודים'
+                                : 'אין קודי פריט'
+                            }}
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
+                </div>
                 @if (
                   defaultAccessoryForm.controls.accessorySerialCodes.touched &&
                   defaultAccessoryForm.controls.accessorySerialCodes.errors?.['required']
@@ -1043,11 +1111,25 @@
                   <p class="mt-1 text-xs text-rose-600">יש לבחור לפחות קוד אחד</p>
                 }
                 @if (
+                  defaultAccessoryForm.controls.accessorySerialCodes.touched &&
+                  defaultAccessoryForm.controls.accessorySerialCodes.errors?.['taken']
+                ) {
+                  <p class="mt-1 text-xs text-rose-600">לא ניתן לבחור פריט תפוס</p>
+                }
+                @if (
                   !defaultAccessoryCatalogLoading() &&
                   defaultAccessorySelectedDefinitionId() != null &&
                   defaultAccessoryCodeOptions().length === 0
                 ) {
                   <p class="mt-1 text-xs text-slate-500">אין קודי פריט זמינים לסוג זה</p>
+                }
+                @if (
+                  !defaultAccessoryCatalogLoading() &&
+                  defaultAccessorySelectedDefinitionId() != null &&
+                  defaultAccessoryCodeOptions().length > 0 &&
+                  defaultAccessoryCodeOptions().every((o) => o.disabled)
+                ) {
+                  <p class="mt-1 text-xs text-slate-500">כל קודי הפריט לסוג זה תפוסים</p>
                 }
               </div>
             </div>

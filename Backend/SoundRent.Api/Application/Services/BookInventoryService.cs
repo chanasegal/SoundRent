@@ -61,17 +61,17 @@ public class BookInventoryService : IBookInventoryService
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿ ÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½");
         }
 
         if (displayName.Length > 200)
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName, cancellationToken))
         {
-            throw new ValidationException($"ÿÿÿÿ ÿÿÿ \"{displayName}\" ÿÿÿ ÿÿÿÿ ÿÿÿÿÿ");
+            throw new ValidationException($"ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ \"{displayName}\" ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         var quantity = dto.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
@@ -102,13 +102,13 @@ public class BookInventoryService : IBookInventoryService
     {
         if (file == null || file.Length == 0)
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (extension is not (".xlsx" or ".xlsm" or ".csv"))
         {
-            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿ Excel (.xlsx) ÿÿ CSV ÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Excel (.xlsx) ï¿½ï¿½ CSV ï¿½ï¿½ï¿½ï¿½");
         }
 
         List<ImportRow> rows;
@@ -125,7 +125,7 @@ public class BookInventoryService : IBookInventoryService
             {
                 ImportedCount = 0,
                 SkippedCount = 0,
-                Message = "ÿÿ ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ"
+                Message = "ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"
             };
         }
 
@@ -219,8 +219,8 @@ public class BookInventoryService : IBookInventoryService
             ImportedCount = toCreate.Count,
             SkippedCount = skipped,
             Message = toCreate.Count == 0
-                ? "ÿÿ ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿ"
-                : $"ÿÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿÿÿ! ÿÿÿÿÿÿ {toCreate.Count} ÿÿÿÿÿ"
+                ? "ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½"
+                : $"ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½! ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ {toCreate.Count} ï¿½ï¿½ï¿½ï¿½ï¿½"
         };
     }
 
@@ -232,17 +232,17 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
+            ?? throw new NotFoundException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½");
 
         var displayName = (dto.Title ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(displayName))
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿ ÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½");
         }
 
         if (await _db.Books.AnyAsync(t => t.Title == displayName && t.Id != id, cancellationToken))
         {
-            throw new ValidationException($"ÿÿÿÿ ÿÿÿ \"{displayName}\" ÿÿÿ ÿÿÿÿ ÿÿÿÿÿ");
+            throw new ValidationException($"ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ \"{displayName}\" ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         entity.Title = displayName;
@@ -256,7 +256,7 @@ public class BookInventoryService : IBookInventoryService
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _db.Books.FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
+            ?? throw new NotFoundException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½");
 
             var activeLoan = await _db.BookLoanItems
             .AsNoTracking()
@@ -266,7 +266,7 @@ public class BookInventoryService : IBookInventoryService
 
         if (activeLoan)
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿ ÿÿÿÿÿ ÿÿÿÿ ÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         _db.Books.Remove(entity);
@@ -281,7 +281,7 @@ public class BookInventoryService : IBookInventoryService
         var entity = await _db.Books
             .Include(t => t.Copies)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
-            ?? throw new NotFoundException("ÿÿÿÿ ÿÿ ÿÿÿÿ");
+            ?? throw new NotFoundException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½");
 
         ReplaceSerialCollection(entity, NormalizeCodes(dto.Copies));
         entity.UpdatedAt = DateTime.UtcNow;
@@ -302,7 +302,7 @@ public class BookInventoryService : IBookInventoryService
                 var entity = await _db.Books
                     .Include(t => t.Copies)
                     .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
-                    ?? throw new NotFoundException($"ÿÿÿÿ #{item.Id} ÿÿ ÿÿÿÿ");
+                    ?? throw new NotFoundException($"ï¿½ï¿½ï¿½ï¿½ #{item.Id} ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½");
 
                 ReplaceSerialCollection(entity, NormalizeCodes(item.Copies));
                 entity.UpdatedAt = DateTime.UtcNow;
@@ -328,7 +328,7 @@ public class BookInventoryService : IBookInventoryService
         var code = (copyNumber ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(code))
         {
-            throw new ValidationException("ÿÿ ÿÿÿÿÿ ÿÿÿ ÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½");
         }
 
         var normalizedCode = code.ToLowerInvariant();
@@ -472,7 +472,7 @@ public class BookInventoryService : IBookInventoryService
     public async Task<List<BookAvailableCopiesGroupDto>> GetAllAvailableSerialsGroupedAsync(
         CancellationToken cancellationToken = default)
     {
-        // Two AsNoTracking reads only ÿ no per-tool round trips / connection fan-out.
+        // Two AsNoTracking reads only ï¿½ no per-tool round trips / connection fan-out.
         var allCodes = await _db.BookCopies
             .AsNoTracking()
             .Select(s => new { s.BookId, s.CopyNumber })
@@ -543,7 +543,7 @@ public class BookInventoryService : IBookInventoryService
 
             if (code.Length > 100)
             {
-                throw new ValidationException("ÿÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿ");
+                throw new ValidationException("ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½");
             }
 
             result.Add(code);
@@ -575,7 +575,7 @@ public class BookInventoryService : IBookInventoryService
     {
         using var workbook = new XLWorkbook(stream);
         var worksheet = workbook.Worksheets.FirstOrDefault()
-            ?? throw new ValidationException("ÿÿÿÿÿ ÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿÿ");
+            ?? throw new ValidationException("ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½");
 
         var used = worksheet.RangeUsed();
         if (used == null)
@@ -600,13 +600,13 @@ public class BookInventoryService : IBookInventoryService
 
         if (headers.Count == 0)
         {
-            throw new ValidationException("ÿÿÿÿ ÿÿÿÿ ÿÿÿÿÿÿ ÿÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿ / ÿÿ ÿÿÿ ÿÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ / ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         var rows = new List<ImportRow>();
@@ -659,7 +659,7 @@ public class BookInventoryService : IBookInventoryService
         var map = ResolveColumnMapByIndex(headers);
         if (map.TitleCol == null)
         {
-            throw new ValidationException("ÿÿÿÿ ÿÿÿÿÿ ÿÿÿ / ÿÿ ÿÿÿ ÿÿÿÿÿ");
+            throw new ValidationException("ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ / ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
 
         var rows = new List<ImportRow>();
@@ -771,13 +771,13 @@ public class BookInventoryService : IBookInventoryService
         header.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("_", string.Empty);
 
     private static bool IsTitleHeader(string h) =>
-        h is "ÿÿÿ" or "ÿÿÿÿÿ" or "title" or "book" or "booktitle";
+        h is "ï¿½ï¿½ï¿½" or "ï¿½ï¿½ï¿½ï¿½ï¿½" or "title" or "book" or "booktitle";
 
     private static bool IsQuantityHeader(string h) =>
-        h is "ÿÿÿÿ" or "quantity" or "qty";
+        h is "ï¿½ï¿½ï¿½ï¿½" or "quantity" or "qty";
 
     private static bool IsBarcodeHeader(string h) =>
-        h is "ÿÿÿÿÿ" or "barcode" or "barcodes";
+        h is "ï¿½ï¿½ï¿½ï¿½ï¿½" or "barcode" or "barcodes";
 
     private static char DetectCsvDelimiter(string headerLine)
     {
