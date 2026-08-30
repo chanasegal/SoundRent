@@ -1181,7 +1181,13 @@ export class ActiveLoansComponent implements OnInit {
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
         );
-        const accessoryName = this.inventoryStore.displayLabelForLoanedLine(le);
+        const accessoryName = (() => {
+          const fromLine = this.inventoryStore.displayLabelForLoanedLine(le);
+          if (!this.inventoryStore.isPlaceholderItemName(fromLine)) {
+            return fromLine;
+          }
+          return this.inventoryStore.definitionForSerialCodes(allCodes)?.displayName?.trim() || fromLine;
+        })();
         rows.push({
           key: `${order.id}-${le.id}`,
           orderId: order.id,
@@ -1244,7 +1250,9 @@ export class ActiveLoansComponent implements OnInit {
       .subscribe({
         next: ({ orders, unreturned }) => {
           this.activeLoans.set(orders);
-          this.unreturnedReports.set(unreturned);
+          this.unreturnedReports.set(
+            unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row))
+          );
         },
         error: () => {
           this.activeLoans.set([]);

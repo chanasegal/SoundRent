@@ -538,16 +538,18 @@ public class OrderRepository : IOrderRepository
             .ThenBy(r => r.Line.Id)
             .ToListAsync(cancellationToken);
 
-        var catalogNames = await _db.InventoryDefinitions
+        var catalogRows = await _db.InventoryDefinitions
             .AsNoTracking()
-            .Where(d => d.IsActive)
-            .Select(d => d.DisplayName)
+            .Select(d => new { d.Id, d.DisplayName, d.IsActive })
             .ToListAsync(cancellationToken);
+        var catalogById = catalogRows.ToDictionary(d => d.Id, d => (d.DisplayName ?? string.Empty).Trim());
         var catalogNameSet = new HashSet<string>(
-            catalogNames
-                .Select(n => (n ?? string.Empty).Trim())
+            catalogRows
+                .Where(d => d.IsActive)
+                .Select(d => (d.DisplayName ?? string.Empty).Trim())
                 .Where(n => n.Length > 0),
             StringComparer.OrdinalIgnoreCase);
+        var uniqueSerialToDefinitionId = await LoadUniqueSerialToDefinitionIdAsync(cancellationToken);
 
         var fromOrders = rows.Select(r =>
         {
@@ -566,14 +568,24 @@ public class OrderRepository : IOrderRepository
                 .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
 
-            var equipmentName = OrderMapper.GetLoanedEquipmentDisplayName(r.Line);
+            var resolved = ResolveCatalogIdentity(
+                r.Line.InventoryDefinitionId,
+                r.Line.IsCustomItem,
+                r.Line.CustomItemName,
+                r.Line.LoanedEquipmentType,
+                missingSerialCodes.Concat(assignedSerialCodes),
+                catalogById,
+                uniqueSerialToDefinitionId);
+
             var isOneTimeCustom =
                 r.Line.IsCustomItem
-                && !catalogNameSet.Contains((equipmentName ?? string.Empty).Trim());
+                && resolved.DefinitionId is null
+                && !catalogNameSet.Contains(resolved.DisplayName);
 
             return new UnreturnedItemDto
             {
                 ManualItemId = null,
+                InventoryDefinitionId = resolved.DefinitionId,
                 OrderId = r.Order.Id,
                 CustomerName = r.Order.CustomerName,
                 Phone = r.Order.Phone,
@@ -581,7 +593,7 @@ public class OrderRepository : IOrderRepository
                 LoanedEquipmentId = r.Line.Id,
                 IsCustomItem = isOneTimeCustom,
                 LoanedEquipmentType = r.Line.LoanedEquipmentType,
-                EquipmentName = equipmentName ?? string.Empty,
+                EquipmentName = resolved.DisplayName,
                 ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
                 QuantityLoaned = r.Line.Quantity,
                 MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity,
@@ -600,8 +612,18 @@ public class OrderRepository : IOrderRepository
         var fromManual = manual.Select(m =>
         {
             var dto = ToManualUnreturnedDto(m);
-            // Permanent only when explicitly linked to an inventory catalog row.
-            dto.IsCustomItem = !m.InventoryDefinitionId.HasValue;
+            var codes = dto.MissingSerialCodes.Concat(dto.AssignedSerialCodes);
+            var resolved = ResolveCatalogIdentity(
+                m.InventoryDefinitionId,
+                dto.IsCustomItem,
+                m.ItemName,
+                m.LoanedEquipmentType,
+                codes,
+                catalogById,
+                uniqueSerialToDefinitionId);
+            dto.InventoryDefinitionId = resolved.DefinitionId;
+            dto.EquipmentName = resolved.DisplayName;
+            dto.IsCustomItem = resolved.DefinitionId is null && dto.IsCustomItem;
             return dto;
         }).ToList();
 
@@ -633,6 +655,10 @@ public class OrderRepository : IOrderRepository
                     LineId = le.Id,
                     le.IsCustomItem,
                     le.CustomItemName,
+                    le.InventoryDefinitionId,
+                    InventoryDisplayName = le.InventoryDefinition != null
+                        ? le.InventoryDefinition.DisplayName
+                        : null,
                     le.LoanedEquipmentType,
                     le.ReturnedQuantity,
                     Notes = le.Notes
@@ -641,14 +667,15 @@ public class OrderRepository : IOrderRepository
                 }))
             .ToListAsync(cancellationToken);
 
-        var catalogNameList = await _db.InventoryDefinitions
+        var catalogRows = await _db.InventoryDefinitions
             .AsNoTracking()
-            .Where(d => d.IsActive)
-            .Select(d => d.DisplayName)
+            .Select(d => new { d.Id, d.DisplayName, d.IsActive })
             .ToListAsync(cancellationToken);
+        var catalogById = catalogRows.ToDictionary(d => d.Id, d => (d.DisplayName ?? string.Empty).Trim());
         var catalogNames = new HashSet<string>(
-            catalogNameList
-                .Select(n => (n ?? string.Empty).Trim())
+            catalogRows
+                .Where(d => d.IsActive)
+                .Select(d => (d.DisplayName ?? string.Empty).Trim())
                 .Where(n => n.Length > 0),
             StringComparer.OrdinalIgnoreCase);
 
@@ -656,11 +683,16 @@ public class OrderRepository : IOrderRepository
 
         foreach (var r in rows)
         {
-            var itemName = r.IsCustomItem
-                ? (string.IsNullOrWhiteSpace(r.CustomItemName) ? "פריט נוסף" : r.CustomItemName.Trim())
-                : r.LoanedEquipmentType is { } type
-                    ? LoanedEquipmentTypeLabels.GetLabel(type)
-                    : "פריט";
+            var fromCatalog = !string.IsNullOrWhiteSpace(r.InventoryDisplayName)
+                ? r.InventoryDisplayName
+                : r.InventoryDefinitionId is int defId && catalogById.TryGetValue(defId, out var mapped)
+                    ? mapped
+                    : null;
+            var itemName = OrderMapper.ResolveLoanedItemDisplayName(
+                r.IsCustomItem,
+                r.CustomItemName,
+                fromCatalog,
+                r.LoanedEquipmentType);
 
             // Catalog accessories (בחירת אביזרים) are permanent — never "חד־פעמי",
             // even when stored with IsCustomItem=true because they lack a linked enum type.
@@ -871,6 +903,79 @@ public class OrderRepository : IOrderRepository
         };
     }
 
+    private async Task<Dictionary<string, int>> LoadUniqueSerialToDefinitionIdAsync(
+        CancellationToken cancellationToken)
+    {
+        var serialRows = await _db.InventorySerialCodes
+            .AsNoTracking()
+            .Select(s => new { s.SerialCode, s.InventoryDefinitionId })
+            .ToListAsync(cancellationToken);
+
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in serialRows
+                     .Select(s => new
+                     {
+                         Code = (s.SerialCode ?? string.Empty).Trim(),
+                         s.InventoryDefinitionId
+                     })
+                     .Where(s => s.Code.Length > 0)
+                     .GroupBy(s => s.Code, StringComparer.OrdinalIgnoreCase))
+        {
+            var definitionIds = group.Select(x => x.InventoryDefinitionId).Distinct().ToList();
+            if (definitionIds.Count == 1)
+            {
+                map[group.Key] = definitionIds[0];
+            }
+        }
+
+        return map;
+    }
+
+    private static (int? DefinitionId, string DisplayName) ResolveCatalogIdentity(
+        int? inventoryDefinitionId,
+        bool isCustomItem,
+        string? customItemName,
+        LoanedEquipmentType? loanedEquipmentType,
+        IEnumerable<string> serialCodes,
+        IReadOnlyDictionary<int, string> catalogById,
+        IReadOnlyDictionary<string, int> uniqueSerialToDefinitionId)
+    {
+        var definitionId = inventoryDefinitionId is > 0 ? inventoryDefinitionId : null;
+        if (definitionId is null)
+        {
+            var fromSerials = serialCodes
+                .Select(c => (c ?? string.Empty).Trim())
+                .Where(c => c.Length > 0)
+                .Select(c => uniqueSerialToDefinitionId.TryGetValue(c, out var id) ? (int?)id : null)
+                .OfType<int>()
+                .Distinct()
+                .ToList();
+            if (fromSerials.Count == 1)
+            {
+                definitionId = fromSerials[0];
+            }
+        }
+
+        string? catalogName = null;
+        if (definitionId is int defId && catalogById.TryGetValue(defId, out var mapped) && mapped.Length > 0)
+        {
+            catalogName = mapped;
+        }
+
+        var displayName = OrderMapper.ResolveLoanedItemDisplayName(
+            isCustomItem && definitionId is null,
+            customItemName,
+            catalogName,
+            loanedEquipmentType);
+
+        if (OrderMapper.IsPlaceholderItemName(displayName) && !string.IsNullOrWhiteSpace(catalogName))
+        {
+            displayName = catalogName;
+        }
+
+        return (definitionId, displayName);
+    }
+
     private static string? TrimOrNull(string? value)
     {
         var trimmed = (value ?? string.Empty).Trim();
@@ -885,6 +990,8 @@ public class OrderRepository : IOrderRepository
             .ThenInclude(e => e.EquipmentDefinition)
             .Include(o => o.Shifts)
             .Include(o => o.LoanedEquipments)
-            .ThenInclude(le => le.Notes);
+            .ThenInclude(le => le.Notes)
+            .Include(o => o.LoanedEquipments)
+            .ThenInclude(le => le.InventoryDefinition);
     }
 }

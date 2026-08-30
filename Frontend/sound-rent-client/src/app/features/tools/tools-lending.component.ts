@@ -1698,7 +1698,7 @@ export class ToolsLendingComponent implements OnInit {
                   snapshot: buildCustomerRiskAlertSnapshot(
                     cancelled,
                     openDebts,
-                    unreturned,
+                    unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
                     phone,
                     customerName
                   )

@@ -42,12 +42,52 @@ public static class OrderMapper
     };
 
     public static string GetLoanedEquipmentDisplayName(OrderLoanedEquipment le) =>
-        le.IsCustomItem
-            ? (le.CustomItemName ?? string.Empty)
-            : le.InventoryDefinition?.DisplayName
-              ?? (le.LoanedEquipmentType is { } type
-                  ? LoanedEquipmentTypeLabels.GetLabel(type)
-                  : string.Empty);
+        ResolveLoanedItemDisplayName(
+            le.IsCustomItem,
+            le.CustomItemName,
+            le.InventoryDefinition?.DisplayName,
+            le.LoanedEquipmentType);
+
+    /// <summary>
+    /// Catalog rows are keyed by inventory definition id; the legacy enum may be null.
+    /// </summary>
+    public static string ResolveLoanedItemDisplayName(
+        bool isCustomItem,
+        string? customItemName,
+        string? inventoryDisplayName,
+        LoanedEquipmentType? loanedEquipmentType)
+    {
+        var custom = (customItemName ?? string.Empty).Trim();
+        if (isCustomItem)
+        {
+            return custom.Length > 0 ? custom : "פריט נוסף";
+        }
+
+        var fromCatalog = (inventoryDisplayName ?? string.Empty).Trim();
+        if (fromCatalog.Length > 0)
+        {
+            return fromCatalog;
+        }
+
+        if (loanedEquipmentType is { } type)
+        {
+            var label = LoanedEquipmentTypeLabels.GetLabel(type);
+            if (!string.IsNullOrWhiteSpace(label))
+            {
+                return label;
+            }
+        }
+
+        return custom.Length > 0 ? custom : "פריט";
+    }
+
+    public static bool IsPlaceholderItemName(string? name)
+    {
+        var trimmed = (name ?? string.Empty).Trim();
+        return trimmed.Length == 0
+            || trimmed == "פריט"
+            || trimmed == "פריט נוסף";
+    }
 
     public static OrderShiftDto ToDto(OrderShift shift) => new()
     {

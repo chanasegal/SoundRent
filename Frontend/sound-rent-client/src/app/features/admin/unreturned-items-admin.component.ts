@@ -70,7 +70,12 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
 
-  protected readonly filteredRows = computed(() => this.filterRows(this.rows(), this.searchQuery()));
+  protected readonly filteredRows = computed(() =>
+    this.filterRows(
+      this.rows().map((row) => this.inventory.enrichUnreturnedItem(row)),
+      this.searchQuery()
+    )
+  );
 
   protected readonly addForm = this.fb.group({
     customerName: ['', [Validators.maxLength(200)]],
@@ -91,10 +96,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((created) => {
         if (created) {
+          const enriched = this.inventory.enrichUnreturnedItem(created);
           const row: UnreturnedItemDto =
-            created.inventoryDefinitionId == null || created.inventoryDefinitionId <= 0
-              ? { ...created, isCustomItem: true }
-              : created;
+            enriched.inventoryDefinitionId == null || enriched.inventoryDefinitionId <= 0
+              ? { ...enriched, isCustomItem: true }
+              : enriched;
           this.rows.update((list) => {
             if (list.some((r) => this.rowKey(r) === this.rowKey(row))) {
               return list;

@@ -1075,13 +1075,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected isAccessorySerialLocked(rowIndex: number, code: string): boolean {
-    const type = this.getRowGroup(rowIndex).get('loanedEquipmentType')?.value as
-      | LoanedEquipmentType
-      | null;
-    if (!type) {
-      return false;
-    }
-    return this.isReturnedSerialCode(type, code);
+    return this.isSerialReturnedOnLoadedLine(this.findLoadedLoanedLine(rowIndex), code);
   }
 
   /** True when a return was recorded and this serial was not marked returned. */
@@ -1100,27 +1094,59 @@ export class OrderFormComponent implements OnInit {
     if (!this.hasRecordedReturns()) {
       return 0;
     }
+    const line = this.findLoadedLoanedLine(rowIndex);
+    if (!line) {
+      return 0;
+    }
+
+    const assigned = (line.notes ?? [])
+      .map((n) => (n.content ?? '').trim())
+      .filter((c) => c.length > 0);
+    if (assigned.length > 0) {
+      const returnedCount = assigned.filter((code) =>
+        this.isSerialReturnedOnLoadedLine(line, code)
+      ).length;
+      return Math.max(0, assigned.length - returnedCount);
+    }
+
+    return Math.max(0, line.quantity - (line.returnedQuantity ?? 0));
+  }
+
+  private findLoadedLoanedLine(rowIndex: number): OrderLoanedEquipmentDto | undefined {
     const order = this.loadedOrder();
     const group = this.getRowGroup(rowIndex);
     const lineId = Number(group.get('lineId')?.value ?? 0);
     const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+    const definitionId = Number(group.get('inventoryDefinitionId')?.value ?? 0);
     const isCustom = group.get('isCustomItem')?.value === true;
     const label = String(group.get('label')?.value ?? '').trim();
 
-    const line = (order?.loanedEquipments ?? []).find((le) => {
+    return (order?.loanedEquipments ?? []).find((le) => {
       if (lineId > 0 && le.id === lineId) {
         return true;
       }
       if (isCustom) {
         return le.isCustomItem && (le.customItemName ?? '').trim() === label;
       }
-      return !le.isCustomItem && le.loanedEquipmentType === type;
+      if (definitionId > 0 && le.inventoryDefinitionId === definitionId) {
+        return true;
+      }
+      return !le.isCustomItem && type != null && le.loanedEquipmentType === type;
     });
+  }
 
+  private isSerialReturnedOnLoadedLine(
+    line: OrderLoanedEquipmentDto | undefined,
+    code: string
+  ): boolean {
     if (!line) {
-      return 0;
+      return false;
     }
-    return Math.max(0, line.quantity - (line.returnedQuantity ?? 0));
+    return (line.notes ?? []).some(
+      (n) =>
+        n.isReturned === true &&
+        (n.content ?? '').trim().localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
   }
 
   protected isReturnedSerialCode(type: LoanedEquipmentType, code: string): boolean {
@@ -1137,11 +1163,7 @@ export class OrderFormComponent implements OnInit {
     const line = this.loadedOrder()?.loanedEquipments?.find(
       (le) => !le.isCustomItem && le.loanedEquipmentType === type
     );
-    return (line?.notes ?? []).some(
-      (n) =>
-        n.isReturned &&
-        (n.content ?? '').trim().localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-    );
+    return this.isSerialReturnedOnLoadedLine(line, code);
   }
 
   protected isAccessoryRowReadOnly(rowIndex: number): boolean {
@@ -2055,11 +2077,7 @@ export class OrderFormComponent implements OnInit {
     return {
       rowId: `line-${row.id}`,
       loanedEquipmentId: row.id!,
-      label: isCustomItem
-        ? (row.customItemName?.trim() || 'פריט נוסף')
-        : row.loanedEquipmentType
-          ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
-          : String(row.loanedEquipmentType),
+      label: this.inventoryStore.displayLabelForLoanedLine(row),
       quantityLoaned: row.quantity,
       quantityReturned,
       isCustomItem,
@@ -2214,13 +2232,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected loanedEquipmentLabel(row: OrderLoanedEquipmentDto): string {
-    if (row.isCustomItem) {
-      return row.customItemName?.trim() || 'פריט נוסף';
-    }
-    if (row.loanedEquipmentType) {
-      return this.inventoryStore.displayLabelForType(row.loanedEquipmentType);
-    }
-    return String(row.loanedEquipmentType);
+    return this.inventoryStore.displayLabelForLoanedLine(row);
   }
 
   protected saveReturn(): void {
@@ -3174,7 +3186,13 @@ export class OrderFormComponent implements OnInit {
       unreturned: this.data.getUnreturnedItems()
     }).pipe(
       map(({ cancelled, openDebts, unreturned }) =>
-        buildCustomerRiskAlertSnapshot(cancelled, openDebts, unreturned, phoneDigits, customerName)
+        buildCustomerRiskAlertSnapshot(
+          cancelled,
+          openDebts,
+          unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
+          phoneDigits,
+          customerName
+        )
       )
     );
   }
@@ -3999,12 +4017,12 @@ export class OrderFormComponent implements OnInit {
         .filter((c) => c.length > 0);
 
       if (row.isCustomItem) {
-        const name = (row.customItemName ?? '').trim();
+        const name = this.inventoryStore.displayLabelForLoanedLine(row);
         this.equipmentList.push(
           this.buildDynamicEquipmentRow({
             inventoryDefinitionId: null,
             loanedEquipmentType: null,
-            label: name || 'פריט נוסף',
+            label: name,
             quantity: Math.max(row.quantity, codes.length, 1),
             selectedCodes: codes,
             lineId: row.id ?? null,
@@ -4027,7 +4045,7 @@ export class OrderFormComponent implements OnInit {
         this.buildDynamicEquipmentRow({
           inventoryDefinitionId: def?.id ?? definitionId,
           loanedEquipmentType: row.loanedEquipmentType ?? null,
-          label: def?.displayName ?? row.customItemName ?? this.inventoryStore.displayLabelForType(row.loanedEquipmentType!),
+          label: this.inventoryStore.displayLabelForLoanedLine(row),
           quantity: Math.max(row.quantity, codes.length, 1),
           selectedCodes: codes,
           lineId: row.id ?? null,
@@ -4140,7 +4158,10 @@ export class OrderFormComponent implements OnInit {
           notes: selectedCodes.map((code, ordinal) => ({
             ordinal,
             content: code,
-            isReturned: false
+            isReturned: this.isSerialReturnedOnLoadedLine(
+              this.findLoadedLineForSave(lineId),
+              code
+            )
           }))
         });
         continue;
@@ -4167,7 +4188,10 @@ export class OrderFormComponent implements OnInit {
         notes: selectedCodes.map((code, ordinal) => ({
           ordinal,
           content: code,
-          ...(type && this.isReturnedSerialCode(type, code) ? { isReturned: true } : {})
+          isReturned: this.isSerialReturnedOnLoadedLine(
+            this.findLoadedLineForSave(lineId, inventoryDefinitionId, type),
+            code
+          )
         }))
       });
     }
@@ -4175,17 +4199,37 @@ export class OrderFormComponent implements OnInit {
     return result;
   }
 
+  private findLoadedLineForSave(
+    lineId: unknown,
+    inventoryDefinitionId?: number,
+    type?: LoanedEquipmentType | null
+  ): OrderLoanedEquipmentDto | undefined {
+    const lines = this.loadedOrder()?.loanedEquipments ?? [];
+    const id = Number(lineId);
+    if (Number.isFinite(id) && id > 0) {
+      return lines.find((le) => le.id === id);
+    }
+    if (inventoryDefinitionId != null && inventoryDefinitionId > 0) {
+      const byDef = lines.find(
+        (le) => !le.isCustomItem && le.inventoryDefinitionId === inventoryDefinitionId
+      );
+      if (byDef) {
+        return byDef;
+      }
+    }
+    if (type != null) {
+      return lines.find((le) => !le.isCustomItem && le.loanedEquipmentType === type);
+    }
+    return undefined;
+  }
+
   private syncReturnedSerialState(order: OrderDto): void {
     const returnedMap = new Map<LoanedEquipmentType, Set<string>>();
     const lineIds = new Map<LoanedEquipmentType, number>();
 
     for (const row of order.loanedEquipments ?? []) {
-      if (row.isCustomItem || row.loanedEquipmentType == null) {
-        continue;
-      }
-
-      const type = row.loanedEquipmentType;
-      if (row.id) {
+      const type = row.loanedEquipmentType ?? null;
+      if (type != null && row.id) {
         lineIds.set(type, row.id);
       }
 
@@ -4196,7 +4240,7 @@ export class OrderFormComponent implements OnInit {
           returned.add(content);
         }
       }
-      if (returned.size > 0) {
+      if (type != null && returned.size > 0) {
         returnedMap.set(type, returned);
       }
     }
