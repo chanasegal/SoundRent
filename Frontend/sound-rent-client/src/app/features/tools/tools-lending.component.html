@@ -517,9 +517,6 @@
                   <div class="loan-item-row__main">
                     <span class="loan-item-row__name">
                       {{ row.item.toolName }}
-                      @if (row.quantity > 1) {
-                        <span>×{{ row.quantity }}</span>
-                      }
                     </span>
                     @if (row.item.serialCode) {
                       <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.serialCode }}</span>

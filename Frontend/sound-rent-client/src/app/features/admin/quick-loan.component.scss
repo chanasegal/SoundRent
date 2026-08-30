@@ -582,6 +582,16 @@ form .customer-breakdown-card {
   border-radius: 0.5rem;
   transition: opacity 0.28s ease;
 
+  &__date {
+    flex: 0 0 auto;
+    min-width: 5.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #64748b;
+    white-space: nowrap;
+  }
+
   &__meta {
     display: inline-flex;
     flex-wrap: wrap;

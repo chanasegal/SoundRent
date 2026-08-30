@@ -90,11 +90,14 @@ interface StandaloneLoanCard {
   key: string;
   customerName: string;
   phone: string;
+  /** Newest loan date among items — used for card ordering. */
   loanDateIso: string;
   orders: OrderDto[];
   items: StandaloneLoanItem[];
   totalQuantity: number;
   customerNotes: string | null;
+  deposits: string[];
+  loanNotes: string[];
 }
 
 @Component({
@@ -192,6 +195,7 @@ export class QuickLoanComponent implements OnInit {
 
   protected readonly standaloneLoanCards = computed(() => {
     this.customers.customers();
+    this.inventoryStore.definitions();
     return this.buildStandaloneLoanCards(this.standaloneLoans());
   });
 
@@ -967,6 +971,15 @@ export class QuickLoanComponent implements OnInit {
     return date ? this.hebrew.toHebrewWithDayOfWeek(date) : '';
   }
 
+  /** Compact Hebrew date for a loan row, e.g. "כ״א אייר תשפ״ה". */
+  protected itemHebrewDate(iso: string): string {
+    if (!iso) {
+      return '';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : iso;
+  }
+
   protected isReturningLine(row: StandaloneLoanItem): boolean {
     const key = this.returningLineKey();
     return (
@@ -1149,7 +1162,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   private buildStandaloneLoanCards(orders: OrderDto[]): StandaloneLoanCard[] {
-    const byCustomerAndDate = new Map<string, StandaloneLoanCard>();
+    const byCustomer = new Map<string, StandaloneLoanCard>();
     for (const order of orders) {
       if (order.isReturnProcessed || order.isCancelled) {
         continue;
@@ -1171,11 +1184,7 @@ export class QuickLoanComponent implements OnInit {
         const allCodes = (le.notes ?? [])
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
-        const accessoryName = le.isCustomItem
-          ? (le.customItemName?.trim() || 'פריט נוסף')
-          : le.loanedEquipmentType
-            ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType)
-            : 'פריט';
+        const accessoryName = this.inventoryStore.displayLabelForLoanedLine(le);
         items.push({
           key: `${order.id}-${le.id}`,
           orderId: order.id,
@@ -1189,8 +1198,8 @@ export class QuickLoanComponent implements OnInit {
       if (items.length === 0) {
         continue;
       }
-      const key = `${(order.customerName ?? '').trim()}|${(order.phone ?? '').replace(/\D/g, '')}|${loanDateIso}`;
-      let card = byCustomerAndDate.get(key);
+      const key = `${(order.customerName ?? '').trim()}|${(order.phone ?? '').replace(/\D/g, '')}`;
+      let card = byCustomer.get(key);
       if (!card) {
         card = {
           key,
@@ -1200,17 +1209,55 @@ export class QuickLoanComponent implements OnInit {
           orders: [],
           items: [],
           totalQuantity: 0,
-          customerNotes: this.customers.notesForPhone(order.phone)
+          customerNotes: this.customers.notesForPhone(order.phone),
+          deposits: [],
+          loanNotes: []
         };
-        byCustomerAndDate.set(key, card);
+        byCustomer.set(key, card);
       }
-      card.orders.push(order);
+      if (!card.orders.some((existing) => existing.id === order.id)) {
+        card.orders.push(order);
+      }
+      const deposit = (order.depositOnName ?? '').trim();
+      if (deposit && !card.deposits.includes(deposit)) {
+        card.deposits.push(deposit);
+      }
+      const notes = (order.notes ?? '').trim();
+      if (notes && !card.loanNotes.includes(notes)) {
+        card.loanNotes.push(notes);
+      }
+      if (!card.customerNotes) {
+        card.customerNotes = this.customers.notesForPhone(order.phone);
+      }
       card.items.push(...items);
       card.totalQuantity += items.reduce((sum, item) => sum + item.quantity, 0);
     }
-    return [...byCustomerAndDate.values()].sort((a, b) => {
+
+    const cards = [...byCustomer.values()];
+    for (const card of cards) {
+      this.sortStandaloneLoanItems(card.items);
+      card.loanDateIso = card.items[0]?.loanDateIso ?? card.loanDateIso;
+    }
+    return cards.sort((a, b) => {
       const nameCmp = a.customerName.localeCompare(b.customerName, 'he');
-      return nameCmp !== 0 ? nameCmp : b.loanDateIso.localeCompare(a.loanDateIso);
+      if (nameCmp !== 0) {
+        return nameCmp;
+      }
+      const dateCmp = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
+    });
+  }
+
+  private sortStandaloneLoanItems(items: StandaloneLoanItem[]): void {
+    items.sort((a, b) => {
+      const dateCmp = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      if (dateCmp !== 0) {
+        return dateCmp;
+      }
+      if (b.orderId !== a.orderId) {
+        return b.orderId - a.orderId;
+      }
+      return a.accessoryName.localeCompare(b.accessoryName, 'he');
     });
   }
 
@@ -1382,11 +1429,7 @@ export class QuickLoanComponent implements OnInit {
         return {
           rowId: `line-${row.id}`,
           loanedEquipmentId: row.id!,
-          label: isCustomItem
-            ? (row.customItemName?.trim() || 'פריט נוסף')
-            : row.loanedEquipmentType
-              ? this.inventoryStore.displayLabelForType(row.loanedEquipmentType)
-              : String(row.loanedEquipmentType),
+          label: this.inventoryStore.displayLabelForLoanedLine(row),
           quantityLoaned: row.quantity,
           quantityReturned,
           isCustomItem,

@@ -176,25 +176,19 @@
                   </span>
                 </div>
                 <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
-                <span class="customer-breakdown-card__address">
-                  {{ activeLoanDateLabel(card.loanDateIso) }}
-                  @if (activeLoanHebrewDate(card.loanDateIso); as heb) {
-                    · {{ heb }}
-                  }
-                </span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
-                @if (card.deposit) {
+                @for (deposit of card.deposits; track deposit) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
+                    <span class="customer-profile-note__text">{{ deposit }}</span>
                   </div>
                 }
-                @if (card.loanNotes) {
+                @for (note of card.loanNotesList; track note) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
+                    <span class="customer-profile-note__text">{{ note }}</span>
                   </div>
                 }
                 @if (card.customerNotes) {
@@ -246,6 +240,13 @@
                   [class.accessory-row--removing]="isRemovingLine(row)"
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
+                  @if (itemHebrewDate(row.loanDateIso); as heb) {
+                    <time
+                      class="active-loan-item__date"
+                      [attr.datetime]="row.loanDateIso"
+                      [title]="activeLoanHebrewDate(row.loanDateIso)"
+                    >{{ heb }}</time>
+                  }
                   <span class="accessory-row__label">
                     {{ row.accessoryName }}
                     @if (row.isOneTimeItem) {
@@ -381,18 +382,15 @@
             <div class="quick-return-extras">
               <h3 class="mb-2 text-sm font-bold text-[#002244]">אביזרים נוספים מושאלים ללקוח זה</h3>
               <div class="quick-return-extras__groups">
-                @for (group of groups; track group.orderId) {
+                @for (group of groups; track group.dateKey) {
                   <section class="quick-return-extras__group" [attr.aria-label]="'השאלה מתאריך ' + group.hebrewDate">
                     <div class="quick-return-extras__date-row">
-                      <h4 class="quick-return-extras__date">
-                        <span class="quick-return-extras__date-label">תאריך עברי</span>
-                        <span class="quick-return-extras__date-value">{{ group.hebrewDate }}</span>
-                      </h4>
+                      <h4 class="quick-return-extras__date">{{ group.hebrewDate }}</h4>
                       <button
                         type="button"
                         class="quick-return-extras__select-all"
                         [disabled]="quickReturnSaving()"
-                        (click)="selectQuickReturnGroup(group.orderId, !isQuickReturnGroupFullySelected(group))"
+                        (click)="selectQuickReturnGroup(group.dateKey, !isQuickReturnGroupFullySelected(group))"
                       >
                         {{ isQuickReturnGroupFullySelected(group) ? 'בטל בחירה' : 'סמן הכל' }}
                       </button>

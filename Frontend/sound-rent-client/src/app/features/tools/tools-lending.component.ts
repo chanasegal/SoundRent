@@ -19,7 +19,7 @@ import { finalize, forkJoin, interval, merge, Subject, EMPTY } from 'rxjs';
 import { debounceTime, distinctUntilChanged, groupBy, map, mergeMap, switchMap } from 'rxjs/operators';
 
 import { CustomerSuggestDto } from '../../core/models/customer.model';
-import { LOANED_EQUIPMENT_LABELS, DEPOSIT_TYPE_LABELS, DepositType, SystemType } from '../../core/models/enums';
+import { DEPOSIT_TYPE_LABELS, DepositType, SystemType } from '../../core/models/enums';
 import { InstitutionDto } from '../../core/models/institution.model';
 import {
   ToolDefinitionDto,
@@ -31,6 +31,7 @@ import { OrderDto } from '../../core/models/order.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import {
   OrderDraftService,
@@ -129,7 +130,7 @@ interface QuickReturnItem {
 }
 
 interface QuickReturnLoanGroup {
-  loanId: number;
+  dateKey: string;
   loanDateIso: string;
   hebrewDate: string;
   items: QuickReturnItem[];
@@ -159,6 +160,7 @@ interface QuickReturnSession {
 export class ToolsLendingComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly toolStore = inject(ToolDefinitionsStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly customers = inject(CustomersStore);
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly hebrew = inject(HebrewDateService);
@@ -285,6 +287,8 @@ export class ToolsLendingComponent implements OnInit {
 
   protected readonly activeRows = computed(() => {
     this.nowTick();
+    // Recompute accessory labels once the inventory catalog loads.
+    this.inventoryStore.definitions();
     const sorted = [
       ...this.buildActiveLoanRowViews(this.activeLoans()),
       ...this.buildActiveAccessoryLoanRowViews(this.activeAccessoryLoans())
@@ -315,6 +319,7 @@ export class ToolsLendingComponent implements OnInit {
   ngOnInit(): void {
     this.readRenewQueryParams();
     this.loadDefinitions();
+    this.inventoryStore.load().subscribe();
     this.customers.load().subscribe();
     this.wireTimeLimitHours();
     this.wireCustomerSuggestDebounce();
@@ -573,26 +578,26 @@ export class ToolsLendingComponent implements OnInit {
 
   protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
     const extras = session.items.filter((item) => !item.isScannedMatch);
-    const byLoan = new Map<number, QuickReturnLoanGroup>();
+    const byDate = new Map<string, QuickReturnLoanGroup>();
 
     for (const item of extras) {
-      let group = byLoan.get(item.loanId);
+      const dateKey = item.loanDateIso || '';
+      let group = byDate.get(dateKey);
       if (!group) {
         group = {
-          loanId: item.loanId,
+          dateKey,
           loanDateIso: item.loanDateIso,
           hebrewDate: item.hebrewDate || 'ללא תאריך',
           items: []
         };
-        byLoan.set(item.loanId, group);
+        byDate.set(dateKey, group);
       }
       group.items.push(item);
     }
 
-    return [...byLoan.values()].sort((a, b) => {
-      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
-      return byDate !== 0 ? byDate : b.loanId - a.loanId;
-    });
+    return [...byDate.values()].sort((a, b) =>
+      (b.loanDateIso || '').localeCompare(a.loanDateIso || '')
+    );
   }
 
   protected toggleQuickReturnItem(key: string, checked: boolean): void {
@@ -615,7 +620,7 @@ export class ToolsLendingComponent implements OnInit {
     });
   }
 
-  protected selectQuickReturnGroup(loanId: number, selected = true): void {
+  protected selectQuickReturnGroup(dateKey: string, selected = true): void {
     this.quickReturnSession.update((session) => {
       if (!session) {
         return session;
@@ -623,7 +628,7 @@ export class ToolsLendingComponent implements OnInit {
       return {
         ...session,
         items: session.items.map((item) => {
-          if (item.isScannedMatch || item.loanId !== loanId) {
+          if (item.isScannedMatch || (item.loanDateIso || '') !== dateKey) {
             return item;
           }
           return { ...item, selected };
@@ -748,11 +753,7 @@ export class ToolsLendingComponent implements OnInit {
           .filter((note) => !note.isReturned)
           .map((note) => (note.content ?? '').trim())
           .filter((code) => code.length > 0);
-        const label = line.isCustomItem
-          ? line.customItemName?.trim() || 'פריט נוסף'
-          : line.loanedEquipmentType
-            ? LOANED_EQUIPMENT_LABELS[line.loanedEquipmentType]
-            : 'אביזר';
+        const label = this.inventoryStore.displayLabelForLoanedLine(line);
         views.push({
           rowKey: `accessory-${order.id}-${line.id ?? label}`,
           loanId: order.id,

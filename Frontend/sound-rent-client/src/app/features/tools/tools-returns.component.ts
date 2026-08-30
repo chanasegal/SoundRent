@@ -68,7 +68,7 @@ interface QuickReturnItem {
 }
 
 interface QuickReturnLoanGroup {
-  loanId: number;
+  dateKey: string;
   loanDateIso: string;
   hebrewDate: string;
   items: QuickReturnItem[];
@@ -512,26 +512,26 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
     const extras = session.items.filter((item) => !item.isScannedMatch);
-    const byLoan = new Map<number, QuickReturnLoanGroup>();
+    const byDate = new Map<string, QuickReturnLoanGroup>();
 
     for (const item of extras) {
-      let group = byLoan.get(item.loanId);
+      const dateKey = item.loanDateIso || '';
+      let group = byDate.get(dateKey);
       if (!group) {
         group = {
-          loanId: item.loanId,
+          dateKey,
           loanDateIso: item.loanDateIso,
           hebrewDate: item.hebrewDate || 'ללא תאריך',
           items: []
         };
-        byLoan.set(item.loanId, group);
+        byDate.set(dateKey, group);
       }
       group.items.push(item);
     }
 
-    return [...byLoan.values()].sort((a, b) => {
-      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
-      return byDate !== 0 ? byDate : b.loanId - a.loanId;
-    });
+    return [...byDate.values()].sort((a, b) =>
+      (b.loanDateIso || '').localeCompare(a.loanDateIso || '')
+    );
   }
 
   protected toggleQuickReturnItem(key: string, checked: boolean): void {
@@ -554,7 +554,7 @@ export class ToolsReturnsComponent implements OnInit {
     });
   }
 
-  protected selectQuickReturnGroup(loanId: number, selected = true): void {
+  protected selectQuickReturnGroup(dateKey: string, selected = true): void {
     this.quickReturnSession.update((session) => {
       if (!session) {
         return session;
@@ -562,7 +562,7 @@ export class ToolsReturnsComponent implements OnInit {
       return {
         ...session,
         items: session.items.map((item) => {
-          if (item.isScannedMatch || item.loanId !== loanId) {
+          if (item.isScannedMatch || (item.loanDateIso || '') !== dateKey) {
             return item;
           }
           return { ...item, selected };

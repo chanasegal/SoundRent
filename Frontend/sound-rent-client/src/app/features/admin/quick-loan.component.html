@@ -499,12 +499,6 @@
                 <span class="recent-loan-card__name">{{ card.customerName || 'ללא שם' }}</span>
                 <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
                 <span class="recent-loan-card__meta">
-                  {{ activeLoanDateLabel(card.loanDateIso) }}
-                  @if (activeLoanHebrewDate(card.loanDateIso); as heb) {
-                    <span class="recent-loan-card__sep">·</span>
-                    {{ heb }}
-                  }
-                  <span class="recent-loan-card__sep">·</span>
                   @for (order of card.orders; track order.id; let last = $last) {
                     #{{ order.id }}@if (!last) {, }
                   }
@@ -563,18 +557,18 @@
               </div>
             </header>
 
-            @if (primaryOrder.depositOnName?.trim() || primaryOrder.notes?.trim() || card.customerNotes) {
+            @if (card.deposits.length > 0 || card.loanNotes.length > 0 || card.customerNotes) {
               <div class="recent-loan-card__notes">
-                @if (primaryOrder.depositOnName?.trim()) {
+                @for (deposit of card.deposits; track deposit) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ primaryOrder.depositOnName }}</span>
+                    <span class="customer-profile-note__text">{{ deposit }}</span>
                   </div>
                 }
-                @if (primaryOrder.notes?.trim()) {
+                @for (note of card.loanNotes; track note) {
                   <div class="customer-profile-note" role="status">
                     <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ primaryOrder.notes }}</span>
+                    <span class="customer-profile-note__text">{{ note }}</span>
                   </div>
                 }
                 @if (card.customerNotes) {
@@ -593,6 +587,13 @@
                   [class.accessory-row--removing]="isRemovingLine(row)"
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
+                  @if (itemHebrewDate(row.loanDateIso); as heb) {
+                    <time
+                      class="active-loan-item__date"
+                      [attr.datetime]="row.loanDateIso"
+                      [title]="activeLoanHebrewDate(row.loanDateIso)"
+                    >{{ heb }}</time>
+                  }
                   <span class="accessory-row__label">{{ row.accessoryName }}</span>
 
                   @if (row.assignedSerialCodes.length > 0) {

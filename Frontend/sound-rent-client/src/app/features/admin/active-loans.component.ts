@@ -68,10 +68,11 @@ interface ActiveLoanCustomerCard {
   customerName: string;
   phone: string;
   address: string;
+  /** Newest loan date among items — used for card ordering. */
   loanDateIso: string;
   customerNotes: string | null;
-  deposit: string | null;
-  loanNotes: string | null;
+  deposits: string[];
+  loanNotesList: string[];
   orders: ActiveLoanOrderRef[];
   items: ActiveLoanRow[];
   totalQuantity: number;
@@ -91,9 +92,9 @@ interface QuickReturnItem {
   isScannedMatch: boolean;
 }
 
-/** Additional quick-return items grouped by distinct loan/order transaction. */
+/** Additional quick-return items grouped by loan date (yyyy-MM-dd). */
 interface QuickReturnLoanGroup {
-  orderId: number;
+  dateKey: string;
   loanDateIso: string;
   hebrewDate: string;
   items: QuickReturnItem[];
@@ -275,6 +276,15 @@ export class ActiveLoansComponent implements OnInit {
     }
     const date = this.hebrew.parseIso(iso);
     return date ? this.hebrew.toHebrewWithDayOfWeek(date) : '';
+  }
+
+  /** Compact Hebrew date for a loan row, e.g. "כ״א אייר תשפ״ה". */
+  protected itemHebrewDate(iso: string): string {
+    if (!iso) {
+      return '';
+    }
+    const date = this.hebrew.parseIso(iso);
+    return date ? this.hebrew.toHebrew(date) : iso;
   }
 
   protected isReturningLine(row: ActiveLoanRow): boolean {
@@ -644,30 +654,30 @@ export class ActiveLoansComponent implements OnInit {
     return session.items.find((item) => item.isScannedMatch) ?? null;
   }
 
-  /** Additional (non-scanned) items grouped by loan/order, labeled with Hebrew date. */
+  /** Additional (non-scanned) items grouped by loan date. */
   protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
     const extras = session.items.filter((item) => !item.isScannedMatch);
-    const byOrder = new Map<number, QuickReturnLoanGroup>();
+    const byDate = new Map<string, QuickReturnLoanGroup>();
 
     for (const item of extras) {
-      let group = byOrder.get(item.orderId);
+      const dateKey = item.loanDateIso || '';
+      let group = byDate.get(dateKey);
       if (!group) {
         const hebrewDate = this.activeLoanHebrewDate(item.loanDateIso);
         group = {
-          orderId: item.orderId,
+          dateKey,
           loanDateIso: item.loanDateIso,
           hebrewDate: hebrewDate || 'ללא תאריך',
           items: []
         };
-        byOrder.set(item.orderId, group);
+        byDate.set(dateKey, group);
       }
       group.items.push(item);
     }
 
-    return [...byOrder.values()].sort((a, b) => {
-      const byDate = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
-      return byDate !== 0 ? byDate : b.orderId - a.orderId;
-    });
+    return [...byDate.values()].sort((a, b) =>
+      (b.loanDateIso || '').localeCompare(a.loanDateIso || '')
+    );
   }
 
   protected toggleQuickReturnItem(key: string, checked: boolean): void {
@@ -691,8 +701,8 @@ export class ActiveLoansComponent implements OnInit {
     });
   }
 
-  /** Select (or clear) every additional item in a loan/date group. */
-  protected selectQuickReturnGroup(orderId: number, selected = true): void {
+  /** Select (or clear) every additional item in a date group. */
+  protected selectQuickReturnGroup(dateKey: string, selected = true): void {
     this.quickReturnSession.update((session) => {
       if (!session) {
         return session;
@@ -700,7 +710,7 @@ export class ActiveLoansComponent implements OnInit {
       return {
         ...session,
         items: session.items.map((item) => {
-          if (item.isScannedMatch || item.orderId !== orderId) {
+          if (item.isScannedMatch || (item.loanDateIso || '') !== dateKey) {
             return item;
           }
           return { ...item, selected };
@@ -871,7 +881,7 @@ export class ActiveLoansComponent implements OnInit {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = `${this.customerCardKey(row)}|${row.loanDateIso}`;
+      const key = this.customerCardKey(row);
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -881,8 +891,8 @@ export class ActiveLoansComponent implements OnInit {
           address: row.address,
           loanDateIso: row.loanDateIso,
           customerNotes: this.customers.notesForPhone(row.phone),
-          deposit: row.deposit,
-          loanNotes: row.loanNotes,
+          deposits: [],
+          loanNotesList: [],
           orders: [],
           items: [],
           totalQuantity: 0
@@ -896,11 +906,11 @@ export class ActiveLoansComponent implements OnInit {
       if (!card.customerNotes) {
         card.customerNotes = this.customers.notesForPhone(row.phone);
       }
-      if (!card.deposit && row.deposit) {
-        card.deposit = row.deposit;
+      if (row.deposit && !card.deposits.includes(row.deposit)) {
+        card.deposits.push(row.deposit);
       }
-      if (!card.loanNotes && row.loanNotes) {
-        card.loanNotes = row.loanNotes;
+      if (row.loanNotes && !card.loanNotesList.includes(row.loanNotes)) {
+        card.loanNotesList.push(row.loanNotes);
       }
       if (!card.orders.some((o) => o.id === row.orderId)) {
         card.orders.push({ id: row.orderId, isOrderBased: row.isOrderBased });
@@ -941,7 +951,7 @@ export class ActiveLoansComponent implements OnInit {
         manualItemId
       };
 
-      const matchKey = this.findCustomerCardKeyForReport(report, reportRow.loanDateIso, byCustomer);
+      const matchKey = this.findCustomerCardKeyForReport(report, byCustomer);
       if (matchKey) {
         const card = byCustomer.get(matchKey)!;
         if (!card.items.some((item) => item.manualItemId === manualItemId)) {
@@ -957,7 +967,7 @@ export class ActiveLoansComponent implements OnInit {
         continue;
       }
 
-      const key = `${this.customerCardKey(reportRow)}|${reportRow.loanDateIso}`;
+      const key = this.customerCardKey(reportRow);
       byCustomer.set(key, {
         key,
         customerName: reportRow.customerName,
@@ -965,8 +975,8 @@ export class ActiveLoansComponent implements OnInit {
         address: reportRow.address,
         loanDateIso: reportRow.loanDateIso,
         customerNotes: this.customers.notesForPhone(reportRow.phone),
-        deposit: null,
-        loanNotes: null,
+        deposits: [],
+        loanNotesList: [],
         orders:
           reportRow.orderId > 0 ? [{ id: reportRow.orderId, isOrderBased: true }] : [],
         items: [reportRow],
@@ -974,7 +984,12 @@ export class ActiveLoansComponent implements OnInit {
       });
     }
 
-    return [...byCustomer.values()].sort((a, b) => {
+    const cards = [...byCustomer.values()];
+    for (const card of cards) {
+      this.sortActiveLoanItems(card.items);
+      card.loanDateIso = card.items[0]?.loanDateIso ?? card.loanDateIso;
+    }
+    return cards.sort((a, b) => {
       const nameCmp = a.customerName.localeCompare(b.customerName, 'he');
       if (nameCmp !== 0) {
         return nameCmp;
@@ -984,15 +999,27 @@ export class ActiveLoansComponent implements OnInit {
     });
   }
 
+  private sortActiveLoanItems(items: ActiveLoanRow[]): void {
+    items.sort((a, b) => {
+      const dateCmp = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+      if (dateCmp !== 0) {
+        return dateCmp;
+      }
+      if (b.orderId !== a.orderId) {
+        return b.orderId - a.orderId;
+      }
+      return a.accessoryName.localeCompare(b.accessoryName, 'he');
+    });
+  }
+
   private findCustomerCardKeyForReport(
     report: UnreturnedItemDto,
-    loanDateIso: string,
     cards: Map<string, ActiveLoanCustomerCard>
   ): string | null {
     const phone = this.normalizePhone(report.phone);
     if (phone.length >= 7) {
       for (const [key, card] of cards) {
-        if (card.loanDateIso === loanDateIso && this.normalizePhone(card.phone) === phone) {
+        if (this.normalizePhone(card.phone) === phone) {
           return key;
         }
       }
@@ -1001,7 +1028,7 @@ export class ActiveLoansComponent implements OnInit {
     const name = (report.customerName ?? '').trim().toLowerCase();
     if (name.length > 0) {
       for (const [key, card] of cards) {
-        if (card.loanDateIso === loanDateIso && card.customerName.trim().toLowerCase() === name) {
+        if (card.customerName.trim().toLowerCase() === name) {
           return key;
         }
       }
@@ -1154,11 +1181,7 @@ export class ActiveLoansComponent implements OnInit {
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
         );
-        const accessoryName = le.isCustomItem
-          ? (le.customItemName?.trim() || 'פריט נוסף')
-          : le.loanedEquipmentType
-            ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType)
-            : 'פריט';
+        const accessoryName = this.inventoryStore.displayLabelForLoanedLine(le);
         rows.push({
           key: `${order.id}-${le.id}`,
           orderId: order.id,

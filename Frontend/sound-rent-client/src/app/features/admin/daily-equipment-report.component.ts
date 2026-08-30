@@ -172,6 +172,7 @@ export class DailyEquipmentReportComponent implements OnInit {
     if (!iso) {
       return null;
     }
+    this.inventoryStore.definitions();
     return this.buildReport(iso, this.orders());
   });
 
@@ -1368,11 +1369,7 @@ export class DailyEquipmentReportComponent implements OnInit {
         continue;
       }
 
-      const label = le.isCustomItem
-        ? (le.customItemName?.trim() || 'פריט נוסף')
-        : le.loanedEquipmentType
-          ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType as LoanedEquipmentType)
-          : String(le.loanedEquipmentType);
+      const label = this.inventoryStore.displayLabelForLoanedLine(le);
       const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
       const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
       const serialCodes = sortNumericCodes(
@@ -1429,11 +1426,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       if (qty <= 0) {
         continue;
       }
-      const label = le.isCustomItem
-        ? (le.customItemName?.trim() || 'פריט נוסף')
-        : le.loanedEquipmentType
-          ? this.inventoryStore.displayLabelForType(le.loanedEquipmentType as LoanedEquipmentType)
-          : String(le.loanedEquipmentType);
+      const label = this.inventoryStore.displayLabelForLoanedLine(le);
       const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
       const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
       this.mergeEquipmentLine(map, { label, quantity: qty, sortKey });

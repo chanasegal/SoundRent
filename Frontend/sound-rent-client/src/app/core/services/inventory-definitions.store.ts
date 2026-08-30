@@ -109,6 +109,39 @@ export class InventoryDefinitionsStore {
   }
 
   /**
+   * Display name for a loaned accessory line. Catalog rows are keyed by
+   * inventoryDefinitionId (loanedEquipmentType may be null for custom catalog types).
+   */
+  displayLabelForLoanedLine(line: {
+    isCustomItem?: boolean;
+    customItemName?: string | null;
+    inventoryDefinitionId?: number | null;
+    loanedEquipmentType?: LoanedEquipmentType | null;
+  }): string {
+    if (line.isCustomItem) {
+      return line.customItemName?.trim() || 'פריט נוסף';
+    }
+
+    const definitionId =
+      line.inventoryDefinitionId != null && line.inventoryDefinitionId > 0
+        ? line.inventoryDefinitionId
+        : line.loanedEquipmentType != null
+          ? this.definitionIdForType(line.loanedEquipmentType)
+          : null;
+    const fromCatalog =
+      definitionId != null ? this.byId(definitionId)?.displayName?.trim() : '';
+    if (fromCatalog) {
+      return fromCatalog;
+    }
+
+    if (line.loanedEquipmentType != null) {
+      return this.displayLabelForType(line.loanedEquipmentType);
+    }
+
+    return line.customItemName?.trim() || 'פריט';
+  }
+
+  /**
    * Sorted linked-type options. When the store is still empty (before first load),
    * falls back to the static enum labels so dropdowns are never blank.
    */
