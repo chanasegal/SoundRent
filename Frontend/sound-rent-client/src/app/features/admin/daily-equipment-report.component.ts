@@ -86,6 +86,11 @@ interface DailyEquipmentReport {
 }
 
 const SAME_DAY_NAME_DUPLICATE_TOOLTIP = 'שים לב! יש עוד הזמנה על שם זהה היום';
+const NO_LOANED_EQUIPMENT_LABEL = '(ללא ציוד מושאל)';
+const EMPTY_OUTBOUND_SUMMARY_MSG = 'אין אביזרי ציוד להשאלה בתאריך זה';
+const EMPTY_RETURNS_SUMMARY_MSG = 'אין אביזרי ציוד להחזרה בתאריך זה';
+const EMPTY_OUTBOUND_CUSTOMERS_MSG = 'אין הזמנות להשאלה בתאריך זה';
+const EMPTY_RETURNS_CUSTOMERS_MSG = 'אין הזמנות להחזרה בתאריך זה';
 
 @Component({
   selector: 'app-daily-equipment-report',
@@ -593,24 +598,25 @@ export class DailyEquipmentReportComponent implements OnInit {
     this.exportInProgress.set(true);
     const iso = report.selectedIso;
 
+    const dateContext = this.exportDateContextLabel();
     void this.exportSvc
       .exportMultiSheetExcel(
         [
           {
             sheetName: 'השאלה - סיכום',
-            rows: this.sectionSummaryRows(report.outbound)
+            rows: this.sectionSummaryRows(report.outbound, dateContext, EMPTY_OUTBOUND_SUMMARY_MSG)
           },
           {
             sheetName: 'השאלה - פירוט',
-            rows: this.sectionBreakdownRows(report.outbound, false)
+            rows: this.sectionBreakdownRows(report.outbound, false, dateContext, EMPTY_OUTBOUND_CUSTOMERS_MSG)
           },
           {
             sheetName: 'החזרה - סיכום',
-            rows: this.sectionSummaryRows(report.returns)
+            rows: this.sectionSummaryRows(report.returns, dateContext, EMPTY_RETURNS_SUMMARY_MSG)
           },
           {
             sheetName: 'החזרה - פירוט',
-            rows: this.sectionBreakdownRows(report.returns, true)
+            rows: this.sectionBreakdownRows(report.returns, true, dateContext, EMPTY_RETURNS_CUSTOMERS_MSG)
           }
         ],
         `equipment_report_${iso.replace(/-/g, '')}.xlsx`
@@ -619,57 +625,199 @@ export class DailyEquipmentReportComponent implements OnInit {
       .finally(() => this.exportInProgress.set(false));
   }
 
-  private sectionSummaryRows(section: ReportSection): Record<string, unknown>[] {
-    return section.summary.map((line) => ({
-      פריט: line.label,
-      כמות: line.quantity
-    }));
+  private exportDateContextLabel(): string {
+    const gregorian = this.selectedDateLabel();
+    const hebrew = this.selectedHebrewLabel();
+    if (gregorian && hebrew) {
+      return `${gregorian} (${hebrew})`;
+    }
+    return gregorian || hebrew || this.selectedIso() || '';
+  }
+
+  private exportCustomerDisplayName(customer: CustomerBreakdown): string {
+    return customer.customerName.trim() || 'ללא שם';
+  }
+
+  private exportCustomerPhone(customer: CustomerBreakdown): string {
+    return this.formatPhone(customer.phone);
+  }
+
+  private exportSystemSlotsLabel(customer: CustomerBreakdown): string {
+    return customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', ');
+  }
+
+  private exportDuplicateNameWarning(customer: CustomerBreakdown): string {
+    return customer.hasLastNameDuplicate ? SAME_DAY_NAME_DUPLICATE_TOOLTIP : '';
+  }
+
+  private exportSerialCodes(item: CustomerAccessoryLine): string {
+    if (item.isCustomItem || item.serialCodes.length === 0) {
+      return '';
+    }
+    return sortNumericCodes(item.serialCodes).join(', ');
+  }
+
+  private exportOrderIdsLabel(orderIds: number[]): string {
+    return orderIds.join(', ');
+  }
+
+  /** Mirrors on-screen accessory rows (saved data only — excludes pending UI edits). */
+  private exportAccessoryRows(customer: CustomerBreakdown): CustomerAccessoryLine[] {
+    return this.sortAccessoryRows([...customer.accessoryRows]);
+  }
+
+  private sectionSummaryRows(
+    section: ReportSection,
+    dateContext: string,
+    emptyMessage: string
+  ): Record<string, unknown>[] {
+    const rows: Record<string, unknown>[] = [
+      { פריט: `תאריך הדוח: ${dateContext}`, כמות: '' }
+    ];
+
+    if (section.summary.length === 0) {
+      rows.push({ פריט: emptyMessage, כמות: '' });
+      return rows;
+    }
+
+    for (const line of section.summary) {
+      rows.push({ פריט: line.label, כמות: line.quantity });
+    }
+    return rows;
   }
 
   private sectionBreakdownRows(
     section: ReportSection,
-    includeReturnTime: boolean
+    includeReturnTime: boolean,
+    dateContext: string,
+    emptyCustomersMessage: string
   ): Record<string, unknown>[] {
-    const rows: Record<string, unknown>[] = [];
+    const rows: Record<string, unknown>[] = [
+      this.buildDetailContextRow(dateContext, includeReturnTime)
+    ];
+
+    if (section.customers.length === 0) {
+      rows.push(this.buildEmptySectionDetailRow(emptyCustomersMessage, includeReturnTime));
+      return rows;
+    }
+
     for (const customer of section.customers) {
-      for (const item of customer.accessoryRows) {
-        const row: Record<string, unknown> = {
-          לקוח: customer.customerName || '—',
-          טלפון: customer.phone,
-          'מספר הזמנה': item.orderId,
-          'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
-          פריט: item.label,
-          כמות: item.quantity,
-          'קודי פריט': sortNumericCodes(item.serialCodes).join(', ')
-        };
-        if (includeReturnTime) {
-          row['שעת החזרה'] = customer.returnTimeLabel ?? '';
-        }
-        row['אזהרת שם משפחה'] = customer.hasLastNameDuplicate
-          ? 'יש עוד הזמנה על שם משפחה זהה'
-          : '';
-        rows.push(row);
+      const accessoryRows = this.exportAccessoryRows(customer);
+      if (accessoryRows.length === 0) {
+        rows.push(this.buildEmptyAccessoryDetailRow(customer, includeReturnTime));
+        continue;
       }
-      if (customer.accessoryRows.length === 0) {
-        const row: Record<string, unknown> = {
-          לקוח: customer.customerName || '—',
-          טלפון: customer.phone,
-          'מספר הזמנה': customer.orderIds.join(', '),
-          'מערכת ראשית': customer.systemSlotIds.map((id) => this.systemSlotLabel(id)).join(', '),
-          פריט: '(ללא ציוד מושאל)',
-          כמות: 0,
-          'קודי פריט': ''
-        };
-        if (includeReturnTime) {
-          row['שעת החזרה'] = customer.returnTimeLabel ?? '';
-        }
-        row['אזהרת שם משפחה'] = customer.hasLastNameDuplicate
-          ? 'יש עוד הזמנה על שם משפחה זהה'
-          : '';
-        rows.push(row);
+
+      for (const item of accessoryRows) {
+        rows.push(this.buildAccessoryDetailRow(customer, item, includeReturnTime));
       }
     }
     return rows;
+  }
+
+  private buildDetailContextRow(
+    dateContext: string,
+    includeReturnTime: boolean
+  ): Record<string, unknown> {
+    return this.buildDetailRow(
+      {
+        לקוח: `תאריך הדוח: ${dateContext}`,
+        טלפון: '',
+        'מספר הזמנה': '',
+        'מערכת ראשית': '',
+        פריט: '',
+        כמות: '',
+        'קודי פריט': ''
+      },
+      includeReturnTime,
+      { returnTime: '', duplicateWarning: '' }
+    );
+  }
+
+  private buildEmptySectionDetailRow(
+    message: string,
+    includeReturnTime: boolean
+  ): Record<string, unknown> {
+    return this.buildDetailRow(
+      {
+        לקוח: message,
+        טלפון: '',
+        'מספר הזמנה': '',
+        'מערכת ראשית': '',
+        פריט: '',
+        כמות: '',
+        'קודי פריט': ''
+      },
+      includeReturnTime,
+      { returnTime: '', duplicateWarning: '' }
+    );
+  }
+
+  private buildEmptyAccessoryDetailRow(
+    customer: CustomerBreakdown,
+    includeReturnTime: boolean
+  ): Record<string, unknown> {
+    return this.buildDetailRow(
+      {
+        לקוח: this.exportCustomerDisplayName(customer),
+        טלפון: this.exportCustomerPhone(customer),
+        'מספר הזמנה': this.exportOrderIdsLabel(customer.orderIds),
+        'מערכת ראשית': this.exportSystemSlotsLabel(customer),
+        פריט: NO_LOANED_EQUIPMENT_LABEL,
+        כמות: 0,
+        'קודי פריט': ''
+      },
+      includeReturnTime,
+      {
+        returnTime: customer.returnTimeLabel ?? '',
+        duplicateWarning: this.exportDuplicateNameWarning(customer)
+      }
+    );
+  }
+
+  private buildAccessoryDetailRow(
+    customer: CustomerBreakdown,
+    item: CustomerAccessoryLine,
+    includeReturnTime: boolean
+  ): Record<string, unknown> {
+    return this.buildDetailRow(
+      {
+        לקוח: this.exportCustomerDisplayName(customer),
+        טלפון: this.exportCustomerPhone(customer),
+        'מספר הזמנה': item.orderId,
+        'מערכת ראשית': this.exportSystemSlotsLabel(customer),
+        פריט: item.label,
+        כמות: item.quantity,
+        'קודי פריט': this.exportSerialCodes(item)
+      },
+      includeReturnTime,
+      {
+        returnTime: customer.returnTimeLabel ?? '',
+        duplicateWarning: this.exportDuplicateNameWarning(customer)
+      }
+    );
+  }
+
+  /** Keeps a stable column order aligned with the on-screen detail layout. */
+  private buildDetailRow(
+    core: Record<string, unknown>,
+    includeReturnTime: boolean,
+    extras: { returnTime: string; duplicateWarning: string }
+  ): Record<string, unknown> {
+    const row: Record<string, unknown> = {
+      לקוח: core['לקוח'],
+      טלפון: core['טלפון'],
+      'מספר הזמנה': core['מספר הזמנה'],
+      'מערכת ראשית': core['מערכת ראשית'],
+      פריט: core['פריט'],
+      כמות: core['כמות'],
+      'קודי פריט': core['קודי פריט']
+    };
+    if (includeReturnTime) {
+      row['שעת החזרה'] = extras.returnTime;
+    }
+    row['אזהרת שם משפחה'] = extras.duplicateWarning;
+    return row;
   }
 
   private loadSerialAvailability(row: CustomerAccessoryLine): void {
@@ -1350,7 +1498,11 @@ export class DailyEquipmentReportComponent implements OnInit {
       if (nameCmp !== 0) {
         return nameCmp;
       }
-      return a.phone.localeCompare(b.phone, 'he');
+      const phoneCmp = a.phone.localeCompare(b.phone, 'he');
+      if (phoneCmp !== 0) {
+        return phoneCmp;
+      }
+      return (a.orderIds[0] ?? 0) - (b.orderIds[0] ?? 0);
     });
 
     return {
@@ -1495,7 +1647,7 @@ export class DailyEquipmentReportComponent implements OnInit {
         return endDayName ? `${endDayName} עד 8:00` : 'עד 8:00';
       case ReturnTimeType.SpecificTime: {
         const custom = (order.customReturnTime ?? '').trim();
-        return custom ? `עד ${custom}` : 'עד';
+        return custom ? `עד ${custom}` : 'כל הבוקר';
       }
       case ReturnTimeType.LateNight:
       default:

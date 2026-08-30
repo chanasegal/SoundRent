@@ -1,8 +1,9 @@
-import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { SKIP_GLOBAL_LOADING } from '../http/skip-global-loading.context';
 import { getApiErrorMessage } from '../utils/http-api-error';
 import { SystemType, TimeSlot, LoanedEquipmentType } from '../models/enums';
 import {
@@ -358,7 +359,11 @@ export class DataService {
   }
 
   getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
-    return this.http.get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`).pipe(
+    return this.http
+      .get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`, {
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);
@@ -732,7 +737,10 @@ export class DataService {
       .set('global', 'true')
       .set('suggest', 'true');
     return this.http
-      .get<CustomerSuggestDto[]>(`${this.customersBase}/search`, { params })
+      .get<CustomerSuggestDto[]>(`${this.customersBase}/search`, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+      })
       .pipe(
         catchError((err) => {
           this.notifyHttpError(err);
@@ -971,7 +979,11 @@ export class DataService {
   }
 
   getInventoryDefinitions(): Observable<InventoryDefinitionDto[]> {
-    return this.http.get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase).pipe(
+    return this.http
+      .get<InventoryDefinitionDto[]>(this.inventoryDefinitionsBase, {
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+      })
+      .pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);

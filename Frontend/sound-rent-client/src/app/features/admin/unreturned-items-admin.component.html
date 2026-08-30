@@ -138,12 +138,12 @@
     (click)="closeAddMissing()"
   >
     <div
-      class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
+      class="app-modal-panel w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 36rem"
       (click)="$event.stopPropagation()"
     >
       <h2 class="mb-2 text-lg font-bold text-[#002244]">הוסף פריט שלא חזר</h2>
       <p class="mb-4 text-sm text-slate-600">
-        הוסיפו פריט ישירות לרשימה — עם פרטי לקוח, ציוד מהרשימה או תיאור מותאם, וקוד פריט אופציונלי.
+        הוסיפו פריטים ישירות לרשימה — עם פרטי לקוח, ציוד מהרשימה או תיאור מותאם, וקוד פריט אופציונלי לכל שורה.
       </p>
 
       <form [formGroup]="addForm" (ngSubmit)="submitAddMissing()" class="space-y-4">
@@ -192,8 +192,7 @@
             inputmode="numeric"
             pattern="[0-9]*"
             formControlName="phone"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
-            dir="ltr"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ltr-field"
             maxlength="10"
             appIsraeliPhoneInput
             autocomplete="off"
@@ -233,62 +232,96 @@
           />
         </div>
 
-        <label class="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            formControlName="isCustomItem"
-            class="h-4 w-4 accent-[#002244]"
-            (change)="onCustomItemToggle()"
-          />
-          <span>פריט מותאם אישית / חד-פעמי (לא ברשימת המלאי)</span>
-        </label>
-
-        @if (addForm.controls.isCustomItem.value) {
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">
-              תיאור ציוד חד-פעמי <span class="text-rose-500">*</span>
-            </label>
-            <input
-              formControlName="customItemName"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              maxlength="200"
-              placeholder="לדוגמה: מיקרופון אלחוטי, כבל XLR"
-              autocomplete="off"
-            />
-            @if (addForm.controls.customItemName.touched && addForm.controls.customItemName.errors?.['required']) {
-              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-            }
-          </div>
-        } @else {
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">
-              פריט <span class="text-rose-500">*</span>
-            </label>
-            <select
-              formControlName="inventoryDefinitionId"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        <div class="add-missing-items" formArrayName="items">
+          <div class="add-missing-items__header">
+            <h3 class="text-sm font-semibold text-slate-800">פריטים</h3>
+            <button
+              type="button"
+              class="add-missing-items__add-btn"
+              (click)="addItemRow()"
             >
-              <option [ngValue]="null">בחרו פריט…</option>
-              @for (def of itemOptions(); track def.id) {
-                <option [ngValue]="def.id">{{ itemOptionLabel(def) }}</option>
-              }
-            </select>
-            @if (addForm.controls.inventoryDefinitionId.touched && addForm.controls.inventoryDefinitionId.errors?.['required']) {
-              <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
-            }
+              <span aria-hidden="true">+</span>
+              הוסף פריט
+            </button>
           </div>
-        }
 
-        <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700">קוד פריט</label>
-          <input
-            formControlName="itemCode"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
-            dir="ltr"
-            maxlength="100"
-            autocomplete="off"
-            placeholder="אופציונלי"
-          />
+          @for (_row of itemRows().controls; track $index; let i = $index) {
+            <div class="add-missing-item-row" [formGroupName]="i">
+              <div class="add-missing-item-row__header">
+                <span class="add-missing-item-row__title">פריט {{ i + 1 }}</span>
+                @if (itemRows().length > 1) {
+                  <button
+                    type="button"
+                    class="add-missing-item-row__remove"
+                    (click)="removeItemRow(i)"
+                  >
+                    הסר
+                  </button>
+                }
+              </div>
+
+              <label class="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  formControlName="isCustomItem"
+                  class="h-4 w-4 accent-[#002244]"
+                  (change)="onItemCustomToggle(i)"
+                />
+                <span>פריט מותאם אישית / חד-פעמי (לא ברשימת המלאי)</span>
+              </label>
+
+              @if (itemRowGroup(i).controls['isCustomItem'].value) {
+                <div>
+                  <label class="mb-1 block text-sm font-medium text-slate-700">
+                    תיאור ציוד חד-פעמי <span class="text-rose-500">*</span>
+                  </label>
+                  <input
+                    formControlName="customItemName"
+                    class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    maxlength="200"
+                    placeholder="לדוגמה: מיקרופון אלחוטי, כבל XLR"
+                    autocomplete="off"
+                  />
+                  @if (itemRowGroup(i).controls['customItemName'].touched && itemRowGroup(i).controls['customItemName'].errors?.['required']) {
+                    <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+                  }
+                </div>
+              } @else {
+                <div>
+                  <label class="mb-1 block text-sm font-medium text-slate-700">
+                    פריט <span class="text-rose-500">*</span>
+                  </label>
+                  <select
+                    formControlName="inventoryDefinitionId"
+                    class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    @if (itemOptionsLoading()) {
+                      <option [ngValue]="null" disabled>טוען…</option>
+                    } @else {
+                      <option [ngValue]="null">בחרו פריט…</option>
+                      @for (def of itemOptions(); track def.id) {
+                        <option [ngValue]="def.id">{{ itemOptionLabel(def) }}</option>
+                      }
+                    }
+                  </select>
+                  @if (itemRowGroup(i).controls['inventoryDefinitionId'].touched && itemRowGroup(i).controls['inventoryDefinitionId'].errors?.['required']) {
+                    <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+                  }
+                </div>
+              }
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-slate-700">קוד פריט</label>
+                <input
+                  formControlName="itemCode"
+                  class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ltr-field"
+                  maxlength="100"
+                  autocomplete="off"
+                  placeholder="אופציונלי"
+                />
+              </div>
+            </div>
+          }
         </div>
 
         <div class="flex flex-wrap justify-end gap-2 pt-2">

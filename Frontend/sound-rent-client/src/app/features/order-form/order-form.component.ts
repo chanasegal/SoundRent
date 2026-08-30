@@ -349,6 +349,27 @@ export class OrderFormComponent implements OnInit {
   ];
   protected readonly returnTimeTypeLabels = RETURN_TIME_TYPE_LABELS;
   protected readonly returnTimeTypeEnum = ReturnTimeType;
+
+  /**
+   * Friday ends at morning only — LateNight / NextMorning would spill into non-existent
+   * evening/overnight slots, so only SpecificTime (optional clock = end of morning) is offered.
+   */
+  protected availableReturnTimeTypes(bookingIndex: number): ReturnTimeType[] {
+    if (this.bookingEndsOnFridayMorning(bookingIndex)) {
+      return [ReturnTimeType.SpecificTime];
+    }
+    return this.returnTimeTypes;
+  }
+
+  protected isReturnTimeTypeSelectable(bookingIndex: number, type: ReturnTimeType): boolean {
+    return this.availableReturnTimeTypes(bookingIndex).includes(type);
+  }
+
+  protected onReturnTimeTypeClick(event: Event, bookingIndex: number, type: ReturnTimeType): void {
+    if (!this.isReturnTimeTypeSelectable(bookingIndex, type)) {
+      event.preventDefault();
+    }
+  }
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
   protected readonly editingId = signal<number | null>(null);
@@ -1764,6 +1785,9 @@ export class OrderFormComponent implements OnInit {
       if (booking.errors?.['returnTimeRequired']) {
         return `${prefix}יש להזין שעת החזרה`;
       }
+      if (booking.errors?.['fridayReturnTimeInvalid']) {
+        return `${prefix}ביום שישי ההשאלה אפשרית רק במסגרת משמרת הבוקר — יש לבחור שעת החזרה מדויקת`;
+      }
     }
     const phoneCtrl = this.form.controls['phone'];
     const phone2Ctrl = this.form.controls['phone2'];
@@ -1923,8 +1947,11 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected clearForm(): void {
-    const todayIso = this.toIso(new Date());
-    const todayParts = this.hebrew.toHebrewParts(new Date());
+    const today = new Date();
+    const todayIso = this.toIso(today);
+    const todayParts = this.hebrew.toHebrewParts(today);
+    const defaultReturnType =
+      today.getDay() === 5 ? ReturnTimeType.SpecificTime : ReturnTimeType.LateNight;
 
     while (this.bookings.length > 1) {
       this.bookings.removeAt(this.bookings.length - 1);
@@ -1946,7 +1973,7 @@ export class OrderFormComponent implements OnInit {
       endHebrewYear: todayParts.year,
       endHebrewMonth: todayParts.month,
       endHebrewDay: todayParts.day,
-      returnTimeType: ReturnTimeType.LateNight,
+      returnTimeType: defaultReturnType,
       customReturnTime: ''
     });
     this.syncEndpointHebrewSignals(0, 'start');
@@ -2302,6 +2329,8 @@ export class OrderFormComponent implements OnInit {
     const today = new Date();
     const todayIso = this.toIso(today);
     const parts = this.hebrew.toHebrewParts(today);
+    const defaultReturnType =
+      today.getDay() === 5 ? ReturnTimeType.SpecificTime : ReturnTimeType.LateNight;
 
     return this.fb.group(
       {
@@ -2320,7 +2349,7 @@ export class OrderFormComponent implements OnInit {
         endHebrewMonth: this.fb.nonNullable.control<number>(parts.month, Validators.required),
         endHebrewDay: this.fb.nonNullable.control<number>(parts.day, Validators.required),
 
-        returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(ReturnTimeType.LateNight, Validators.required),
+        returnTimeType: this.fb.nonNullable.control<ReturnTimeType>(defaultReturnType, Validators.required),
         customReturnTime: ['', Validators.maxLength(20)]
       },
       {
@@ -2526,12 +2555,52 @@ export class OrderFormComponent implements OnInit {
   private returnTimeValidator(group: AbstractControl): ValidationErrors | null {
     const type = group.get('returnTimeType')?.value as ReturnTimeType | undefined;
     const custom = group.get('customReturnTime')?.value;
+    if (this.groupEndsOnFridayMorning(group)) {
+      if (type === ReturnTimeType.LateNight || type === ReturnTimeType.NextMorning) {
+        return { fridayReturnTimeInvalid: true };
+      }
+      // SpecificTime on Friday may omit the clock (= end of morning shift).
+      return null;
+    }
     if (type !== ReturnTimeType.SpecificTime) {
       return null;
     }
     return typeof custom === 'string' && custom.trim().length > 0
       ? null
       : { returnTimeRequired: true };
+  }
+
+  /** True when the booking range ends on Friday morning (the only Friday shift). */
+  protected bookingEndsOnFridayMorning(bookingIndex: number): boolean {
+    return this.groupEndsOnFridayMorning(this.bookingGroup(bookingIndex));
+  }
+
+  private groupEndsOnFridayMorning(group: AbstractControl): boolean {
+    const endDate = group.get('endDate')?.value as string | undefined;
+    const endShift = group.get('endShift')?.value as TimeSlot | undefined;
+    if (!endDate || endShift == null) {
+      return false;
+    }
+    const d = this.hebrew.parseIso(endDate);
+    if (!d) {
+      return false;
+    }
+    return d.getDay() === 5 && endShift === TimeSlot.Morning;
+  }
+
+  /**
+   * When the range ends on Friday morning, lock return to SpecificTime so LateNight
+   * ("after 11") / NextMorning cannot invent a Friday evening hold.
+   */
+  private applyFridayReturnTimeRestriction(booking: FormGroup): void {
+    if (!this.groupEndsOnFridayMorning(booking)) {
+      return;
+    }
+    const typeCtrl = booking.controls['returnTimeType'];
+    const current = typeCtrl.value as ReturnTimeType;
+    if (current === ReturnTimeType.LateNight || current === ReturnTimeType.NextMorning) {
+      typeCtrl.setValue(ReturnTimeType.SpecificTime, { emitEvent: false });
+    }
   }
 
   // -----------------------------------------------------------------
@@ -2795,6 +2864,7 @@ export class OrderFormComponent implements OnInit {
       }), { emitEvent: false });
     }
     booking.controls['orderDate'].setValue(startDate, { emitEvent: false });
+    this.applyFridayReturnTimeRestriction(booking);
     booking.updateValueAndValidity({ emitEvent: false });
     this.availabilityFetchTrigger$.next(bookingIndex);
     this.institutionConflictTrigger$.next();

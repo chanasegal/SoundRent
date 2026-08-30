@@ -510,8 +510,16 @@
             <span class="return-time-title">שעת החזרה</span>
             <div class="return-time-options">
               @for (type of returnTimeTypes; track type) {
-                <label class="return-time-option">
-                  <input type="radio" formControlName="returnTimeType" [value]="type" />
+                <label
+                  class="return-time-option"
+                  [class.return-time-option--disabled]="!isReturnTimeTypeSelectable(bi, type)"
+                >
+                  <input
+                    type="radio"
+                    formControlName="returnTimeType"
+                    [value]="type"
+                    (click)="onReturnTimeTypeClick($event, bi, type)"
+                  />
                   <span>{{ returnTimeTypeLabels[type] }}</span>
                 </label>
                 @if (type === returnTimeTypeEnum.SpecificTime && bookingGroup(bi).controls['returnTimeType'].value === returnTimeTypeEnum.SpecificTime) {
@@ -524,8 +532,14 @@
                 }
               }
             </div>
+            @if (bookingEndsOnFridayMorning(bi)) {
+              <p class="form-hint mt-2">ביום שישי ההשאלה אפשרית רק במסגרת משמרת הבוקר.</p>
+            }
             @if (bookingGroup(bi).errors?.['returnTimeRequired'] && bookingGroup(bi).controls['customReturnTime'].touched) {
               <p class="form-error mt-2">יש להזין שעת החזרה</p>
+            }
+            @if (bookingGroup(bi).errors?.['fridayReturnTimeInvalid']) {
+              <p class="form-error mt-2">ביום שישי ההשאלה אפשרית רק במסגרת משמרת בוקר</p>
             }
           </div>
 

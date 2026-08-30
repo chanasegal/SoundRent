@@ -70,7 +70,13 @@ public class OrderService : IOrderService
     {
         NormalizeAndValidateOrderPhones(dto);
         await ResolveInstitutionAsync(dto, cancellationToken);
-        ExtendMorningEndShiftForLateReturn(dto);
+        var accessoryOnly = IsAccessoryOnlyOrder(dto);
+        if (!accessoryOnly)
+        {
+            ExtendMorningEndShiftForLateReturn(dto);
+            ValidateFridayMorningReturnTime(dto);
+        }
+
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
@@ -110,7 +116,13 @@ public class OrderService : IOrderService
 
         NormalizeAndValidateOrderPhones(dto);
         await ResolveInstitutionAsync(dto, cancellationToken);
-        ExtendMorningEndShiftForLateReturn(dto);
+        var accessoryOnly = IsAccessoryOnlyOrder(dto);
+        if (!accessoryOnly)
+        {
+            ExtendMorningEndShiftForLateReturn(dto);
+            ValidateFridayMorningReturnTime(dto);
+        }
+
         ValidateLoanedEquipments(dto.LoanedEquipments);
         var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
         var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
@@ -1355,14 +1367,21 @@ public class OrderService : IOrderService
             throw new ValidationException("יש לבחור לפחות מועד אחד");
         }
 
-        if (!AreShiftsStrictlyConsecutive(shifts))
-        {
-            throw new ValidationException("הזמנה בודדת חייבת להכיל מועדים רצופים בלבד");
-        }
+        var accessoryOnlyLoan = allowAccessoryOnlyLoan && equipmentIds.Count == 0;
 
-        foreach (var shift in shifts)
+        // Accessory-only loans use a date placeholder shift; they are not bound to
+        // Morning/Evening or Friday/Saturday slot rules (unlike equipment bookings).
+        if (!accessoryOnlyLoan)
         {
-            ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
+            if (!AreShiftsStrictlyConsecutive(shifts))
+            {
+                throw new ValidationException("הזמנה בודדת חייבת להכיל מועדים רצופים בלבד");
+            }
+
+            foreach (var shift in shifts)
+            {
+                ValidateDayAndSlotRules(shift.OrderDate, shift.TimeSlot);
+            }
         }
 
         await ValidateShiftsNotBlockedAsync(shifts, validateBlockedDates, systemType, cancellationToken);
@@ -1445,6 +1464,17 @@ public class OrderService : IOrderService
         _ => timeSlot.ToString()
     };
 
+    /// <summary>
+    /// Standalone accessory loan: no board equipment, only loaned accessories.
+    /// These are date-based and not subject to shift / Fri–Sat slot rules.
+    /// </summary>
+    private static bool IsAccessoryOnlyOrder(OrderCreateUpdateDto dto)
+    {
+        var hasEquipment = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds).Count > 0;
+        var hasAccessories = (dto.LoanedEquipments ?? []).Any(le => le.Quantity > 0);
+        return !hasEquipment && hasAccessories;
+    }
+
     private static void ExtendMorningEndShiftForLateReturn(OrderCreateUpdateDto dto)
     {
         if (dto.ReturnTimeType is not (ReturnTimeType.LateNight or ReturnTimeType.NextMorning))
@@ -1459,11 +1489,42 @@ public class OrderService : IOrderService
             return;
         }
 
+        // Friday has morning only — never invent a Friday evening shift for late/overnight returns.
+        if (lastShift.OrderDate.DayOfWeek == DayOfWeek.Friday)
+        {
+            return;
+        }
+
         dto.Shifts = OrderMapper.NormalizeShifts(shifts.Append(new OrderShiftDto
         {
             OrderDate = lastShift.OrderDate,
             TimeSlot = TimeSlot.Evening
         })).ToList();
+    }
+
+    /// <summary>
+    /// Friday ends at morning shift only. LateNight / NextMorning imply evening or overnight
+    /// hold and are not allowed — clients must use SpecificTime (clock optional = end of morning).
+    /// </summary>
+    private static void ValidateFridayMorningReturnTime(OrderCreateUpdateDto dto)
+    {
+        var shifts = OrderMapper.NormalizeShifts(dto.Shifts);
+        var lastShift = shifts.LastOrDefault();
+        if (lastShift is null)
+        {
+            return;
+        }
+
+        if (lastShift.OrderDate.DayOfWeek != DayOfWeek.Friday || lastShift.TimeSlot != TimeSlot.Morning)
+        {
+            return;
+        }
+
+        if (dto.ReturnTimeType is ReturnTimeType.LateNight or ReturnTimeType.NextMorning)
+        {
+            throw new ValidationException(
+                "ביום שישי ההחזרה היא עד סוף משמרת בוקר בלבד — יש לבחור שעת החזרה מדויקת");
+        }
     }
 
     private static bool AreShiftsStrictlyConsecutive(IReadOnlyList<OrderShiftDto> shifts)

@@ -533,9 +533,9 @@ public class OrderRepository : IOrderRepository
                     ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
                     Notes = le.Notes.Select(n => new { n.Content, n.IsReturned }).ToList()
                 }))
-            .OrderBy(r => r.ReturnDate ?? DateOnly.MinValue)
-            .ThenBy(r => r.Order.Id)
-            .ThenBy(r => r.Line.Id)
+            .OrderByDescending(r => r.ReturnDate ?? DateOnly.MinValue)
+            .ThenByDescending(r => r.Order.Id)
+            .ThenByDescending(r => r.Line.Id)
             .ToListAsync(cancellationToken);
 
         var catalogRows = await _db.InventoryDefinitions
@@ -627,7 +627,12 @@ public class OrderRepository : IOrderRepository
             return dto;
         }).ToList();
 
-        return fromManual.Concat(fromOrders).ToList();
+        return fromManual.Concat(fromOrders)
+            .OrderByDescending(dto => dto.ReturnDate)
+            .ThenByDescending(dto => dto.OrderId)
+            .ThenByDescending(dto => dto.ManualItemId ?? 0)
+            .ThenByDescending(dto => dto.LoanedEquipmentId)
+            .ToList();
     }
 
     public async Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(

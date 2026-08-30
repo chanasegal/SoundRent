@@ -25,9 +25,9 @@ import {
   Validators
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
 import { finalize } from 'rxjs';
-import { distinctUntilChanged, map, startWith } from 'rxjs/operators';
+import { distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialLocationDto } from '../../core/models/accessory-inventory.model';
 import {
@@ -559,12 +559,106 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.serialSearchAttempted.set(true);
     this.data
       .getAccessorySerialLocation(def.id, serialCode)
-      .pipe(finalize(() => this.serialSearchLoading.set(false)))
+      .pipe(
+        switchMap((result) => {
+          if (!result) {
+            return of(null);
+          }
+          const enriched = this.enrichSerialLocationFromCatalog(result, def, serialCode);
+          if (this.serialLocationHasCustomerDetails(enriched)) {
+            return of(enriched);
+          }
+          const orderId = enriched.orderId;
+          if (orderId != null && orderId > 0) {
+            return this.data.getOrderById(orderId).pipe(
+              map((order) => (order ? this.mergeOrderIntoSerialLocation(enriched, order) : enriched))
+            );
+          }
+          return of(enriched);
+        }),
+        finalize(() => this.serialSearchLoading.set(false))
+      )
       .subscribe((result) => {
         if (result) {
           this.serialLocationResult.set(result);
         }
       });
+  }
+
+  /** True when the locator card can show customer / order fields. */
+  private serialLocationHasCustomerDetails(result: AccessorySerialLocationDto): boolean {
+    return Boolean(
+      (result.customerName ?? '').trim()
+        || (result.phone ?? '').trim()
+        || (result.orderId != null && result.orderId > 0)
+    );
+  }
+
+  /**
+   * When the location API marks a unit as loaned but omits holder fields, fill from the
+   * already-loaded catalog (activeHolders / serialUnits) — same source as the inventory grid.
+   */
+  private enrichSerialLocationFromCatalog(
+    result: AccessorySerialLocationDto,
+    def: InventoryDefinitionDto,
+    serialCode: string
+  ): AccessorySerialLocationDto {
+    if (result.isInWarehouse || result.isMissing || this.serialLocationHasCustomerDetails(result)) {
+      return result;
+    }
+
+    const code = serialCode.trim();
+    const holder = (def.activeHolders ?? []).find(
+      (h) =>
+        (h.serialCode ?? '').trim().localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+    if (holder) {
+      return {
+        ...result,
+        orderId: holder.orderId ?? result.orderId ?? null,
+        customerName: holder.customerName ?? result.customerName ?? null,
+        phone: holder.phone ?? result.phone ?? null,
+        address: holder.address ?? result.address ?? null,
+        loanDate: holder.eventDate ?? result.loanDate ?? null
+      };
+    }
+
+    const unit = (def.serialUnits ?? []).find(
+      (u) => u.serialCode.trim().localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+    );
+    if (!unit) {
+      return result;
+    }
+
+    return {
+      ...result,
+      customerName: unit.holderCustomerName ?? result.customerName ?? null,
+      phone: unit.holderPhone ?? result.phone ?? null,
+      address: unit.holderAddress ?? result.address ?? null,
+      loanDate: unit.markedMissingAt ?? result.loanDate ?? null
+    };
+  }
+
+  private mergeOrderIntoSerialLocation(
+    result: AccessorySerialLocationDto,
+    order: OrderDto
+  ): AccessorySerialLocationDto {
+    const loanDate =
+      result.loanDate ??
+      order.shifts?.map((s) => s.orderDate).sort()[0] ??
+      null;
+
+    return {
+      ...result,
+      orderId: result.orderId ?? order.id,
+      customerName: (result.customerName ?? order.customerName ?? '').trim() || null,
+      phone: (result.phone ?? order.phone ?? '').trim() || null,
+      phone2: (result.phone2 ?? order.phone2 ?? '').trim() || null,
+      address: (result.address ?? order.address ?? '').trim() || null,
+      deposit: (result.deposit ?? order.depositOnName ?? '').trim() || null,
+      notes: (result.notes ?? order.notes ?? '').trim() || null,
+      loanDate
+    };
   }
 
   private resolveSerialSearchTarget():

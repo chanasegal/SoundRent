@@ -750,8 +750,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             };
         }
 
-        var holder = await FindActiveHolderAsync(def.Id, def.DisplayName, code, cancellationToken);
-        holder ??= await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
+        var holder = await ResolveSerialHolderAsync(def, serial, code, cancellationToken);
         var missing = holder is null
             ? await FindMissingHolderAsync(def.Id, code, cancellationToken)
             : null;
@@ -768,7 +767,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 && serial.PhysicalStatus == AccessorySerialPhysicalStatus.InWarehouse,
             IsMissing = holder is null
                 && (missing is not null || serial.PhysicalStatus == AccessorySerialPhysicalStatus.Missing),
-            OrderId = holder?.OrderId,
+            OrderId = holder?.OrderId > 0 ? holder.OrderId : null,
             CustomerName = snapshot?.CustomerName,
             Phone = snapshot?.Phone,
             Phone2 = snapshot?.Phone2,
@@ -1346,14 +1345,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
     private async Task<Dictionary<int, Dictionary<string, InventoryHolderDto>>> LoadActiveLoanHoldersByDefinitionAsync(
         CancellationToken cancellationToken)
     {
-        var definitionIdsByName = await _db.InventoryDefinitions.AsNoTracking()
-            .Where(d => d.IsActive)
-            .Select(d => new { d.Id, d.DisplayName })
-            .ToDictionaryAsync(
-                d => d.DisplayName.Trim(),
-                d => d.Id,
-                StringComparer.OrdinalIgnoreCase,
-                cancellationToken);
+        var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
 
         var rows = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
@@ -1365,6 +1357,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             select new
             {
                 le.InventoryDefinitionId,
+                le.LoanedEquipmentType,
                 le.CustomItemName,
                 Code = note.Content!,
                 order.Id,
@@ -1386,8 +1379,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             var definitionId = ResolveInventoryDefinitionId(
                 row.InventoryDefinitionId,
+                row.LoanedEquipmentType,
                 row.CustomItemName,
-                definitionIdsByName);
+                lookup);
             if (definitionId is null)
             {
                 continue;
@@ -1522,6 +1516,18 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
     }
 
+    private async Task<SerialHolderSnapshot?> ResolveSerialHolderAsync(
+        InventoryDefinition def,
+        InventorySerialCode serial,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var holder = await FindActiveHolderAsync(def.Id, def.DisplayName, code, cancellationToken);
+        holder ??= await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
+        holder ??= await FindActiveHolderFromLoanMapAsync(def.Id, serial.SerialCode, cancellationToken);
+        return holder;
+    }
+
     private async Task<SerialHolderSnapshot?> FindActiveHolderAsync(
         int inventoryDefinitionId,
         string inventoryDisplayName,
@@ -1535,6 +1541,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var catalogName = (inventoryDisplayName ?? string.Empty).Trim();
+        var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
+
         var candidates = await (
             from le in _db.OrderLoanedEquipments.AsNoTracking()
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
@@ -1542,27 +1550,85 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             where !order.IsCancelled
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
-                  && (
-                      le.InventoryDefinitionId == inventoryDefinitionId
-                      || (le.InventoryDefinitionId == null
-                          && le.CustomItemName != null
-                          && le.CustomItemName.ToLower() == catalogName.ToLower()))
             select new
             {
                 NoteContent = note.Content!,
-                order.Id,
-                order.CustomerName,
-                order.Phone,
-                order.Phone2,
-                order.Address,
-                order.DepositOnName,
-                order.Notes,
-                LoanDate = _db.OrderShifts.Where(s => s.OrderId == order.Id).OrderBy(s => s.OrderDate)
-                    .Select(s => (DateOnly?)s.OrderDate).FirstOrDefault()
+                le.InventoryDefinitionId,
+                le.LoanedEquipmentType,
+                le.CustomItemName,
+                le.IsCustomItem,
+                order.Id
             }).ToListAsync(cancellationToken);
 
         var row = candidates.FirstOrDefault(candidate =>
-            string.Equals(candidate.NoteContent.Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase));
+            string.Equals(candidate.NoteContent.Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase)
+            && LineMatchesInventoryDefinition(
+                candidate.InventoryDefinitionId,
+                candidate.LoanedEquipmentType,
+                candidate.CustomItemName,
+                candidate.IsCustomItem,
+                inventoryDefinitionId,
+                catalogName,
+                lookup));
+        if (row is null)
+        {
+            return null;
+        }
+
+        return await LoadOrderHolderSnapshotAsync(row.Id, cancellationToken);
+    }
+
+    private async Task<SerialHolderSnapshot?> FindActiveHolderFromLoanMapAsync(
+        int inventoryDefinitionId,
+        string serialCode,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCode = (serialCode ?? string.Empty).Trim();
+        if (normalizedCode.Length == 0)
+        {
+            return null;
+        }
+
+        var holders = await LoadActiveLoanHoldersByDefinitionAsync(cancellationToken);
+        if (!holders.TryGetValue(inventoryDefinitionId, out var byCode))
+        {
+            return null;
+        }
+
+        if (!byCode.TryGetValue(normalizedCode, out var loan))
+        {
+            loan = byCode.Values.FirstOrDefault(h =>
+                string.Equals(h.SerialCode, normalizedCode, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (loan?.OrderId is not int orderId || orderId <= 0)
+        {
+            return null;
+        }
+
+        return await LoadOrderHolderSnapshotAsync(orderId, cancellationToken);
+    }
+
+    private async Task<SerialHolderSnapshot?> LoadOrderHolderSnapshotAsync(
+        int orderId,
+        CancellationToken cancellationToken)
+    {
+        var row = await _db.Orders.AsNoTracking()
+            .Where(o => o.Id == orderId && !o.IsCancelled)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Phone,
+                o.Phone2,
+                o.Address,
+                o.DepositOnName,
+                o.Notes,
+                LoanDate = _db.OrderShifts.Where(s => s.OrderId == o.Id).OrderBy(s => s.OrderDate)
+                    .Select(s => (DateOnly?)s.OrderDate).FirstOrDefault()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
         if (row is null)
         {
             return null;
@@ -1617,6 +1683,47 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         };
     }
 
+    private static bool LineMatchesInventoryDefinition(
+        int? lineInventoryDefinitionId,
+        LoanedEquipmentType? loanedEquipmentType,
+        string? customItemName,
+        bool isCustomItem,
+        int targetInventoryDefinitionId,
+        string targetDisplayName,
+        (
+            Dictionary<int, int> ById,
+            Dictionary<LoanedEquipmentType, int> ByType,
+            Dictionary<string, int> ByName) lookup)
+    {
+        if (lineInventoryDefinitionId == targetInventoryDefinitionId)
+        {
+            return true;
+        }
+
+        var resolvedId = ResolveInventoryDefinitionId(
+            lineInventoryDefinitionId,
+            loanedEquipmentType,
+            customItemName,
+            lookup);
+        if (resolvedId == targetInventoryDefinitionId)
+        {
+            return true;
+        }
+
+        var customName = (customItemName ?? string.Empty).Trim();
+        if (customName.Length > 0
+            && customName.Equals(targetDisplayName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Legacy rows: catalog accessories persisted as custom lines (quick-loan / enum-less catalog).
+        return isCustomItem
+               && customName.Length > 0
+               && lookup.ByName.TryGetValue(customName, out var byNameId)
+               && byNameId == targetInventoryDefinitionId;
+    }
+
     private static int? ResolveInventoryDefinitionId(
         int? inventoryDefinitionId,
         LoanedEquipmentType? loanedEquipmentType,
@@ -1643,25 +1750,6 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         return inventoryDefinitionId is int fallback and > 0 ? fallback : null;
-    }
-
-    private static int? ResolveInventoryDefinitionId(
-        int? inventoryDefinitionId,
-        string? customItemName,
-        IReadOnlyDictionary<string, int> definitionIdsByName)
-    {
-        if (inventoryDefinitionId is int id and > 0)
-        {
-            return id;
-        }
-
-        var name = (customItemName ?? string.Empty).Trim();
-        if (name.Length == 0)
-        {
-            return null;
-        }
-
-        return definitionIdsByName.TryGetValue(name, out var resolvedId) ? resolvedId : null;
     }
 
     private async Task<Dictionary<int, HashSet<string>>> ExtractAssignedCodesByDefinitionIdAsync(
@@ -1716,12 +1804,14 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         // Fallback via default-accessory kit when MixerId is not set yet.
         var accessoryCode = serial.SerialCode.Trim();
-        var kit = await _db.EquipmentDefaultAccessories.AsNoTracking()
+        var kitRows = await _db.EquipmentDefaultAccessories.AsNoTracking()
             .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
-                        && e.InventoryDefinitionId == serial.InventoryDefinitionId
-                        && e.AccessorySerialCode == accessoryCode)
-            .Select(e => new { e.ParentSerialCode })
-            .FirstOrDefaultAsync(cancellationToken);
+                        && e.InventoryDefinitionId == serial.InventoryDefinitionId)
+            .Select(e => new { e.ParentSerialCode, e.AccessorySerialCode })
+            .ToListAsync(cancellationToken);
+
+        var kit = kitRows.FirstOrDefault(k =>
+            string.Equals((k.AccessorySerialCode ?? string.Empty).Trim(), accessoryCode, StringComparison.OrdinalIgnoreCase));
 
         if (kit is null)
         {

@@ -131,6 +131,7 @@ export class QuickLoanComponent implements OnInit {
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
   private readonly extraYearsSig = signal<number[]>([]);
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
+  /** Placeholder slot stored with the loan date; accessory loans are not shift-bound. */
   private readonly defaultTimeSlot = TimeSlot.Morning;
 
   protected readonly hebrewYearSig = signal(this.initialHebrew.year);
@@ -1773,6 +1774,7 @@ export class QuickLoanComponent implements OnInit {
       depositOnName: (this.form.controls.deposit.value ?? '').trim() || null,
       paymentAmount: null,
       isUnpaid: false,
+      // Accessory loans are date-based only; shift/return-time rules do not apply.
       returnTimeType: ReturnTimeType.LateNight,
       customReturnTime: null,
       notes: (this.form.controls.notes.value ?? '').trim() || null,

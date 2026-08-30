@@ -817,8 +817,10 @@ export class WeeklyGridComponent {
     switch (order.returnTimeType) {
       case ReturnTimeType.NextMorning:
         return 'עד 08:00';
-      case ReturnTimeType.SpecificTime:
-        return `עד ${order.customReturnTime ?? ''}`.trim();
+      case ReturnTimeType.SpecificTime: {
+        const custom = (order.customReturnTime ?? '').trim();
+        return custom ? `עד ${custom}` : 'כל הבוקר';
+      }
       case ReturnTimeType.LateNight:
       default:
         return 'עד הלילה';

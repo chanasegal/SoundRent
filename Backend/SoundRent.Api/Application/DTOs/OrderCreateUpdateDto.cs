@@ -80,7 +80,33 @@ public class OrderCreateUpdateDto : IValidatableObject
                 new[] { nameof(Phone2) });
         }
 
-        if (ReturnTimeType == ReturnTimeType.SpecificTime && string.IsNullOrWhiteSpace(CustomReturnTime))
+        // Accessory-only loans are not bound to shift return-time rules.
+        if (!hasEquipment && hasLoanedAccessories)
+        {
+            yield break;
+        }
+
+        var lastShift = Shifts
+            .OrderBy(s => s.OrderDate)
+            .ThenBy(s => s.TimeSlot)
+            .LastOrDefault();
+        var endsFridayMorning =
+            lastShift is not null
+            && lastShift.OrderDate.DayOfWeek == DayOfWeek.Friday
+            && lastShift.TimeSlot == TimeSlot.Morning;
+
+        // Friday morning end: night / next-morning options are invalid (no evening shift).
+        // SpecificTime may omit the clock (= end of morning shift).
+        if (endsFridayMorning
+            && ReturnTimeType is ReturnTimeType.LateNight or ReturnTimeType.NextMorning)
+        {
+            yield return new ValidationResult(
+                "ביום שישי ההחזרה היא עד סוף משמרת בוקר בלבד — יש לבחור שעת החזרה מדויקת",
+                new[] { nameof(ReturnTimeType) });
+        }
+        else if (ReturnTimeType == ReturnTimeType.SpecificTime
+                 && string.IsNullOrWhiteSpace(CustomReturnTime)
+                 && !endsFridayMorning)
         {
             yield return new ValidationResult(
                 "יש להזין שעת החזרה",

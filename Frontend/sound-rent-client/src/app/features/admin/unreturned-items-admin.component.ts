@@ -5,18 +5,22 @@ import {
   DestroyRef,
   OnInit,
   computed,
+  effect,
   inject,
-  signal
+  signal,
+  untracked
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { EMPTY, finalize, merge } from 'rxjs';
+import { EMPTY, concatMap, finalize, from, merge, toArray } from 'rxjs';
 import { debounceTime, map, switchMap } from 'rxjs/operators';
 
 import { CustomerSuggestDto } from '../../core/models/customer.model';
-import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
-import { LoanedEquipmentType } from '../../core/models/enums';
+import {
+  CreateManualUnreturnedItemDto,
+  UnreturnedItemDto
+} from '../../core/models/equipment-return.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
@@ -31,8 +35,21 @@ import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phon
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
+  clampIsraeliPhoneDigits,
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
+
+interface AddMissingItemRowValue {
+  isCustomItem: boolean;
+  inventoryDefinitionId: number | null;
+  customItemName: string;
+  itemCode: string;
+}
+
+interface AddMissingSaveEntry {
+  payload: CreateManualUnreturnedItemDto;
+  isCustomItem: boolean;
+}
 
 @Component({
   selector: 'app-unreturned-items-admin',
@@ -62,6 +79,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
 
   protected readonly addOpen = signal(false);
   protected readonly savingMissing = signal(false);
+  protected readonly itemOptionsLoading = signal(false);
   protected readonly itemOptions = this.inventory.definitions;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
@@ -71,9 +89,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   protected readonly customerSuggestIndex = signal(-1);
 
   protected readonly filteredRows = computed(() =>
-    this.filterRows(
-      this.rows().map((row) => this.inventory.enrichUnreturnedItem(row)),
-      this.searchQuery()
+    this.sortRowsNewestFirst(
+      this.filterRows(
+        this.rows().map((row) => this.inventory.enrichUnreturnedItem(row)),
+        this.searchQuery()
+      )
     )
   );
 
@@ -81,11 +101,32 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     customerName: ['', [Validators.maxLength(200)]],
     phone: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
     address: ['', [Validators.maxLength(200)]],
-    isCustomItem: [false],
-    inventoryDefinitionId: [null as number | null],
-    customItemName: ['', [Validators.maxLength(200)]],
-    itemCode: ['', [Validators.maxLength(100)]]
+    items: this.fb.array([this.createAddItemRowGroup()])
   });
+
+  protected itemRows(): FormArray {
+    return this.addForm.get('items') as FormArray;
+  }
+
+  protected itemRowGroup(index: number): FormGroup {
+    return this.itemRows().at(index) as FormGroup;
+  }
+
+  private createAddItemRowGroup(): FormGroup {
+    return this.fb.group({
+      isCustomItem: [false],
+      inventoryDefinitionId: [{ value: null as number | null, disabled: this.itemOptionsLoading() }],
+      customItemName: ['', [Validators.maxLength(200)]],
+      itemCode: ['', [Validators.maxLength(100)]]
+    });
+  }
+
+  constructor() {
+    effect(() => {
+      const loading = this.itemOptionsLoading();
+      untracked(() => this.syncInventoryDefinitionSelectState(loading));
+    });
+  }
 
   ngOnInit(): void {
     this.inventory.load().subscribe();
@@ -109,16 +150,25 @@ export class UnreturnedItemsAdminComponent implements OnInit {
           });
           return;
         }
-        this.refresh();
+        if (!this.addOpen()) {
+          this.refresh();
+        }
       });
 
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.refresh());
+      .subscribe(() => {
+        if (!this.addOpen()) {
+          this.refresh();
+        }
+      });
 
     startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
       skipWhen: () =>
-        this.loading() || this.savingMissing() || this.removingKeys().size > 0
+        this.addOpen() ||
+        this.loading() ||
+        this.savingMissing() ||
+        this.removingKeys().size > 0
     });
   }
 
@@ -133,33 +183,93 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   }
 
   protected openAddMissing(): void {
+    this.resetAddItemRows();
     this.addForm.reset({
       customerName: '',
       phone: '',
-      address: '',
-      isCustomItem: false,
-      inventoryDefinitionId: null,
-      customItemName: '',
-      itemCode: ''
+      address: ''
     });
     this.closeCustomerSuggestions();
     this.addOpen.set(true);
+    this.ensureItemOptionsLoaded();
+  }
+
+  private ensureItemOptionsLoaded(): void {
+    if (this.itemOptions().length > 0) {
+      this.itemOptionsLoading.set(false);
+      this.syncInventoryDefinitionSelectState(false);
+      return;
+    }
+
+    this.itemOptionsLoading.set(true);
+    this.inventory
+      .load()
+      .pipe(
+        finalize(() => {
+          this.itemOptionsLoading.set(false);
+          this.syncInventoryDefinitionSelectState(false);
+        })
+      )
+      .subscribe();
+  }
+
+  protected addItemRow(): void {
+    this.itemRows().push(this.createAddItemRowGroup());
+    this.syncInventoryDefinitionSelectState(this.itemOptionsLoading());
+  }
+
+  protected removeItemRow(index: number): void {
+    if (this.itemRows().length <= 1) {
+      return;
+    }
+    this.itemRows().removeAt(index);
+    this.syncInventoryDefinitionSelectState(this.itemOptionsLoading());
+  }
+
+  protected onItemCustomToggle(index: number): void {
+    const group = this.itemRowGroup(index);
+    const checked = group.controls['isCustomItem'].value === true;
+    if (checked) {
+      group.patchValue({ inventoryDefinitionId: null });
+      group.controls['inventoryDefinitionId'].setErrors(null);
+    } else {
+      group.patchValue({ customItemName: '' });
+      group.controls['customItemName'].setErrors(null);
+    }
+    this.syncInventoryDefinitionSelectState(this.itemOptionsLoading());
+  }
+
+  private resetAddItemRows(): void {
+    this.itemRows().clear();
+    this.itemRows().push(this.createAddItemRowGroup());
+    this.syncInventoryDefinitionSelectState(this.itemOptionsLoading());
+  }
+
+  private syncInventoryDefinitionSelectState(loading: boolean): void {
+    this.itemRows().controls.forEach((ctrl) => {
+      const group = ctrl as FormGroup;
+      const catalogCtrl = group.controls['inventoryDefinitionId'];
+      if (!catalogCtrl) {
+        return;
+      }
+
+      const isCustom = group.controls['isCustomItem']?.value === true;
+      if (loading || isCustom) {
+        if (catalogCtrl.enabled) {
+          catalogCtrl.disable({ emitEvent: false });
+        }
+        return;
+      }
+
+      if (catalogCtrl.disabled) {
+        catalogCtrl.enable({ emitEvent: false });
+      }
+    });
   }
 
   protected closeAddMissing(): void {
     this.addOpen.set(false);
     this.closeCustomerSuggestions();
-  }
-
-  protected onCustomItemToggle(): void {
-    const checked = this.addForm.controls.isCustomItem.value === true;
-    if (checked) {
-      this.addForm.patchValue({ inventoryDefinitionId: null });
-      this.addForm.controls.inventoryDefinitionId.setErrors(null);
-    } else {
-      this.addForm.patchValue({ customItemName: '' });
-      this.addForm.controls.customItemName.setErrors(null);
-    }
   }
 
   protected customerSuggestLabel(c: CustomerSuggestDto): string {
@@ -234,23 +344,11 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   }
 
   protected submitAddMissing(): void {
-    const isCustom = this.addForm.controls.isCustomItem.value === true;
-    const catalogCtrl = this.addForm.controls.inventoryDefinitionId;
-    const customCtrl = this.addForm.controls.customItemName;
-
-    if (isCustom) {
-      catalogCtrl.setErrors(null);
-      const customName = (customCtrl.value ?? '').trim();
-      if (!customName) {
-        customCtrl.setErrors({ required: true });
-      }
-    } else {
-      customCtrl.setErrors(null);
-      if (catalogCtrl.value == null) {
-        catalogCtrl.setErrors({ required: true });
-      }
+    if (!this.validateAddItemRows()) {
+      this.addForm.markAllAsTouched();
+      this.toast.error('אנא מלאו את השדות הנדרשים');
+      return;
     }
-
     if (this.addForm.invalid) {
       this.addForm.markAllAsTouched();
       this.toast.error('אנא מלאו את השדות הנדרשים');
@@ -261,58 +359,161 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     }
 
     const v = this.addForm.getRawValue();
-    const itemCode = (v.itemCode ?? '').trim();
+    const customerName = (v.customerName ?? '').trim() || null;
+    const phoneRaw = (v.phone ?? '').trim();
+    const phone = phoneRaw ? clampIsraeliPhoneDigits(phoneRaw) || null : null;
+    const address = (v.address ?? '').trim() || null;
+    const customer = { customerName, phone, address };
 
-    let inventoryDefinitionId: number | null = null;
-    let loanedEquipmentType: LoanedEquipmentType | null = null;
-    let itemName: string | null = null;
+    const saveEntries: AddMissingSaveEntry[] = [];
+    const itemCodesInBatch: string[] = [];
 
-    if (isCustom) {
-      itemName = (v.customItemName ?? '').trim();
-    } else {
-      const definitionId = Number(v.inventoryDefinitionId);
-      const def = this.itemOptions().find((d) => d.id === definitionId);
-      if (!def) {
+    for (const ctrl of this.itemRows().controls) {
+      const row = (ctrl as FormGroup).getRawValue() as AddMissingItemRowValue;
+      const payload = this.buildManualUnreturnedApiPayload(customer, row);
+      if (!payload) {
         this.toast.error('יש לבחור פריט');
         return;
       }
-      inventoryDefinitionId = def.id;
-      loanedEquipmentType = null;
-      itemName = def.displayName;
+
+      const normalizedCode = (payload.itemCode ?? '').trim();
+      if (normalizedCode) {
+        itemCodesInBatch.push(normalizedCode);
+      }
+
+      saveEntries.push({
+        payload,
+        isCustomItem: row.isCustomItem === true
+      });
+    }
+
+    if (itemCodesInBatch.length !== new Set(itemCodesInBatch).size) {
+      this.toast.error('קוד פריט כפול — יש להזין קוד ייחודי לכל שורה');
+      return;
     }
 
     this.savingMissing.set(true);
-    this.data
-      .createManualUnreturnedItem({
-        customerName: (v.customerName ?? '').trim() || null,
-        phone: (v.phone ?? '').trim() || null,
-        address: (v.address ?? '').trim() || null,
-        // Custom/one-time entries must never link to the permanent catalog.
-        inventoryDefinitionId: isCustom ? null : inventoryDefinitionId,
-        loanedEquipmentType: isCustom ? null : loanedEquipmentType,
-        itemName,
-        itemCode: itemCode || null
-      })
-      .pipe(finalize(() => this.savingMissing.set(false)))
+    from(saveEntries)
+      .pipe(
+        concatMap((entry) =>
+          this.data.createManualUnreturnedItem(entry.payload).pipe(
+            map((created) => (created ? { created, isCustomItem: entry.isCustomItem } : null))
+          )
+        ),
+        toArray(),
+        finalize(() => this.savingMissing.set(false))
+      )
       .subscribe({
-        next: (created) => {
-          if (!created) {
+        next: (results) => {
+          const createdRows = results.filter((r): r is NonNullable<typeof r> => r != null);
+          if (createdRows.length === 0) {
             return;
           }
-          const row: UnreturnedItemDto = isCustom ? { ...created, isCustomItem: true } : created;
-          this.rows.update((list) => [row, ...list]);
-          if (!isCustom) {
+
+          const newRows = createdRows.map(({ created, isCustomItem }) =>
+            isCustomItem ? { ...created, isCustomItem: true } : created
+          );
+          this.rows.update((list) => [...newRows, ...list]);
+
+          if (createdRows.some(({ isCustomItem }) => !isCustomItem)) {
             this.inventory.load({ force: true }).subscribe();
           }
-          this.ordersSync.notifyUnreturnedChanged(row);
+
+          for (const row of newRows) {
+            this.ordersSync.notifyUnreturnedChanged(row);
+          }
+
           this.closeAddMissing();
-          this.toast.success(
-            isCustom
-              ? 'הפריט החד-פעמי נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
-              : 'הפריט נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
-          );
+
+          if (newRows.length === 1) {
+            const isCustom = newRows[0].isCustomItem === true;
+            this.toast.success(
+              isCustom
+                ? 'הפריט החד-פעמי נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
+                : 'הפריט נוסף להשאלות פעילות ולרשימת פריטים שלא חזרו'
+            );
+            return;
+          }
+
+          if (createdRows.length < saveEntries.length) {
+            this.toast.warning(
+              `${createdRows.length} מתוך ${saveEntries.length} פריטים נוספו — בדקו את השורות שלא נשמרו`
+            );
+            return;
+          }
+
+          this.toast.success(`${newRows.length} פריטים נוספו להשאלות פעילות ולרשימת פריטים שלא חזרו`);
         }
       });
+  }
+
+  private buildManualUnreturnedApiPayload(
+    customer: { customerName: string | null; phone: string | null; address: string | null },
+    row: AddMissingItemRowValue
+  ): CreateManualUnreturnedItemDto | null {
+    const itemCode = (row.itemCode ?? '').trim() || null;
+
+    if (row.isCustomItem) {
+      const itemName = (row.customItemName ?? '').trim();
+      if (!itemName) {
+        return null;
+      }
+
+      return {
+        customerName: customer.customerName,
+        phone: customer.phone,
+        address: customer.address,
+        itemName,
+        itemCode
+      };
+    }
+
+    const definitionId = Number(row.inventoryDefinitionId);
+    if (!Number.isFinite(definitionId) || definitionId <= 0) {
+      return null;
+    }
+
+    const def = this.itemOptions().find((d) => d.id === definitionId);
+    if (!def) {
+      return null;
+    }
+
+    return {
+      customerName: customer.customerName,
+      phone: customer.phone,
+      address: customer.address,
+      inventoryDefinitionId: definitionId,
+      itemName: (def.displayName ?? '').trim() || `פריט #${definitionId}`,
+      itemCode
+    };
+  }
+
+  private validateAddItemRows(): boolean {
+    let valid = true;
+
+    this.itemRows().controls.forEach((ctrl) => {
+      const group = ctrl as FormGroup;
+      const row = group.getRawValue() as AddMissingItemRowValue;
+      const isCustom = row.isCustomItem === true;
+      const catalogCtrl = group.controls['inventoryDefinitionId'];
+      const customCtrl = group.controls['customItemName'];
+
+      if (isCustom) {
+        catalogCtrl.setErrors(null);
+        if (!(row.customItemName ?? '').trim()) {
+          customCtrl.setErrors({ required: true });
+          valid = false;
+        }
+      } else {
+        customCtrl.setErrors(null);
+        if (row.inventoryDefinitionId == null) {
+          catalogCtrl.setErrors({ required: true });
+          valid = false;
+        }
+      }
+    });
+
+    return valid;
   }
 
   protected onSearchInput(value: string): void {
@@ -355,6 +556,41 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         (row.assignedSerialCodes ?? []).some((c) => c.toLowerCase().includes(query))
       );
     });
+  }
+
+  /** Newest return/loan date first. Invalid or missing dates sink to the bottom. */
+  private sortRowsNewestFirst(list: UnreturnedItemDto[]): UnreturnedItemDto[] {
+    return [...list].sort((a, b) => {
+      const dateCmp = this.returnDateSortKey(b.returnDate) - this.returnDateSortKey(a.returnDate);
+      if (dateCmp !== 0) {
+        return dateCmp;
+      }
+      if (b.orderId !== a.orderId) {
+        return b.orderId - a.orderId;
+      }
+      const manualA = a.manualItemId ?? 0;
+      const manualB = b.manualItemId ?? 0;
+      if (manualB !== manualA) {
+        return manualB - manualA;
+      }
+      return (b.loanedEquipmentId ?? 0) - (a.loanedEquipmentId ?? 0);
+    });
+  }
+
+  private returnDateSortKey(iso: string | null | undefined): number {
+    const raw = String(iso ?? '').trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      if (year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return Date.UTC(year, month - 1, day);
+      }
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
   }
 
   protected itemOptionLabel(def: InventoryDefinitionDto): string {
