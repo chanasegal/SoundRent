@@ -16,6 +16,7 @@ public interface IToolLoanService
     Task<List<ToolLoanDto>> GetByCustomerPhoneAsync(string phone, CancellationToken cancellationToken = default);
     Task<ToolLoanDto> RenewAsync(int id, CancellationToken cancellationToken = default);
     Task<ToolLoanDto> CreateAsync(ToolLoanCreateDto dto, CancellationToken cancellationToken = default);
+    Task<ToolLoanDto> UpdateAsync(int id, ToolLoanCreateDto dto, CancellationToken cancellationToken = default);
     Task<ToolLoanDto> MarkReturnedAsync(int id, ToolLoanReturnDto dto, CancellationToken cancellationToken = default);
     Task<ToolLoanDto> MarkItemReturnedAsync(
         int loanId,
@@ -152,6 +153,116 @@ public class ToolLoanService : IToolLoanService
             throw new ValidationException("יש לבחור לפחות כלי אחד להשאלה");
         }
 
+        var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: null, cancellationToken);
+        var (institutionId, institutionName) = await ResolveInstitutionAsync(dto, cancellationToken);
+
+        var entity = new ToolLoan
+        {
+            LentAt = DateTime.UtcNow,
+            HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
+            ClientName = (dto.ClientName ?? string.Empty).Trim(),
+            Phone = phone,
+            Phone2 = phone2,
+            Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
+            InstitutionId = institutionId,
+            InstitutionName = institutionName,
+            Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
+            Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
+            DeadlineAt = dto.DeadlineAt,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            Items = normalizedItems
+                .Select(i => new ToolLoanItem
+                {
+                    ToolDefinitionId = i.ToolDefinitionId,
+                    ToolName = i.ToolName,
+                    SerialCode = i.SerialCode
+                })
+                .ToList()
+        };
+
+        _db.ToolLoans.Add(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+        return ToDto(entity);
+    }
+
+    public async Task<ToolLoanDto> UpdateAsync(
+        int id,
+        ToolLoanCreateDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.ToolLoans
+            .Include(l => l.Items)
+                .ThenInclude(i => i.CustomerDebt)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new NotFoundException("ההשאלה לא נמצאה");
+
+        if (entity.ReturnedAt != null)
+        {
+            throw new ValidationException("לא ניתן לערוך השאלה שכבר הוחזרה במלואה");
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var phone2))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        var items = dto.Items ?? [];
+        if (items.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות כלי אחד להשאלה");
+        }
+
+        var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: id, cancellationToken);
+        var (institutionId, institutionName) = await ResolveInstitutionAsync(dto, cancellationToken);
+
+        entity.ClientName = (dto.ClientName ?? string.Empty).Trim();
+        entity.Phone = phone;
+        entity.Phone2 = phone2;
+        entity.Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim();
+        entity.InstitutionId = institutionId;
+        entity.InstitutionName = institutionName;
+        entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
+        entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+        entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
+        entity.DeadlineAt = dto.DeadlineAt;
+        entity.UpdatedAt = DateTime.UtcNow;
+
+        var unreturned = entity.Items.Where(i => i.ReturnedAt == null).ToList();
+        foreach (var item in unreturned)
+        {
+            if (item.CustomerDebt != null)
+            {
+                _db.CustomerDebts.Remove(item.CustomerDebt);
+            }
+
+            _db.ToolLoanItems.Remove(item);
+        }
+
+        foreach (var item in normalizedItems)
+        {
+            entity.Items.Add(new ToolLoanItem
+            {
+                ToolDefinitionId = item.ToolDefinitionId,
+                ToolName = item.ToolName,
+                SerialCode = item.SerialCode
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return ToDto(entity);
+    }
+
+    private async Task<List<(int ToolDefinitionId, string SerialCode, string ToolName)>> NormalizeLoanItemsAsync(
+        List<ToolLoanItemCreateDto> items,
+        int? excludeLoanId,
+        CancellationToken cancellationToken)
+    {
         var normalizedItems = new List<(int ToolDefinitionId, string SerialCode, string ToolName)>();
 
         foreach (var item in items)
@@ -201,7 +312,8 @@ public class ToolLoanService : IToolLoanService
                 .AnyAsync(
                     i => i.SerialCode == serial &&
                          i.ToolDefinitionId == definition.Id &&
-                         i.ReturnedAt == null,
+                         i.ReturnedAt == null &&
+                         (excludeLoanId == null || i.ToolLoanId != excludeLoanId.Value),
                     cancellationToken);
 
             if (alreadyOut)
@@ -212,36 +324,7 @@ public class ToolLoanService : IToolLoanService
             normalizedItems.Add((definition.Id, serial, definition.DisplayName));
         }
 
-        var (institutionId, institutionName) = await ResolveInstitutionAsync(dto, cancellationToken);
-
-        var entity = new ToolLoan
-        {
-            LentAt = DateTime.UtcNow,
-            HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
-            ClientName = (dto.ClientName ?? string.Empty).Trim(),
-            Phone = phone,
-            Phone2 = phone2,
-            Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
-            InstitutionId = institutionId,
-            InstitutionName = institutionName,
-            Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
-            Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
-            DeadlineAt = dto.DeadlineAt,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            Items = normalizedItems
-                .Select(i => new ToolLoanItem
-                {
-                    ToolDefinitionId = i.ToolDefinitionId,
-                    ToolName = i.ToolName,
-                    SerialCode = i.SerialCode
-                })
-                .ToList()
-        };
-
-        _db.ToolLoans.Add(entity);
-        await _db.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        return normalizedItems;
     }
 
     private async Task<(int? InstitutionId, string? InstitutionName)> ResolveInstitutionAsync(
@@ -522,6 +605,7 @@ public class ToolLoanService : IToolLoanService
                 SerialCode = i.SerialCode,
                 ClientName = i.ToolLoan.ClientName,
                 Phone = i.ToolLoan.Phone,
+                Address = i.ToolLoan.Address,
                 LentAt = i.ToolLoan.LentAt,
                 HebrewLentDisplay = i.ToolLoan.HebrewLentDisplay,
                 DeadlineAt = i.ToolLoan.DeadlineAt,

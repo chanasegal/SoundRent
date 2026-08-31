@@ -9,7 +9,7 @@ import {
   signal
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin, finalize, of } from 'rxjs';
 
 import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
@@ -124,6 +124,7 @@ export class ActiveLoansComponent implements OnInit {
   private readonly customers = inject(CustomersStore);
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
   protected readonly pageTitle = inject(WorkspaceUiService).title('השאלות');
 
   protected readonly activeLoans = signal<OrderDto[]>([]);
@@ -131,6 +132,11 @@ export class ActiveLoansComponent implements OnInit {
   protected readonly activeLoading = signal(false);
   protected readonly returningLineKey = signal<string | null>(null);
   protected readonly removingLineKeys = signal<Set<string>>(new Set());
+  protected readonly deletingId = signal<number | null>(null);
+  protected readonly deleteConfirmOrder = signal<ActiveLoanOrderRef & {
+    customerName: string;
+    phone: string;
+  } | null>(null);
 
   protected readonly quickReturnTypeId = signal<number | null>(null);
   protected readonly quickReturnCode = signal('');
@@ -232,6 +238,7 @@ export class ActiveLoansComponent implements OnInit {
           this.activeLoading() ||
           this.returningLineKey() != null ||
           this.removingLineKeys().size > 0 ||
+          this.deletingId() != null ||
           this.quickReturnSaving() ||
           this.quickReturnSearching() ||
           this.quickReturnSession() != null
@@ -312,6 +319,65 @@ export class ActiveLoansComponent implements OnInit {
     return this.removingLineKeys().has(card.key);
   }
 
+  /** Single order on the card — same gate as accessory quick-loan edit/delete. */
+  protected cardSoleOrder(card: ActiveLoanCustomerCard): ActiveLoanOrderRef | null {
+    if (card.orders.length !== 1 || card.orders[0].id <= 0) {
+      return null;
+    }
+    return card.orders[0];
+  }
+
+  protected startEditCard(card: ActiveLoanCustomerCard): void {
+    const order = this.cardSoleOrder(card);
+    if (!order) {
+      return;
+    }
+    void this.router.navigate(['/orders', order.id]);
+  }
+
+  protected askDeleteCard(card: ActiveLoanCustomerCard): void {
+    const order = this.cardSoleOrder(card);
+    if (!order) {
+      return;
+    }
+    this.deleteConfirmOrder.set({
+      ...order,
+      customerName: card.customerName,
+      phone: card.phone
+    });
+  }
+
+  protected closeDeleteConfirm(): void {
+    if (this.deletingId()) {
+      return;
+    }
+    this.deleteConfirmOrder.set(null);
+  }
+
+  protected confirmDeleteOrder(): void {
+    const doomed = this.deleteConfirmOrder();
+    if (!doomed || this.deletingId()) {
+      return;
+    }
+
+    this.deletingId.set(doomed.id);
+    this.data
+      .deleteOrder(doomed.id)
+      .pipe(finalize(() => this.deletingId.set(null)))
+      .subscribe((ok) => {
+        if (!ok) {
+          return;
+        }
+        this.toast.success(
+          doomed.isOrderBased ? `הזמנה #${doomed.id} נמחקה` : `השאלה #${doomed.id} נמחקה`
+        );
+        this.deleteConfirmOrder.set(null);
+        this.ordersSync.notifyLoanChanged();
+        this.loadActiveLoans();
+        this.inventoryStore.load({ force: true }).subscribe();
+      });
+  }
+
   protected markLineReturned(row: ActiveLoanRow): void {
     if (this.returningLineKey() !== null) {
       return;
@@ -322,9 +388,18 @@ export class ActiveLoansComponent implements OnInit {
       return;
     }
 
-    const assignedCodes = row.assignedSerialCodes;
+    if (!row.orderId || row.orderId <= 0 || !row.loanedEquipmentId || row.loanedEquipmentId <= 0) {
+      this.toast.warning('לא ניתן לרשום החזרה — נתוני ההשאלה חסרים');
+      return;
+    }
+
+    const assignedCodes = (row.assignedSerialCodes ?? row.codes ?? [])
+      .map((c) => (c ?? '').trim())
+      .filter((c) => c.length > 0);
     const hasSerializedLine = assignedCodes.length > 0;
-    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantity;
+    const quantityReturned = hasSerializedLine
+      ? assignedCodes.length
+      : Math.max(row.quantity || 0, 1);
 
     this.returningLineKey.set(row.key);
     this.data
@@ -391,7 +466,7 @@ export class ActiveLoansComponent implements OnInit {
   }
 
   protected markCustomerAllReturned(card: ActiveLoanCustomerCard): void {
-    if (this.returningLineKey() !== null || card.items.length === 0) {
+    if (this.returningLineKey() !== null || (card.items?.length ?? 0) === 0) {
       return;
     }
 
@@ -403,14 +478,20 @@ export class ActiveLoansComponent implements OnInit {
     const byOrder = new Map<number, LineReturn[]>();
     const manualIds: number[] = [];
 
-    for (const row of card.items) {
+    for (const row of card.items ?? []) {
       if (row.manualItemId != null && row.manualItemId > 0) {
         manualIds.push(row.manualItemId);
         continue;
       }
 
+      if (!row.orderId || row.orderId <= 0 || !row.loanedEquipmentId || row.loanedEquipmentId <= 0) {
+        continue;
+      }
+
       const list = byOrder.get(row.orderId) ?? [];
-      const assignedCodes = row.assignedSerialCodes;
+      const assignedCodes = (row.assignedSerialCodes ?? row.codes ?? [])
+        .map((c) => (c ?? '').trim())
+        .filter((c) => c.length > 0);
       if (assignedCodes.length > 0) {
         list.push({
           loanedEquipmentId: row.loanedEquipmentId,
@@ -421,7 +502,7 @@ export class ActiveLoansComponent implements OnInit {
         list.push({
           loanedEquipmentId: row.loanedEquipmentId,
           serialCodes: [],
-          quantityOnly: row.quantity
+          quantityOnly: Math.max(row.quantity || 0, 1)
         });
       }
       byOrder.set(row.orderId, list);
@@ -1163,7 +1244,7 @@ export class ActiveLoansComponent implements OnInit {
       const deposit = this.formatOrderDeposit(order);
       const loanNotes = (order.notes ?? '').trim() || null;
       for (const le of order.loanedEquipments ?? []) {
-        if (le.id == null || le.quantity <= 0) {
+        if (le.id == null || le.id <= 0 || le.quantity <= 0) {
           continue;
         }
         const returned = le.returnedQuantity ?? 0;

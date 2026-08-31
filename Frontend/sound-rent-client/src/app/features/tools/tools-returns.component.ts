@@ -13,9 +13,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
-import { forkJoin } from 'rxjs';
+import { forkJoin, interval } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
+import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
 import {
   ToolItemBorrowHistoryDto,
   ToolLoanDto,
@@ -39,12 +40,16 @@ import { ClickOutsideDirective } from '../../shared/directives/click-outside.dir
 
 interface CompletedLoanRowView {
   rowKey: string;
+  source: 'tools' | 'accessory';
   loanId: number;
   itemId: number;
+  loanedEquipmentId: number | null;
+  accessoryQuantity: number;
   customerDebtId: number | null;
   item: Pick<ToolLoanItemDto, 'toolName' | 'serialCode'>;
   clientName: string;
   phone: string;
+  address: string;
   lentAt: Date;
   hebrewLentDisplay: string;
   deadlineAt: Date | null;
@@ -63,6 +68,9 @@ interface QuickReturnItem {
   serialCode: string;
   loanDateIso: string;
   hebrewDate: string;
+  lentAt: Date;
+  deadlineAt: Date | null;
+  hebrewLentDisplay: string;
   selected: boolean;
   isScannedMatch: boolean;
 }
@@ -91,6 +99,7 @@ interface ActiveLoanRowView {
   phone: string;
   address: string;
   lentAt: Date;
+  deadlineAt: Date | null;
 }
 
 @Component({
@@ -121,6 +130,7 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<ToolLoanDto[]>([]);
+  protected readonly accessoryReturns = signal<ReturnedAccessoryHistoryDto[]>([]);
   protected readonly activeLoans = signal<ToolLoanDto[]>([]);
   protected readonly definitions = this.toolStore.definitions;
   protected readonly markingDebtId = signal<number | null>(null);
@@ -133,6 +143,7 @@ export class ToolsReturnsComponent implements OnInit {
   protected readonly quickReturnSearching = signal(false);
   protected readonly quickReturnSaving = signal(false);
   protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
+  protected readonly nowTick = signal(Date.now());
 
   /** Audit search — isolated to this component. */
   protected readonly historyToolId = signal<number | null>(null);
@@ -201,12 +212,16 @@ export class ToolsReturnsComponent implements OnInit {
         const returnedAt = new Date(item.returnedAt);
         views.push({
           rowKey: `${loan.id}-${item.id}`,
+          source: 'tools',
           loanId: loan.id,
           itemId: item.id,
+          loanedEquipmentId: null,
+          accessoryQuantity: 1,
           customerDebtId: item.customerDebtId ?? null,
           item,
           clientName: loan.clientName,
           phone: loan.phone,
+          address: (loan.address ?? '').trim(),
           lentAt,
           hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
           deadlineAt,
@@ -217,6 +232,38 @@ export class ToolsReturnsComponent implements OnInit {
           chargeIsPaid: item.chargeIsPaid ?? null
         });
       }
+    }
+
+    for (const acc of this.accessoryReturns()) {
+      if (acc.isOrderBased) {
+        continue;
+      }
+      const lentAt = this.parseIsoDay(acc.loanDate);
+      const returnedAt = this.parseIsoDay(acc.returnDate) ?? lentAt ?? new Date(0);
+      const serial = (acc.serialCode ?? '').trim();
+      views.push({
+        rowKey: `accessory-${acc.orderId}-${acc.loanedEquipmentId}-${serial || 'qty'}`,
+        source: 'accessory',
+        loanId: acc.orderId,
+        itemId: acc.loanedEquipmentId,
+        loanedEquipmentId: acc.loanedEquipmentId,
+        accessoryQuantity: acc.quantity || 1,
+        customerDebtId: null,
+        item: {
+          toolName: acc.itemName,
+          serialCode: serial
+        },
+        clientName: acc.customerName ?? '',
+        phone: acc.phone,
+        address: (acc.address ?? '').trim(),
+        lentAt: lentAt ?? returnedAt,
+        hebrewLentDisplay: lentAt ? this.formatHebrewDateTime(lentAt) : '—',
+        deadlineAt: null,
+        returnedAt,
+        hebrewReturnedDisplay: this.formatHebrewDateTime(returnedAt),
+        chargeAmount: null,
+        chargeIsPaid: null
+      });
     }
 
     return views.sort((a, b) => b.returnedAt.getTime() - a.returnedAt.getTime());
@@ -263,9 +310,19 @@ export class ToolsReturnsComponent implements OnInit {
         this.refresh();
         this.refreshActiveLoans();
       });
+    this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.refresh();
+        this.refreshActiveLoans();
+      });
     this.ordersSync.debtChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
+
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.nowTick.set(Date.now()));
 
     startLiveDataRefresh(
       this.destroyRef,
@@ -325,11 +382,14 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected refresh(): void {
     this.loading.set(true);
-    this.data
-      .getToolLoans()
+    forkJoin({
+      loans: this.data.getToolLoans(),
+      accessories: this.data.getReturnedAccessories()
+    })
       .pipe(finalize(() => this.loading.set(false)))
-      .subscribe((list) => {
-        this.loans.set(list);
+      .subscribe(({ loans, accessories }) => {
+        this.loans.set(loans);
+        this.accessoryReturns.set(accessories);
       });
   }
 
@@ -575,6 +635,17 @@ export class ToolsReturnsComponent implements OnInit {
     return group.items.length > 0 && group.items.every((item) => item.selected);
   }
 
+  protected quickReturnDurationText(item: QuickReturnItem): string {
+    return formatCalendarDuration(item.lentAt, new Date(this.nowTick()));
+  }
+
+  protected quickReturnItemOverdue(item: QuickReturnItem): boolean {
+    if (!item.deadlineAt) {
+      return false;
+    }
+    return new Date(this.nowTick()).getTime() > item.deadlineAt.getTime();
+  }
+
   protected confirmQuickReturn(): void {
     const session = this.quickReturnSession();
     if (!session || this.quickReturnSaving()) {
@@ -649,6 +720,15 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected durationText(row: CompletedLoanRowView): string {
     return formatCalendarDuration(row.lentAt, row.returnedAt);
+  }
+
+  private parseIsoDay(iso: string | null | undefined): Date | null {
+    const raw = (iso ?? '').trim();
+    if (!raw) {
+      return null;
+    }
+    const date = new Date(`${raw}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   /** Local `YYYY-MM-DD` — built from local Y/M/D so no UTC/TZ day-shift occurs. */
@@ -820,6 +900,30 @@ export class ToolsReturnsComponent implements OnInit {
 
   private undoReturn(row: CompletedLoanRowView): void {
     this.undoingRowKey.set(row.rowKey);
+    if (row.source === 'accessory') {
+      if (row.loanedEquipmentId == null) {
+        this.undoingRowKey.set(null);
+        return;
+      }
+      const serial = row.item.serialCode.trim();
+      this.data
+        .undoOrderReturn(row.loanId, {
+          loanedEquipmentId: row.loanedEquipmentId,
+          serialCode: serial || null,
+          quantity: serial ? null : row.accessoryQuantity
+        })
+        .pipe(finalize(() => this.undoingRowKey.set(null)))
+        .subscribe((updated) => {
+          if (!updated) {
+            return;
+          }
+          this.removeReturnedRowLocally(row);
+          this.ordersSync.notifyOrderUpdated(updated);
+          this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
+        });
+      return;
+    }
+
     this.data
       .undoToolLoanItemReturn(row.loanId, row.itemId)
       .pipe(finalize(() => this.undoingRowKey.set(null)))
@@ -836,6 +940,30 @@ export class ToolsReturnsComponent implements OnInit {
 
   private deleteLoan(row: CompletedLoanRowView): void {
     this.deletingLoanId.set(row.loanId);
+    if (row.source === 'accessory') {
+      if (row.loanedEquipmentId == null) {
+        this.deletingLoanId.set(null);
+        return;
+      }
+      const serial = row.item.serialCode.trim();
+      this.data
+        .deleteReturnedAccessory(row.loanId, {
+          loanedEquipmentId: row.loanedEquipmentId,
+          serialCode: serial || null,
+          quantity: serial ? null : row.accessoryQuantity
+        })
+        .pipe(finalize(() => this.deletingLoanId.set(null)))
+        .subscribe((ok) => {
+          if (!ok) {
+            return;
+          }
+          this.removeReturnedRowLocally(row);
+          this.ordersSync.notifyLoanChanged();
+          this.toast.success('רשומת ההחזרה נמחקה');
+        });
+      return;
+    }
+
     this.data
       .deleteToolLoan(row.loanId)
       .pipe(finalize(() => this.deletingLoanId.set(null)))
@@ -852,30 +980,43 @@ export class ToolsReturnsComponent implements OnInit {
 
   /** Drop the undone item from local lists without a full reload. */
   private removeReturnedRowLocally(row: CompletedLoanRowView): void {
-    this.loans.update((list) =>
-      list.map((loan) => {
-        if (loan.id !== row.loanId) {
-          return loan;
-        }
-        return {
-          ...loan,
-          returnedAt: null,
-          hebrewReturnedDisplay: null,
-          items: loan.items.map((item) =>
-            item.id === row.itemId
-              ? {
-                  ...item,
-                  returnedAt: null,
-                  hebrewReturnedDisplay: null,
-                  chargeAmount: null,
-                  chargeIsPaid: null,
-                  customerDebtId: null
-                }
-              : item
-          )
-        };
-      })
-    );
+    if (row.source === 'accessory') {
+      this.accessoryReturns.update((list) =>
+        list.filter(
+          (acc) =>
+            !(
+              acc.orderId === row.loanId &&
+              acc.loanedEquipmentId === row.loanedEquipmentId &&
+              (acc.serialCode ?? '').trim() === row.item.serialCode.trim()
+            )
+        )
+      );
+    } else {
+      this.loans.update((list) =>
+        list.map((loan) => {
+          if (loan.id !== row.loanId) {
+            return loan;
+          }
+          return {
+            ...loan,
+            returnedAt: null,
+            hebrewReturnedDisplay: null,
+            items: loan.items.map((item) =>
+              item.id === row.itemId
+                ? {
+                    ...item,
+                    returnedAt: null,
+                    hebrewReturnedDisplay: null,
+                    chargeAmount: null,
+                    chargeIsPaid: null,
+                    customerDebtId: null
+                  }
+                : item
+            )
+          };
+        })
+      );
+    }
 
     if (this.historyMode()) {
       this.historyRows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
@@ -932,12 +1073,16 @@ export class ToolsReturnsComponent implements OnInit {
     const returnedAt = new Date(h.returnedAt);
     return {
       rowKey: `hist-${h.loanId}-${h.itemId}`,
+      source: 'tools',
       loanId: h.loanId,
       itemId: h.itemId,
+      loanedEquipmentId: null,
+      accessoryQuantity: 1,
       customerDebtId: h.customerDebtId ?? null,
       item: { toolName: h.toolName, serialCode: h.serialCode },
       clientName: h.clientName,
       phone: h.phone,
+      address: (h.address ?? '').trim(),
       lentAt,
       hebrewLentDisplay: h.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
       deadlineAt: h.deadlineAt ? new Date(h.deadlineAt) : null,
@@ -953,6 +1098,7 @@ export class ToolsReturnsComponent implements OnInit {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
       const lentAt = new Date(loan.lentAt);
+      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
       for (const item of loan.items) {
         if (item.returnedAt) {
           continue;
@@ -965,7 +1111,8 @@ export class ToolsReturnsComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
-          lentAt
+          lentAt,
+          deadlineAt
         });
       }
     }
@@ -996,6 +1143,9 @@ export class ToolsReturnsComponent implements OnInit {
         serialCode: row.item.serialCode,
         loanDateIso: this.toIsoDay(row.lentAt),
         hebrewDate,
+        lentAt: row.lentAt,
+        deadlineAt: row.deadlineAt,
+        hebrewLentDisplay: this.formatHebrewDateTime(row.lentAt),
         selected: isScannedMatch,
         isScannedMatch
       });

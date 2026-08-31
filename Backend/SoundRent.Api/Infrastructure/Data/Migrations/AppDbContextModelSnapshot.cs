@@ -352,6 +352,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<string>("Phone")
                         .IsRequired()
                         .HasMaxLength(20)

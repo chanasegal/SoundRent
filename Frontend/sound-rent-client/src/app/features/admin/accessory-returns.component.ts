@@ -77,6 +77,9 @@ export class AccessoryReturnsComponent implements OnInit {
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
+    this.ordersSync.loanChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
 
     startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
       skipWhen: () => this.loading() || this.actionsBusy()

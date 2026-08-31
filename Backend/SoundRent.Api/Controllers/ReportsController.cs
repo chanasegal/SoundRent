@@ -44,6 +44,28 @@ public class ReportsController : ControllerBase
         }
     }
 
+    /// <summary>Update an existing cancelled order (manual cancelled-order editor).</summary>
+    [HttpPut("cancelled-orders/{id:int}")]
+    public async Task<ActionResult<OrderDto>> UpdateManualCancelledOrder(
+        int id,
+        [FromBody] CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _orderService.UpdateManualCancelledOrderAsync(id, dto, cancellationToken);
+            return Ok(updated);
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("unpaid-orders")]
     public async Task<ActionResult<List<OrderDto>>> GetUnpaidOrders(CancellationToken cancellationToken)
     {
@@ -58,6 +80,25 @@ public class ReportsController : ControllerBase
         return Ok(await _openDebts.GetOpenDebtGroupsAsync(cancellationToken));
     }
 
+    [HttpGet("open-debts/{debtId:int}")]
+    public async Task<ActionResult<OpenDebtDetailDto>> GetOpenDebt(
+        int debtId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _openDebts.GetDebtAsync(debtId, cancellationToken));
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Manually record an open debt (customer + category + equipment + amount).</summary>
     [HttpPost("open-debts")]
     public async Task<ActionResult<CreatedOpenDebtDto>> CreateOpenDebt(
@@ -68,6 +109,69 @@ public class ReportsController : ControllerBase
         {
             var created = await _openDebts.CreateDebtAsync(dto, cancellationToken);
             return Ok(created);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("open-debts/{debtId:int}")]
+    public async Task<ActionResult<CreatedOpenDebtDto>> UpdateOpenDebt(
+        int debtId,
+        [FromBody] UpdateOpenDebtDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _openDebts.UpdateDebtAsync(debtId, dto, cancellationToken);
+            return Ok(updated);
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Update an unpaid order that appears as an open-debt group.</summary>
+    [HttpPut("open-debts/orders/{orderId:int}")]
+    public async Task<ActionResult<CreatedOpenDebtDto>> UpdateOpenDebtOrder(
+        int orderId,
+        [FromBody] UpdateOpenDebtDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _openDebts.UpdateOrderDebtAsync(orderId, dto, cancellationToken);
+            return Ok(updated);
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("open-debts/delete")]
+    public async Task<IActionResult> DeleteOpenDebtGroup(
+        [FromBody] MarkOpenDebtGroupPaidDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _openDebts.DeleteGroupAsync(dto, cancellationToken);
+            return NoContent();
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
         }
         catch (ValidationException ex)
         {

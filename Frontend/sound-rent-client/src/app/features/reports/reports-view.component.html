@@ -82,11 +82,12 @@
           <table class="reports-table">
             <thead>
               <tr>
-                <th>שם לקוח</th>
-                <th>טלפון</th>
-                <th>ציוד</th>
                 <th>תאריך התחלה</th>
                 <th>תאריך סיום</th>
+                <th>ציוד</th>
+                <th>פרטי לקוח</th>
+                <th>פיקדון</th>
+                <th>הערות</th>
                 <th>סכום כולל</th>
                 <th class="text-center">פעולה</th>
               </tr>
@@ -94,30 +95,53 @@
             <tbody>
               @for (order of cancelledOrders(); track order.id) {
                 <tr>
-                  <td>{{ order.customerName || '—' }}</td>
-                  <td class="font-mono text-xs" dir="ltr">{{ order.phone }}</td>
+                  <td class="whitespace-nowrap">{{ startHebrewDate(order) }}</td>
+                  <td class="whitespace-nowrap">{{ endHebrewDate(order) }}</td>
                   <td>{{ equipmentLabel(order) }}</td>
-                  <td>{{ startHebrewDate(order) }}</td>
-                  <td>{{ endHebrewDate(order) }}</td>
+                  <td>
+                    <div class="client-cell">
+                      <span>{{ order.customerName || '—' }}</span>
+                      <span class="ltr-field phone" dir="ltr">{{ formatPhone(order.phone) }}</span>
+                      @if (order.address) {
+                        <span class="address">{{ order.address }}</span>
+                      }
+                    </div>
+                  </td>
+                  <td>{{ cancelledDepositLabel(order) }}</td>
+                  <td>{{ order.notes || '—' }}</td>
                   <td class="font-semibold text-[#002244]">{{ formatAmount(order) }}</td>
                   <td class="text-center">
-                    <button
-                      type="button"
-                      class="reports-delete-btn"
-                      [disabled]="deletingOrderId() === order.id"
-                      (click)="deleteCancelledOrder(order)"
-                      title="מחיקה"
-                      aria-label="מחיקה"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 7h16"></path>
-                        <path d="M10 11v6"></path>
-                        <path d="M14 11v6"></path>
-                        <path d="M6 7l1 14h10l1-14"></path>
-                        <path d="M9 7V4h6v3"></path>
-                      </svg>
-                      מחיקה
-                    </button>
+                    <div class="reports-actions">
+                      <button
+                        type="button"
+                        class="reports-icon-btn reports-icon-btn--edit"
+                        [disabled]="savingCancelled()"
+                        (click)="openEditCancelled(order)"
+                        title="עריכה"
+                        aria-label="עריכה"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 20h9"></path>
+                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="reports-icon-btn reports-icon-btn--delete"
+                        [disabled]="deletingOrderId() === order.id"
+                        (click)="deleteCancelledOrder(order)"
+                        title="מחיקה"
+                        aria-label="מחיקה"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 7h16"></path>
+                          <path d="M10 11v6"></path>
+                          <path d="M14 11v6"></path>
+                          <path d="M6 7l1 14h10l1-14"></path>
+                          <path d="M9 7V4h6v3"></path>
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               }
@@ -187,12 +211,12 @@
           <table class="reports-table">
             <thead>
               <tr>
-                <th>שם לקוח</th>
-                <th>טלפון</th>
-                <th>קטגוריה</th>
-                <th>ציוד</th>
-                <th>פיקדון</th>
                 <th>תאריך חיוב</th>
+                <th>ציוד</th>
+                <th>פרטי לקוח</th>
+                <th>קטגוריה</th>
+                <th>פיקדון</th>
+                <th>הערות</th>
                 <th>סכום כולל</th>
                 <th class="text-center">פעולה</th>
               </tr>
@@ -200,26 +224,53 @@
             <tbody>
               @for (group of filteredOpenDebts(); track group.groupKey) {
                 <tr>
-                  <td>{{ group.customerName || '—' }}</td>
-                  <td class="font-mono text-xs" dir="ltr">{{ group.phone }}</td>
-                  <td>{{ group.categoryLabel }}</td>
+                  <td class="whitespace-nowrap">{{ sessionHebrewDate(group) }}</td>
                   <td>{{ group.equipmentSummary || '—' }}</td>
+                  <td>
+                    <div class="client-cell">
+                      <span>{{ group.customerName || '—' }}</span>
+                      <span class="ltr-field phone" dir="ltr">{{ formatPhone(group.phone) }}</span>
+                      @if (group.address) {
+                        <span class="address">{{ group.address }}</span>
+                      }
+                    </div>
+                  </td>
+                  <td>{{ group.categoryLabel }}</td>
                   <td>{{ group.deposit || '—' }}</td>
-                  <td>{{ sessionHebrewDate(group) }}</td>
+                  <td>{{ group.notes || '—' }}</td>
                   <td class="font-semibold text-[#002244]">{{ formatGroupAmount(group) }}</td>
                   <td class="text-center">
-                    <button
-                      type="button"
-                      class="reports-mark-paid-btn"
-                      [disabled]="markingPaidKey() === group.groupKey"
-                      (click)="markGroupAsPaid(group)"
-                      title="סמן כשולם"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20 6 9 17l-5-5"></path>
-                      </svg>
-                      סמן כשולם
-                    </button>
+                    <div class="reports-actions">
+                      <button
+                        type="button"
+                        class="reports-icon-btn reports-icon-btn--edit"
+                        [disabled]="savingDebt()"
+                        (click)="openEditDebt(group)"
+                        title="עריכה"
+                        aria-label="עריכה"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 20h9"></path>
+                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="reports-icon-btn reports-icon-btn--delete"
+                        [disabled]="deletingDebtKey() === group.groupKey"
+                        (click)="deleteDebtGroup(group)"
+                        title="מחיקה"
+                        aria-label="מחיקה"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 7h16"></path>
+                          <path d="M10 11v6"></path>
+                          <path d="M14 11v6"></path>
+                          <path d="M6 7l1 14h10l1-14"></path>
+                          <path d="M9 7V4h6v3"></path>
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               }
@@ -236,15 +287,20 @@
     class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
-    aria-label="הוסף חוב חדש"
+    [attr.aria-label]="debtModalTitle()"
     (click)="closeAddDebt()"
   >
     <div
-      class="app-modal-panel reports-modal-panel--cancelled w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
+      class="app-modal-panel reports-modal-panel--debt w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
-      <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף חוב חדש</h2>
-      <form [formGroup]="debtForm" (ngSubmit)="submitAddDebt()" class="space-y-4">
+      <h2 class="app-modal-header px-6 pt-6 pb-3 text-lg font-bold text-[#002244]">{{ debtModalTitle() }}</h2>
+      <form
+        class="app-modal-body debt-modal-form px-6 pb-6"
+        [formGroup]="debtForm"
+        (ngSubmit)="submitAddDebt()"
+      >
         <div
           class="relative"
           (appClickOutside)="closeCustomerSuggestions()"
@@ -362,6 +418,44 @@
 
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700">
+            תאריך חיוב <span class="text-rose-500">*</span>
+          </label>
+          <div class="hebrew-date-field-row">
+            <input
+              formControlName="hebrewDate"
+              class="hebrew-date-input"
+              placeholder="למשל: כ״ג תמוז תשפ״ה"
+              readonly
+              autocomplete="off"
+            />
+            <app-hebrew-calendar-picker
+              [year]="debtHebrewYearSig()"
+              [month]="debtHebrewMonthSig()"
+              [day]="debtHebrewDaySig()"
+              (yearChange)="patchDebtHebrewFromCalendar({ year: $event })"
+              (monthChange)="patchDebtHebrewFromCalendar({ month: $event })"
+              (dayChange)="patchDebtHebrewFromCalendar({ day: $event })"
+              ariaLabel="פתח לוח שנה לבחירת תאריך חיוב"
+              dialogLabel="בחירת תאריך חיוב"
+            />
+          </div>
+          @if (debtForm.controls.hebrewDate.touched && debtForm.controls.hebrewDate.errors?.['required']) {
+            <p class="mt-1 text-xs text-rose-600">שדה חובה</p>
+          }
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
+          <textarea
+            formControlName="notes"
+            rows="2"
+            class="debt-modal-notes w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="2000"
+          ></textarea>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">
             סכום (₪) <span class="text-rose-500">*</span>
           </label>
           <input
@@ -377,7 +471,7 @@
           }
         </div>
 
-        <div class="flex flex-wrap justify-end gap-2 pt-2">
+        <div class="debt-modal-actions flex flex-wrap justify-end gap-2 pt-2">
           <button
             type="button"
             class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
@@ -403,16 +497,18 @@
     class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
     role="dialog"
     aria-modal="true"
-    aria-label="הוסף הזמנה מבוטלת"
+    [attr.aria-label]="cancelledModalTitle()"
     (click)="closeAddCancelled()"
   >
     <div
       class="app-modal-panel w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200" style="--app-modal-max-w: 32rem"
       (click)="$event.stopPropagation()"
     >
-      <h2 class="mb-4 text-lg font-bold text-[#002244]">הוסף הזמנה מבוטלת</h2>
+      <h2 class="mb-4 text-lg font-bold text-[#002244]">{{ cancelledModalTitle() }}</h2>
       <p class="mb-4 text-sm text-slate-600">
-        הזינו פרטי הזמנה מבוטלת ידנית. הרשימה תתעדכן מיד לאחר השמירה.
+        {{ editingCancelledId() != null
+          ? 'עדכנו את פרטי ההזמנה המבוטלת. הרשימה תתעדכן מיד לאחר השמירה.'
+          : 'הזינו פרטי הזמנה מבוטלת ידנית. הרשימה תתעדכן מיד לאחר השמירה.' }}
       </p>
 
       <form
@@ -628,6 +724,26 @@
               dialogLabel="בחירת תאריך סיום"
             />
           </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון</label>
+          <input
+            formControlName="deposit"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="100"
+            placeholder="פרטי פיקדון"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
+          <textarea
+            formControlName="notes"
+            rows="3"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            maxlength="1000"
+          ></textarea>
         </div>
 
         <div>

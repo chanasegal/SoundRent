@@ -84,7 +84,7 @@ export interface ActiveOneTimeAccessoryLoanDto {
   serialCodes: string[];
 }
 
-/** Flattened history row for a returned Sound accessory (serial or quantity-only). */
+/** Flattened history row for a returned accessory (serial or quantity-only). */
 export interface ReturnedAccessoryHistoryDto {
   orderId: number;
   loanedEquipmentId: number;

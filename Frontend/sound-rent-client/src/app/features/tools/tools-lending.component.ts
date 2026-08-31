@@ -93,6 +93,8 @@ interface ActiveLoanRowView {
   /** Active serials on an accessory order line, if it is serialized. */
   activeSerialCodes: string[];
   quantity: number;
+  /** Original loaned quantity on the accessory order line (not remaining). */
+  quantityLoaned: number;
   clientName: string;
   phone: string;
   address: string;
@@ -271,6 +273,16 @@ export class ToolsLendingComponent implements OnInit {
   });
 
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
+  protected readonly formMinimized = signal(false);
+  /** When set, the inline form updates an existing tools loan instead of creating one. */
+  protected readonly editingLoanId = signal<number | null>(null);
+  protected readonly deletingId = signal<number | null>(null);
+  protected readonly deleteConfirmLoan = signal<{
+    loanId: number;
+    source: 'tools' | 'accessory';
+    customerName: string;
+    phone: string;
+  } | null>(null);
 
   protected readonly showDeadline = computed(() => this.timeLimitEnabled());
 
@@ -343,6 +355,9 @@ export class ToolsLendingComponent implements OnInit {
           this.queueCustomerRiskLookup(form.id);
         }
       });
+    if (this.orderDraft.draft()?.kind === 'tools-loan' && this.orderDraft.showBar()) {
+      this.formMinimized.set(true);
+    }
     this.tryRestoreMinimizedDraft();
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -363,6 +378,7 @@ export class ToolsLendingComponent implements OnInit {
           this.returningItemId() != null ||
           this.returningAccessoryKey() != null ||
           this.returningCustomerKey() != null ||
+          this.deletingId() != null ||
           this.quickReturnSaving() ||
           this.quickReturnSession() != null
       }
@@ -373,10 +389,39 @@ export class ToolsLendingComponent implements OnInit {
     if (this.submittingId()) {
       return;
     }
+    this.editingLoanId.set(null);
+    this.orderDraft.clearIfKind('tools-loan');
+    this.formMinimized.set(false);
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
     this.closeInstitutionSuggest();
+  }
+
+  /** Keep the in-progress loan form while using another area of the app. */
+  protected minimizeDraft(): void {
+    if (this.submittingId()) {
+      return;
+    }
+
+    const current = this.forms();
+    const clientName = current[0]?.clientName?.trim() ?? '';
+    this.orderDraft.minimize({
+      kind: 'tools-loan',
+      customerLabel: clientName,
+      resumePath: '/tools/lending',
+      payload: {
+        formsJson: JSON.stringify(current, (_key, value) =>
+          value instanceof Date ? value.toISOString() : value
+        ),
+        timeLimitEnabled: this.timeLimitEnabled(),
+        timeLimitValue: Number(this.timeLimitForm.controls.hours.value) || 2
+      }
+    });
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
+    this.formMinimized.set(true);
   }
 
   private tryRestoreMinimizedDraft(): void {
@@ -417,6 +462,7 @@ export class ToolsLendingComponent implements OnInit {
       for (const form of this.forms()) {
         this.queueCustomerRiskLookup(form.id);
       }
+      this.formMinimized.set(false);
     } catch {
       this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
     }
@@ -701,26 +747,33 @@ export class ToolsLendingComponent implements OnInit {
   private buildActiveLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
-      const lentAt = new Date(loan.lentAt);
-      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
-      for (const item of loan.items) {
+      const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
+      const deadlineAt = this.parseLoanDate(loan.deadlineAt);
+      for (const item of loan.items ?? []) {
         if (item.returnedAt) {
           continue;
         }
+        const serial = (item.serialCode ?? '').trim();
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,
           itemId: item.id,
           loanedEquipmentId: null,
-          item,
+          item: {
+            ...item,
+            toolName: item.toolName ?? '',
+            serialCode: serial
+          },
           source: 'tools',
           activeSerialCodes: [],
           quantity: 1,
-          clientName: loan.clientName,
-          phone: loan.phone,
+          quantityLoaned: 1,
+          clientName: loan.clientName ?? '',
+          phone: loan.phone ?? '',
           address: (loan.address ?? '').trim(),
           lentAt,
-          hebrewLentDisplay: this.hebrew.formatHebrewDateTime(lentAt),
+          hebrewLentDisplay:
+            (loan.hebrewLentDisplay ?? '').trim() || this.hebrew.formatHebrewDateTime(lentAt),
           deadlineAt,
           returning: this.returningItemId() === item.id,
           deposit: (loan.deposit ?? '').trim() || null,
@@ -743,7 +796,7 @@ export class ToolsLendingComponent implements OnInit {
         continue;
       }
       const loanDate = order.shifts?.[0]?.orderDate ?? '';
-      const lentAt = loanDate ? new Date(`${loanDate}T00:00:00`) : new Date(0);
+      const lentAt = this.parseLoanDate(loanDate ? `${loanDate}T00:00:00` : null) ?? new Date(0);
       for (const line of order.loanedEquipments ?? []) {
         const quantity = line.quantity - (line.returnedQuantity ?? 0);
         if (quantity <= 0) {
@@ -768,6 +821,7 @@ export class ToolsLendingComponent implements OnInit {
           source: 'accessory',
           activeSerialCodes: serialCodes,
           quantity,
+          quantityLoaned: line.quantity,
           clientName: order.customerName ?? '',
           phone: order.phone ?? '',
           address: order.address ?? '',
@@ -835,11 +889,23 @@ export class ToolsLendingComponent implements OnInit {
     return (phone ?? '').replace(/\D/g, '');
   }
 
-  private toIsoDate(date: Date): string {
+  private toIsoDate(date: Date | null | undefined): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  /** Parse API / legacy date strings; returns null when missing or invalid. */
+  private parseLoanDate(value: string | Date | null | undefined): Date | null {
+    if (value == null || value === '') {
+      return null;
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   private focusQuickReturnCodeInput(): void {
@@ -890,7 +956,7 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected isOverdue(row: ActiveLoanRowView): boolean {
-    if (!row.deadlineAt) {
+    if (!row.deadlineAt || Number.isNaN(row.deadlineAt.getTime())) {
       return false;
     }
     return new Date(this.nowTick()).getTime() > row.deadlineAt.getTime();
@@ -956,13 +1022,7 @@ export class ToolsLendingComponent implements OnInit {
 
     const request = {
       items: [
-        {
-          loanedEquipmentId: row.loanedEquipmentId,
-          quantityReturned: row.activeSerialCodes.length || row.quantity,
-          ...(row.activeSerialCodes.length > 0
-            ? { returnedSerialCodes: [...row.activeSerialCodes] }
-            : {})
-        }
+        this.toAccessoryReturnItem(row as ActiveLoanRowView & { loanedEquipmentId: number })
       ]
     };
 
@@ -975,6 +1035,7 @@ export class ToolsLendingComponent implements OnInit {
           return;
         }
         this.ordersSync.notifyOrderUpdated(updated);
+        this.ordersSync.notifyLoanChanged();
         this.toast.success('הפריט סומן כהוחזר');
         this.refreshAccessoryLoans();
         this.refreshAvailability();
@@ -998,10 +1059,10 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected hasReturnableItems(card: ActiveLoanCustomerCard): boolean {
-    return card.items.some(
+    return (card.items ?? []).some(
       (row) =>
-        (row.source === 'tools' && row.itemId != null) ||
-        (row.source === 'accessory' && row.loanedEquipmentId != null)
+        (row.source === 'tools' && row.itemId != null && row.itemId > 0) ||
+        (row.source === 'accessory' && row.loanedEquipmentId != null && row.loanedEquipmentId > 0)
     );
   }
 
@@ -1026,13 +1087,15 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected markCustomerAllReturned(card: ActiveLoanCustomerCard): void {
-    const toolRows = card.items.filter(
+    const toolRows = (card.items ?? []).filter(
       (row): row is ActiveLoanRowView & { itemId: number } =>
-        row.source === 'tools' && row.itemId != null
+        row.source === 'tools' && row.itemId != null && row.itemId > 0
     );
-    const accessoryRows = card.items.filter(
+    const accessoryRows = (card.items ?? []).filter(
       (row): row is ActiveLoanRowView & { loanedEquipmentId: number } =>
-        row.source === 'accessory' && row.loanedEquipmentId != null
+        row.source === 'accessory' &&
+        row.loanedEquipmentId != null &&
+        row.loanedEquipmentId > 0
     );
     if (
       this.returningCustomerKey() != null ||
@@ -1053,15 +1116,7 @@ export class ToolsLendingComponent implements OnInit {
     });
     const accessoryRequests = accessoryRows.map((row) =>
       this.data.recordOrderReturn(row.loanId, {
-        items: [
-          {
-            loanedEquipmentId: row.loanedEquipmentId,
-            quantityReturned: row.activeSerialCodes.length || row.quantity,
-            ...(row.activeSerialCodes.length > 0
-              ? { returnedSerialCodes: [...row.activeSerialCodes] }
-              : {})
-          }
-        ]
+        items: [this.toAccessoryReturnItem(row)]
       })
     );
 
@@ -1093,7 +1148,7 @@ export class ToolsLendingComponent implements OnInit {
             this.ordersSync.notifyOrderUpdated(order as OrderDto);
           }
         }
-        if (toolRows.length > 0) {
+        if (toolRows.length > 0 || accessoryRows.length > 0) {
           this.ordersSync.notifyLoanChanged();
         }
         this.refreshActiveLoans();
@@ -1103,6 +1158,21 @@ export class ToolsLendingComponent implements OnInit {
 
   private customerCardKey(row: Pick<ActiveLoanRowView, 'clientName' | 'phone'>): string {
     return `${(row.clientName ?? '').trim()}|${(row.phone ?? '').replace(/\D/g, '')}`;
+  }
+
+  private toAccessoryReturnItem(row: ActiveLoanRowView & { loanedEquipmentId: number }): {
+    loanedEquipmentId: number;
+    quantityReturned: number;
+    returnedSerialCodes?: string[];
+  } {
+    const serials = (row.activeSerialCodes ?? []).map((c) => c.trim()).filter(Boolean);
+    const serialized = serials.length > 0;
+    const remaining = Math.max(row.quantity || 0, 1);
+    return {
+      loanedEquipmentId: row.loanedEquipmentId,
+      quantityReturned: serialized ? serials.length : remaining,
+      ...(serialized ? { returnedSerialCodes: [...serials] } : {})
+    };
   }
 
   protected activeLoanDateLabel(date: Date): string {
@@ -1119,7 +1189,10 @@ export class ToolsLendingComponent implements OnInit {
     return this.hebrew.toHebrewWithDayOfWeek(date);
   }
 
-  protected activeLoanTimeLabel(date: Date): string {
+  protected activeLoanTimeLabel(date: Date | null | undefined): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '—';
+    }
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   }
 
@@ -1163,8 +1236,187 @@ export class ToolsLendingComponent implements OnInit {
       if (nameCmp !== 0) {
         return nameCmp;
       }
-      const dateCmp = b.loanDate.getTime() - a.loanDate.getTime();
+      const aTime = a.loanDate?.getTime?.() ?? 0;
+      const bTime = b.loanDate?.getTime?.() ?? 0;
+      const dateCmp = (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
       return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
+    });
+  }
+
+  /** Single loan/order on the card — same gate as accessory quick-loan edit/delete. */
+  protected cardSoleLoan(
+    card: ActiveLoanCustomerCard
+  ): { loanId: number; source: 'tools' | 'accessory' } | null {
+    if (card.items.length === 0) {
+      return null;
+    }
+    const first = card.items[0];
+    const same = card.items.every(
+      (row) => row.loanId === first.loanId && row.source === first.source
+    );
+    return same ? { loanId: first.loanId, source: first.source } : null;
+  }
+
+  protected startEditCard(card: ActiveLoanCustomerCard): void {
+    const sole = this.cardSoleLoan(card);
+    if (!sole) {
+      return;
+    }
+
+    if (sole.source === 'accessory') {
+      void this.router.navigate(['/orders', sole.loanId]);
+      return;
+    }
+
+    const loan = this.activeLoans().find((l) => l.id === sole.loanId);
+    if (!loan) {
+      this.toast.error('ההשאלה לא נמצאה');
+      return;
+    }
+
+    this.deleteConfirmLoan.set(null);
+    this.editingLoanId.set(loan.id);
+    this.formMinimized.set(false);
+    this.orderDraft.clearIfKind('tools-loan');
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
+
+    const activeItems = (loan.items ?? []).filter((i) => !i.returnedAt);
+    const linesByTool = new Map<number, ToolLineItem>();
+    const toolLines: ToolLineItem[] = [];
+
+    for (const item of activeItems) {
+      const serial = (item.serialCode ?? '').trim();
+      if (item.toolDefinitionId <= 0) {
+        toolLines.push({
+          id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          toolId: null,
+          toolQuery: (item.toolName ?? '').trim(),
+          selectedCodes: serial ? [serial] : [],
+          isTemporary: true,
+          toolSuggestOpen: false,
+          codesOpen: false
+        });
+        continue;
+      }
+
+      const existing = linesByTool.get(item.toolDefinitionId);
+      if (existing) {
+        if (serial) {
+          existing.selectedCodes = [...existing.selectedCodes, serial];
+        }
+        continue;
+      }
+
+      const def = this.definitions().find((d) => d.id === item.toolDefinitionId);
+      const line: ToolLineItem = {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        toolId: item.toolDefinitionId,
+        toolQuery: def?.displayName ?? item.toolName ?? '',
+        selectedCodes: serial ? [serial] : [],
+        isTemporary: false,
+        toolSuggestOpen: false,
+        codesOpen: false
+      };
+      linesByTool.set(item.toolDefinitionId, line);
+      toolLines.push(line);
+    }
+
+    const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
+    const deadlineAt = this.parseLoanDate(loan.deadlineAt);
+    if (deadlineAt) {
+      this.timeLimitEnabled.set(true);
+    }
+
+    const draft: LendingDraftForm = {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: lentAt,
+      hebrewDateTime:
+        (loan.hebrewLentDisplay ?? '').trim() || this.formatHebrewDateTime(lentAt),
+      toolLines: toolLines.length > 0 ? toolLines : [this.createToolLine()],
+      clientName: loan.clientName ?? '',
+      phone: loan.phone ?? '',
+      phone2: loan.phone2 ?? '',
+      address: loan.address ?? '',
+      institutionName: loan.institutionName ?? '',
+      institutionId: loan.institutionId ?? null,
+      deposit: loan.deposit ?? '',
+      notes: loan.notes ?? '',
+      clientAlertNotes: null,
+      clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,
+      deadlineAt
+    };
+
+    this.forms.set([draft]);
+    this.lookupClientNotesByPhone(draft.id, draft.phone);
+    this.queueCustomerRiskLookup(draft.id);
+    queueMicrotask(() => {
+      this.document.getElementById('tools-loan-form-title')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    });
+  }
+
+  protected cancelEdit(): void {
+    this.editingLoanId.set(null);
+    this.forms.set([this.createDraftForm()]);
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+    this.closeInstitutionSuggest();
+  }
+
+  protected askDeleteCard(card: ActiveLoanCustomerCard): void {
+    const sole = this.cardSoleLoan(card);
+    if (!sole) {
+      return;
+    }
+    this.deleteConfirmLoan.set({
+      loanId: sole.loanId,
+      source: sole.source,
+      customerName: card.customerName,
+      phone: card.phone
+    });
+  }
+
+  protected closeDeleteConfirm(): void {
+    if (this.deletingId()) {
+      return;
+    }
+    this.deleteConfirmLoan.set(null);
+  }
+
+  protected confirmDeleteLoan(): void {
+    const doomed = this.deleteConfirmLoan();
+    if (!doomed || this.deletingId()) {
+      return;
+    }
+
+    this.deletingId.set(doomed.loanId);
+    const request$ =
+      doomed.source === 'accessory'
+        ? this.data.deleteOrder(doomed.loanId)
+        : this.data.deleteToolLoan(doomed.loanId);
+
+    request$.pipe(finalize(() => this.deletingId.set(null))).subscribe((ok) => {
+      if (!ok) {
+        return;
+      }
+      this.toast.success(`השאלה #${doomed.loanId} נמחקה`);
+      this.deleteConfirmLoan.set(null);
+      if (this.editingLoanId() === doomed.loanId) {
+        this.cancelEdit();
+      }
+      if (doomed.source === 'accessory') {
+        this.ordersSync.notifyLoanChanged();
+        this.refreshAccessoryLoans();
+      } else {
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
+        this.refreshActiveLoans();
+        this.refreshAvailability();
+      }
     });
   }
 
@@ -1227,8 +1479,10 @@ export class ToolsLendingComponent implements OnInit {
       return [];
     }
     // Local filter only — from the single bulk cache loaded at page init.
+    // When editing, keep codes already on this line selectable even if currently loaned out.
     const inStock = this.availableByTool().get(line.toolId) ?? [];
-    return sortNumericCodes(inStock);
+    const merged = new Set([...inStock, ...line.selectedCodes.map((c) => c.trim()).filter(Boolean)]);
+    return sortNumericCodes([...merged]);
   }
 
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
@@ -1562,8 +1816,8 @@ export class ToolsLendingComponent implements OnInit {
     this.customerSuggestFormId.set(null);
   }
 
-  protected formatDeadline(deadline: Date | null): string {
-    if (!deadline) {
+  protected formatDeadline(deadline: Date | null | undefined): string {
+    if (!deadline || Number.isNaN(deadline.getTime())) {
       return '—';
     }
     const hh = String(deadline.getHours()).padStart(2, '0');
@@ -1604,11 +1858,15 @@ export class ToolsLendingComponent implements OnInit {
     };
 
     this.submittingId.set(form.id);
-    this.data
-      .createToolLoan(payload)
+    const editingId = this.editingLoanId();
+    const request$ =
+      editingId != null
+        ? this.data.updateToolLoan(editingId, payload)
+        : this.data.createToolLoan(payload);
+    request$
       .pipe(finalize(() => this.submittingId.set(null)))
-      .subscribe((created) => {
-        if (!created) {
+      .subscribe((saved) => {
+        if (!saved) {
           return;
         }
         const address = form.address.trim() || null;
@@ -1628,13 +1886,17 @@ export class ToolsLendingComponent implements OnInit {
             address,
             systemType: SystemType.Tools
           })
-          .subscribe((saved) => {
-            if (saved) {
-              this.customers.upsert(saved);
+          .subscribe((customer) => {
+            if (customer) {
+              this.customers.upsert(customer);
             }
           });
-        this.toast.success('ההשאלה נשמרה');
+        this.toast.success(
+          editingId != null ? `השאלה #${saved.id} עודכנה` : 'ההשאלה נשמרה'
+        );
+        this.editingLoanId.set(null);
         this.orderDraft.clearIfKind('tools-loan');
+        this.formMinimized.set(false);
         this.forms.set([this.createDraftForm()]);
         this.ordersSync.notifyLoanChanged();
         this.refreshAvailability();

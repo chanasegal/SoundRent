@@ -35,6 +35,10 @@ public class CustomerDebt
     [MaxLength(500)]
     public string? Deposit { get; set; }
 
+    /// <summary>Free-text notes shown on open-debt reports.</summary>
+    [MaxLength(2000)]
+    public string? Notes { get; set; }
+
     public DateTime ChargedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

@@ -1,7 +1,7 @@
 namespace SoundRent.Api.Application.DTOs;
 
 /// <summary>
-/// Flattened history row for a returned Sound accessory (serial or quantity-only).
+/// Flattened history row for a returned accessory (serial or quantity-only).
 /// </summary>
 public class ReturnedAccessoryHistoryDto
 {

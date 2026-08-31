@@ -434,9 +434,13 @@ export class LoanRangeCalendarHostComponent {
    * Pass `returnedAt = null` for active / still-held items — the span runs through today
    * and the panel labels the item as still with the customer.
    */
-  open(event: Event, lentAt: Date, returnedAt: Date | null): void {
+  open(event: Event, lentAt: Date | null | undefined, returnedAt: Date | null): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!(lentAt instanceof Date) || Number.isNaN(lentAt.getTime())) {
+      return;
+    }
 
     const popover = this.popover();
     if (popover.overlayVisible && !popover.hasTargetChanged(event, undefined)) {
@@ -445,7 +449,10 @@ export class LoanRangeCalendarHostComponent {
     }
 
     const held = returnedAt == null;
-    const endSource = held ? new Date() : returnedAt;
+    const endSource =
+      held || !(returnedAt instanceof Date) || Number.isNaN(returnedAt.getTime())
+        ? new Date()
+        : returnedAt;
     this.stillHeld.set(held);
     this.rangeTimestamps.set({ start: lentAt, end: endSource });
 

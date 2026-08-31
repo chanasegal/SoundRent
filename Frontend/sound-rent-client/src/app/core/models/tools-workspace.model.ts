@@ -124,6 +124,7 @@ export interface ToolItemBorrowHistoryDto {
   serialCode: string;
   clientName: string;
   phone: string;
+  address?: string | null;
   lentAt: string;
   hebrewLentDisplay: string;
   deadlineAt?: string | null;

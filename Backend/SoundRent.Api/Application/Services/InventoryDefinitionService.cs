@@ -725,8 +725,17 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         CancellationToken cancellationToken = default)
     {
         var code = (serialCode ?? string.Empty).Trim();
+        _logger.LogInformation(
+            "[SerialLocation] START inventoryDefinitionId={InventoryDefinitionId} serialCode={SerialCode}",
+            inventoryDefinitionId,
+            code);
+
         if (inventoryDefinitionId <= 0 || code.Length == 0)
         {
+            _logger.LogInformation(
+                "[SerialLocation] REJECT invalid input inventoryDefinitionId={InventoryDefinitionId} serialCode={SerialCode}",
+                inventoryDefinitionId,
+                code);
             throw new ValidationException("יש להזין קוד סידורי לחיפוש");
         }
 
@@ -735,12 +744,24 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             .FirstOrDefaultAsync(d => d.Id == inventoryDefinitionId && d.IsActive, cancellationToken)
             ?? throw new NotFoundException("פריט המלאי לא נמצא");
 
+        _logger.LogInformation(
+            "[SerialLocation] Inventory definition FOUND id={DefinitionId} displayName={DisplayName} serialUnitCount={SerialUnitCount}",
+            def.Id,
+            def.DisplayName,
+            def.SerialCodes.Count);
+
         var serial = def.SerialCodes.FirstOrDefault(s =>
             string.Equals(s.SerialCode, code, StringComparison.OrdinalIgnoreCase));
 
         if (serial is null)
         {
-            return new InventorySerialLocationDto
+            _logger.LogInformation(
+                "[SerialLocation] Serial code NOT REGISTERED for definition id={DefinitionId} displayName={DisplayName} requestedCode={SerialCode}",
+                def.Id,
+                def.DisplayName,
+                code);
+
+            var unregistered = new InventorySerialLocationDto
             {
                 InventoryDefinitionId = def.Id,
                 Label = def.DisplayName,
@@ -748,7 +769,15 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 IsRegistered = false,
                 IsInWarehouse = true
             };
+            LogSerialLocationDto("RETURN unregistered", unregistered);
+            return unregistered;
         }
+
+        _logger.LogInformation(
+            "[SerialLocation] Serial unit FOUND code={SerialCode} physicalStatus={PhysicalStatus} mixerId={MixerId}",
+            serial.SerialCode,
+            serial.PhysicalStatus,
+            serial.MixerId);
 
         var holder = await ResolveSerialHolderAsync(def, serial, code, cancellationToken);
         var missing = holder is null
@@ -756,7 +785,14 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             : null;
         var snapshot = holder ?? missing;
 
-        return new InventorySerialLocationDto
+        _logger.LogInformation(
+            "[SerialLocation] Holder resolution activeLoan={ActiveLoanFound} missingRecord={MissingFound} holderOrderId={HolderOrderId} missingCustomer={MissingCustomer}",
+            holder is not null,
+            missing is not null,
+            holder?.OrderId,
+            missing?.CustomerName ?? "(null)");
+
+        var response = new InventorySerialLocationDto
         {
             InventoryDefinitionId = def.Id,
             Label = def.DisplayName,
@@ -776,6 +812,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             Notes = snapshot?.Notes ?? holder?.Notes,
             LoanDate = snapshot?.LoanDate
         };
+
+        LogSerialLocationDto("RETURN", response);
+        return response;
     }
 
     public async Task SetPhysicalStatusAsync(
@@ -1522,9 +1561,38 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         string code,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "[SerialLocation.ResolveHolder] START definitionId={DefinitionId} displayName={DisplayName} serialCode={SerialCode} physicalStatus={PhysicalStatus}",
+            def.Id,
+            def.DisplayName,
+            code,
+            serial.PhysicalStatus);
+
         var holder = await FindActiveHolderAsync(def.Id, def.DisplayName, code, cancellationToken);
-        holder ??= await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
-        holder ??= await FindActiveHolderFromLoanMapAsync(def.Id, serial.SerialCode, cancellationToken);
+        _logger.LogInformation(
+            "[SerialLocation.ResolveHolder] After FindActiveHolderAsync found={Found} orderId={OrderId}",
+            holder is not null,
+            holder?.OrderId);
+
+        if (holder is null)
+        {
+            holder = await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
+            _logger.LogInformation(
+                "[SerialLocation.ResolveHolder] After FindHolderViaAttachedMixerAsync found={Found} orderId={OrderId}",
+                holder is not null,
+                holder?.OrderId);
+        }
+
+        if (holder is null)
+        {
+            holder = await FindActiveHolderFromLoanMapAsync(def.Id, serial.SerialCode, cancellationToken);
+            _logger.LogInformation(
+                "[SerialLocation.ResolveHolder] After FindActiveHolderFromLoanMapAsync found={Found} orderId={OrderId}",
+                holder is not null,
+                holder?.OrderId);
+        }
+
+        LogHolderSnapshot("[SerialLocation.ResolveHolder] FINAL", holder);
         return holder;
     }
 
@@ -1535,12 +1603,19 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         CancellationToken cancellationToken)
     {
         var normalizedCode = (serialCode ?? string.Empty).Trim();
+        var catalogName = (inventoryDisplayName ?? string.Empty).Trim();
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolder] START inventoryDefinitionId={InventoryDefinitionId} displayName={DisplayName} serialCode={SerialCode}",
+            inventoryDefinitionId,
+            catalogName,
+            normalizedCode);
+
         if (normalizedCode.Length == 0)
         {
+            _logger.LogInformation("[SerialLocation.FindActiveHolder] SKIP empty serial code");
             return null;
         }
 
-        var catalogName = (inventoryDisplayName ?? string.Empty).Trim();
         var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
 
         var candidates = await (
@@ -1560,6 +1635,25 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 order.Id
             }).ToListAsync(cancellationToken);
 
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolder] Loaded {CandidateCount} active unreturned order notes (all definitions)",
+            candidates.Count);
+
+        var serialMatches = candidates
+            .Where(candidate =>
+                string.Equals(candidate.NoteContent.Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolder] Serial code matches={SerialMatchCount} rows={Rows}",
+            serialMatches.Count,
+            serialMatches.Count == 0
+                ? "(none)"
+                : string.Join(
+                    " | ",
+                    serialMatches.Select(match =>
+                        $"orderId={match.Id} lineDefId={match.InventoryDefinitionId?.ToString() ?? "null"} type={match.LoanedEquipmentType?.ToString() ?? "null"} customName={match.CustomItemName ?? "null"} isCustom={match.IsCustomItem} note={match.NoteContent.Trim()}")));
+
         var row = candidates.FirstOrDefault(candidate =>
             string.Equals(candidate.NoteContent.Trim(), normalizedCode, StringComparison.OrdinalIgnoreCase)
             && LineMatchesInventoryDefinition(
@@ -1570,12 +1664,29 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 inventoryDefinitionId,
                 catalogName,
                 lookup));
+
         if (row is null)
         {
+            _logger.LogInformation(
+                "[SerialLocation.FindActiveHolder] NO MATCH for definition id={InventoryDefinitionId} displayName={DisplayName} serialCode={SerialCode} (serialMatches={SerialMatchCount} but none mapped to this definition)",
+                inventoryDefinitionId,
+                catalogName,
+                normalizedCode,
+                serialMatches.Count);
             return null;
         }
 
-        return await LoadOrderHolderSnapshotAsync(row.Id, cancellationToken);
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolder] MATCH orderId={OrderId} lineDefId={LineDefId} type={Type} customName={CustomName} isCustom={IsCustom}",
+            row.Id,
+            row.InventoryDefinitionId,
+            row.LoanedEquipmentType,
+            row.CustomItemName,
+            row.IsCustomItem);
+
+        var snapshot = await LoadOrderHolderSnapshotAsync(row.Id, cancellationToken);
+        LogHolderSnapshot("[SerialLocation.FindActiveHolder] RETURN", snapshot);
+        return snapshot;
     }
 
     private async Task<SerialHolderSnapshot?> FindActiveHolderFromLoanMapAsync(
@@ -1584,16 +1695,30 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         CancellationToken cancellationToken)
     {
         var normalizedCode = (serialCode ?? string.Empty).Trim();
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolderFromLoanMap] START inventoryDefinitionId={InventoryDefinitionId} serialCode={SerialCode}",
+            inventoryDefinitionId,
+            normalizedCode);
+
         if (normalizedCode.Length == 0)
         {
+            _logger.LogInformation("[SerialLocation.FindActiveHolderFromLoanMap] SKIP empty serial code");
             return null;
         }
 
         var holders = await LoadActiveLoanHoldersByDefinitionAsync(cancellationToken);
         if (!holders.TryGetValue(inventoryDefinitionId, out var byCode))
         {
+            _logger.LogInformation(
+                "[SerialLocation.FindActiveHolderFromLoanMap] NO holders for definition id={InventoryDefinitionId}",
+                inventoryDefinitionId);
             return null;
         }
+
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolderFromLoanMap] Definition has {HolderCount} active holder entries codes=[{Codes}]",
+            byCode.Count,
+            string.Join(",", byCode.Keys.OrderBy(c => c)));
 
         if (!byCode.TryGetValue(normalizedCode, out var loan))
         {
@@ -1601,18 +1726,43 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 string.Equals(h.SerialCode, normalizedCode, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (loan?.OrderId is not int orderId || orderId <= 0)
+        if (loan is null)
         {
+            _logger.LogInformation(
+                "[SerialLocation.FindActiveHolderFromLoanMap] Serial code NOT in loan map definitionId={InventoryDefinitionId} serialCode={SerialCode}",
+                inventoryDefinitionId,
+                normalizedCode);
             return null;
         }
 
-        return await LoadOrderHolderSnapshotAsync(orderId, cancellationToken);
+        _logger.LogInformation(
+            "[SerialLocation.FindActiveHolderFromLoanMap] Loan map entry serialCode={SerialCode} orderId={OrderId} customerName={CustomerName} phone={Phone}",
+            loan.SerialCode,
+            loan.OrderId,
+            loan.CustomerName ?? "(null)",
+            loan.Phone ?? "(null)");
+
+        if (loan.OrderId is not int orderId || orderId <= 0)
+        {
+            _logger.LogInformation(
+                "[SerialLocation.FindActiveHolderFromLoanMap] Loan map entry has no valid orderId (orderId={OrderId})",
+                loan.OrderId);
+            return null;
+        }
+
+        var snapshot = await LoadOrderHolderSnapshotAsync(orderId, cancellationToken);
+        LogHolderSnapshot("[SerialLocation.FindActiveHolderFromLoanMap] RETURN", snapshot);
+        return snapshot;
     }
 
     private async Task<SerialHolderSnapshot?> LoadOrderHolderSnapshotAsync(
         int orderId,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "[SerialLocation.LoadOrderHolderSnapshot] START orderId={OrderId}",
+            orderId);
+
         var row = await _db.Orders.AsNoTracking()
             .Where(o => o.Id == orderId && !o.IsCancelled)
             .Select(o => new
@@ -1631,10 +1781,13 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         if (row is null)
         {
+            _logger.LogInformation(
+                "[SerialLocation.LoadOrderHolderSnapshot] Order NOT FOUND or cancelled orderId={OrderId}",
+                orderId);
             return null;
         }
 
-        return new SerialHolderSnapshot
+        var snapshot = new SerialHolderSnapshot
         {
             OrderId = row.Id,
             CustomerName = row.CustomerName,
@@ -1645,6 +1798,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             Notes = row.Notes,
             LoanDate = row.LoanDate
         };
+
+        LogHolderSnapshot("[SerialLocation.LoadOrderHolderSnapshot] RETURN", snapshot);
+        return snapshot;
     }
 
     private async Task<SerialHolderSnapshot?> FindMissingHolderAsync(
@@ -1782,11 +1938,23 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         InventorySerialCode serial,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "[SerialLocation.FindHolderViaAttachedMixer] START accessoryDefId={AccessoryDefId} serialCode={SerialCode} mixerId={MixerId}",
+            serial.InventoryDefinitionId,
+            serial.SerialCode,
+            serial.MixerId);
+
         if (serial.MixerId is int mixerId)
         {
             var mixer = await _db.InventorySerialCodes.AsNoTracking()
                 .Include(s => s.InventoryDefinition)
                 .FirstOrDefaultAsync(s => s.Id == mixerId, cancellationToken);
+
+            _logger.LogInformation(
+                "[SerialLocation.FindHolderViaAttachedMixer] MixerId lookup found={Found} mixerDefId={MixerDefId} mixerCode={MixerCode}",
+                mixer is not null,
+                mixer?.InventoryDefinitionId,
+                mixer?.SerialCode);
 
             if (mixer?.InventoryDefinition is not null)
             {
@@ -1797,6 +1965,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     cancellationToken);
                 if (viaFk is not null)
                 {
+                    _logger.LogInformation(
+                        "[SerialLocation.FindHolderViaAttachedMixer] Resolved via MixerId FK orderId={OrderId}",
+                        viaFk.OrderId);
                     return viaFk;
                 }
             }
@@ -1810,13 +1981,25 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             .Select(e => new { e.ParentSerialCode, e.AccessorySerialCode })
             .ToListAsync(cancellationToken);
 
+        _logger.LogInformation(
+            "[SerialLocation.FindHolderViaAttachedMixer] Kit rows for accessory defId={DefId} count={Count}",
+            serial.InventoryDefinitionId,
+            kitRows.Count);
+
         var kit = kitRows.FirstOrDefault(k =>
             string.Equals((k.AccessorySerialCode ?? string.Empty).Trim(), accessoryCode, StringComparison.OrdinalIgnoreCase));
 
         if (kit is null)
         {
+            _logger.LogInformation(
+                "[SerialLocation.FindHolderViaAttachedMixer] NO kit match for accessoryCode={AccessoryCode}",
+                accessoryCode);
             return null;
         }
+
+        _logger.LogInformation(
+            "[SerialLocation.FindHolderViaAttachedMixer] Kit match parentSerialCode={ParentSerialCode}",
+            kit.ParentSerialCode);
 
         var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
         var mixerDefinition = await _db.InventoryDefinitions.AsNoTracking()
@@ -1826,14 +2009,22 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
         if (mixerDefinition is null)
         {
+            _logger.LogInformation(
+                "[SerialLocation.FindHolderViaAttachedMixer] Mixer catalog definition NOT FOUND label={MixerLabel}",
+                mixerLabel);
             return null;
         }
 
-        return await FindActiveHolderAsync(
+        var viaKit = await FindActiveHolderAsync(
             mixerDefinition.Id,
             mixerDefinition.DisplayName,
             kit.ParentSerialCode,
             cancellationToken);
+        _logger.LogInformation(
+            "[SerialLocation.FindHolderViaAttachedMixer] Resolved via kit found={Found} orderId={OrderId}",
+            viaKit is not null,
+            viaKit?.OrderId);
+        return viaKit;
     }
 
     private async Task<bool> CascadeMixerAttachedStatusAsync(
@@ -2279,6 +2470,48 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         AccessorySerialPhysicalStatus.InRepair => "בתיקון",
         _ => "זמין"
     };
+
+    private void LogHolderSnapshot(string stage, SerialHolderSnapshot? snapshot)
+    {
+        if (snapshot is null)
+        {
+            _logger.LogInformation("{Stage} holder=(null)", stage);
+            return;
+        }
+
+        _logger.LogInformation(
+            "{Stage} orderId={OrderId} customerName={CustomerName} phone={Phone} phone2={Phone2} address={Address} deposit={Deposit} notes={Notes} loanDate={LoanDate}",
+            stage,
+            snapshot.OrderId,
+            snapshot.CustomerName ?? "(null)",
+            snapshot.Phone ?? "(null)",
+            snapshot.Phone2 ?? "(null)",
+            snapshot.Address ?? "(null)",
+            snapshot.Deposit ?? "(null)",
+            snapshot.Notes ?? "(null)",
+            snapshot.LoanDate?.ToString("yyyy-MM-dd") ?? "(null)");
+    }
+
+    private void LogSerialLocationDto(string stage, InventorySerialLocationDto dto)
+    {
+        _logger.LogInformation(
+            "{Stage} inventoryDefinitionId={InventoryDefinitionId} label={Label} serialCode={SerialCode} isRegistered={IsRegistered} isInWarehouse={IsInWarehouse} isMissing={IsMissing} orderId={OrderId} customerName={CustomerName} phone={Phone} phone2={Phone2} address={Address} deposit={Deposit} notes={Notes} loanDate={LoanDate}",
+            stage,
+            dto.InventoryDefinitionId,
+            dto.Label,
+            dto.SerialCode,
+            dto.IsRegistered,
+            dto.IsInWarehouse,
+            dto.IsMissing,
+            dto.OrderId?.ToString() ?? "(null)",
+            dto.CustomerName ?? "(null)",
+            dto.Phone ?? "(null)",
+            dto.Phone2 ?? "(null)",
+            dto.Address ?? "(null)",
+            dto.Deposit ?? "(null)",
+            dto.Notes ?? "(null)",
+            dto.LoanDate?.ToString("yyyy-MM-dd") ?? "(null)");
+    }
 
     private sealed class SerialHolderSnapshot
     {

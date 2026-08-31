@@ -24,6 +24,7 @@ import {
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType,
   ReturnTimeType,
+  SystemType,
   TIME_SLOT_LABELS,
   TimeSlot
 } from '../../core/models/enums';
@@ -82,14 +83,18 @@ interface StandaloneLoanItem {
   loanedEquipmentId: number;
   accessoryName: string;
   quantity: number;
+  quantityLoaned: number;
   assignedSerialCodes: string[];
   loanDateIso: string;
+  /** Local loan time (HH:MM) from order creation timestamp. */
+  loanTimeLabel: string;
 }
 
 interface StandaloneLoanCard {
   key: string;
   customerName: string;
   phone: string;
+  address: string;
   /** Newest loan date among items — used for card ordering. */
   loanDateIso: string;
   orders: OrderDto[];
@@ -981,6 +986,24 @@ export class QuickLoanComponent implements OnInit {
     return date ? this.hebrew.toHebrew(date) : iso;
   }
 
+  /** Loan time label (HH:MM, Asia/Jerusalem) from an ISO creation timestamp. */
+  protected loanTimeFromCreatedAt(createdAt: string | null | undefined): string {
+    const raw = createdAt?.trim();
+    if (!raw) {
+      return '';
+    }
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('he-IL', {
+      timeZone: 'Asia/Jerusalem',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  }
+
   protected isReturningLine(row: StandaloneLoanItem): boolean {
     const key = this.returningLineKey();
     return (
@@ -1017,7 +1040,7 @@ export class QuickLoanComponent implements OnInit {
 
     const assignedCodes = row.assignedSerialCodes;
     const hasSerializedLine = assignedCodes.length > 0;
-    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantity;
+    const quantityReturned = hasSerializedLine ? assignedCodes.length : row.quantityLoaned;
 
     this.returningLineKey.set(row.key);
     this.data
@@ -1036,6 +1059,7 @@ export class QuickLoanComponent implements OnInit {
           return;
         }
         this.ordersSync.notifyOrderUpdated(updated);
+        this.ordersSync.notifyLoanChanged();
         this.animateStandaloneLineOut(row.key);
         this.toast.success('הפריט סומן כהוחזר');
         if (this.editingId() === row.orderId) {
@@ -1075,6 +1099,7 @@ export class QuickLoanComponent implements OnInit {
           return;
         }
         this.ordersSync.notifyOrderUpdated(updated);
+        this.ordersSync.notifyLoanChanged();
         this.animateStandaloneLineOut(returnKey);
         this.toast.success(`קוד ${trimmed} סומן כהוחזר`);
         if (this.editingId() === row.orderId) {
@@ -1105,7 +1130,7 @@ export class QuickLoanComponent implements OnInit {
           }
           return {
             loanedEquipmentId: row.loanedEquipmentId,
-            quantityReturned: row.quantity
+            quantityReturned: row.quantityLoaned
           };
         });
       return this.data.recordOrderReturn(order.id, { items });
@@ -1124,6 +1149,7 @@ export class QuickLoanComponent implements OnInit {
             this.ordersSync.notifyOrderUpdated(order);
           }
         });
+        this.ordersSync.notifyLoanChanged();
         this.animateStandaloneLineOut(returnKey);
         this.toast.success(
           card.items.length === 1
@@ -1182,9 +1208,6 @@ export class QuickLoanComponent implements OnInit {
           .filter((n) => !n.isReturned)
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
-        const allCodes = (le.notes ?? [])
-          .map((n) => (n.content ?? '').trim())
-          .filter((c) => c.length > 0);
         const accessoryName = this.inventoryStore.displayLabelForLoanedLine(le);
         items.push({
           key: `${order.id}-${le.id}`,
@@ -1192,8 +1215,10 @@ export class QuickLoanComponent implements OnInit {
           loanedEquipmentId: le.id,
           accessoryName,
           quantity: le.quantity - returned,
-          assignedSerialCodes: outstandingCodes.length > 0 ? outstandingCodes : allCodes,
-          loanDateIso
+          quantityLoaned: le.quantity,
+          assignedSerialCodes: outstandingCodes,
+          loanDateIso,
+          loanTimeLabel: this.loanTimeFromCreatedAt(order.createdAt)
         });
       }
       if (items.length === 0) {
@@ -1206,6 +1231,7 @@ export class QuickLoanComponent implements OnInit {
           key,
           customerName: order.customerName ?? '',
           phone: order.phone ?? '',
+          address: (order.address ?? '').trim(),
           loanDateIso,
           orders: [],
           items: [],
@@ -1215,6 +1241,9 @@ export class QuickLoanComponent implements OnInit {
           loanNotes: []
         };
         byCustomer.set(key, card);
+      }
+      if (!card.address && (order.address ?? '').trim()) {
+        card.address = (order.address ?? '').trim();
       }
       if (!card.orders.some((existing) => existing.id === order.id)) {
         card.orders.push(order);
@@ -1622,6 +1651,7 @@ export class QuickLoanComponent implements OnInit {
           return;
         }
         this.ordersSync.notifyOrderUpdated(updated);
+        this.ordersSync.notifyLoanChanged();
         this.returnModalOpen.set(false);
         this.returnOrderId.set(null);
         this.toast.success('ההחזרה נשמרה בהצלחה');
@@ -1779,7 +1809,8 @@ export class QuickLoanComponent implements OnInit {
       customReturnTime: null,
       notes: (this.form.controls.notes.value ?? '').trim() || null,
       loanedEquipments,
-      allowDoubleBooking: false
+      allowDoubleBooking: false,
+      systemType: SystemType.Tools
     };
 
     const editingId = this.editingId();

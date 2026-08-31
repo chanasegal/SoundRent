@@ -400,6 +400,8 @@ public class OrderService : IOrderService
             Phone = phone,
             Address = TrimOrNull(dto.Address),
             PaymentAmount = dto.TotalAmount,
+            DepositOnName = TrimOrNull(dto.Deposit),
+            Notes = TrimOrNull(dto.Notes),
             IsUnpaid = false,
             IsCancelled = true,
             ReturnTimeType = ReturnTimeType.LateNight,
@@ -425,6 +427,89 @@ public class OrderService : IOrderService
         await _customerService.SyncFromOrderAsync(syncDto, cancellationToken);
 
         return OrderMapper.ToDto(entity);
+    }
+
+    public async Task<OrderDto> UpdateManualCancelledOrderAsync(
+        int id,
+        CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (!existing.IsCancelled)
+        {
+            throw new ValidationException("ניתן לערוך רק הזמנות מבוטלות");
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        var equipmentIds = OrderMapper.NormalizeEquipmentDefinitionIds(dto.EquipmentDefinitionIds);
+        if (equipmentIds.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות ציוד אחד");
+        }
+
+        foreach (var equipmentId in equipmentIds)
+        {
+            if (!await _equipmentDefinitions.ExistsAsync(equipmentId, cancellationToken))
+            {
+                throw new ValidationException($"ציוד '{equipmentId}' לא נמצא");
+            }
+        }
+
+        if (dto.EndDate < dto.StartDate)
+        {
+            throw new ValidationException("תאריך הסיום חייב להיות אחרי או שווה לתאריך ההתחלה");
+        }
+
+        var shifts = GenerateContinuousShifts(
+            dto.StartDate,
+            TimeSlot.Morning,
+            dto.EndDate,
+            dto.EndDate == dto.StartDate ? TimeSlot.Morning : TimeSlot.Evening);
+
+        existing.CustomerName = TrimOrNull(dto.CustomerName);
+        existing.Phone = phone;
+        existing.Address = TrimOrNull(dto.Address);
+        existing.PaymentAmount = dto.TotalAmount;
+        existing.DepositOnName = TrimOrNull(dto.Deposit);
+        existing.Notes = TrimOrNull(dto.Notes);
+        existing.IsUnpaid = false;
+        existing.IsCancelled = true;
+        existing.SystemType = dto.SystemType;
+
+        existing.Equipments.Clear();
+        foreach (var equipmentId in equipmentIds)
+        {
+            existing.Equipments.Add(OrderMapper.ToEntity(equipmentId));
+        }
+
+        existing.Shifts.Clear();
+        foreach (var shift in shifts)
+        {
+            existing.Shifts.Add(OrderMapper.ToEntity(shift));
+        }
+
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+
+        var syncDto = new OrderCreateUpdateDto
+        {
+            CustomerName = existing.CustomerName,
+            Phone = existing.Phone,
+            Address = existing.Address,
+            EquipmentDefinitionIds = equipmentIds.ToList(),
+            Shifts = shifts,
+            PaymentAmount = existing.PaymentAmount,
+            IsUnpaid = false,
+            SystemType = existing.SystemType
+        };
+        await _customerService.SyncFromOrderAsync(syncDto, cancellationToken);
+
+        return OrderMapper.ToDto(existing);
     }
 
     public async Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default)

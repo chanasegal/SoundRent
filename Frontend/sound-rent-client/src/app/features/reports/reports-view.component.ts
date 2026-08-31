@@ -19,9 +19,11 @@ import {
   CreateOpenDebtDto,
   DEBT_CATEGORY_OPTIONS,
   DebtCategory,
-  OpenDebtGroupDto
+  OpenDebtGroupDto,
+  UpdateOpenDebtDto
 } from '../../core/models/open-debt.model';
 import { CreateManualCancelledOrderDto, OrderDto } from '../../core/models/order.model';
+import { DEPOSIT_TYPE_LABELS, DepositType } from '../../core/models/enums';
 import { CalendarViewStateService } from '../../core/services/calendar-view-state.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
@@ -76,7 +78,10 @@ export class ReportsViewComponent implements OnInit {
   protected readonly deletingOrderId = signal<number | null>(null);
 
   protected readonly addDebtOpen = signal(false);
+  protected readonly editingDebtId = signal<number | null>(null);
+  protected readonly editingOrderId = signal<number | null>(null);
   protected readonly savingDebt = signal(false);
+  protected readonly deletingDebtKey = signal<string | null>(null);
   protected readonly debtCategoryOptions = DEBT_CATEGORY_OPTIONS;
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
@@ -85,11 +90,16 @@ export class ReportsViewComponent implements OnInit {
   protected readonly customerSuggestIndex = signal(-1);
 
   protected readonly addCancelledOpen = signal(false);
+  protected readonly editingCancelledId = signal<number | null>(null);
   protected readonly savingCancelled = signal(false);
   protected readonly cancelledEquipmentDropdownOpen = signal(false);
   protected readonly cancelledCustomerSuggestField = signal<'name' | 'phone' | null>(null);
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
+
+  protected readonly debtHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly debtHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly debtHebrewDaySig = signal(this.initialHebrew.day);
 
   protected readonly startHebrewYearSig = signal(this.initialHebrew.year);
   protected readonly startHebrewMonthSig = signal(this.initialHebrew.month);
@@ -118,6 +128,8 @@ export class ReportsViewComponent implements OnInit {
     category: ['Amplification' as DebtCategory],
     itemDescription: ['', [Validators.maxLength(300)]],
     deposit: ['', [Validators.maxLength(500)]],
+    notes: ['', [Validators.maxLength(2000)]],
+    hebrewDate: ['', [Validators.required, Validators.maxLength(100)]],
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]]
   });
 
@@ -132,6 +144,8 @@ export class ReportsViewComponent implements OnInit {
     endHebrewYear: [this.initialHebrew.year, Validators.required],
     endHebrewMonth: [this.initialHebrew.month, Validators.required],
     endHebrewDay: [this.initialHebrew.day, Validators.required],
+    deposit: ['', [Validators.maxLength(100)]],
+    notes: ['', [Validators.maxLength(1000)]],
     totalAmount: [null as number | null, [Validators.min(0)]]
   });
 
@@ -143,6 +157,14 @@ export class ReportsViewComponent implements OnInit {
     }
     return rows.filter((r) => r.categoryLabel === filter);
   });
+
+  protected readonly debtModalTitle = computed(() =>
+    this.editingDebtId() != null ? 'עריכת חוב' : 'הוסף חוב חדש'
+  );
+
+  protected readonly cancelledModalTitle = computed(() =>
+    this.editingCancelledId() != null ? 'עריכת הזמנה מבוטלת' : 'הוסף הזמנה מבוטלת'
+  );
 
   ngOnInit(): void {
     this.equipmentSlots.load().subscribe();
@@ -168,6 +190,7 @@ export class ReportsViewComponent implements OnInit {
           this.loadingUnpaid() ||
           this.savingDebt() ||
           this.markingPaidKey() != null ||
+          this.deletingDebtKey() != null ||
           this.addDebtOpen()
       }
     );
@@ -213,6 +236,10 @@ export class ReportsViewComponent implements OnInit {
   }
 
   protected openAddDebt(): void {
+    const parts = this.hebrew.toHebrewParts(new Date());
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(null);
+    this.setDebtHebrewParts(parts);
     this.debtForm.reset({
       customerName: '',
       phone: '',
@@ -220,7 +247,77 @@ export class ReportsViewComponent implements OnInit {
       category: 'Amplification',
       itemDescription: '',
       deposit: '',
+      notes: '',
+      hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
       amount: null
+    });
+    this.closeCustomerSuggestions();
+    this.addDebtOpen.set(true);
+  }
+
+  protected canEditDebtGroup(group: OpenDebtGroupDto): boolean {
+    return (group.debtIds?.length ?? 0) > 0 || (group.orderIds?.length ?? 0) > 0;
+  }
+
+  protected openEditDebt(group: OpenDebtGroupDto): void {
+    const debtId = group.debtIds?.[0];
+    if (debtId != null) {
+      this.savingDebt.set(true);
+      this.data
+        .getOpenDebt(debtId)
+        .pipe(finalize(() => this.savingDebt.set(false)))
+        .subscribe({
+          next: (debt) => {
+            if (!debt) {
+              return;
+            }
+            const charged = new Date(debt.chargedAt);
+            const parts = Number.isNaN(charged.getTime())
+              ? this.hebrew.toHebrewParts(new Date())
+              : this.hebrew.toHebrewParts(charged);
+            this.editingDebtId.set(debt.id);
+            this.editingOrderId.set(null);
+            this.setDebtHebrewParts(parts);
+            this.debtForm.reset({
+              customerName: debt.customerName ?? '',
+              phone: debt.phone ?? '',
+              address: debt.address ?? '',
+              category: this.normalizeDebtCategory(debt.category),
+              itemDescription: debt.itemDescription ?? '',
+              deposit: debt.deposit ?? '',
+              notes: debt.notes ?? '',
+              hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
+              amount: debt.amount
+            });
+            this.closeCustomerSuggestions();
+            this.addDebtOpen.set(true);
+          }
+        });
+      return;
+    }
+
+    const orderId = group.orderIds?.[0];
+    if (orderId == null) {
+      return;
+    }
+
+    const charged = new Date(group.sessionDate);
+    const parts = Number.isNaN(charged.getTime())
+      ? this.hebrew.toHebrewParts(new Date())
+      : this.hebrew.toHebrewParts(charged);
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(orderId);
+    this.setDebtHebrewParts(parts);
+    this.debtForm.reset({
+      customerName: group.customerName ?? '',
+      phone: group.phone ?? '',
+      address: group.address ?? '',
+      category: this.normalizeDebtCategory(group.category),
+      itemDescription: group.equipmentSummary ?? '',
+      deposit: group.deposit ?? '',
+      notes: group.notes ?? '',
+      hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
+      amount: group.totalAmount
     });
     this.closeCustomerSuggestions();
     this.addDebtOpen.set(true);
@@ -228,7 +325,32 @@ export class ReportsViewComponent implements OnInit {
 
   protected closeAddDebt(): void {
     this.addDebtOpen.set(false);
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(null);
     this.closeCustomerSuggestions();
+  }
+
+  private normalizeDebtCategory(category: DebtCategory): DebtCategory {
+    if (category === 0 || category === 'Tools') {
+      return 'Tools';
+    }
+    if (category === 2 || category === 'Library') {
+      return 'Library';
+    }
+    return 'Amplification';
+  }
+
+  protected patchDebtHebrewFromCalendar(
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const year = part.year ?? this.debtHebrewYearSig();
+    const month = part.month ?? this.debtHebrewMonthSig();
+    const day = part.day ?? this.debtHebrewDaySig();
+    this.setDebtHebrewParts({ year, month, day });
+    this.debtForm.patchValue({
+      hebrewDate: this.hebrew.formatHebrewDate(day, month, year)
+    });
+    this.debtForm.controls.hebrewDate.markAsTouched();
   }
 
   protected submitAddDebt(): void {
@@ -241,39 +363,100 @@ export class ReportsViewComponent implements OnInit {
       return;
     }
 
+    const chargedAt = this.hebrewPartsToIso(
+      this.debtHebrewYearSig(),
+      this.debtHebrewMonthSig(),
+      this.debtHebrewDaySig()
+    );
+    if (!chargedAt) {
+      this.toast.error('תאריך לא תקין');
+      return;
+    }
+
     const v = this.debtForm.getRawValue();
-    const payload: CreateOpenDebtDto = {
+    const base = {
       customerName: (v.customerName ?? '').trim() || null,
       phone: (v.phone ?? '').trim(),
       address: (v.address ?? '').trim() || null,
       category: (v.category ?? 'Amplification') as DebtCategory,
       itemDescription: (v.itemDescription ?? '').trim() || null,
       deposit: (v.deposit ?? '').trim() || null,
-      amount: Number(v.amount)
+      notes: (v.notes ?? '').trim() || null,
+      amount: Number(v.amount),
+      chargedAt
     };
 
+    const editingDebtId = this.editingDebtId();
+    const editingOrderId = this.editingOrderId();
     this.savingDebt.set(true);
+
+    const request$ =
+      editingDebtId != null
+        ? this.data.updateOpenDebt(editingDebtId, base as UpdateOpenDebtDto)
+        : editingOrderId != null
+          ? this.data.updateOpenDebtOrder(editingOrderId, base as UpdateOpenDebtDto)
+          : this.data.createOpenDebt(base as CreateOpenDebtDto);
+
+    request$.pipe(finalize(() => this.savingDebt.set(false))).subscribe({
+      next: (created) => {
+        if (!created) {
+          return;
+        }
+        this.openDebtGroups.update((list) => {
+          const without = list.filter((g) => {
+            if (g.groupKey === created.group.groupKey) {
+              return false;
+            }
+            if (editingDebtId != null && (g.debtIds ?? []).includes(editingDebtId)) {
+              return false;
+            }
+            if (editingOrderId != null && (g.orderIds ?? []).includes(editingOrderId)) {
+              return false;
+            }
+            return true;
+          });
+          return [created.group, ...without];
+        });
+        this.ordersSync.notifyDebtChanged();
+        this.closeAddDebt();
+        this.toast.success(
+          editingDebtId != null || editingOrderId != null ? 'החוב עודכן בהצלחה' : 'החוב נוסף בהצלחה'
+        );
+      }
+    });
+  }
+
+  protected deleteDebtGroup(group: OpenDebtGroupDto): void {
+    if (this.deletingDebtKey() !== null) {
+      return;
+    }
+    const label = group.customerName?.trim() || group.phone;
+    if (!confirm(`למחוק את החוב של ${label}? לא ניתן לשחזר פעולה זו.`)) {
+      return;
+    }
+
+    this.deletingDebtKey.set(group.groupKey);
     this.data
-      .createOpenDebt(payload)
-      .pipe(finalize(() => this.savingDebt.set(false)))
+      .deleteOpenDebtGroup({
+        debtIds: group.debtIds ?? [],
+        orderIds: group.orderIds ?? []
+      })
+      .pipe(finalize(() => this.deletingDebtKey.set(null)))
       .subscribe({
-        next: (created) => {
-          if (!created) {
+        next: (ok) => {
+          if (!ok) {
             return;
           }
-          this.openDebtGroups.update((list) => {
-            const without = list.filter((g) => g.groupKey !== created.group.groupKey);
-            return [created.group, ...without];
-          });
+          this.openDebtGroups.update((list) => list.filter((g) => g.groupKey !== group.groupKey));
           this.ordersSync.notifyDebtChanged();
-          this.closeAddDebt();
-          this.toast.success('החוב נוסף בהצלחה');
+          this.toast.success('החוב נמחק בהצלחה');
         }
       });
   }
 
   protected openAddCancelled(): void {
     const parts = this.hebrew.toHebrewParts(new Date());
+    this.editingCancelledId.set(null);
     this.cancelledForm.reset({
       customerName: '',
       phone: '',
@@ -285,6 +468,8 @@ export class ReportsViewComponent implements OnInit {
       endHebrewYear: parts.year,
       endHebrewMonth: parts.month,
       endHebrewDay: parts.day,
+      deposit: '',
+      notes: '',
       totalAmount: null
     });
     this.startHebrewYearSig.set(parts.year);
@@ -300,8 +485,50 @@ export class ReportsViewComponent implements OnInit {
     this.addCancelledOpen.set(true);
   }
 
+  protected openEditCancelled(order: OrderDto): void {
+    const startIso = this.firstShiftDate(order);
+    const endIso = this.lastShiftDate(order);
+    const startParts =
+      (startIso ? this.hebrew.isoToHebrewParts(startIso) : null) ?? this.hebrew.toHebrewParts(new Date());
+    const endParts =
+      (endIso ? this.hebrew.isoToHebrewParts(endIso) : null) ?? startParts;
+
+    this.editingCancelledId.set(order.id);
+    this.cancelledForm.reset({
+      customerName: order.customerName ?? '',
+      phone: order.phone ?? '',
+      address: order.address ?? '',
+      equipmentDefinitionIds: [...(order.equipmentDefinitionIds ?? [])],
+      startHebrewYear: startParts.year,
+      startHebrewMonth: startParts.month,
+      startHebrewDay: startParts.day,
+      endHebrewYear: endParts.year,
+      endHebrewMonth: endParts.month,
+      endHebrewDay: endParts.day,
+      deposit: this.cancelledDepositRaw(order),
+      notes: order.notes ?? '',
+      totalAmount: order.paymentAmount ?? null
+    });
+    this.startHebrewYearSig.set(startParts.year);
+    this.startHebrewMonthSig.set(startParts.month);
+    this.startHebrewDaySig.set(startParts.day);
+    this.endHebrewYearSig.set(endParts.year);
+    this.endHebrewMonthSig.set(endParts.month);
+    this.endHebrewDaySig.set(endParts.day);
+    this.ensureYearInStartOptions(startParts.year);
+    this.ensureYearInEndOptions(endParts.year);
+    this.startMonthOptions.set(this.hebrew.monthsForYear(startParts.year));
+    this.endMonthOptions.set(this.hebrew.monthsForYear(endParts.year));
+    this.syncStartDayOptions();
+    this.syncEndDayOptions();
+    this.cancelledEquipmentDropdownOpen.set(false);
+    this.closeCustomerSuggestions();
+    this.addCancelledOpen.set(true);
+  }
+
   protected closeAddCancelled(): void {
     this.addCancelledOpen.set(false);
+    this.editingCancelledId.set(null);
     this.cancelledEquipmentDropdownOpen.set(false);
     this.closeCustomerSuggestions();
   }
@@ -348,28 +575,36 @@ export class ReportsViewComponent implements OnInit {
       equipmentDefinitionIds: [...(v.equipmentDefinitionIds ?? [])],
       startDate: startIso,
       endDate: endIso,
-      totalAmount: totalAmount != null && Number.isFinite(totalAmount) ? totalAmount : null
+      totalAmount: totalAmount != null && Number.isFinite(totalAmount) ? totalAmount : null,
+      deposit: (v.deposit ?? '').trim() || null,
+      notes: (v.notes ?? '').trim() || null
     };
 
+    const editingId = this.editingCancelledId();
     this.savingCancelled.set(true);
-    this.data
-      .createManualCancelledOrder(payload)
-      .pipe(finalize(() => this.savingCancelled.set(false)))
-      .subscribe({
-        next: (created) => {
-          if (!created) {
-            return;
-          }
-          this.cancelledOrders.update((list) => {
-            if (list.some((o) => o.id === created.id)) {
-              return list.map((o) => (o.id === created.id ? created : o));
-            }
-            return [created, ...list];
-          });
-          this.closeAddCancelled();
-          this.toast.success('ההזמנה המבוטלת נוספה בהצלחה');
+
+    const request$ =
+      editingId != null
+        ? this.data.updateManualCancelledOrder(editingId, payload)
+        : this.data.createManualCancelledOrder(payload);
+
+    request$.pipe(finalize(() => this.savingCancelled.set(false))).subscribe({
+      next: (created) => {
+        if (!created) {
+          return;
         }
-      });
+        this.cancelledOrders.update((list) => {
+          if (list.some((o) => o.id === created.id)) {
+            return list.map((o) => (o.id === created.id ? created : o));
+          }
+          return [created, ...list];
+        });
+        this.closeAddCancelled();
+        this.toast.success(
+          editingId != null ? 'ההזמנה המבוטלת עודכנה בהצלחה' : 'ההזמנה המבוטלת נוספה בהצלחה'
+        );
+      }
+    });
   }
 
   protected toggleCancelledEquipmentDropdown(): void {
@@ -557,12 +792,14 @@ export class ReportsViewComponent implements OnInit {
     void this.exportSvc
       .exportToExcel(
         rows.map((g) => ({
+          'תאריך חיוב': this.sessionHebrewDate(g),
+          ציוד: g.equipmentSummary,
           'שם לקוח': g.customerName ?? '',
           טלפון: g.phone,
+          כתובת: g.address ?? '',
           קטגוריה: g.categoryLabel,
-          ציוד: g.equipmentSummary,
           פיקדון: g.deposit ?? '',
-          'תאריך חיוב': this.sessionHebrewDate(g),
+          הערות: g.notes ?? '',
           'סכום כולל': g.totalAmount
         })),
         `open_debts_${this.todayFileStamp()}.xlsx`
@@ -622,6 +859,34 @@ export class ReportsViewComponent implements OnInit {
     return (order.equipmentDefinitionIds ?? [])
       .map((id) => this.equipmentSlots.displayLabel(id))
       .join(', ');
+  }
+
+  protected formatPhone(phone: string | null | undefined): string {
+    const raw = (phone ?? '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return raw || '—';
+  }
+
+  protected cancelledDepositLabel(order: OrderDto): string {
+    const typeLabel =
+      order.depositType != null
+        ? DEPOSIT_TYPE_LABELS[order.depositType as DepositType] ?? null
+        : null;
+    const onName = (order.depositOnName ?? '').trim() || null;
+    if (!typeLabel && !onName) {
+      return '—';
+    }
+    if (!typeLabel) {
+      return onName!;
+    }
+    return onName ? `${typeLabel} — ${onName}` : typeLabel;
+  }
+
+  private cancelledDepositRaw(order: OrderDto): string {
+    return (order.depositOnName ?? '').trim();
   }
 
   protected startHebrewDate(order: OrderDto): string {
@@ -839,6 +1104,12 @@ export class ReportsViewComponent implements OnInit {
     }
   }
 
+  private setDebtHebrewParts(parts: HebrewDateParts): void {
+    this.debtHebrewYearSig.set(parts.year);
+    this.debtHebrewMonthSig.set(parts.month);
+    this.debtHebrewDaySig.set(parts.day);
+  }
+
   protected closeCustomerSuggestions(): void {
     this.customerSuggestOpen.set(false);
     this.customerSuggestField.set(null);
@@ -847,11 +1118,14 @@ export class ReportsViewComponent implements OnInit {
 
   private toCancelledExcelRow(order: OrderDto): Record<string, unknown> {
     return {
-      'שם לקוח': order.customerName ?? '',
-      טלפון: order.phone,
-      ציוד: this.equipmentLabel(order),
       'תאריך התחלה': this.startHebrewDate(order),
       'תאריך סיום': this.endHebrewDate(order),
+      ציוד: this.equipmentLabel(order),
+      'שם לקוח': order.customerName ?? '',
+      טלפון: order.phone,
+      כתובת: order.address ?? '',
+      פיקדון: this.cancelledDepositLabel(order) === '—' ? '' : this.cancelledDepositLabel(order),
+      הערות: order.notes ?? '',
       'סכום כולל': order.paymentAmount ?? '',
       סטטוס: this.orderStatusLabel(order)
     };

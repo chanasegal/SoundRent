@@ -498,6 +498,9 @@
               <div class="recent-loan-card__primary">
                 <span class="recent-loan-card__name">{{ card.customerName || 'ללא שם' }}</span>
                 <span class="recent-loan-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
+                @if (card.address) {
+                  <span class="customer-breakdown-card__address">{{ card.address }}</span>
+                }
                 <span class="recent-loan-card__meta">
                   @for (order of card.orders; track order.id; let last = $last) {
                     #{{ order.id }}@if (!last) {, }
@@ -592,7 +595,7 @@
                       class="active-loan-item__date"
                       [attr.datetime]="row.loanDateIso"
                       [title]="activeLoanHebrewDate(row.loanDateIso)"
-                    >{{ heb }}</time>
+                    >{{ heb }}@if (row.loanTimeLabel) { · {{ row.loanTimeLabel }} }</time>
                   }
                   <span class="accessory-row__label">{{ row.accessoryName }}</span>
 

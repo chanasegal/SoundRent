@@ -219,6 +219,9 @@
                 <div class="client-cell">
                   <span>{{ row.clientName || '—' }}</span>
                   <span class="ltr-field phone" dir="ltr">{{ formatPhone(row.phone) }}</span>
+                  @if (row.address) {
+                    <span class="address">{{ row.address }}</span>
+                  }
                 </div>
               </td>
               <td class="px-3 py-3 whitespace-nowrap">{{ formatDeadline(row.deadlineAt) }}</td>
@@ -372,6 +375,24 @@
                   קוד
                   <span class="ltr-field font-mono font-semibold text-[#002244]">{{ scanned.serialCode }}</span>
                 </span>
+                <div class="quick-return-item__loan-row">
+                  <span class="quick-return-item__date">{{ scanned.hebrewLentDisplay }}</span>
+                  <span
+                    class="quick-return-item__duration"
+                    [class.duration-overdue]="quickReturnItemOverdue(scanned)"
+                  >
+                    {{ quickReturnDurationText(scanned) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="action-icon-btn action-icon-btn--calendar"
+                    (click)="loanRangeCal.open($event, scanned.lentAt, null)"
+                    title="תצוגת טווח השאלה"
+                    aria-label="תצוגת טווח השאלה"
+                  >
+                    <i class="pi pi-calendar" aria-hidden="true"></i>
+                  </button>
+                </div>
               </div>
               <span class="quick-return-item__badge">נבחר</span>
             </div>
@@ -415,6 +436,24 @@
                                 קוד
                                 <span class="ltr-field font-mono font-semibold">{{ item.serialCode }}</span>
                               </span>
+                              <div class="quick-return-item__loan-row">
+                                <span class="quick-return-item__date">{{ item.hebrewLentDisplay }}</span>
+                                <span
+                                  class="quick-return-item__duration"
+                                  [class.duration-overdue]="quickReturnItemOverdue(item)"
+                                >
+                                  {{ quickReturnDurationText(item) }}
+                                </span>
+                                <button
+                                  type="button"
+                                  class="action-icon-btn action-icon-btn--calendar"
+                                  (click)="$event.preventDefault(); $event.stopPropagation(); loanRangeCal.open($event, item.lentAt, null)"
+                                  title="תצוגת טווח השאלה"
+                                  aria-label="תצוגת טווח השאלה"
+                                >
+                                  <i class="pi pi-calendar" aria-hidden="true"></i>
+                                </button>
+                              </div>
                             </span>
                           </label>
                         </li>

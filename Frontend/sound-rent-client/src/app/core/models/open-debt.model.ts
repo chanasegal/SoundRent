@@ -4,14 +4,31 @@ export interface OpenDebtGroupDto {
   groupKey: string;
   customerName: string;
   phone: string;
+  address?: string | null;
   category: DebtCategory;
   categoryLabel: string;
   totalAmount: number;
   equipmentSummary: string;
   deposit?: string | null;
+  notes?: string | null;
   sessionDate: string;
   debtIds: number[];
   orderIds: number[];
+}
+
+export interface OpenDebtDetailDto {
+  id: number;
+  customerName: string;
+  phone: string;
+  address?: string | null;
+  category: DebtCategory;
+  categoryLabel: string;
+  itemDescription: string;
+  deposit?: string | null;
+  notes?: string | null;
+  amount: number;
+  chargedAt: string;
+  isPaid: boolean;
 }
 
 export interface MarkOpenDebtGroupPaidDto {
@@ -26,7 +43,23 @@ export interface CreateOpenDebtDto {
   category: DebtCategory;
   itemDescription?: string | null;
   deposit?: string | null;
+  notes?: string | null;
   amount: number;
+  /** Local calendar day `yyyy-MM-dd`. */
+  chargedAt?: string | null;
+}
+
+export interface UpdateOpenDebtDto {
+  customerName?: string | null;
+  phone: string;
+  address?: string | null;
+  category: DebtCategory;
+  itemDescription?: string | null;
+  deposit?: string | null;
+  notes?: string | null;
+  amount: number;
+  /** Local calendar day `yyyy-MM-dd`. */
+  chargedAt: string;
 }
 
 export interface CreatedOpenDebtDto {

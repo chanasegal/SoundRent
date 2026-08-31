@@ -59,6 +59,11 @@ public interface IOrderService
         CreateManualCancelledOrderDto dto,
         CancellationToken cancellationToken = default);
 
+    Task<OrderDto> UpdateManualCancelledOrderAsync(
+        int id,
+        CreateManualCancelledOrderDto dto,
+        CancellationToken cancellationToken = default);
+
     Task<OrderDto> MarkOrderAsPaidAsync(int id, CancellationToken cancellationToken = default);
 
     Task<OrderDto> UpdateUrgentBoardNoteAsync(

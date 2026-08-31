@@ -3674,10 +3674,13 @@ export class OrderFormComponent implements OnInit {
 
   private setHebrewFromIso(
     bookingIndex: number,
-    iso: string,
+    iso: string | null | undefined,
     endpoint: 'start' | 'end',
     emitDateChange = false
   ): void {
+    if (!iso) {
+      return;
+    }
     const parts = this.hebrew.isoToHebrewParts(iso);
     if (!parts) {
       return;
@@ -3992,8 +3995,13 @@ export class OrderFormComponent implements OnInit {
 
     const equipmentDefinitionIds = (order.equipmentDefinitionIds ?? [])
       .filter((id) => this.equipmentSlots.hasSpeakerSlot(id));
-    const shifts = [...(order.shifts ?? [])]
-      .sort((a, b) => a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot));
+    const shifts = [...(order.shifts ?? [])].sort((a, b) => {
+      const dateCmp = (a.orderDate ?? '').localeCompare(b.orderDate ?? '');
+      if (dateCmp !== 0) {
+        return dateCmp;
+      }
+      return this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot);
+    });
     const firstShift = shifts[0];
     const lastShift = shifts[shifts.length - 1];
 
@@ -4019,8 +4027,10 @@ export class OrderFormComponent implements OnInit {
         endShift = startShift;
       }
     } else {
-      startIso = firstShift?.orderDate ?? (booking.controls['startDate'].value as string);
-      endIso = lastShift?.orderDate ?? firstShift?.orderDate ?? (booking.controls['endDate'].value as string);
+      const fallbackStart =
+        (booking.controls['startDate'].value as string) || this.toIso(new Date());
+      startIso = firstShift?.orderDate || fallbackStart;
+      endIso = lastShift?.orderDate || firstShift?.orderDate || startIso;
       startShift = firstShift?.timeSlot ?? TimeSlot.Morning;
       endShift = lastShift?.timeSlot ?? firstShift?.timeSlot ?? TimeSlot.Morning;
     }

@@ -17,12 +17,13 @@ import { CustomerSuggestDto } from '../../core/models/customer.model';
 import {
   CreateOpenDebtDto,
   DebtCategory,
-  OpenDebtGroupDto
+  OpenDebtGroupDto,
+  UpdateOpenDebtDto
 } from '../../core/models/open-debt.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { ExportService } from '../../core/services/export.service';
-import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -33,11 +34,19 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
+import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 @Component({
   selector: 'app-tools-reports',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, IsraeliPhoneInputDirective, ClickOutsideDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    IsraeliPhoneInputDirective,
+    ClickOutsideDirective,
+    HebrewCalendarPickerComponent
+  ],
   templateUrl: './tools-reports.component.html',
   styleUrl: './tools-reports.component.scss'
 })
@@ -58,12 +67,20 @@ export class ToolsReportsComponent implements OnInit {
   protected readonly markingPaidKey = signal<string | null>(null);
 
   protected readonly addDebtOpen = signal(false);
+  protected readonly editingDebtId = signal<number | null>(null);
+  protected readonly editingOrderId = signal<number | null>(null);
   protected readonly savingDebt = signal(false);
+  protected readonly deletingDebtKey = signal<string | null>(null);
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
   protected readonly customerSuggestField = signal<'name' | 'phone' | null>(null);
   protected readonly customerSuggestIndex = signal(-1);
+
+  private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
+  protected readonly debtHebrewYearSig = signal(this.initialHebrew.year);
+  protected readonly debtHebrewMonthSig = signal(this.initialHebrew.month);
+  protected readonly debtHebrewDaySig = signal(this.initialHebrew.day);
 
   /** Always filter to Tools category only */
   protected readonly filteredOpenDebts = computed(() =>
@@ -72,12 +89,18 @@ export class ToolsReportsComponent implements OnInit {
       .filter((r) => r.categoryLabel === 'כלי עבודה')
   );
 
+  protected readonly debtModalTitle = computed(() =>
+    this.editingDebtId() != null ? 'עריכת חוב – כלי עבודה' : 'הוסף חוב חדש – כלי עבודה'
+  );
+
   protected readonly debtForm = this.fb.group({
     customerName: ['', [Validators.maxLength(200)]],
     phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
     address: ['', [Validators.maxLength(300)]],
     itemDescription: ['', [Validators.maxLength(300)]],
     deposit: ['', [Validators.maxLength(500)]],
+    notes: ['', [Validators.maxLength(2000)]],
+    hebrewDate: ['', [Validators.required, Validators.maxLength(100)]],
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]]
   });
 
@@ -97,6 +120,7 @@ export class ToolsReportsComponent implements OnInit {
           this.loadingUnpaid() ||
           this.savingDebt() ||
           this.markingPaidKey() != null ||
+          this.deletingDebtKey() != null ||
           this.addDebtOpen()
       }
     );
@@ -112,14 +136,86 @@ export class ToolsReportsComponent implements OnInit {
       });
   }
 
+  protected canEditDebtGroup(group: OpenDebtGroupDto): boolean {
+    return (group.debtIds?.length ?? 0) > 0 || (group.orderIds?.length ?? 0) > 0;
+  }
+
   protected openAddDebt(): void {
+    const parts = this.hebrew.toHebrewParts(new Date());
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(null);
+    this.setDebtHebrewParts(parts);
     this.debtForm.reset({
       customerName: '',
       phone: '',
       address: '',
       itemDescription: '',
       deposit: '',
+      notes: '',
+      hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
       amount: null
+    });
+    this.closeCustomerSuggestions();
+    this.addDebtOpen.set(true);
+  }
+
+  protected openEditDebt(group: OpenDebtGroupDto): void {
+    const debtId = group.debtIds?.[0];
+    if (debtId != null) {
+      this.savingDebt.set(true);
+      this.data
+        .getOpenDebt(debtId)
+        .pipe(finalize(() => this.savingDebt.set(false)))
+        .subscribe({
+          next: (debt) => {
+            if (!debt) {
+              return;
+            }
+            const charged = new Date(debt.chargedAt);
+            const parts = Number.isNaN(charged.getTime())
+              ? this.hebrew.toHebrewParts(new Date())
+              : this.hebrew.toHebrewParts(charged);
+            this.editingDebtId.set(debt.id);
+            this.editingOrderId.set(null);
+            this.setDebtHebrewParts(parts);
+            this.debtForm.reset({
+              customerName: debt.customerName ?? '',
+              phone: debt.phone ?? '',
+              address: debt.address ?? '',
+              itemDescription: debt.itemDescription ?? '',
+              deposit: debt.deposit ?? '',
+              notes: debt.notes ?? '',
+              hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
+              amount: debt.amount
+            });
+            this.closeCustomerSuggestions();
+            this.addDebtOpen.set(true);
+          }
+        });
+      return;
+    }
+
+    const orderId = group.orderIds?.[0];
+    if (orderId == null) {
+      return;
+    }
+
+    const charged = new Date(group.sessionDate);
+    const parts = Number.isNaN(charged.getTime())
+      ? this.hebrew.toHebrewParts(new Date())
+      : this.hebrew.toHebrewParts(charged);
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(orderId);
+    this.setDebtHebrewParts(parts);
+    this.debtForm.reset({
+      customerName: group.customerName ?? '',
+      phone: group.phone ?? '',
+      address: group.address ?? '',
+      itemDescription: group.equipmentSummary ?? '',
+      deposit: group.deposit ?? '',
+      notes: group.notes ?? '',
+      hebrewDate: this.hebrew.formatHebrewDate(parts.day, parts.month, parts.year),
+      amount: group.totalAmount
     });
     this.closeCustomerSuggestions();
     this.addDebtOpen.set(true);
@@ -127,7 +223,22 @@ export class ToolsReportsComponent implements OnInit {
 
   protected closeAddDebt(): void {
     this.addDebtOpen.set(false);
+    this.editingDebtId.set(null);
+    this.editingOrderId.set(null);
     this.closeCustomerSuggestions();
+  }
+
+  protected patchDebtHebrewFromCalendar(
+    part: Partial<Pick<HebrewDateParts, 'year' | 'month' | 'day'>>
+  ): void {
+    const year = part.year ?? this.debtHebrewYearSig();
+    const month = part.month ?? this.debtHebrewMonthSig();
+    const day = part.day ?? this.debtHebrewDaySig();
+    this.setDebtHebrewParts({ year, month, day });
+    this.debtForm.patchValue({
+      hebrewDate: this.hebrew.formatHebrewDate(day, month, year)
+    });
+    this.debtForm.controls.hebrewDate.markAsTouched();
   }
 
   protected submitAddDebt(): void {
@@ -140,33 +251,93 @@ export class ToolsReportsComponent implements OnInit {
       return;
     }
 
+    const chargedAt = this.hebrewPartsToIso(
+      this.debtHebrewYearSig(),
+      this.debtHebrewMonthSig(),
+      this.debtHebrewDaySig()
+    );
+    if (!chargedAt) {
+      this.toast.error('תאריך לא תקין');
+      return;
+    }
+
     const v = this.debtForm.getRawValue();
-    const payload: CreateOpenDebtDto = {
+    const base = {
       customerName: (v.customerName ?? '').trim() || null,
       phone: (v.phone ?? '').trim(),
       address: (v.address ?? '').trim() || null,
       category: 'Tools' as DebtCategory,
       itemDescription: (v.itemDescription ?? '').trim() || null,
       deposit: (v.deposit ?? '').trim() || null,
-      amount: Number(v.amount)
+      notes: (v.notes ?? '').trim() || null,
+      amount: Number(v.amount),
+      chargedAt
     };
 
+    const editingDebtId = this.editingDebtId();
+    const editingOrderId = this.editingOrderId();
     this.savingDebt.set(true);
+
+    const request$ =
+      editingDebtId != null
+        ? this.data.updateOpenDebt(editingDebtId, base as UpdateOpenDebtDto)
+        : editingOrderId != null
+          ? this.data.updateOpenDebtOrder(editingOrderId, base as UpdateOpenDebtDto)
+          : this.data.createOpenDebt(base as CreateOpenDebtDto);
+
+    request$.pipe(finalize(() => this.savingDebt.set(false))).subscribe({
+      next: (created) => {
+        if (!created) {
+          return;
+        }
+        this.openDebtGroups.update((list) => {
+          const without = list.filter((g) => {
+            if (g.groupKey === created.group.groupKey) {
+              return false;
+            }
+            if (editingDebtId != null && (g.debtIds ?? []).includes(editingDebtId)) {
+              return false;
+            }
+            if (editingOrderId != null && (g.orderIds ?? []).includes(editingOrderId)) {
+              return false;
+            }
+            return true;
+          });
+          return [created.group, ...without];
+        });
+        this.ordersSync.notifyDebtChanged();
+        this.closeAddDebt();
+        this.toast.success(
+          editingDebtId != null || editingOrderId != null ? 'החוב עודכן בהצלחה' : 'החוב נוסף בהצלחה'
+        );
+      }
+    });
+  }
+
+  protected deleteDebtGroup(group: OpenDebtGroupDto): void {
+    if (this.deletingDebtKey() !== null) {
+      return;
+    }
+    const label = group.customerName?.trim() || group.phone;
+    if (!confirm(`למחוק את החוב של ${label}? לא ניתן לשחזר פעולה זו.`)) {
+      return;
+    }
+
+    this.deletingDebtKey.set(group.groupKey);
     this.data
-      .createOpenDebt(payload)
-      .pipe(finalize(() => this.savingDebt.set(false)))
+      .deleteOpenDebtGroup({
+        debtIds: group.debtIds ?? [],
+        orderIds: group.orderIds ?? []
+      })
+      .pipe(finalize(() => this.deletingDebtKey.set(null)))
       .subscribe({
-        next: (created) => {
-          if (!created) {
+        next: (ok) => {
+          if (!ok) {
             return;
           }
-          this.openDebtGroups.update((list) => {
-            const without = list.filter((g) => g.groupKey !== created.group.groupKey);
-            return [created.group, ...without];
-          });
+          this.openDebtGroups.update((list) => list.filter((g) => g.groupKey !== group.groupKey));
           this.ordersSync.notifyDebtChanged();
-          this.closeAddDebt();
-          this.toast.success('החוב נוסף בהצלחה');
+          this.toast.success('החוב נמחק בהצלחה');
         }
       });
   }
@@ -184,12 +355,14 @@ export class ToolsReportsComponent implements OnInit {
     void this.exportSvc
       .exportToExcel(
         rows.map((g) => ({
+          'תאריך חיוב': this.sessionHebrewDate(g),
+          ציוד: g.equipmentSummary,
           'שם לקוח': g.customerName ?? '',
           טלפון: g.phone,
+          כתובת: g.address ?? '',
           קטגוריה: g.categoryLabel,
-          ציוד: g.equipmentSummary,
           פיקדון: g.deposit ?? '',
-          'תאריך חיוב': this.sessionHebrewDate(g),
+          הערות: g.notes ?? '',
           'סכום כולל': g.totalAmount
         })),
         `tools_debts_${this.todayFileStamp()}.xlsx`
@@ -227,6 +400,15 @@ export class ToolsReportsComponent implements OnInit {
       return '—';
     }
     return this.hebrew.toHebrew(date);
+  }
+
+  protected formatPhone(phone: string | null | undefined): string {
+    const raw = (phone ?? '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return raw || '—';
   }
 
   protected formatGroupAmount(group: OpenDebtGroupDto): string {
@@ -307,6 +489,20 @@ export class ToolsReportsComponent implements OnInit {
     this.customerSuggestOpen.set(false);
     this.customerSuggestField.set(null);
     this.customerSuggestIndex.set(-1);
+  }
+
+  private setDebtHebrewParts(parts: HebrewDateParts): void {
+    this.debtHebrewYearSig.set(parts.year);
+    this.debtHebrewMonthSig.set(parts.month);
+    this.debtHebrewDaySig.set(parts.day);
+  }
+
+  private hebrewPartsToIso(year: number, month: number, day: number): string | null {
+    try {
+      return this.hebrew.toIso(this.hebrew.toGregorian(year, month, day));
+    } catch {
+      return null;
+    }
   }
 
   private wireCustomerAutocomplete(): void {

@@ -61,6 +61,9 @@ export class HebrewDateService {
    * e.g. "כ״א אייר תשפ״ה".
    */
   toHebrew(date: Date): string {
+    if (!this.isValidDate(date)) {
+      return '—';
+    }
     return new HDate(date).renderGematriya();
   }
 
@@ -68,6 +71,9 @@ export class HebrewDateService {
    * Hebrew date with weekday prefix, e.g. "יום שני כ״א אלול תשפ״ו".
    */
   toHebrewWithDayOfWeek(date: Date): string {
+    if (!this.isValidDate(date)) {
+      return '—';
+    }
     return `יום ${this.dayOfWeekHebrew(date)} ${this.toHebrew(date)}`;
   }
 
@@ -75,6 +81,9 @@ export class HebrewDateService {
    * Hebrew date (with weekday) plus local time, e.g. "יום שני כ״א אלול תשפ״ו 15:53".
    */
   formatHebrewDateTime(date: Date, withSeconds = false): string {
+    if (!this.isValidDate(date)) {
+      return '—';
+    }
     const hh = String(date.getHours()).padStart(2, '0');
     const mm = String(date.getMinutes()).padStart(2, '0');
     if (withSeconds) {
@@ -96,6 +105,9 @@ export class HebrewDateService {
    * Hours/minutes/seconds of the input are ignored (the Hebrew daytime is used).
    */
   toHebrewParts(date: Date): HebrewDateParts {
+    if (!this.isValidDate(date)) {
+      return this.toHebrewParts(new Date());
+    }
     const hd = new HDate(date);
     return { day: hd.getDate(), month: hd.getMonth(), year: hd.getFullYear() };
   }
@@ -139,7 +151,10 @@ export class HebrewDateService {
 
   /** Hebrew name of the day of week for a given Gregorian date (e.g. "חמישי"). */
   dayOfWeekHebrew(date: Date): string {
-    return HEBREW_DAY_NAMES[date.getDay()];
+    if (!this.isValidDate(date)) {
+      return '';
+    }
+    return HEBREW_DAY_NAMES[date.getDay()] ?? '';
   }
 
   /**
@@ -179,6 +194,9 @@ export class HebrewDateService {
    *   "יום חמישי, 14/05/2026"
    */
   formatGregorianWithDayName(date: Date): string {
+    if (!this.isValidDate(date)) {
+      return '—';
+    }
     const dayName = this.dayOfWeekHebrew(date);
     const dd = String(date.getDate()).padStart(2, '0');
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -188,6 +206,9 @@ export class HebrewDateService {
 
   /** Converts a `Date` to a `yyyy-MM-dd` string using local time components. */
   toIso(date: Date): string {
+    if (!this.isValidDate(date)) {
+      return '';
+    }
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
@@ -196,12 +217,17 @@ export class HebrewDateService {
 
   /** Parses a `yyyy-MM-dd` string into a local `Date`. Returns `null` if invalid. */
   parseIso(iso: string): Date | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? '');
     if (!m) return null;
     const year = Number(m[1]);
     const month = Number(m[2]);
     const day = Number(m[3]);
     const d = new Date(year, month - 1, day);
     return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  /** True when `date` is a real Gregorian instant (not null/Invalid Date). */
+  isValidDate(date: Date | null | undefined): date is Date {
+    return date instanceof Date && !Number.isNaN(date.getTime());
   }
 }

@@ -131,37 +131,164 @@
   font-size: 0.95rem;
 }
 
-.reports-mark-paid-btn {
+.reports-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.reports-icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  border: 1px solid #16a34a;
-  border-radius: 0.55rem;
-  background: #f0fdf4;
-  color: #15803d;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 
-  &:hover:not(:disabled) {
-    background: #dcfce7;
-    color: #14532d;
+  svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   &:disabled {
     cursor: wait;
     opacity: 0.55;
   }
+}
 
-  svg {
-    width: 0.95rem;
-    height: 0.95rem;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+.reports-icon-btn--edit {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+  color: #0369a1;
+
+  &:hover:not(:disabled) {
+    border-color: #0284c7;
+    background: #e0f2fe;
+    color: #075985;
+  }
+}
+
+.reports-icon-btn--paid {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+
+  &:hover:not(:disabled) {
+    border-color: #16a34a;
+    background: #dcfce7;
+    color: #14532d;
+  }
+}
+
+.reports-icon-btn--delete {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+
+  &:hover:not(:disabled) {
+    border-color: #dc2626;
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+}
+
+.client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.3;
+  min-width: 8.5rem;
+
+  .phone {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: #475569;
+  }
+
+  .address {
+    font-size: 0.75rem;
+    color: #94a3b8;
+  }
+}
+
+.ltr-field {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.reports-modal-panel--debt {
+  overflow: hidden;
+  max-height: min(85vh, 90dvh);
+}
+
+.debt-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.debt-modal-notes {
+  resize: vertical;
+  min-height: 2.75rem;
+  max-height: 8rem;
+  box-sizing: border-box;
+}
+
+.debt-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+}
+
+$date-control-height: 2.5rem;
+
+.hebrew-date-field-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+  --hebrew-calendar-control-height: #{$date-control-height};
+}
+
+.hebrew-date-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: $date-control-height;
+  margin: 0;
+  padding: 0 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  font-size: 0.875rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus {
+    outline: none;
+    border-color: #002244;
+    box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+  }
+
+  &[readonly] {
+    cursor: default;
+    background: #f8fafc;
   }
 }
 

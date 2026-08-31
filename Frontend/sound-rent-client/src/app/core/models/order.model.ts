@@ -82,6 +82,8 @@ export interface CreateManualCancelledOrderDto {
   startDate: string;
   endDate: string;
   totalAmount?: number | null;
+  deposit?: string | null;
+  notes?: string | null;
   systemType?: SystemType;
 }
 

@@ -27,7 +27,9 @@ import {
   CreateOpenDebtDto,
   CreatedOpenDebtDto,
   MarkOpenDebtGroupPaidDto,
-  OpenDebtGroupDto
+  OpenDebtDetailDto,
+  OpenDebtGroupDto,
+  UpdateOpenDebtDto
 } from '../models/open-debt.model';
 import {
   LostEquipmentCreateDto,
@@ -415,6 +417,21 @@ export class DataService {
     );
   }
 
+  updateManualCancelledOrder(
+    id: number,
+    payload: CreateManualCancelledOrderDto
+  ): Observable<OrderDto | null> {
+    return this.http.put<OrderDto>(`${this.reportsBase}/cancelled-orders/${id}`, {
+      ...payload,
+      systemType: payload.systemType ?? this.activeSystemType()
+    }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   getUnpaidOrdersReport(): Observable<OrderDto[]> {
     return this.http.get<OrderDto[]>(`${this.reportsBase}/unpaid-orders`).pipe(
       catchError((err) => {
@@ -433,11 +450,48 @@ export class DataService {
     );
   }
 
+  getOpenDebt(debtId: number): Observable<OpenDebtDetailDto | null> {
+    return this.http.get<OpenDebtDetailDto>(`${this.reportsBase}/open-debts/${debtId}`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   createOpenDebt(payload: CreateOpenDebtDto): Observable<CreatedOpenDebtDto | null> {
     return this.http.post<CreatedOpenDebtDto>(`${this.reportsBase}/open-debts`, payload).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);
+      })
+    );
+  }
+
+  updateOpenDebt(debtId: number, payload: UpdateOpenDebtDto): Observable<CreatedOpenDebtDto | null> {
+    return this.http.put<CreatedOpenDebtDto>(`${this.reportsBase}/open-debts/${debtId}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateOpenDebtOrder(orderId: number, payload: UpdateOpenDebtDto): Observable<CreatedOpenDebtDto | null> {
+    return this.http.put<CreatedOpenDebtDto>(`${this.reportsBase}/open-debts/orders/${orderId}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  deleteOpenDebtGroup(payload: MarkOpenDebtGroupPaidDto): Observable<boolean> {
+    return this.http.post<void>(`${this.reportsBase}/open-debts/delete`, payload).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
       })
     );
   }
@@ -1320,6 +1374,15 @@ export class DataService {
 
   createToolLoan(payload: ToolLoanCreateDto): Observable<ToolLoanDto | null> {
     return this.http.post<ToolLoanDto>(this.toolsLoansBase, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  updateToolLoan(id: number, payload: ToolLoanCreateDto): Observable<ToolLoanDto | null> {
+    return this.http.put<ToolLoanDto>(`${this.toolsLoansBase}/${id}`, payload).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);

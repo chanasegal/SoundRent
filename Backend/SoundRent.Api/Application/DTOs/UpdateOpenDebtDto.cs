@@ -4,38 +4,35 @@ using SoundRent.Api.Domain.Enums;
 
 namespace SoundRent.Api.Application.DTOs;
 
-public class CreateManualCancelledOrderDto : IValidatableObject
+public class UpdateOpenDebtDto : IValidatableObject
 {
-    [MaxLength(100)]
+    [MaxLength(200)]
     public string? CustomerName { get; set; }
 
     [Required]
     [MaxLength(20)]
     public string Phone { get; set; } = string.Empty;
 
-    [MaxLength(200)]
+    [MaxLength(300)]
     public string? Address { get; set; }
 
-    [MinLength(1, ErrorMessage = "יש לבחור לפחות ציוד אחד")]
-    public List<string> EquipmentDefinitionIds { get; set; } = new();
+    public DebtCategory Category { get; set; } = DebtCategory.Amplification;
 
-    [Required]
-    public DateOnly StartDate { get; set; }
+    [MaxLength(300)]
+    public string? ItemDescription { get; set; }
 
-    [Required]
-    public DateOnly EndDate { get; set; }
-
-    [Range(0, double.MaxValue)]
-    public decimal? TotalAmount { get; set; }
-
-    /// <summary>Free-text deposit details (stored on Order.DepositOnName).</summary>
-    [MaxLength(100)]
+    [MaxLength(500)]
     public string? Deposit { get; set; }
 
-    [MaxLength(1000)]
+    [MaxLength(2000)]
     public string? Notes { get; set; }
 
-    public SystemType SystemType { get; set; } = SystemType.Tools;
+    [Range(0.01, double.MaxValue)]
+    public decimal Amount { get; set; }
+
+    /// <summary>Charge date (local calendar day).</summary>
+    [Required]
+    public DateOnly ChargedAt { get; set; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

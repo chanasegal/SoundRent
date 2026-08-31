@@ -100,7 +100,8 @@ public interface IOrderRepository
     Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returned Sound accessories (standalone + weekly-schedule), newest event date first.
+    /// Returned accessories (standalone Tools/Sound loans + weekly-schedule Sound orders),
+    /// newest event date first.
     /// Optional free-text <paramref name="search"/> matches item name, serial, customer, or phone.
     /// </summary>
     Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(

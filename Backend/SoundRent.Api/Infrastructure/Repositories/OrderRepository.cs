@@ -391,6 +391,7 @@ public class OrderRepository : IOrderRepository
             .Where(o =>
                 !o.IsCancelled
                 && !o.IsReturnProcessed
+                && !o.Equipments.Any()
                 && o.LoanedEquipments.Any(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity))
             .OrderByDescending(o => o.CreatedAt)
             .ThenByDescending(o => o.Id)
@@ -643,7 +644,9 @@ public class OrderRepository : IOrderRepository
 
         var rows = await _db.Orders
             .AsNoTracking()
-            .Where(o => !o.IsCancelled && o.SystemType == SystemType.Sound)
+            .Where(o =>
+                !o.IsCancelled
+                && (o.SystemType == SystemType.Sound || o.SystemType == SystemType.Tools))
             .Where(o => o.LoanedEquipments.Any(le =>
                 le.ReturnedQuantity > 0 || le.Notes.Any(n => n.IsReturned)))
             .SelectMany(o => o.LoanedEquipments

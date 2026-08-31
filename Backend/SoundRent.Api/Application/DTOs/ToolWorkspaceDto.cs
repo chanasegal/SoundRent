@@ -170,6 +170,7 @@ public class ToolItemBorrowHistoryDto
     public string SerialCode { get; set; } = string.Empty;
     public string ClientName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string? Address { get; set; }
     public DateTime LentAt { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public DateTime? DeadlineAt { get; set; }
