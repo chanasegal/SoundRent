@@ -227,6 +227,7 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly institutionSuggestFormId = signal<string | null>(null);
   protected readonly institutionSuggestIndex = signal(-1);
   private institutionSuggestBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  private toolSuggestBlurTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Quick return by code — opens confirmation modal with customer extras. */
   protected readonly quickReturnToolId = signal<number | null>(null);
@@ -1551,7 +1552,42 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
   }
 
+  protected showCustomTemporaryToolOption(form: LendingDraftForm, line: ToolLineItem): boolean {
+    const query = line.toolQuery.trim();
+    if (query.length < 2 || line.toolId != null || line.isTemporary) {
+      return false;
+    }
+    if (this.parseFreeTextToolEntry(query, form)) {
+      return false;
+    }
+    return !this.isStrictPrefixOfLongerCatalogToolName(query);
+  }
+
+  protected customTemporaryToolOptionLabel(line: ToolLineItem): string {
+    return `הוסף "${line.toolQuery.trim()}" כפריט חד-פעמי`;
+  }
+
+  protected onCustomTemporaryToolChosen(formId: string, lineId: string, event?: Event): void {
+    event?.preventDefault();
+    this.clearToolSuggestBlurTimer();
+    this.commitToolLineFromText(formId, lineId);
+  }
+
+  protected onToolQueryBlur(formId: string, lineId: string): void {
+    this.clearToolSuggestBlurTimer();
+    this.toolSuggestBlurTimer = setTimeout(() => {
+      this.toolSuggestBlurTimer = null;
+      this.closeToolSuggest(formId, lineId);
+      const form = this.forms().find((f) => f.id === formId);
+      const line = form?.toolLines.find((l) => l.id === lineId);
+      if (line && form && this.shouldCommitToolLineOnBlur(line, form)) {
+        this.commitToolLineFromText(formId, lineId);
+      }
+    }, 150);
+  }
+
   protected onToolQueryFocus(formId: string, lineId: string): void {
+    this.clearToolSuggestBlurTimer();
     this.forms.update((list) =>
       list.map((f) => {
         if (f.id !== formId) {
@@ -1571,12 +1607,7 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onToolQueryEnter(formId: string, lineId: string, event: Event): void {
-    console.log('[ToolsLending] Enter pressed on tool name', {
-      action: 'Enter pressed on tool name',
-      formId,
-      lineId,
-      event
-    });
+    this.clearToolSuggestBlurTimer();
     event.preventDefault();
     event.stopPropagation();
     if (this.tryResolveHammerDrillBitShortcut(formId, lineId)) {
@@ -1586,29 +1617,13 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onCodesEnter(formId: string, lineId: string, event: Event): void {
-    console.log('[ToolsLending] Enter pressed on codes', {
-      action: 'Enter pressed on codes',
-      formId,
-      lineId,
-      event
-    });
     event.preventDefault();
     event.stopPropagation();
     this.commitLineAndAddNext(formId, lineId);
   }
 
   protected onAddToolLineClick(formId: string, event: Event): void {
-    const form = this.forms().find((f) => f.id === formId);
     const activeLineId = this.activeLineIdForForm(formId);
-    const activeRowIndex =
-      activeLineId && form ? form.toolLines.findIndex((l) => l.id === activeLineId) : -1;
-    console.log('[ToolsLending] + button clicked', {
-      action: '+ button clicked',
-      formId,
-      lineId: activeLineId,
-      activeRowIndex,
-      event
-    });
     event.preventDefault();
     event.stopPropagation();
     if (activeLineId) {
@@ -1619,7 +1634,14 @@ export class ToolsLendingComponent implements OnInit {
     this.addToolLine(formId);
   }
 
-  protected selectTool(formId: string, lineId: string, tool: ToolDefinitionDto): void {
+  protected selectTool(
+    formId: string,
+    lineId: string,
+    tool: ToolDefinitionDto,
+    event?: Event
+  ): void {
+    event?.preventDefault();
+    this.clearToolSuggestBlurTimer();
     this.forms.update((list) =>
       list.map((f) => {
         if (f.id !== formId) {
@@ -2191,6 +2213,15 @@ export class ToolsLendingComponent implements OnInit {
         toolId = line.toolId;
         toolQuery = tool.displayName;
         selectedCodes = [...line.selectedCodes];
+      } else if (
+        line.toolQuery.trim().length >= 2 &&
+        !this.isStrictPrefixOfLongerCatalogToolName(line.toolQuery.trim())
+      ) {
+        toolId = null;
+        toolQuery = line.toolQuery.trim();
+        selectedCodes = line.selectedCodes.length > 0 ? [...line.selectedCodes] : [''];
+        isTemporary = true;
+        this.toast.warning(`"${toolQuery}" אינו במלאי — יתווסף כפריט חד-פעמי להשאלה זו`);
       } else {
         this.toast.warning('הקלידו שם כלי ולפחות קוד אחד, למשל: מברגה 2 4 8');
         this.focusToolLineInput(lineId);
@@ -2397,13 +2428,14 @@ export class ToolsLendingComponent implements OnInit {
 
   private parseTemporaryToolEntry(
     raw: string,
-    form?: LendingDraftForm
+    form?: LendingDraftForm,
+    options?: { allowIncompletePrefix?: boolean }
   ): { toolName: string; codes: string[] } | null {
     const input = raw.trim();
     if (
       !input ||
       this.parseFreeTextToolEntry(input, form) !== null ||
-      this.isIncompleteCatalogEntry(input)
+      (!options?.allowIncompletePrefix && this.isIncompleteCatalogEntry(input))
     ) {
       return null;
     }
@@ -2431,10 +2463,36 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   private isUncommittedTemporaryLine(line: ToolLineItem, form: LendingDraftForm): boolean {
-    if (line.toolId != null || !line.toolQuery.trim()) {
+    if (line.toolId != null || !line.toolQuery.trim() || line.isTemporary) {
       return false;
     }
-    return this.parseTemporaryToolEntry(line.toolQuery, form) !== null;
+    return (
+      this.parseTemporaryToolEntry(line.toolQuery, form, { allowIncompletePrefix: true }) !== null ||
+      (line.toolQuery.trim().length >= 2 &&
+        !this.isStrictPrefixOfLongerCatalogToolName(line.toolQuery.trim()))
+    );
+  }
+
+  private shouldCommitToolLineOnBlur(line: ToolLineItem, form: LendingDraftForm): boolean {
+    const query = line.toolQuery.trim();
+    if (!query || line.toolId != null || line.isTemporary) {
+      return false;
+    }
+    if (this.isStrictPrefixOfLongerCatalogToolName(query)) {
+      return false;
+    }
+    return (
+      this.parseFreeTextToolEntry(query, form) !== null ||
+      this.parseTemporaryToolEntry(query, form, { allowIncompletePrefix: true }) !== null ||
+      query.length >= 2
+    );
+  }
+
+  private clearToolSuggestBlurTimer(): void {
+    if (this.toolSuggestBlurTimer) {
+      clearTimeout(this.toolSuggestBlurTimer);
+      this.toolSuggestBlurTimer = null;
+    }
   }
 
   private findCodeMatch(codes: string[], candidate: string): string | null {

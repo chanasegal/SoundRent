@@ -122,14 +122,21 @@
                         [value]="line.toolQuery"
                         (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
                         (focus)="onToolQueryFocus(form.id, line.id)"
+                        (blur)="onToolQueryBlur(form.id, line.id)"
                         (keydown.enter)="onToolQueryEnter(form.id, line.id, $event)"
                         autocomplete="off"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        [attr.aria-expanded]="line.toolSuggestOpen"
                       />
                       @if (line.toolSuggestOpen) {
-                        <ul class="suggest-list" (click)="$event.stopPropagation()">
+                        <ul class="suggest-list" role="listbox" (click)="$event.stopPropagation()">
                           @for (tool of filteredToolsForLine(form, line); track tool.id) {
-                            <li>
-                              <button type="button" (click)="selectTool(form.id, line.id, tool)">
+                            <li role="option">
+                              <button
+                                type="button"
+                                (mousedown)="selectTool(form.id, line.id, tool, $event)"
+                              >
                                 <span class="suggest-main">{{ tool.displayName }}</span>
                                 <span class="suggest-meta">
                                   {{ availableByTool().get(tool.id)?.length ?? 0 }} קודים זמינים
@@ -137,7 +144,21 @@
                               </button>
                             </li>
                           } @empty {
-                            <li class="suggest-empty">לא נמצאו כלים תואמים</li>
+                            @if (!showCustomTemporaryToolOption(form, line)) {
+                              <li class="suggest-empty">לא נמצאו כלים תואמים</li>
+                            }
+                          }
+                          @if (showCustomTemporaryToolOption(form, line)) {
+                            <li role="option">
+                              <button
+                                type="button"
+                                class="suggest-item--custom"
+                                (mousedown)="onCustomTemporaryToolChosen(form.id, line.id, $event)"
+                              >
+                                <span class="suggest-main">{{ customTemporaryToolOptionLabel(line) }}</span>
+                                <span class="suggest-meta">לא במלאי — חד-פעמי להשאלה זו</span>
+                              </button>
+                            </li>
                           }
                         </ul>
                       }

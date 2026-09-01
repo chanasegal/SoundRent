@@ -372,6 +372,8 @@
                   [attr.aria-expanded]="true"
                   [value]="accessoryTypeQuery()"
                   (input)="accessoryTypeQuery.set($any($event.target).value)"
+                  (focus)="onAccessorySearchFocus()"
+                  (blur)="onAccessorySearchBlur()"
                   (keydown)="onAccessorySearchKeydown($event)"
                 />
                 @if (filteredAccessoryTypes().length > 0 || showCustomAccessoryOption()) {
@@ -381,7 +383,7 @@
                         <button
                           type="button"
                           class="add-accessory__option"
-                          (click)="onAccessoryTypeChosen(def)"
+                          (mousedown)="onAccessoryTypeChosen(def, $event)"
                         >
                           {{ accessoryTypeLabel(def) }}
                         </button>
@@ -392,7 +394,7 @@
                         <button
                           type="button"
                           class="add-accessory__option add-accessory__option--custom"
-                          (click)="onCustomAccessoryTypeChosen()"
+                          (mousedown)="onCustomAccessoryTypeChosen($event)"
                         >
                           {{ customAccessoryOptionLabel() }}
                         </button>
@@ -401,8 +403,10 @@
                   </ul>
                 } @else if (availableAccessoryTypes().length === 0) {
                   <p class="add-accessory__hint">כל סוגי האביזרים כבר נוספו</p>
-                } @else {
+                } @else if (accessoryTypeQuery().trim().length >= 2) {
                   <p class="add-accessory__hint">לא נמצא סוג אביזר תואם — הקלידו שם חדש להשאלה חד־פעמית (לפחות 2 תווים)</p>
+                } @else {
+                  <p class="add-accessory__hint">הקלידו לפחות 2 תווים לחיפוש או להוספת פריט חד-פעמי</p>
                 }
               </div>
             </div>

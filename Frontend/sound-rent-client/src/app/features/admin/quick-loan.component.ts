@@ -150,6 +150,7 @@ export class QuickLoanComponent implements OnInit {
   protected readonly accessoryRows = signal<QuickLoanAccessoryRow[]>([]);
   protected readonly addAccessoryOpen = signal(false);
   protected readonly accessoryTypeQuery = signal('');
+  private accessorySearchBlurTimer: ReturnType<typeof setTimeout> | null = null;
   private nextOneTimeAccessoryId = -1;
 
   private readonly availabilityByDefinitionId = signal<
@@ -375,7 +376,9 @@ export class QuickLoanComponent implements OnInit {
     }
   }
 
-  protected onAccessoryTypeChosen(defOrId: InventoryDefinitionDto | number | string): void {
+  protected onAccessoryTypeChosen(defOrId: InventoryDefinitionDto | number | string, event?: Event): void {
+    event?.preventDefault();
+    this.clearAccessorySearchBlurTimer();
     const id = typeof defOrId === 'object' ? defOrId.id : Number(defOrId);
     if (!Number.isFinite(id) || id <= 0) {
       return;
@@ -411,7 +414,9 @@ export class QuickLoanComponent implements OnInit {
     this.refreshAvailability();
   }
 
-  protected onCustomAccessoryTypeChosen(): void {
+  protected onCustomAccessoryTypeChosen(event?: Event): void {
+    event?.preventDefault();
+    this.clearAccessorySearchBlurTimer();
     const name = this.accessoryTypeQuery().trim();
     if (name.length < 2) {
       this.toast.warning('יש להזין לפחות שני תווים');
@@ -438,11 +443,34 @@ export class QuickLoanComponent implements OnInit {
     this.toast.success(`"${name}" נוסף להשאלה זו בלבד`);
   }
 
+  protected onAccessorySearchFocus(): void {
+    this.clearAccessorySearchBlurTimer();
+  }
+
+  protected onAccessorySearchBlur(): void {
+    this.clearAccessorySearchBlurTimer();
+    this.accessorySearchBlurTimer = setTimeout(() => {
+      this.accessorySearchBlurTimer = null;
+      if (!this.addAccessoryOpen()) {
+        return;
+      }
+      const filtered = this.filteredAccessoryTypes();
+      if (filtered.length === 1) {
+        this.onAccessoryTypeChosen(filtered[0]);
+        return;
+      }
+      if (this.showCustomAccessoryOption()) {
+        this.onCustomAccessoryTypeChosen();
+      }
+    }, 150);
+  }
+
   protected onAccessorySearchKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Enter') {
       return;
     }
     event.preventDefault();
+    this.clearAccessorySearchBlurTimer();
 
     const filtered = this.filteredAccessoryTypes();
     if (filtered.length === 1) {
@@ -973,8 +1001,25 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected closeAddAccessoryPicker(): void {
+    this.clearAccessorySearchBlurTimer();
+    if (this.showCustomAccessoryOption()) {
+      this.onCustomAccessoryTypeChosen();
+      return;
+    }
+    const filtered = this.filteredAccessoryTypes();
+    if (filtered.length === 1 && this.accessoryTypeQuery().trim()) {
+      this.onAccessoryTypeChosen(filtered[0]);
+      return;
+    }
     this.addAccessoryOpen.set(false);
     this.accessoryTypeQuery.set('');
+  }
+
+  private clearAccessorySearchBlurTimer(): void {
+    if (this.accessorySearchBlurTimer) {
+      clearTimeout(this.accessorySearchBlurTimer);
+      this.accessorySearchBlurTimer = null;
+    }
   }
 
   protected closeReturnSerialDropdown(): void {

@@ -494,6 +494,14 @@
     &.suggest-item--active {
       background: #f0f9ff;
     }
+
+    &.suggest-item--custom {
+      border-top: 1px solid #e2e8f0;
+
+      .suggest-main {
+        color: #0369a1;
+      }
+    }
   }
 }
 
