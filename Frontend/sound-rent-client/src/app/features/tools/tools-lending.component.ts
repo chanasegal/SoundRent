@@ -48,6 +48,14 @@ import {
   EMPTY_CUSTOMER_RISK_ALERTS
 } from '../../core/utils/customer-risk-alerts';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import {
+  findHammerDrillBitTool,
+  formHasHammerDrill,
+  isHammerDrillBitDisplayName,
+  matchingHammerDrillBitTools,
+  parseHammerDrillBitShortcutInput,
+  shouldAutoCompleteHammerDrillBitName
+} from '../../core/utils/hammer-drill-bit-shortcut';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -1465,7 +1473,7 @@ export class ToolsLendingComponent implements OnInit {
         .filter((l) => l.id !== line.id && l.toolId != null)
         .map((l) => l.toolId as number)
     );
-    return this.definitions().filter((d) => {
+    const base = this.definitions().filter((d) => {
       if (usedElsewhere.has(d.id) && d.id !== line.toolId) {
         return false;
       }
@@ -1474,6 +1482,20 @@ export class ToolsLendingComponent implements OnInit {
       }
       return d.displayName.toLowerCase().includes(q);
     });
+
+    if (!this.formHasHammerDrill(form)) {
+      return base;
+    }
+
+    const hammerBits = matchingHammerDrillBitTools(this.definitions(), line.toolQuery).filter(
+      (tool) => !usedElsewhere.has(tool.id) || tool.id === line.toolId
+    );
+    if (hammerBits.length === 0) {
+      return base;
+    }
+
+    const hammerIds = new Set(hammerBits.map((tool) => tool.id));
+    return [...hammerBits, ...base.filter((tool) => !hammerIds.has(tool.id))];
   }
 
   protected availableCodesForLine(_form: LendingDraftForm, line: ToolLineItem): string[] {
@@ -1488,6 +1510,21 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
+    const form = this.forms().find((f) => f.id === formId);
+    let toolQuery = value;
+    let resolvedToolId: number | null = null;
+
+    if (form && this.formHasHammerDrill(form)) {
+      const autoComplete = shouldAutoCompleteHammerDrillBitName(value);
+      if (autoComplete) {
+        const tool = findHammerDrillBitTool(this.definitions(), autoComplete.size);
+        if (tool) {
+          toolQuery = tool.displayName;
+          resolvedToolId = tool.id;
+        }
+      }
+    }
+
     this.forms.update((list) =>
       list.map((f) => {
         if (f.id !== formId) {
@@ -1500,8 +1537,8 @@ export class ToolsLendingComponent implements OnInit {
               ? { ...l, toolSuggestOpen: false, codesOpen: false }
               : {
                   ...l,
-                  toolQuery: value,
-                  toolId: null,
+                  toolQuery,
+                  toolId: resolvedToolId,
                   selectedCodes: [],
                   isTemporary: false,
                   toolSuggestOpen: true,
@@ -1542,6 +1579,9 @@ export class ToolsLendingComponent implements OnInit {
     });
     event.preventDefault();
     event.stopPropagation();
+    if (this.tryResolveHammerDrillBitShortcut(formId, lineId)) {
+      return;
+    }
     this.commitLineAndAddNext(formId, lineId);
   }
 
@@ -1603,6 +1643,9 @@ export class ToolsLendingComponent implements OnInit {
         };
       })
     );
+    if (isHammerDrillBitDisplayName(tool.displayName)) {
+      this.scheduleFocusCodesDropdown(formId, lineId);
+    }
   }
 
   protected toggleCodesDropdown(formId: string, lineId: string, event: Event): void {
@@ -2024,7 +2067,7 @@ export class ToolsLendingComponent implements OnInit {
       return;
     }
 
-    const parsed = this.parseFreeTextToolEntry(line.toolQuery);
+    const parsed = this.parseFreeTextToolEntry(line.toolQuery, form);
     let toolId: number | null;
     let toolQuery: string;
     let selectedCodes: string[];
@@ -2074,7 +2117,7 @@ export class ToolsLendingComponent implements OnInit {
               };
             })
           );
-          this.focusToolLineInput(lineId);
+          this.scheduleFocusCodesDropdown(formId, lineId);
           return;
         }
       }
@@ -2111,7 +2154,7 @@ export class ToolsLendingComponent implements OnInit {
         ];
       }
     } else {
-      const temporary = this.parseTemporaryToolEntry(line.toolQuery);
+      const temporary = this.parseTemporaryToolEntry(line.toolQuery, form);
       if (temporary) {
         toolId = null;
         toolQuery = temporary.toolName;
@@ -2212,10 +2255,78 @@ export class ToolsLendingComponent implements OnInit {
     return holder.dataset['lineId'] ?? null;
   }
 
-  private parseFreeTextToolEntry(raw: string): { tool: ToolDefinitionDto; codes: string[] } | null {
+  private formHasHammerDrill(form: LendingDraftForm): boolean {
+    return formHasHammerDrill(form.toolLines, (toolId) =>
+      this.definitions().find((tool) => tool.id === toolId)?.displayName
+    );
+  }
+
+  private tryResolveHammerDrillBitShortcut(formId: string, lineId: string): boolean {
+    const form = this.forms().find((f) => f.id === formId);
+    const line = form?.toolLines.find((l) => l.id === lineId);
+    if (!form || !line || !this.formHasHammerDrill(form)) {
+      return false;
+    }
+
+    const shortcut = parseHammerDrillBitShortcutInput(line.toolQuery);
+    if (!shortcut) {
+      return false;
+    }
+
+    const tool = findHammerDrillBitTool(this.definitions(), shortcut.size);
+    if (!tool) {
+      return false;
+    }
+
+    if (shortcut.codes.length > 0) {
+      this.commitToolLineFromText(formId, lineId);
+      return true;
+    }
+
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        return {
+          ...f,
+          toolLines: f.toolLines.map((l) =>
+            l.id !== lineId
+              ? l
+              : {
+                  ...l,
+                  toolId: tool.id,
+                  toolQuery: tool.displayName,
+                  selectedCodes: [],
+                  isTemporary: false,
+                  toolSuggestOpen: false,
+                  codesOpen: false
+                }
+          )
+        };
+      })
+    );
+    this.scheduleFocusCodesDropdown(formId, lineId);
+    return true;
+  }
+
+  private parseFreeTextToolEntry(
+    raw: string,
+    form?: LendingDraftForm
+  ): { tool: ToolDefinitionDto; codes: string[] } | null {
     const input = raw.trim();
     if (!input) {
       return null;
+    }
+
+    if (form && this.formHasHammerDrill(form)) {
+      const shortcut = parseHammerDrillBitShortcutInput(input);
+      if (shortcut) {
+        const tool = findHammerDrillBitTool(this.definitions(), shortcut.size);
+        if (tool) {
+          return { tool, codes: shortcut.codes };
+        }
+      }
     }
 
     if (this.isStrictPrefixOfLongerCatalogToolName(input)) {
@@ -2284,9 +2395,16 @@ export class ToolsLendingComponent implements OnInit {
     });
   }
 
-  private parseTemporaryToolEntry(raw: string): { toolName: string; codes: string[] } | null {
+  private parseTemporaryToolEntry(
+    raw: string,
+    form?: LendingDraftForm
+  ): { toolName: string; codes: string[] } | null {
     const input = raw.trim();
-    if (!input || this.parseFreeTextToolEntry(input) !== null || this.isIncompleteCatalogEntry(input)) {
+    if (
+      !input ||
+      this.parseFreeTextToolEntry(input, form) !== null ||
+      this.isIncompleteCatalogEntry(input)
+    ) {
       return null;
     }
 
@@ -2312,11 +2430,11 @@ export class ToolsLendingComponent implements OnInit {
     return { toolName, codes };
   }
 
-  private isUncommittedTemporaryLine(line: ToolLineItem): boolean {
+  private isUncommittedTemporaryLine(line: ToolLineItem, form: LendingDraftForm): boolean {
     if (line.toolId != null || !line.toolQuery.trim()) {
       return false;
     }
-    return this.parseTemporaryToolEntry(line.toolQuery) !== null;
+    return this.parseTemporaryToolEntry(line.toolQuery, form) !== null;
   }
 
   private findCodeMatch(codes: string[], candidate: string): string | null {
@@ -2352,12 +2470,29 @@ export class ToolsLendingComponent implements OnInit {
     );
   }
 
+  private scheduleFocusCodesDropdown(formId: string, lineId: string): void {
+    afterNextRender(
+      () => {
+        this.patchToolLineUi(formId, lineId, { codesOpen: true });
+        const button = this.document.querySelector<HTMLButtonElement>(
+          `[data-codes-dropdown] button[data-line-id="${lineId}"][data-form-id="${formId}"]`
+        );
+        if (!button) {
+          return;
+        }
+        button.scrollIntoView({ block: 'nearest' });
+        button.focus({ preventScroll: true });
+      },
+      { injector: this.injector }
+    );
+  }
+
   private buildLoanItems(form: LendingDraftForm): ToolLoanCreateDto['items'] | null {
     const items: ToolLoanCreateDto['items'] = [];
 
     for (const line of form.toolLines) {
-      if (line.isTemporary || this.isUncommittedTemporaryLine(line)) {
-        const parsedTemp = line.isTemporary ? null : this.parseTemporaryToolEntry(line.toolQuery);
+      if (line.isTemporary || this.isUncommittedTemporaryLine(line, form)) {
+        const parsedTemp = line.isTemporary ? null : this.parseTemporaryToolEntry(line.toolQuery, form);
         const name = (parsedTemp?.toolName ?? line.toolQuery).trim();
         if (!name) {
           if (line.selectedCodes.length > 0) {
