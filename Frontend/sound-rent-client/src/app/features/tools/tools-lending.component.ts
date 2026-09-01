@@ -1264,7 +1264,9 @@ export class ToolsLendingComponent implements OnInit {
     }
 
     if (sole.source === 'accessory') {
-      void this.router.navigate(['/orders', sole.loanId]);
+      void this.router.navigate(['/tools/accessory-lending'], {
+        queryParams: { edit: sole.loanId }
+      });
       return;
     }
 

@@ -332,7 +332,13 @@ export class ActiveLoansComponent implements OnInit {
     if (!order) {
       return;
     }
-    void this.router.navigate(['/orders', order.id]);
+    if (order.isOrderBased) {
+      void this.router.navigate(['/orders', order.id]);
+      return;
+    }
+    void this.router.navigate(['/tools/accessory-lending'], {
+      queryParams: { edit: order.id }
+    });
   }
 
   protected askDeleteCard(card: ActiveLoanCustomerCard): void {

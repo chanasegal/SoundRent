@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EMPTY, finalize, forkJoin, merge } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
@@ -131,6 +131,8 @@ export class QuickLoanComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   protected readonly pageTitle = inject(WorkspaceUiService).title('השאלת אביזרים');
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
@@ -224,6 +226,38 @@ export class QuickLoanComponent implements OnInit {
       this.formMinimized.set(true);
     }
     this.tryRestoreMinimizedDraft();
+    this.readEditQueryParam();
+  }
+
+  /** Open an existing standalone accessory loan for edit (from loans list deep-link). */
+  private readEditQueryParam(): void {
+    const editId = Number(this.route.snapshot.queryParamMap.get('edit'));
+    if (!Number.isFinite(editId) || editId <= 0) {
+      return;
+    }
+
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { edit: null },
+      replaceUrl: true
+    });
+
+    this.inventoryStore
+      .load({ force: true })
+      .pipe(switchMap(() => this.data.getOrderById(editId)))
+      .subscribe((order) => {
+        if (!order) {
+          this.toast.error('ההשאלה לא נמצאה');
+          return;
+        }
+        if ((order.equipmentDefinitionIds?.length ?? 0) > 0) {
+          void this.router.navigate(['/orders', editId]);
+          return;
+        }
+        this.orderDraft.clearIfKind('quick-loan');
+        this.formMinimized.set(false);
+        this.startEdit(order);
+      });
   }
 
   /** Keep the standalone accessory loan available while using another area of the app. */
@@ -1293,6 +1327,7 @@ export class QuickLoanComponent implements OnInit {
 
   protected startEdit(order: OrderDto): void {
     this.editingId.set(order.id);
+    this.formMinimized.set(false);
     this.openSerialDropdownId.set(null);
     this.serialQuickEntry.set('');
     this.deleteConfirmOrder.set(null);
