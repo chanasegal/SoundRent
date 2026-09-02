@@ -109,7 +109,8 @@ interface ActiveLoanCustomerCard {
 }
 
 interface DeleteConfirmLoan {
-  loanId: number;
+  loanIds: number[];
+  cardKey: string;
   customerName: string;
   phone: string;
 }
@@ -170,8 +171,11 @@ export class LibraryLendingComponent implements OnInit {
   protected readonly returningItemId = signal<number | null>(null);
   protected readonly returningCustomerKey = signal<string | null>(null);
   protected readonly editingLoanId = signal<number | null>(null);
+  /** Other loans merged into the primary loan during grouped-card edit. */
+  protected readonly editingGroupedLoanIds = signal<number[]>([]);
+  protected readonly editingCardKey = signal<string | null>(null);
   protected readonly deleteConfirmLoan = signal<DeleteConfirmLoan | null>(null);
-  protected readonly deletingId = signal<number | null>(null);
+  protected readonly deletingCardKey = signal<string | null>(null);
   protected readonly nowTick = signal(Date.now());
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
@@ -303,7 +307,7 @@ export class LibraryLendingComponent implements OnInit {
       return;
     }
     this.orderDraft.clearIfKind('library-loan');
-    this.editingLoanId.set(null);
+    this.clearEditState();
     this.formMinimized.set(false);
     this.loanScanCode.set('');
     this.forms.set([this.createDraftForm()]);
@@ -630,7 +634,7 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected isCardBusy(card: ActiveLoanCustomerCard): boolean {
-    if (this.isReturningCustomer(card)) {
+    if (this.isReturningCustomer(card) || this.isCardDeleting(card)) {
       return true;
     }
     const itemId = this.returningItemId();
@@ -716,35 +720,50 @@ export class LibraryLendingComponent implements OnInit {
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   }
 
-  protected cardSoleLoan(card: ActiveLoanCustomerCard): { loanId: number } | null {
-    if (card.items.length === 0) {
-      return null;
+  protected cardLoanIds(card: ActiveLoanCustomerCard): number[] {
+    const ids = new Set<number>();
+    for (const row of card.items) {
+      ids.add(row.loanId);
     }
-    const first = card.items[0];
-    const same = card.items.every((row) => row.loanId === first.loanId);
-    return same ? { loanId: first.loanId } : null;
+    return [...ids].sort((a, b) => a - b);
+  }
+
+  protected isCardEditing(card: ActiveLoanCustomerCard): boolean {
+    return this.editingCardKey() === card.key;
+  }
+
+  protected isCardDeleting(card: ActiveLoanCustomerCard): boolean {
+    return this.deletingCardKey() === card.key;
+  }
+
+  protected formatLoanIdList(loanIds: number[]): string {
+    return loanIds.map((id) => `#${id}`).join(', ');
   }
 
   protected startEditCard(card: ActiveLoanCustomerCard): void {
-    const sole = this.cardSoleLoan(card);
-    if (!sole) {
+    const loanIds = this.cardLoanIds(card);
+    if (loanIds.length === 0) {
       return;
     }
 
-    const loan = this.activeLoans().find((l) => l.id === sole.loanId);
+    const loans = this.activeLoans().filter((l) => loanIds.includes(l.id));
+    const primaryLoanId = loanIds[0];
+    const loan = loans.find((l) => l.id === primaryLoanId);
     if (!loan) {
       this.toast.error('ההשאלה לא נמצאה');
       return;
     }
 
     this.deleteConfirmLoan.set(null);
-    this.editingLoanId.set(loan.id);
+    this.editingLoanId.set(primaryLoanId);
+    this.editingGroupedLoanIds.set(loanIds.filter((id) => id !== primaryLoanId));
+    this.editingCardKey.set(card.key);
     this.formMinimized.set(false);
     this.orderDraft.clearIfKind('library-loan');
     this.closeToolUi();
     this.closeCustomerSuggest();
 
-    const activeItems = (loan.items ?? []).filter((i) => !i.returnedAt);
+    const activeItems = loans.flatMap((l) => (l.items ?? []).filter((i) => !i.returnedAt));
     const linesByBook = new Map<number, BookLineItem>();
     const bookLines: BookLineItem[] = [];
 
@@ -803,26 +822,27 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected cancelEdit(): void {
-    this.editingLoanId.set(null);
+    this.clearEditState();
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
   }
 
   protected askDeleteCard(card: ActiveLoanCustomerCard): void {
-    const sole = this.cardSoleLoan(card);
-    if (!sole) {
+    const loanIds = this.cardLoanIds(card);
+    if (loanIds.length === 0) {
       return;
     }
     this.deleteConfirmLoan.set({
-      loanId: sole.loanId,
+      loanIds,
+      cardKey: card.key,
       customerName: card.customerName,
       phone: card.phone
     });
   }
 
   protected closeDeleteConfirm(): void {
-    if (this.deletingId()) {
+    if (this.deletingCardKey()) {
       return;
     }
     this.deleteConfirmLoan.set(null);
@@ -830,21 +850,26 @@ export class LibraryLendingComponent implements OnInit {
 
   protected confirmDeleteLoan(): void {
     const doomed = this.deleteConfirmLoan();
-    if (!doomed || this.deletingId()) {
+    if (!doomed || this.deletingCardKey()) {
       return;
     }
 
-    this.deletingId.set(doomed.loanId);
-    this.data
-      .deleteBookLoan(doomed.loanId)
-      .pipe(finalize(() => this.deletingId.set(null)))
-      .subscribe((ok) => {
-        if (!ok) {
+    this.deletingCardKey.set(doomed.cardKey);
+    const requests = doomed.loanIds.map((loanId) => this.data.deleteBookLoan(loanId));
+    forkJoin(requests)
+      .pipe(finalize(() => this.deletingCardKey.set(null)))
+      .subscribe((results) => {
+        const okCount = results.filter((ok) => ok).length;
+        if (okCount === 0) {
           return;
         }
-        this.toast.success(`השאלה #${doomed.loanId} נמחקה`);
+        this.toast.success(
+          doomed.loanIds.length === 1
+            ? `השאלה #${doomed.loanIds[0]} נמחקה`
+            : `${okCount} השאלות נמחקו (${this.formatLoanIdList(doomed.loanIds)})`
+        );
         this.deleteConfirmLoan.set(null);
-        if (this.editingLoanId() === doomed.loanId) {
+        if (this.editingCardKey() === doomed.cardKey) {
           this.cancelEdit();
         }
         this.ordersSync.notifyLoanChanged();
@@ -852,6 +877,12 @@ export class LibraryLendingComponent implements OnInit {
         this.refreshActiveLoans();
         this.refreshAvailability();
       });
+  }
+
+  private clearEditState(): void {
+    this.editingLoanId.set(null);
+    this.editingGroupedLoanIds.set([]);
+    this.editingCardKey.set(null);
   }
 
   private buildActiveLoanCustomerCards(rows: ActiveLoanRowView[]): ActiveLoanCustomerCard[] {
@@ -1284,17 +1315,35 @@ export class LibraryLendingComponent implements OnInit {
               this.customers.upsert(saved);
             }
           });
-        this.toast.success(
-          editingId != null ? `השאלה #${created.id} עודכנה` : 'ההשאלה נשמרה'
-        );
-        this.editingLoanId.set(null);
-        this.orderDraft.clearIfKind('library-loan');
-        this.formMinimized.set(false);
-        this.loanScanCode.set('');
-        this.forms.set([this.createDraftForm()]);
-        this.ordersSync.notifyLoanChanged();
-        this.refreshAvailability();
-        this.refreshActiveLoans();
+        const groupedIds = this.editingGroupedLoanIds();
+        const finishSave = (): void => {
+          this.toast.success(
+            editingId != null ? `השאלה #${created.id} עודכנה` : 'ההשאלה נשמרה'
+          );
+          this.clearEditState();
+          this.orderDraft.clearIfKind('library-loan');
+          this.formMinimized.set(false);
+          this.loanScanCode.set('');
+          this.forms.set([this.createDraftForm()]);
+          this.ordersSync.notifyLoanChanged();
+          this.refreshAvailability();
+          this.refreshActiveLoans();
+        };
+
+        if (editingId != null && groupedIds.length > 0) {
+          forkJoin(groupedIds.map((loanId) => this.data.deleteBookLoan(loanId))).subscribe(
+            (results) => {
+              const okCount = results.filter((ok) => ok).length;
+              if (okCount < groupedIds.length) {
+                this.toast.error('חלק מההשאלות המאוחדות לא נמחקו — ייתכן שיופיעו כפילויות');
+              }
+              finishSave();
+            }
+          );
+          return;
+        }
+
+        finishSave();
       });
   }
 
