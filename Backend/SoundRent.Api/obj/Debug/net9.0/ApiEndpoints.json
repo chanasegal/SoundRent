@@ -188,6 +188,37 @@
   },
   {
     "ContainingType": "SoundRent.Api.Controllers.BookLoansController",
+    "Method": "Update",
+    "RelativePath": "api/book-loans/{id}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "SoundRent.Api.Application.DTOs.BookLoanCreateDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SoundRent.Api.Application.DTOs.BookLoanDto",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.BookLoansController",
     "Method": "Delete",
     "RelativePath": "api/book-loans/{id}",
     "HttpMethod": "DELETE",

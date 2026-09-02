@@ -30,6 +30,20 @@
       </button>
       <button
         type="button"
+        class="inventory-import-btn"
+        [disabled]="exportInProgress() || loading() || definitions().length === 0"
+        (click)="exportToExcel()"
+        title="ייצוא מלאי הספרים לקובץ Excel (עמודות: ספר, כמות, ברקוד)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v11"></path>
+          <path d="m8 10 4 4 4-4"></path>
+          <path d="M5 17v2h14v-2"></path>
+        </svg>
+        {{ exportInProgress() ? 'מייצא…' : 'ייצוא לאקסל' }}
+      </button>
+      <button
+        type="button"
         class="rounded-lg bg-[#002244] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#003366]"
         (click)="openAddInventoryItem()"
       >

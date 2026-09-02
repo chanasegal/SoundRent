@@ -23,6 +23,7 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 import { BookDto, BookCopyLocationDto } from '../../core/models/library-workspace.model';
 import { BooksStore } from '../../core/services/books.store';
 import { DataService } from '../../core/services/data.service';
+import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
@@ -41,6 +42,7 @@ export class LibraryInventoryComponent implements OnInit, OnDestroy {
   private static readonly AUTO_REFRESH_MS = 30_000;
 
   private readonly data = inject(DataService);
+  private readonly exportSvc = inject(ExportService);
   private readonly booksStore = inject(BooksStore);
   private readonly toast = inject(ToastService);
   private readonly hebrew = inject(HebrewDateService);
@@ -54,6 +56,7 @@ export class LibraryInventoryComponent implements OnInit, OnDestroy {
   protected readonly saving = signal(false);
   protected readonly inventorySaving = signal(false);
   protected readonly importing = signal(false);
+  protected readonly exportInProgress = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialLocationResult = signal<BookCopyLocationDto | null>(null);
@@ -167,6 +170,7 @@ export class LibraryInventoryComponent implements OnInit, OnDestroy {
       this.inventorySaving() ||
       this.editInventorySaving() ||
       this.importing() ||
+      this.exportInProgress() ||
       this.serialSearchLoading() ||
       this.addInventoryOpen() ||
       this.editInventoryOpen() ||
@@ -338,6 +342,46 @@ export class LibraryInventoryComponent implements OnInit, OnDestroy {
         this.closeAddInventoryItem();
         this.refresh();
       });
+  }
+
+  protected exportToExcel(): void {
+    if (this.exportInProgress()) {
+      return;
+    }
+
+    const excelRows: Record<string, unknown>[] = [];
+    for (let i = 0; i < this.inventoryRows().length; i++) {
+      const group = this.inventoryRowGroup(i);
+      const title = String(group.get('title')?.value ?? '').trim();
+      if (!title) {
+        continue;
+      }
+
+      const quantity = this.toNonNegativeInteger(group.get('quantity')?.value);
+      const barcodes = this.inventoryCodesArray(i)
+        .controls.map((control) => String(control.value ?? '').trim())
+        .filter((code) => code.length > 0);
+
+      excelRows.push({
+        ספר: title,
+        כמות: quantity,
+        ברקוד: barcodes.join(',')
+      });
+    }
+
+    if (excelRows.length === 0) {
+      this.toast.show('אין ספרים לייצוא', 'info');
+      return;
+    }
+
+    this.exportInProgress.set(true);
+    void this.exportSvc
+      .exportToExcel(excelRows, 'library_books_inventory.xlsx', {
+        rtl: true,
+        sheetName: 'מלאי ספרים'
+      })
+      .then(() => this.toast.success('קובץ Excel הורד'))
+      .finally(() => this.exportInProgress.set(false));
   }
 
   protected onExcelImportSelected(event: Event): void {

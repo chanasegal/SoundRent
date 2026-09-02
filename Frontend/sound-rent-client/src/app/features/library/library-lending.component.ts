@@ -49,6 +49,7 @@ import {
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
+import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
@@ -87,6 +88,8 @@ interface ActiveLoanRowView {
   clientName: string;
   phone: string;
   address: string;
+  deposit: string;
+  loanNotes: string;
   lentAt: Date;
   hebrewLentDisplay: string;
   deadlineAt: Date | null;
@@ -98,8 +101,17 @@ interface ActiveLoanCustomerCard {
   customerName: string;
   phone: string;
   address: string;
+  loanDate: Date;
+  deposit: string;
+  loanNotes: string;
   customerNotes: string | null;
   items: ActiveLoanRowView[];
+}
+
+interface DeleteConfirmLoan {
+  loanId: number;
+  customerName: string;
+  phone: string;
 }
 
 @Component({
@@ -110,6 +122,7 @@ interface ActiveLoanCustomerCard {
     ReactiveFormsModule,
     FormsModule,
     BookTitleSelectComponent,
+    LoanRangeCalendarHostComponent,
     AutoFocusDirective,
     ClickOutsideDirective,
     IsraeliPhoneInputDirective
@@ -156,6 +169,9 @@ export class LibraryLendingComponent implements OnInit {
   protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
   protected readonly returningCustomerKey = signal<string | null>(null);
+  protected readonly editingLoanId = signal<number | null>(null);
+  protected readonly deleteConfirmLoan = signal<DeleteConfirmLoan | null>(null);
+  protected readonly deletingId = signal<number | null>(null);
   protected readonly nowTick = signal(Date.now());
   protected readonly customerSuggestions = signal<CustomerSuggestDto[]>([]);
   protected readonly customerSuggestOpen = signal(false);
@@ -175,6 +191,7 @@ export class LibraryLendingComponent implements OnInit {
   });
 
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
+  protected readonly formMinimized = signal(false);
 
   protected readonly showDeadline = computed(() => this.timeLimitEnabled());
 
@@ -207,6 +224,8 @@ export class LibraryLendingComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
+          deposit: (loan.deposit ?? '').trim(),
+          loanNotes: (loan.notes ?? '').trim(),
           lentAt,
           hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
           deadlineAt,
@@ -244,6 +263,9 @@ export class LibraryLendingComponent implements OnInit {
     this.wireTimeLimitDays();
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
+    if (this.orderDraft.draft()?.kind === 'library-loan' && this.orderDraft.showBar()) {
+      this.formMinimized.set(true);
+    }
     this.tryRestoreMinimizedDraft();
     queueMicrotask(() => this.focusLoanBarcodeField());
     this.ordersSync.loanChanged$
@@ -277,6 +299,12 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected closeFormPanel(): void {
+    if (this.submittingId()) {
+      return;
+    }
+    this.orderDraft.clearIfKind('library-loan');
+    this.editingLoanId.set(null);
+    this.formMinimized.set(false);
     this.loanScanCode.set('');
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
@@ -284,8 +312,12 @@ export class LibraryLendingComponent implements OnInit {
     queueMicrotask(() => this.focusLoanBarcodeField());
   }
 
-  /** Keep the in-progress loan and return to the main lending board. */
+  /** Keep the in-progress loan form while using another area of the app. */
   protected minimizeDraft(): void {
+    if (this.submittingId()) {
+      return;
+    }
+
     const current = this.forms();
     const clientName = current[0]?.clientName?.trim() ?? '';
     this.orderDraft.minimize({
@@ -301,9 +333,9 @@ export class LibraryLendingComponent implements OnInit {
       }
     });
     this.loanScanCode.set('');
-    this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
+    this.formMinimized.set(true);
   }
 
   private tryRestoreMinimizedDraft(): void {
@@ -337,6 +369,7 @@ export class LibraryLendingComponent implements OnInit {
       this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
       this.timeLimitForm.controls.days.setValue(payload.timeLimitValue || 7, { emitEvent: false });
       this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+      this.formMinimized.set(false);
       this.loanScanCode.set('');
       queueMicrotask(() => this.focusLoanBarcodeField());
     } catch {
@@ -346,6 +379,10 @@ export class LibraryLendingComponent implements OnInit {
 
   protected onRowChargeInput(itemId: number, value: string): void {
     this.rowCharges.update((m) => ({ ...m, [itemId]: value }));
+  }
+
+  protected onRowChargeChange(itemId: number, value: string): void {
+    this.onRowChargeInput(itemId, value);
   }
 
   protected rowChargeValue(itemId: number): string {
@@ -658,15 +695,170 @@ export class LibraryLendingComponent implements OnInit {
       });
   }
 
-  private customerCardKey(row: Pick<ActiveLoanRowView, 'clientName' | 'phone'>): string {
-    return `${(row.clientName ?? '').trim()}|${(row.phone ?? '').replace(/\D/g, '')}`;
+  protected activeLoanDateLabel(date: Date): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    return this.hebrew.formatGregorianWithDayName(date);
+  }
+
+  protected activeLoanHebrewDate(date: Date): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
+    return this.hebrew.toHebrewWithDayOfWeek(date);
+  }
+
+  protected activeLoanTimeLabel(date: Date | null | undefined): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  protected cardSoleLoan(card: ActiveLoanCustomerCard): { loanId: number } | null {
+    if (card.items.length === 0) {
+      return null;
+    }
+    const first = card.items[0];
+    const same = card.items.every((row) => row.loanId === first.loanId);
+    return same ? { loanId: first.loanId } : null;
+  }
+
+  protected startEditCard(card: ActiveLoanCustomerCard): void {
+    const sole = this.cardSoleLoan(card);
+    if (!sole) {
+      return;
+    }
+
+    const loan = this.activeLoans().find((l) => l.id === sole.loanId);
+    if (!loan) {
+      this.toast.error('ההשאלה לא נמצאה');
+      return;
+    }
+
+    this.deleteConfirmLoan.set(null);
+    this.editingLoanId.set(loan.id);
+    this.formMinimized.set(false);
+    this.orderDraft.clearIfKind('library-loan');
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+
+    const activeItems = (loan.items ?? []).filter((i) => !i.returnedAt);
+    const linesByBook = new Map<number, BookLineItem>();
+    const bookLines: BookLineItem[] = [];
+
+    for (const item of activeItems) {
+      const copy = (item.copyNumber ?? '').trim();
+      const existing = linesByBook.get(item.bookId);
+      if (existing) {
+        if (copy) {
+          existing.selectedCopies = [...existing.selectedCopies, copy];
+        }
+        continue;
+      }
+
+      const def = this.definitions().find((d) => d.id === item.bookId);
+      const line: BookLineItem = {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        bookId: item.bookId,
+        bookQuery: def?.title ?? item.bookTitle ?? '',
+        selectedCopies: copy ? [copy] : [],
+        bookSuggestOpen: false,
+        copiesOpen: false
+      };
+      linesByBook.set(item.bookId, line);
+      bookLines.push(line);
+    }
+
+    const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
+    const deadlineAt = this.parseLoanDate(loan.deadlineAt);
+    if (deadlineAt) {
+      this.timeLimitEnabled.set(true);
+    }
+
+    const draft: LendingDraftForm = {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: lentAt,
+      hebrewDateTime: (loan.hebrewLentDisplay ?? '').trim() || this.formatHebrewDate(lentAt),
+      bookLines: bookLines.length > 0 ? bookLines : [this.createToolLine()],
+      clientName: loan.clientName ?? '',
+      phone: loan.phone ?? '',
+      phone2: loan.phone2 ?? '',
+      address: loan.address ?? '',
+      deposit: loan.deposit ?? '',
+      notes: loan.notes ?? '',
+      clientAlertNotes: null,
+      deadlineAt
+    };
+
+    this.forms.set([draft]);
+    this.lookupClientNotesByPhone(draft.id, draft.phone);
+    queueMicrotask(() => {
+      this.document.getElementById('library-loan-form-title')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    });
+  }
+
+  protected cancelEdit(): void {
+    this.editingLoanId.set(null);
+    this.forms.set([this.createDraftForm()]);
+    this.closeToolUi();
+    this.closeCustomerSuggest();
+  }
+
+  protected askDeleteCard(card: ActiveLoanCustomerCard): void {
+    const sole = this.cardSoleLoan(card);
+    if (!sole) {
+      return;
+    }
+    this.deleteConfirmLoan.set({
+      loanId: sole.loanId,
+      customerName: card.customerName,
+      phone: card.phone
+    });
+  }
+
+  protected closeDeleteConfirm(): void {
+    if (this.deletingId()) {
+      return;
+    }
+    this.deleteConfirmLoan.set(null);
+  }
+
+  protected confirmDeleteLoan(): void {
+    const doomed = this.deleteConfirmLoan();
+    if (!doomed || this.deletingId()) {
+      return;
+    }
+
+    this.deletingId.set(doomed.loanId);
+    this.data
+      .deleteBookLoan(doomed.loanId)
+      .pipe(finalize(() => this.deletingId.set(null)))
+      .subscribe((ok) => {
+        if (!ok) {
+          return;
+        }
+        this.toast.success(`השאלה #${doomed.loanId} נמחקה`);
+        this.deleteConfirmLoan.set(null);
+        if (this.editingLoanId() === doomed.loanId) {
+          this.cancelEdit();
+        }
+        this.ordersSync.notifyLoanChanged();
+        this.ordersSync.notifyDebtChanged();
+        this.refreshActiveLoans();
+        this.refreshAvailability();
+      });
   }
 
   private buildActiveLoanCustomerCards(rows: ActiveLoanRowView[]): ActiveLoanCustomerCard[] {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = this.customerCardKey(row);
+      const key = `${this.customerCardKey(row)}|${this.toIsoDate(row.lentAt)}`;
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -674,7 +866,10 @@ export class LibraryLendingComponent implements OnInit {
           customerName: row.clientName,
           phone: row.phone,
           address: row.address,
+          loanDate: row.lentAt,
           customerNotes: this.customers.notesForPhone(row.phone),
+          deposit: row.deposit,
+          loanNotes: row.loanNotes,
           items: []
         };
         byCustomer.set(key, card);
@@ -685,6 +880,12 @@ export class LibraryLendingComponent implements OnInit {
       if (!card.customerNotes) {
         card.customerNotes = this.customers.notesForPhone(row.phone);
       }
+      if (!card.deposit && row.deposit) {
+        card.deposit = row.deposit;
+      }
+      if (!card.loanNotes && row.loanNotes) {
+        card.loanNotes = row.loanNotes;
+      }
       card.items.push(row);
     }
 
@@ -693,8 +894,33 @@ export class LibraryLendingComponent implements OnInit {
       if (nameCmp !== 0) {
         return nameCmp;
       }
-      return a.phone.localeCompare(b.phone, 'he');
+      const aTime = a.loanDate?.getTime?.() ?? 0;
+      const bTime = b.loanDate?.getTime?.() ?? 0;
+      const dateCmp = (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+      return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
     });
+  }
+
+  private toIsoDate(date: Date | null | undefined): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  private parseLoanDate(value: string | Date | null | undefined): Date | null {
+    if (value == null || value === '') {
+      return null;
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private customerCardKey(row: Pick<ActiveLoanRowView, 'clientName' | 'phone'>): string {
+    return `${(row.clientName ?? '').trim()}|${(row.phone ?? '').replace(/\D/g, '')}`;
   }
 
   protected removeForm(formId: string): void {
@@ -1025,8 +1251,12 @@ export class LibraryLendingComponent implements OnInit {
     };
 
     this.submittingId.set(form.id);
-    this.data
-      .createBookLoan(payload)
+    const editingId = this.editingLoanId();
+    const request$ =
+      editingId != null
+        ? this.data.updateBookLoan(editingId, payload)
+        : this.data.createBookLoan(payload);
+    request$
       .pipe(finalize(() => this.submittingId.set(null)))
       .subscribe((created) => {
         if (!created) {
@@ -1054,8 +1284,12 @@ export class LibraryLendingComponent implements OnInit {
               this.customers.upsert(saved);
             }
           });
-        this.toast.success('ההשאלה נשמרה');
+        this.toast.success(
+          editingId != null ? `השאלה #${created.id} עודכנה` : 'ההשאלה נשמרה'
+        );
+        this.editingLoanId.set(null);
         this.orderDraft.clearIfKind('library-loan');
+        this.formMinimized.set(false);
         this.loanScanCode.set('');
         this.forms.set([this.createDraftForm()]);
         this.ordersSync.notifyLoanChanged();

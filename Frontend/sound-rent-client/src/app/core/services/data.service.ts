@@ -1618,6 +1618,15 @@ export class DataService {
     );
   }
 
+  updateBookLoan(id: number, payload: BookLoanCreateDto): Observable<BookLoanDto | null> {
+    return this.http.put<BookLoanDto>(`${this.bookLoansBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   returnBookLoan(id: number, payload: BookLoanReturnDto): Observable<BookLoanDto | null> {
     return this.http.post<BookLoanDto>(`${this.bookLoansBase}/${id}/return`, payload).pipe(
       catchError((err) => {

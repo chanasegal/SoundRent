@@ -15,6 +15,7 @@ public interface IBookLoanService
     Task<List<BookLoanDto>> GetByCustomerPhoneAsync(string phone, CancellationToken cancellationToken = default);
     Task<BookLoanDto> RenewAsync(int id, CancellationToken cancellationToken = default);
     Task<BookLoanDto> CreateAsync(BookLoanCreateDto dto, CancellationToken cancellationToken = default);
+    Task<BookLoanDto> UpdateAsync(int id, BookLoanCreateDto dto, CancellationToken cancellationToken = default);
     Task<BookLoanDto> MarkReturnedAsync(int id, BookLoanReturnDto dto, CancellationToken cancellationToken = default);
     Task<BookLoanDto> MarkItemReturnedAsync(
         int loanId,
@@ -149,49 +150,7 @@ public class BookLoanService : IBookLoanService
             throw new ValidationException("יש לבחור לפחות ספר אחד להשאלה");
         }
 
-        var normalizedItems = new List<(int BookId, string CopyNumber, string BookTitle)>();
-        var seenItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var item in items)
-        {
-            var serial = (item.CopyNumber ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(serial))
-            {
-                throw new ValidationException("קוד עותק חסר");
-            }
-
-            var duplicateKey = $"{item.BookId}:{serial}";
-            if (!seenItems.Add(duplicateKey))
-            {
-                throw new ValidationException($"קוד עותק {serial} נבחר יותר מפעם אחת עבור אותו ספר");
-            }
-
-            var definition = await _db.Books
-                .AsNoTracking()
-                .Include(t => t.Copies)
-                .FirstOrDefaultAsync(t => t.Id == item.BookId, cancellationToken)
-                ?? throw new ValidationException($"ספר #{item.BookId} לא נמצא");
-
-            if (!definition.Copies.Any(s => string.Equals(s.CopyNumber, serial, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new ValidationException($"קוד {serial} אינו שייך ל־{definition.Title}");
-            }
-
-            var alreadyOut = await _db.BookLoanItems
-                .AsNoTracking()
-                .AnyAsync(
-                    i => i.CopyNumber == serial &&
-                         i.BookId == definition.Id &&
-                         i.ReturnedAt == null,
-                    cancellationToken);
-
-            if (alreadyOut)
-            {
-                throw new ValidationException($"קוד {serial} כבר מושאל");
-            }
-
-            normalizedItems.Add((definition.Id, serial, definition.Title));
-        }
+        var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: null, cancellationToken);
 
         var entity = new BookLoan
         {
@@ -217,6 +176,75 @@ public class BookLoanService : IBookLoanService
         };
 
         _db.BookLoans.Add(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+        return ToDto(entity);
+    }
+
+    public async Task<BookLoanDto> UpdateAsync(
+        int id,
+        BookLoanCreateDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.BookLoans
+            .Include(l => l.Items)
+                .ThenInclude(i => i.CustomerDebt)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new NotFoundException("ההשאלה לא נמצאה");
+
+        if (entity.ReturnedAt != null)
+        {
+            throw new ValidationException("לא ניתן לערוך השאלה שכבר הוחזרה במלואה");
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        if (!IsraeliPhoneValidator.TryNormalizeOptional(dto.Phone2, out var phone2))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        var items = dto.Items ?? [];
+        if (items.Count == 0)
+        {
+            throw new ValidationException("יש לבחור לפחות ספר אחד להשאלה");
+        }
+
+        var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: id, cancellationToken);
+
+        entity.ClientName = (dto.ClientName ?? string.Empty).Trim();
+        entity.Phone = phone;
+        entity.Phone2 = phone2;
+        entity.Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim();
+        entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
+        entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+        entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
+        entity.DeadlineAt = dto.DeadlineAt;
+        entity.UpdatedAt = DateTime.UtcNow;
+
+        var unreturned = entity.Items.Where(i => i.ReturnedAt == null).ToList();
+        foreach (var item in unreturned)
+        {
+            if (item.CustomerDebt != null)
+            {
+                _db.CustomerDebts.Remove(item.CustomerDebt);
+            }
+
+            _db.BookLoanItems.Remove(item);
+        }
+
+        foreach (var item in normalizedItems)
+        {
+            entity.Items.Add(new BookLoanItem
+            {
+                BookId = item.BookId,
+                BookTitle = item.BookTitle,
+                CopyNumber = item.CopyNumber
+            });
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
     }
@@ -458,6 +486,62 @@ public class BookLoanService : IBookLoanService
                 CustomerDebtId = i.CustomerDebt != null ? i.CustomerDebt.Id : null
             })
             .ToListAsync(cancellationToken);
+    }
+
+    private async Task<List<(int BookId, string CopyNumber, string BookTitle)>> NormalizeLoanItemsAsync(
+        List<BookLoanItemCreateDto> items,
+        int? excludeLoanId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedItems = new List<(int BookId, string CopyNumber, string BookTitle)>();
+        var seenItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in items)
+        {
+            var serial = (item.CopyNumber ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(serial))
+            {
+                throw new ValidationException("קוד עותק חסר");
+            }
+
+            var duplicateKey = $"{item.BookId}:{serial}";
+            if (!seenItems.Add(duplicateKey))
+            {
+                throw new ValidationException($"קוד עותק {serial} נבחר יותר מפעם אחת עבור אותו ספר");
+            }
+
+            var definition = await _db.Books
+                .AsNoTracking()
+                .Include(t => t.Copies)
+                .FirstOrDefaultAsync(t => t.Id == item.BookId, cancellationToken)
+                ?? throw new ValidationException($"ספר #{item.BookId} לא נמצא");
+
+            if (!definition.Copies.Any(s => string.Equals(s.CopyNumber, serial, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ValidationException($"קוד {serial} אינו שייך ל־{definition.Title}");
+            }
+
+            var alreadyOutQuery = _db.BookLoanItems
+                .AsNoTracking()
+                .Where(i =>
+                    i.CopyNumber == serial &&
+                    i.BookId == definition.Id &&
+                    i.ReturnedAt == null);
+
+            if (excludeLoanId.HasValue)
+            {
+                alreadyOutQuery = alreadyOutQuery.Where(i => i.BookLoanId != excludeLoanId.Value);
+            }
+
+            if (await alreadyOutQuery.AnyAsync(cancellationToken))
+            {
+                throw new ValidationException($"קוד {serial} כבר מושאל");
+            }
+
+            normalizedItems.Add((definition.Id, serial, definition.Title));
+        }
+
+        return normalizedItems;
     }
 
     private static void ApplyReturnCharge(

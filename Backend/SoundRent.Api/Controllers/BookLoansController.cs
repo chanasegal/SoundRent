@@ -55,6 +55,15 @@ public class BookLoansController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, created);
     }
 
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<BookLoanDto>> Update(
+        int id,
+        [FromBody] BookLoanCreateDto dto,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.UpdateAsync(id, dto, cancellationToken));
+    }
+
     [HttpPost("{id:int}/return")]
     public async Task<ActionResult<BookLoanDto>> MarkReturned(
         int id,

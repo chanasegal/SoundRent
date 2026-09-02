@@ -20,6 +20,9 @@
 
   <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד ספר">
     <h2 class="quick-return-card__title">החזרה מהירה לפי קוד ספר</h2>
+    <p class="quick-return-card__hint">
+      בחרו ספר וברקוד — ייפתח חלון עם פרטי הלקוח ושאר הספרים המושאלים לו לפי תאריך עברי.
+    </p>
     <div class="quick-return-card__row">
       <label class="quick-return-field">
         <span>ספר</span>
@@ -40,6 +43,7 @@
           list="quick-return-codes"
           placeholder="...סרוק ברקוד"
           [value]="quickReturnCode()"
+          [disabled]="quickReturnSearching() || quickReturnSaving()"
           (input)="onQuickReturnCodeInput($any($event.target).value)"
           (keydown.enter)="onQuickReturnKeydownEnter($event)"
           autocomplete="off"
@@ -62,16 +66,17 @@
           dir="ltr"
           placeholder="0"
           [value]="quickReturnCharge()"
+          [disabled]="quickReturnSearching() || quickReturnSaving()"
           (input)="onQuickReturnChargeInput($any($event.target).value)"
         />
       </label>
       <button
         type="button"
         class="add-row-btn add-row-btn--primary quick-return-submit"
-        [disabled]="quickReturning()"
-        (click)="submitQuickReturn()"
+        [disabled]="quickReturnSearching() || quickReturnSaving()"
+        (click)="searchQuickReturn()"
       >
-        {{ quickReturning() ? 'מבצע…' : 'בצע החזרה' }}
+        {{ quickReturnSearching() ? 'מחפש…' : 'חפש / החזר' }}
       </button>
     </div>
   </section>
@@ -202,7 +207,7 @@
                 {{ durationText(row) }}
               </td>
               <td class="px-3 py-3 whitespace-nowrap">
-                @let charge = calculateCharge(row.lentAt, row.returnedAt);
+                @let charge = displayCharge(row);
                 @if (charge > 0) {
                   <div class="charge-cell">
                     <span class="charge-amount">{{ charge }} ₪</span>
@@ -289,3 +294,170 @@
     }
   </div>
 </div>
+
+@if (quickReturnSession(); as session) {
+  <div
+    class="quick-return-modal-backdrop app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="library-returns-quick-return-modal-title"
+    (click)="closeQuickReturnModal()"
+  >
+    <div
+      class="quick-return-modal app-modal-panel w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 32rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
+        <h2 id="library-returns-quick-return-modal-title" class="text-lg font-bold text-[#002244]">
+          החזרה מהירה
+        </h2>
+        <p class="mt-1 text-sm text-slate-500">
+          ברקוד שהוקש:
+          <span class="ltr-field font-mono font-semibold text-sky-800">{{ session.scannedCode }}</span>
+        </p>
+      </div>
+
+      <div class="app-modal-body space-y-5 px-5 py-4">
+        <div class="quick-return-customer">
+          <h3 class="mb-2 text-sm font-bold text-[#002244]">פרטי לקוח</h3>
+          <dl class="quick-return-customer__grid">
+            <div>
+              <dt>שם לקוח</dt>
+              <dd>{{ session.customerName }}</dd>
+            </div>
+            <div>
+              <dt>טלפון</dt>
+              <dd class="ltr-field font-mono">{{ formatPhone(session.phone) }}</dd>
+            </div>
+            <div class="quick-return-customer__address">
+              <dt>כתובת</dt>
+              <dd>{{ session.address || '—' }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        @if (quickReturnScannedItem(session); as scanned) {
+          <div class="quick-return-scanned">
+            <h3 class="mb-2 text-sm font-bold text-[#002244]">פריט שנבחר להחזרה</h3>
+            <div class="quick-return-item quick-return-item--primary">
+              <span class="quick-return-item__check" aria-hidden="true">✓</span>
+              <div class="quick-return-item__body">
+                <span class="quick-return-item__name">{{ scanned.bookTitle }}</span>
+                <span class="quick-return-item__meta">
+                  ברקוד
+                  <span class="ltr-field font-mono font-semibold text-[#002244]">{{ scanned.copyNumber }}</span>
+                </span>
+                <div class="quick-return-item__loan-row">
+                  <span class="quick-return-item__date">{{ scanned.hebrewLentDisplay }}</span>
+                  <span
+                    class="quick-return-item__duration"
+                    [class.duration-overdue]="quickReturnItemOverdue(scanned)"
+                  >
+                    {{ quickReturnDurationText(scanned) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="action-icon-btn action-icon-btn--calendar"
+                    (click)="loanRangeCal.open($event, scanned.lentAt, null)"
+                    title="תצוגת טווח השאלה"
+                    aria-label="תצוגת טווח השאלה"
+                  >
+                    <i class="pi pi-calendar" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+              <span class="quick-return-item__badge">נבחר</span>
+            </div>
+          </div>
+        }
+
+        @if (quickReturnAdditionalGroups(session); as groups) {
+          @if (groups.length > 0) {
+            <div class="quick-return-extras">
+              <h3 class="mb-2 text-sm font-bold text-[#002244]">פריטים נוספים מושאלים ללקוח זה</h3>
+              <div class="quick-return-extras__groups">
+                @for (group of groups; track group.dateKey) {
+                  <section
+                    class="quick-return-extras__group"
+                    [attr.aria-label]="'השאלה מתאריך ' + group.hebrewDate"
+                  >
+                    <div class="quick-return-extras__date-row">
+                      <h4 class="quick-return-extras__date">{{ group.hebrewDate }}</h4>
+                      <button
+                        type="button"
+                        class="quick-return-extras__select-all"
+                        [disabled]="quickReturnSaving()"
+                        (click)="selectQuickReturnGroup(group.dateKey, !isQuickReturnGroupFullySelected(group))"
+                      >
+                        {{ isQuickReturnGroupFullySelected(group) ? 'בטל בחירה' : 'סמן הכל' }}
+                      </button>
+                    </div>
+                    <ul class="quick-return-extras__list">
+                      @for (item of group.items; track item.key) {
+                        <li>
+                          <label class="quick-return-item">
+                            <input
+                              type="checkbox"
+                              [checked]="item.selected"
+                              [disabled]="quickReturnSaving()"
+                              (change)="toggleQuickReturnItem(item.key, $any($event.target).checked)"
+                            />
+                            <span class="quick-return-item__body">
+                              <span class="quick-return-item__name">{{ item.bookTitle }}</span>
+                              <span class="quick-return-item__meta">
+                                ברקוד
+                                <span class="ltr-field font-mono font-semibold">{{ item.copyNumber }}</span>
+                              </span>
+                              <div class="quick-return-item__loan-row">
+                                <span class="quick-return-item__date">{{ item.hebrewLentDisplay }}</span>
+                                <span
+                                  class="quick-return-item__duration"
+                                  [class.duration-overdue]="quickReturnItemOverdue(item)"
+                                >
+                                  {{ quickReturnDurationText(item) }}
+                                </span>
+                                <button
+                                  type="button"
+                                  class="action-icon-btn action-icon-btn--calendar"
+                                  (click)="$event.preventDefault(); $event.stopPropagation(); loanRangeCal.open($event, item.lentAt, null)"
+                                  title="תצוגת טווח השאלה"
+                                  aria-label="תצוגת טווח השאלה"
+                                >
+                                  <i class="pi pi-calendar" aria-hidden="true"></i>
+                                </button>
+                              </div>
+                            </span>
+                          </label>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                }
+              </div>
+            </div>
+          }
+        }
+      </div>
+
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          [disabled]="quickReturnSaving()"
+          (click)="closeQuickReturnModal()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
+          [disabled]="quickReturnSaving()"
+          (click)="confirmQuickReturn()"
+        >
+          {{ quickReturnSaving() ? 'מחזיר…' : 'אשר החזרה' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

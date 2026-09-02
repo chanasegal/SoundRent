@@ -16,6 +16,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
+import { forkJoin, interval } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import {
@@ -59,6 +60,50 @@ interface CompletedLoanRowView {
   chargeIsPaid: boolean | null;
 }
 
+interface QuickReturnItem {
+  key: string;
+  loanId: number;
+  itemId: number;
+  bookId: number;
+  bookTitle: string;
+  copyNumber: string;
+  loanDateIso: string;
+  hebrewDate: string;
+  lentAt: Date;
+  deadlineAt: Date | null;
+  hebrewLentDisplay: string;
+  selected: boolean;
+  isScannedMatch: boolean;
+}
+
+interface QuickReturnLoanGroup {
+  dateKey: string;
+  loanDateIso: string;
+  hebrewDate: string;
+  items: QuickReturnItem[];
+}
+
+interface QuickReturnSession {
+  scannedCode: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: QuickReturnItem[];
+}
+
+interface ActiveLoanRowView {
+  rowKey: string;
+  loanId: number;
+  itemId: number;
+  item: BookLoanItemDto;
+  clientName: string;
+  phone: string;
+  address: string;
+  lentAt: Date;
+  deadlineAt: Date | null;
+  hebrewLentDisplay: string;
+}
+
 @Component({
   selector: 'app-library-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -92,7 +137,9 @@ export class LibraryReturnsComponent implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly loans = signal<BookLoanDto[]>([]);
+  protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly definitions = this.booksStore.definitions;
+  protected readonly nowTick = signal(Date.now());
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
   protected readonly deletingLoanId = signal<number | null>(null);
@@ -108,7 +155,9 @@ export class LibraryReturnsComponent implements OnInit {
   protected readonly quickReturnToolId = signal<number | null>(null);
   protected readonly quickReturnCode = signal('');
   protected readonly quickReturnCharge = signal('');
-  protected readonly quickReturning = signal(false);
+  protected readonly quickReturnSearching = signal(false);
+  protected readonly quickReturnSaving = signal(false);
+  protected readonly quickReturnSession = signal<QuickReturnSession | null>(null);
 
   protected readonly quickReturnCodes = computed(() => {
     const bookId = this.quickReturnToolId();
@@ -198,22 +247,39 @@ export class LibraryReturnsComponent implements OnInit {
   ngOnInit(): void {
     this.booksStore.load().subscribe();
     this.refresh();
+    this.refreshActiveLoans();
 
     this.ordersSync.loanChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.refresh());
+      .subscribe(() => {
+        this.refresh();
+        this.refreshActiveLoans();
+      });
     this.ordersSync.debtChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
 
-    startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
-      skipWhen: () =>
-        this.loading() ||
-        this.markingDebtId() != null ||
-        this.undoingRowKey() != null ||
-        this.deletingLoanId() != null ||
-        this.quickReturning()
-    });
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.nowTick.set(Date.now()));
+
+    startLiveDataRefresh(
+      this.destroyRef,
+      () => {
+        this.refresh();
+        this.refreshActiveLoans();
+      },
+      {
+        skipWhen: () =>
+          this.loading() ||
+          this.quickReturnSaving() ||
+          this.quickReturnSearching() ||
+          this.markingDebtId() != null ||
+          this.undoingRowKey() != null ||
+          this.deletingLoanId() != null ||
+          this.quickReturnSession() != null
+      }
+    );
 
     if (isDevMode()) {
       (window as unknown as Record<string, unknown>)['debugReturns'] = (loanId: number) =>
@@ -251,12 +317,15 @@ export class LibraryReturnsComponent implements OnInit {
   /** Global wedge scan when no input is focused — routes to quick return. */
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
+    if (this.quickReturnSession() != null || this.quickReturnSearching() || this.quickReturnSaving()) {
+      return;
+    }
     const code = this.wedge.push(event);
     if (!code) {
       return;
     }
     this.quickReturnCode.set(code);
-    this.submitQuickReturn();
+    this.searchQuickReturn();
   }
 
   protected refresh(): void {
@@ -267,6 +336,12 @@ export class LibraryReturnsComponent implements OnInit {
       .subscribe((list) => {
         this.loans.set(list);
       });
+  }
+
+  protected refreshActiveLoans(): void {
+    this.data.getActiveBookLoans().subscribe((list) => {
+      this.activeLoans.set(list);
+    });
   }
 
   protected onHistoryToolChange(bookId: number | null): void {
@@ -290,11 +365,11 @@ export class LibraryReturnsComponent implements OnInit {
   /** Enter from scanner (or keyboard) on the focused barcode field. */
   protected onQuickReturnKeydownEnter(event: Event): void {
     event.preventDefault();
-    this.submitQuickReturn();
+    this.searchQuickReturn();
   }
 
-  protected submitQuickReturn(): void {
-    if (this.quickReturning()) {
+  protected searchQuickReturn(): void {
+    if (this.quickReturnSearching() || this.quickReturnSaving()) {
       return;
     }
 
@@ -315,30 +390,189 @@ export class LibraryReturnsComponent implements OnInit {
       this.quickReturnToolId.set(bookId);
     }
 
-    const charge = this.parseCharge(this.quickReturnCharge());
-    const hebrew = this.formatHebrewDate(new Date());
-    this.quickReturning.set(true);
+    const openFromRows = (): void => {
+      const allRows = this.buildActiveLoanRowViews(this.activeLoans());
+      const matches = allRows.filter(
+        (row) =>
+          row.item.bookId === bookId &&
+          row.item.copyNumber.localeCompare(serial, undefined, { sensitivity: 'accent' }) === 0
+      );
+
+      if (matches.length === 0) {
+        this.toast.warning(`לא נמצאה השאלה פעילה עם ברקוד "${serial}"`);
+        queueMicrotask(() => this.focusQuickReturnBarcodeField());
+        return;
+      }
+
+      const phoneKeys = new Set(
+        matches.map((m) => this.normalizePhone(m.phone)).filter((p) => p.length > 0)
+      );
+      if (phoneKeys.size > 1) {
+        this.toast.warning('נמצאו מספר לקוחות עם אותו ברקוד — בחרו מהרשימה למטה');
+        queueMicrotask(() => this.focusQuickReturnBarcodeField());
+        return;
+      }
+
+      const match = matches[0];
+      const phoneKey = this.normalizePhone(match.phone);
+      const customerRows = allRows.filter(
+        (row) => this.normalizePhone(row.phone) === phoneKey && phoneKey.length > 0
+      );
+      const items = this.buildQuickReturnItems(
+        customerRows.length > 0 ? customerRows : [match],
+        match,
+        serial
+      );
+
+      this.quickReturnSession.set({
+        scannedCode: serial,
+        customerName: match.clientName,
+        phone: match.phone,
+        address: match.address,
+        items
+      });
+    };
+
+    this.quickReturnSearching.set(true);
     this.data
-      .returnBookLoanByCode({
-        bookId: bookId,
-        copyNumber: serial,
+      .getActiveBookLoans()
+      .pipe(finalize(() => this.quickReturnSearching.set(false)))
+      .subscribe((list) => {
+        this.activeLoans.set(list);
+        openFromRows();
+      });
+  }
+
+  protected closeQuickReturnModal(): void {
+    if (this.quickReturnSaving()) {
+      return;
+    }
+    this.quickReturnSession.set(null);
+    queueMicrotask(() => this.focusQuickReturnBarcodeField());
+  }
+
+  protected quickReturnScannedItem(session: QuickReturnSession): QuickReturnItem | null {
+    return session.items.find((item) => item.isScannedMatch) ?? null;
+  }
+
+  protected quickReturnAdditionalGroups(session: QuickReturnSession): QuickReturnLoanGroup[] {
+    const extras = session.items.filter((item) => !item.isScannedMatch);
+    const byDate = new Map<string, QuickReturnLoanGroup>();
+
+    for (const item of extras) {
+      const dateKey = item.loanDateIso || '';
+      let group = byDate.get(dateKey);
+      if (!group) {
+        group = {
+          dateKey,
+          loanDateIso: item.loanDateIso,
+          hebrewDate: item.hebrewDate || 'ללא תאריך',
+          items: []
+        };
+        byDate.set(dateKey, group);
+      }
+      group.items.push(item);
+    }
+
+    return [...byDate.values()].sort((a, b) =>
+      (b.loanDateIso || '').localeCompare(a.loanDateIso || '')
+    );
+  }
+
+  protected toggleQuickReturnItem(key: string, checked: boolean): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.key !== key) {
+            return item;
+          }
+          if (item.isScannedMatch && !checked) {
+            return item;
+          }
+          return { ...item, selected: checked };
+        })
+      };
+    });
+  }
+
+  protected selectQuickReturnGroup(dateKey: string, selected = true): void {
+    this.quickReturnSession.update((session) => {
+      if (!session) {
+        return session;
+      }
+      return {
+        ...session,
+        items: session.items.map((item) => {
+          if (item.isScannedMatch || (item.loanDateIso || '') !== dateKey) {
+            return item;
+          }
+          return { ...item, selected };
+        })
+      };
+    });
+  }
+
+  protected isQuickReturnGroupFullySelected(group: QuickReturnLoanGroup): boolean {
+    return group.items.length > 0 && group.items.every((item) => item.selected);
+  }
+
+  protected quickReturnDurationText(item: QuickReturnItem): string {
+    const days = libraryBillableDays(item.lentAt, new Date(this.nowTick()));
+    return formatLibraryDuration(days, this.quickReturnItemOverdue(item));
+  }
+
+  protected quickReturnItemOverdue(item: QuickReturnItem): boolean {
+    if (!item.deadlineAt) {
+      return false;
+    }
+    return new Date(this.nowTick()).getTime() > endOfLocalDay(item.deadlineAt).getTime();
+  }
+
+  protected confirmQuickReturn(): void {
+    const session = this.quickReturnSession();
+    if (!session || this.quickReturnSaving()) {
+      return;
+    }
+
+    const selected = session.items.filter((item) => item.selected);
+    if (selected.length === 0) {
+      this.toast.warning('יש לבחור לפחות פריט אחד להחזרה');
+      return;
+    }
+
+    const hebrew = this.formatHebrewDate(new Date());
+    const barCharge = this.parseCharge(this.quickReturnCharge());
+    const requests = selected.map((item) =>
+      this.data.returnBookLoanItem(item.loanId, item.itemId, {
         hebrewReturnedDisplay: hebrew,
-        chargeAmount: charge && charge > 0 ? charge : null
+        chargeAmount: item.isScannedMatch && barCharge && barCharge > 0 ? barCharge : null
       })
-      .pipe(finalize(() => this.quickReturning.set(false)))
-      .subscribe((updated) => {
-        if (!updated) {
-          this.quickReturnCode.set('');
-          this.focusQuickReturnBarcodeField();
+    );
+
+    this.quickReturnSaving.set(true);
+    forkJoin(requests)
+      .pipe(finalize(() => this.quickReturnSaving.set(false)))
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
+          this.refreshActiveLoans();
           return;
         }
-        this.toast.success('ההחזרה נרשמה');
+        this.toast.success(
+          selected.length === 1 ? 'הברקוד הוחזר בהצלחה' : `${okCount} ספרים הוחזרו בהצלחה`
+        );
+        this.quickReturnSession.set(null);
         this.quickReturnCode.set('');
         this.quickReturnCharge.set('');
         this.ordersSync.notifyLoanChanged();
+        this.refreshActiveLoans();
         this.refresh();
         this.booksStore.load().subscribe();
-        this.focusQuickReturnBarcodeField();
+        queueMicrotask(() => this.focusQuickReturnBarcodeField());
       });
   }
 
@@ -409,10 +643,19 @@ export class LibraryReturnsComponent implements OnInit {
   private resolveActiveLoanByCopy(serial: string): { bookId: number } | null {
     const needle = serial.toLowerCase();
     const matches: { bookId: number }[] = [];
-    for (const loan of this.loans()) {
+    for (const loan of this.activeLoans()) {
       for (const item of loan.items) {
         if (!item.returnedAt && item.copyNumber.toLowerCase() === needle) {
           matches.push({ bookId: item.bookId });
+        }
+      }
+    }
+    if (matches.length === 0) {
+      for (const loan of this.loans()) {
+        for (const item of loan.items) {
+          if (!item.returnedAt && item.copyNumber.toLowerCase() === needle) {
+            matches.push({ bookId: item.bookId });
+          }
         }
       }
     }
@@ -530,6 +773,17 @@ export class LibraryReturnsComponent implements OnInit {
       return false;
     }
     return row.returnedAt.getTime() > endOfLocalDay(row.deadlineAt).getTime();
+  }
+
+  protected displayCharge(row: CompletedLoanRowView): number {
+    if (row.chargeAmount != null && row.chargeAmount > 0) {
+      return row.chargeAmount;
+    }
+    return this.calculateCharge(row.lentAt, row.returnedAt);
+  }
+
+  protected hasDisplayCharge(row: CompletedLoanRowView): boolean {
+    return this.displayCharge(row) > 0;
   }
 
   protected formatCharge(amount: number | null): string {
@@ -746,6 +1000,77 @@ export class LibraryReturnsComponent implements OnInit {
       }
     }
     return this.formatHebrewDate(date);
+  }
+
+  private buildActiveLoanRowViews(loans: BookLoanDto[]): ActiveLoanRowView[] {
+    const views: ActiveLoanRowView[] = [];
+    for (const loan of loans) {
+      const lentAt = new Date(loan.lentAt);
+      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
+      for (const item of loan.items) {
+        if (item.returnedAt) {
+          continue;
+        }
+        views.push({
+          rowKey: `${loan.id}-${item.id}`,
+          loanId: loan.id,
+          itemId: item.id,
+          item,
+          clientName: loan.clientName,
+          phone: loan.phone,
+          address: (loan.address ?? '').trim(),
+          lentAt,
+          deadlineAt,
+          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt)
+        });
+      }
+    }
+    return views.sort((a, b) => b.lentAt.getTime() - a.lentAt.getTime());
+  }
+
+  private buildQuickReturnItems(
+    customerRows: ActiveLoanRowView[],
+    match: ActiveLoanRowView,
+    scannedCode: string
+  ): QuickReturnItem[] {
+    const items: QuickReturnItem[] = [];
+
+    for (const row of customerRows) {
+      const isScannedMatch =
+        row.rowKey === match.rowKey &&
+        row.item.copyNumber.localeCompare(scannedCode, undefined, { sensitivity: 'accent' }) ===
+          0;
+      const hebrewDate = this.hebrew.toHebrew(row.lentAt);
+      items.push({
+        key: row.rowKey,
+        loanId: row.loanId,
+        itemId: row.itemId,
+        bookId: row.item.bookId,
+        bookTitle: row.item.bookTitle,
+        copyNumber: row.item.copyNumber,
+        loanDateIso: this.toIsoDay(row.lentAt),
+        hebrewDate,
+        lentAt: row.lentAt,
+        deadlineAt: row.deadlineAt,
+        hebrewLentDisplay: row.hebrewLentDisplay,
+        selected: isScannedMatch,
+        isScannedMatch
+      });
+    }
+
+    items.sort((a, b) => Number(b.isScannedMatch) - Number(a.isScannedMatch));
+    return items;
+  }
+
+  private normalizePhone(phone: string | null | undefined): string {
+    return (phone ?? '').replace(/\D/g, '');
+  }
+
+  private toIsoDay(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   private formatHebrewDate(date: Date): string {
