@@ -226,8 +226,8 @@
       </p>
 
       <article class="customer-breakdown-card">
-        @if (accessoryRows().length === 0 && !addAccessoryOpen()) {
-          <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים</p>
+        @if (accessoryRows().length === 0) {
+          <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים — הזינו שורה למטה</p>
         }
 
         <ul class="customer-breakdown-card__items">
@@ -352,74 +352,129 @@
           }
         </ul>
 
-        <div
-          class="add-accessory"
-          (appClickOutside)="closeAddAccessoryPicker()"
-          [appClickOutsideEnabled]="addAccessoryOpen()"
-        >
-          @if (addAccessoryOpen()) {
-            <div class="add-accessory__picker">
-              <div class="add-accessory__combobox">
-                <span class="add-accessory__label">סוג אביזר</span>
+        <div class="accessory-draft-lines">
+          @for (line of accessoryDraftLines(); track line.id) {
+            <div class="accessory-draft-line">
+              <div
+                class="accessory-draft-line__search"
+                (appClickOutside)="closeDraftSuggest(line.id)"
+                [appClickOutsideEnabled]="line.suggestOpen"
+              >
                 <input
                   type="text"
-                  class="add-accessory__search"
-                  placeholder="חיפוש או הקלדת שם אביזר…"
+                  class="accessory-draft-line__input"
+                  placeholder="שם אביזר + קוד (למשל: מיקסר 123)"
+                  data-accessory-draft-input
+                  [attr.data-line-id]="line.id"
+                  [value]="line.query"
+                  (input)="onDraftQueryInput(line.id, $any($event.target).value)"
+                  (focus)="onDraftQueryFocus(line.id)"
+                  (keydown.enter)="onDraftQueryEnter(line.id, $event)"
                   autocomplete="off"
                   role="combobox"
                   aria-autocomplete="list"
-                  aria-controls="accessory-type-options"
-                  [attr.aria-expanded]="true"
-                  [value]="accessoryTypeQuery()"
-                  (input)="accessoryTypeQuery.set($any($event.target).value)"
-                  (focus)="onAccessorySearchFocus()"
-                  (blur)="onAccessorySearchBlur()"
-                  (keydown)="onAccessorySearchKeydown($event)"
+                  [attr.aria-expanded]="line.suggestOpen"
                 />
-                @if (filteredAccessoryTypes().length > 0 || showCustomAccessoryOption()) {
-                  <ul id="accessory-type-options" class="add-accessory__options" role="listbox">
-                    @for (def of filteredAccessoryTypes(); track def.id) {
+                @if (line.suggestOpen) {
+                  <ul class="accessory-draft-line__options" role="listbox">
+                    @for (def of filteredAccessoryTypesForDraft(line); track def.id) {
                       <li role="option">
                         <button
                           type="button"
-                          class="add-accessory__option"
-                          (mousedown)="onAccessoryTypeChosen(def, $event)"
+                          class="accessory-draft-line__option"
+                          (mousedown)="selectAccessoryDefinition(line.id, def, $event)"
                         >
                           {{ accessoryTypeLabel(def) }}
                         </button>
                       </li>
+                    } @empty {
+                      @if (!showCustomAccessoryOptionForDraft(line) && line.query.trim().length >= 2) {
+                        <li class="accessory-draft-line__empty">לא נמצאו אביזרים תואמים</li>
+                      }
                     }
-                    @if (showCustomAccessoryOption()) {
+                    @if (showCustomAccessoryOptionForDraft(line)) {
                       <li role="option">
                         <button
                           type="button"
-                          class="add-accessory__option add-accessory__option--custom"
-                          (mousedown)="onCustomAccessoryTypeChosen($event)"
+                          class="accessory-draft-line__option accessory-draft-line__option--custom"
+                          (mousedown)="onCustomAccessoryDraftChosen(line.id, $event)"
                         >
-                          {{ customAccessoryOptionLabel() }}
+                          {{ customAccessoryOptionLabelForDraft(line) }}
                         </button>
                       </li>
                     }
                   </ul>
-                } @else if (availableAccessoryTypes().length === 0) {
-                  <p class="add-accessory__hint">כל סוגי האביזרים כבר נוספו</p>
-                } @else if (accessoryTypeQuery().trim().length >= 2) {
-                  <p class="add-accessory__hint">לא נמצא סוג אביזר תואם — הקלידו שם חדש להשאלה חד־פעמית (לפחות 2 תווים)</p>
-                } @else {
-                  <p class="add-accessory__hint">הקלידו לפחות 2 תווים לחיפוש או להוספת פריט חד-פעמי</p>
                 }
               </div>
+
+              <div
+                class="accessory-draft-line__codes"
+                data-accessory-draft-codes
+                (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                (appClickOutside)="closeDraftCodesDropdown(line.id)"
+                [appClickOutsideEnabled]="line.codesOpen"
+              >
+                <button
+                  type="button"
+                  class="accessory-draft-line__codes-btn"
+                  [attr.data-line-id]="line.id"
+                  [disabled]="line.inventoryDefinitionId == null"
+                  (click)="toggleDraftCodesDropdown(line.id, $event)"
+                  (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                >
+                  @if (line.selectedCodes.length === 0) {
+                    <span class="placeholder">בחרו קודים…</span>
+                  } @else {
+                    <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                  }
+                </button>
+                @if (line.codesOpen) {
+                  <div class="accessory-draft-line__codes-panel" (click)="$event.stopPropagation()">
+                    @if (draftCodesPanelState(line) === 'loading') {
+                      <p class="accessory-draft-line__codes-empty">טוען קודי פריטים…</p>
+                    } @else if (draftCodesPanelState(line) === 'no-inventory' || draftCodesPanelState(line) === 'all-booked') {
+                      <p class="accessory-draft-line__codes-empty">אין קודים זמינים לפריט זה</p>
+                    } @else {
+                      @for (opt of serialOptionsForDraftLine(line); track opt.serialCode) {
+                        <label
+                          class="accessory-draft-line__codes-option"
+                          [class.accessory-draft-line__codes-option--disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
+                        >
+                          <input
+                            type="checkbox"
+                            [checked]="isDraftCodeSelected(line, opt.serialCode)"
+                            [disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
+                            (change)="toggleDraftCodeSelection(line.id, opt.serialCode, $event)"
+                          />
+                          <span class="ltr-field" dir="ltr">{{ opt.serialCode }}</span>
+                        </label>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+
+              @if (accessoryDraftLines().length > 1) {
+                <button
+                  type="button"
+                  class="accessory-draft-line__remove"
+                  (click)="removeDraftLine(line.id)"
+                  aria-label="הסר שורת אביזר"
+                >
+                  ×
+                </button>
+              }
             </div>
           }
-
           <button
             type="button"
-            class="add-accessory__trigger"
-            [class.add-accessory__trigger--active]="addAccessoryOpen()"
-            (click)="toggleAddAccessory()"
+            class="add-tool-btn add-tool-btn--compact"
+            [disabled]="submitting()"
+            (click)="onAddDraftLineClick($event)"
+            aria-label="הוסף שורת אביזר"
+            title="הוסף שורת אביזר"
           >
-            <span aria-hidden="true">+</span>
-            {{ addAccessoryOpen() ? 'ביטול' : 'הוספת אביזר' }}
+            +
           </button>
         </div>
       </article>

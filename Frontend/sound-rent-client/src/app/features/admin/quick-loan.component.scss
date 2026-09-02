@@ -1119,6 +1119,225 @@ form .customer-breakdown-card {
   }
 }
 
+.accessory-draft-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.accessory-draft-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .accessory-draft-line {
+    grid-template-columns: 1fr;
+  }
+}
+
+.accessory-draft-line__search,
+.accessory-draft-line__codes {
+  position: relative;
+  min-width: 0;
+}
+
+.accessory-draft-line__input {
+  width: 100%;
+  min-height: 2.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  background: #fff;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+
+  &::placeholder {
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  &:focus {
+    border-color: #002244;
+    box-shadow: 0 0 0 1px #00224433;
+  }
+}
+
+.accessory-draft-line__options {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.2rem);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-height: 13rem;
+  overflow-y: auto;
+  border-radius: 0.6rem;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  box-shadow: 0 18px 40px -20px rgba(15, 23, 42, 0.45);
+}
+
+.accessory-draft-line__option {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  padding: 0.45rem 0.55rem;
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: #f1f5f9;
+    outline: none;
+  }
+
+  &--custom {
+    margin-top: 0.15rem;
+    border-top: 1px dashed #cbd5e1;
+    border-radius: 0;
+    color: #002244;
+
+    &:hover,
+    &:focus-visible {
+      background: #eff6ff;
+    }
+  }
+}
+
+.accessory-draft-line__empty {
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.accessory-draft-line__codes-btn {
+  width: 100%;
+  min-height: 2.45rem;
+  text-align: right;
+  border-radius: 0.55rem;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+
+  .placeholder {
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.accessory-draft-line__codes-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.2rem);
+  right: 0;
+  left: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  border-radius: 0.6rem;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0.35rem;
+  box-shadow: 0 18px 40px -20px rgba(15, 23, 42, 0.45);
+}
+
+.accessory-draft-line__codes-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+
+  &:hover {
+    background: #f8fafc;
+  }
+
+  &--disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.accessory-draft-line__codes-empty {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.accessory-draft-line__remove {
+  border: 1px solid #fecaca;
+  background: #fff;
+  color: #b91c1c;
+  border-radius: 0.5rem;
+  width: 2.4rem;
+  height: 2.55rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.add-tool-btn {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  border: 1px dashed #94a3b8;
+  background: #f8fafc;
+  color: #002244;
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.add-tool-btn--compact {
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-style: solid;
+  border-color: #cbd5e1;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: #eef2f7;
+  }
+}
+
 .return-modal-backdrop {
   direction: rtl;
 }

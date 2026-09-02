@@ -22,12 +22,7 @@
           <input type="number" min="1" max="365" step="1" formControlName="days" />
         </label>
       }
-      @if (formOpen()) {
-        <button type="button" class="add-row-btn" (click)="minimizeDraft()">מזער</button>
-        <button type="button" class="add-row-btn" (click)="closeFormPanel()">סגור טופס</button>
-      } @else {
-        <button type="button" class="add-row-btn add-row-btn--primary" (click)="addForm()">הוסף השאלת ספר</button>
-      }
+      <button type="button" class="add-row-btn" (click)="minimizeDraft()">מזער</button>
       <button
         type="button"
         class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -38,66 +33,7 @@
     </div>
   </div>
 
-  <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד ספר">
-    <h2 class="quick-return-card__title">החזרה מהירה לפי קוד ספר</h2>
-    <div class="quick-return-card__row">
-      <label class="quick-return-field">
-        <span>ספר</span>
-        <app-book-title-select
-          class="field-input-wrap"
-          [options]="definitions()"
-          [ngModel]="quickReturnToolId()"
-          (ngModelChange)="onQuickReturnToolChange($event)"
-        />
-      </label>
-      <label class="quick-return-field">
-        <span>ברקוד</span>
-        <input
-          type="text"
-          class="field-input ltr-field"
-          dir="ltr"
-          id="copyCodeInput"
-          list="quick-return-codes"
-          placeholder="...סרוק ברקוד"
-          [value]="quickReturnCode()"
-          (input)="onQuickReturnCodeInput($any($event.target).value)"
-          (keydown.enter)="onQuickReturnKeydownEnter($event)"
-          autocomplete="off"
-          [appAutoFocus]="!formOpen()"
-          #barcodeField
-        />
-        <datalist id="quick-return-codes">
-          @for (code of quickReturnCodes(); track code) {
-            <option [value]="code"></option>
-          }
-        </datalist>
-      </label>
-      <label class="quick-return-field quick-return-field--charge">
-        <span>סכום חיוב</span>
-        <input
-          type="number"
-          min="0"
-          step="1"
-          class="field-input ltr-field"
-          dir="ltr"
-          placeholder="0"
-          [value]="quickReturnCharge()"
-          (input)="onQuickReturnChargeInput($any($event.target).value)"
-        />
-      </label>
-      <button
-        type="button"
-        class="add-row-btn add-row-btn--primary quick-return-submit"
-        [disabled]="quickReturning()"
-        (click)="submitQuickReturn()"
-      >
-        {{ quickReturning() ? 'מבצע…' : 'בצע החזרה' }}
-      </button>
-    </div>
-  </section>
-
-  @if (formOpen()) {
-    <div class="forms-stack mb-6">
+  <div class="forms-stack mb-6">
       @for (form of forms(); track form.id) {
         <section class="loan-card">
           <header class="loan-card__header">
@@ -129,7 +65,7 @@
                     (input)="onLoanScanCodeInput($any($event.target).value)"
                     (keydown.enter)="onLoanBarcodeKeydownEnter($event)"
                     autocomplete="off"
-                    [appAutoFocus]="formOpen()"
+                    [appAutoFocus]="true"
                     #loanBarcodeField
                   />
                 </label>
@@ -146,11 +82,18 @@
                       <input
                         type="text"
                         class="field-input"
-                        placeholder="חיפוש ספר"
+                        placeholder="שם ספר + קוד (למשל: 36 מעלות בצל 1)"
+                        data-book-line-input
+                        [attr.data-line-id]="line.id"
+                        [attr.data-form-id]="form.id"
                         [value]="line.bookQuery"
                         (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
                         (focus)="onToolQueryFocus(form.id, line.id)"
+                        (keydown.enter)="onToolQueryEnter(form.id, line.id, $event)"
                         autocomplete="off"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        [attr.aria-expanded]="line.bookSuggestOpen"
                       />
                       @if (line.bookSuggestOpen) {
                         <ul class="suggest-list" (click)="$event.stopPropagation()">
@@ -173,14 +116,18 @@
                     <div
                       class="tool-line__codes"
                       data-codes-dropdown
+                      (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
                       (appClickOutside)="closeCopiesDropdown(form.id, line.id)"
                       [appClickOutsideEnabled]="line.copiesOpen"
                     >
                       <button
                         type="button"
                         class="ms-dropdown__btn"
+                        [attr.data-line-id]="line.id"
+                        [attr.data-form-id]="form.id"
                         [disabled]="line.bookId == null"
                         (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                        (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
                       >
                         @if (line.selectedCopies.length === 0) {
                           <span class="placeholder">בחרו קודים…</span>
@@ -219,8 +166,15 @@
                   </div>
                 }
               </div>
-              <button type="button" class="add-tool-btn" (click)="addToolLine(form.id)">
-                + הוסף ספר נוסף
+              <button
+                type="button"
+                class="add-tool-btn add-tool-btn--compact"
+                [disabled]="!!submittingId()"
+                (click)="onAddToolLineClick(form.id, $event)"
+                aria-label="הוסף שורת ספר"
+                title="הוסף שורת ספר"
+              >
+                +
               </button>
             </div>
 
@@ -380,7 +334,6 @@
         </section>
       }
     </div>
-  }
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <label class="mb-2 block text-sm font-medium text-slate-700">חיפוש השאלות</label>

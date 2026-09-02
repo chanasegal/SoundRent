@@ -150,7 +150,7 @@ public class BookLoanService : IBookLoanService
         }
 
         var normalizedItems = new List<(int BookId, string CopyNumber, string BookTitle)>();
-        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
         {
@@ -160,9 +160,10 @@ public class BookLoanService : IBookLoanService
                 throw new ValidationException("קוד עותק חסר");
             }
 
-            if (!seenCodes.Add(serial))
+            var duplicateKey = $"{item.BookId}:{serial}";
+            if (!seenItems.Add(duplicateKey))
             {
-                throw new ValidationException($"קוד עותק {serial} נבחר יותר מפעם אחת");
+                throw new ValidationException($"קוד עותק {serial} נבחר יותר מפעם אחת עבור אותו ספר");
             }
 
             var definition = await _db.Books

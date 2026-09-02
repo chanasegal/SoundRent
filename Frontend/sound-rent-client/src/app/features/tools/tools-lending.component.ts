@@ -1468,7 +1468,15 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected filteredToolsForLine(form: LendingDraftForm, line: ToolLineItem): ToolDefinitionDto[] {
-    const q = line.toolQuery.trim().toLowerCase();
+    return this.filterToolsForLineQuery(form, line, line.toolQuery);
+  }
+
+  private filterToolsForLineQuery(
+    form: LendingDraftForm,
+    line: ToolLineItem,
+    query: string
+  ): ToolDefinitionDto[] {
+    const q = query.trim().toLowerCase();
     const usedElsewhere = new Set(
       form.toolLines
         .filter((l) => l.id !== line.id && l.toolId != null)
@@ -1488,7 +1496,7 @@ export class ToolsLendingComponent implements OnInit {
       return base;
     }
 
-    const hammerBits = matchingHammerDrillBitTools(this.definitions(), line.toolQuery).filter(
+    const hammerBits = matchingHammerDrillBitTools(this.definitions(), query).filter(
       (tool) => !usedElsewhere.has(tool.id) || tool.id === line.toolId
     );
     if (hammerBits.length === 0) {
@@ -1550,6 +1558,33 @@ export class ToolsLendingComponent implements OnInit {
       })
     );
     this.closeCustomerSuggest();
+    this.tryAutoSelectSingleToolMatch(formId, lineId, toolQuery);
+  }
+
+  /** When typing narrows suggestions to one tool, select it without a manual click. */
+  private tryAutoSelectSingleToolMatch(formId: string, lineId: string, query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const form = this.forms().find((f) => f.id === formId);
+    const line = form?.toolLines.find((l) => l.id === lineId);
+    if (!form || !line) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextToolEntry(trimmed, form);
+    if (parsed && parsed.codes.length > 0) {
+      return;
+    }
+
+    const matches = this.filterToolsForLineQuery(form, line, query);
+    if (matches.length !== 1) {
+      return;
+    }
+
+    this.selectTool(formId, lineId, matches[0]);
   }
 
   protected showCustomTemporaryToolOption(form: LendingDraftForm, line: ToolLineItem): boolean {

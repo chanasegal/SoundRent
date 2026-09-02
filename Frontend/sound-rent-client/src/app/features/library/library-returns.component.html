@@ -18,6 +18,64 @@
     </button>
   </div>
 
+  <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד ספר">
+    <h2 class="quick-return-card__title">החזרה מהירה לפי קוד ספר</h2>
+    <div class="quick-return-card__row">
+      <label class="quick-return-field">
+        <span>ספר</span>
+        <app-book-title-select
+          class="field-input-wrap"
+          [options]="definitions()"
+          [ngModel]="quickReturnToolId()"
+          (ngModelChange)="onQuickReturnToolChange($event)"
+        />
+      </label>
+      <label class="quick-return-field">
+        <span>ברקוד</span>
+        <input
+          type="text"
+          class="field-input ltr-field"
+          dir="ltr"
+          id="library-returns-quick-return-code-input"
+          list="quick-return-codes"
+          placeholder="...סרוק ברקוד"
+          [value]="quickReturnCode()"
+          (input)="onQuickReturnCodeInput($any($event.target).value)"
+          (keydown.enter)="onQuickReturnKeydownEnter($event)"
+          autocomplete="off"
+          appAutoFocus
+          #quickReturnBarcodeField
+        />
+        <datalist id="quick-return-codes">
+          @for (code of quickReturnCodes(); track code) {
+            <option [value]="code"></option>
+          }
+        </datalist>
+      </label>
+      <label class="quick-return-field quick-return-field--charge">
+        <span>סכום חיוב</span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          class="field-input ltr-field"
+          dir="ltr"
+          placeholder="0"
+          [value]="quickReturnCharge()"
+          (input)="onQuickReturnChargeInput($any($event.target).value)"
+        />
+      </label>
+      <button
+        type="button"
+        class="add-row-btn add-row-btn--primary quick-return-submit"
+        [disabled]="quickReturning()"
+        (click)="submitQuickReturn()"
+      >
+        {{ quickReturning() ? 'מבצע…' : 'בצע החזרה' }}
+      </button>
+    </div>
+  </section>
+
   <section class="history-filter-card mb-5" aria-label="חיפוש היסטוריית השאלה לפי ספר">
     <h2 class="history-filter-card__title">חיפוש היסטוריית השאלה לפי ספר</h2>
     <p class="history-filter-card__hint">
@@ -45,7 +103,6 @@
           (input)="onHistoryCodeInput($any($event.target).value)"
           (keydown.enter)="onHistoryKeydownEnter($event)"
           autocomplete="off"
-          appAutoFocus
           #barcodeField
         />
         <datalist id="history-item-codes">

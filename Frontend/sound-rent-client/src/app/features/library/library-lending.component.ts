@@ -1,11 +1,13 @@
-﻿import { CommonModule } from '@angular/common';
+﻿import { CommonModule, DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
   HostListener,
+  Injector,
   OnInit,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -127,6 +129,8 @@ export class LibraryLendingComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly orderDraft = inject(OrderDraftService);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
 
   private pendingRenew: {
@@ -138,8 +142,6 @@ export class LibraryLendingComponent implements OnInit {
     copyNumber: string;
   } | null = null;
 
-  /** Quick-return barcode field — kept focused for sequential scanner wedges. */
-  private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
   /** Loan-form barcode field (when the loan panel is open). */
   private readonly loanBarcodeField = viewChild<ElementRef<HTMLInputElement>>('loanBarcodeField');
   private readonly wedge = new BarcodeWedgeScanner();
@@ -150,7 +152,6 @@ export class LibraryLendingComponent implements OnInit {
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
   protected readonly timeLimitEnabled = signal(false);
-  protected readonly formOpen = signal(false);
   protected readonly activeLoading = signal(true);
   protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly returningItemId = signal<number | null>(null);
@@ -166,22 +167,8 @@ export class LibraryLendingComponent implements OnInit {
     q: string;
   }>();
 
-  /** Quick return by code — local page state only. */
-  protected readonly quickReturnToolId = signal<number | null>(null);
-  protected readonly quickReturnCode = signal('');
-  protected readonly quickReturnCharge = signal('');
-  protected readonly quickReturning = signal(false);
   /** Inline charge amounts keyed by loan item id (local only). */
   protected readonly rowCharges = signal<Record<number, string>>({});
-
-  protected readonly quickReturnCodes = computed(() => {
-    const bookId = this.quickReturnToolId();
-    if (bookId == null) {
-      return [] as string[];
-    }
-    const def = this.definitions().find((d) => d.id === bookId);
-    return sortNumericCodes(def?.copies ?? []);
-  });
 
   protected readonly timeLimitForm = this.fb.group({
     days: [7, [Validators.required, Validators.min(1), Validators.max(365)]]
@@ -258,6 +245,7 @@ export class LibraryLendingComponent implements OnInit {
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
     this.tryRestoreMinimizedDraft();
+    queueMicrotask(() => this.focusLoanBarcodeField());
     this.ordersSync.loanChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshActiveLoans());
@@ -272,48 +260,28 @@ export class LibraryLendingComponent implements OnInit {
         skipWhen: () =>
           this.submittingId() != null ||
           this.returningItemId() != null ||
-          this.returningCustomerKey() != null ||
-          this.quickReturning()
+          this.returningCustomerKey() != null
       }
     );
   }
 
-  /** Global wedge scan when no input is focused — routes to return or loan. */
+  /** Global wedge scan — routes to loan barcode field. */
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
     const code = this.wedge.push(event);
     if (!code) {
       return;
     }
-    if (this.formOpen()) {
-      this.loanScanCode.set(code);
-      this.applyLoanBarcodeScan(code);
-      return;
-    }
-    this.quickReturnCode.set(code);
-    this.submitQuickReturn();
-  }
-
-  protected addForm(): void {
-    this.formOpen.set(true);
-    this.loanScanCode.set('');
-    if (this.forms().length === 0) {
-      this.forms.set([this.createDraftForm()]);
-    } else {
-      // Reset to a fresh single draft when opening the panel.
-      this.forms.set([this.createDraftForm()]);
-    }
-    // Use already-cached availability — no extra API call.
-    queueMicrotask(() => this.focusLoanBarcodeField());
+    this.loanScanCode.set(code);
+    this.applyLoanBarcodeScan(code);
   }
 
   protected closeFormPanel(): void {
-    this.formOpen.set(false);
     this.loanScanCode.set('');
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
-    queueMicrotask(() => this.focusBarcodeField());
+    queueMicrotask(() => this.focusLoanBarcodeField());
   }
 
   /** Keep the in-progress loan and return to the main lending board. */
@@ -332,12 +300,10 @@ export class LibraryLendingComponent implements OnInit {
         timeLimitValue: Number(this.timeLimitForm.controls.days.value) || 7
       }
     });
-    this.formOpen.set(false);
     this.loanScanCode.set('');
     this.forms.set([this.createDraftForm()]);
     this.closeToolUi();
     this.closeCustomerSuggest();
-    queueMicrotask(() => this.focusBarcodeField());
   }
 
   private tryRestoreMinimizedDraft(): void {
@@ -371,25 +337,11 @@ export class LibraryLendingComponent implements OnInit {
       this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
       this.timeLimitForm.controls.days.setValue(payload.timeLimitValue || 7, { emitEvent: false });
       this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
-      this.formOpen.set(true);
       this.loanScanCode.set('');
       queueMicrotask(() => this.focusLoanBarcodeField());
     } catch {
       this.toast.error('לא ניתן לשחזר את טיוטת ההשאלה');
     }
-  }
-
-  protected onQuickReturnToolChange(bookId: number | null): void {
-    this.quickReturnToolId.set(bookId != null && bookId > 0 ? bookId : null);
-    this.quickReturnCode.set('');
-  }
-
-  protected onQuickReturnCodeInput(value: string): void {
-    this.quickReturnCode.set(value);
-  }
-
-  protected onQuickReturnChargeInput(value: string): void {
-    this.quickReturnCharge.set(value);
   }
 
   protected onRowChargeInput(itemId: number, value: string): void {
@@ -412,81 +364,11 @@ export class LibraryLendingComponent implements OnInit {
     return n;
   }
 
-  /** Enter from scanner (or keyboard) on the focused barcode field. */
-  protected onQuickReturnKeydownEnter(event: Event): void {
-    event.preventDefault();
-    this.submitQuickReturn();
-  }
-
-  protected submitQuickReturn(): void {
-    if (this.quickReturning()) {
-      return;
-    }
-
-    const serial = this.quickReturnCode().trim();
-    if (!serial) {
-      this.toast.error('יש להזין ברקוד');
-      this.focusBarcodeField();
-      return;
-    }
-
-    let bookId = this.quickReturnToolId();
-    if (bookId == null) {
-      const resolved = this.resolveActiveLoanByCopy(serial);
-      if (!resolved) {
-        return;
-      }
-      bookId = resolved.bookId;
-      this.quickReturnToolId.set(bookId);
-    }
-
-    const matched = this.activeRows().find(
-      (r) =>
-        r.item.bookId === bookId &&
-        r.item.copyNumber.toLowerCase() === serial.toLowerCase()
-    );
-    const charge =
-      this.parseCharge(matched ? this.rowChargeValue(matched.itemId) : null) ??
-      this.parseCharge(this.quickReturnCharge());
-
-    const hebrew = this.formatHebrewDate(new Date());
-    this.quickReturning.set(true);
-    this.data
-      .returnBookLoanByCode({
-        bookId: bookId,
-        copyNumber: serial,
-        hebrewReturnedDisplay: hebrew,
-        chargeAmount: charge && charge > 0 ? charge : null
-      })
-      .pipe(finalize(() => this.quickReturning.set(false)))
-      .subscribe((updated) => {
-        if (!updated) {
-          this.quickReturnCode.set('');
-          this.focusBarcodeField();
-          return;
-        }
-        this.toast.success('ההחזרה נרשמה');
-        this.quickReturnCode.set('');
-        this.quickReturnCharge.set('');
-        if (matched) {
-          this.rowCharges.update((m) => {
-            const next = { ...m };
-            delete next[matched.itemId];
-            return next;
-          });
-        }
-        this.ordersSync.notifyLoanChanged();
-        this.refreshActiveLoans();
-        this.refreshAvailability();
-        this.focusBarcodeField();
-      });
-  }
-
   protected onLoanScanCodeInput(value: string): void {
     this.loanScanCode.set(value);
   }
 
-  /** Enter on the loan-form barcode field — add the scanned copy to the draft. */
+  /** Enter from scanner (or keyboard) on the loan-form barcode field. */
   protected onLoanBarcodeKeydownEnter(event: Event): void {
     event.preventDefault();
     const code = this.loanScanCode().trim();
@@ -520,8 +402,10 @@ export class LibraryLendingComponent implements OnInit {
       return;
     }
 
-    const already = form.bookLines.some((l) =>
-      l.selectedCopies.some((c) => c.toLowerCase() === hit.copyNumber.toLowerCase())
+    const already = form.bookLines.some(
+      (l) =>
+        l.bookId === hit.bookId &&
+        l.selectedCopies.some((c) => c.toLowerCase() === hit.copyNumber.toLowerCase())
     );
     if (already) {
       this.toast.error(`ברקוד ${hit.copyNumber} כבר נבחר`);
@@ -610,25 +494,6 @@ export class LibraryLendingComponent implements OnInit {
     this.focusLoanBarcodeField();
   }
 
-  /** Match barcode to a currently active (unreturned) loan item. */
-  private resolveActiveLoanByCopy(serial: string): { bookId: number } | null {
-    const needle = serial.toLowerCase();
-    const matches = this.activeRows().filter(
-      (r) => r.item.copyNumber.toLowerCase() === needle
-    );
-    if (matches.length === 1) {
-      return { bookId: matches[0].item.bookId };
-    }
-    if (matches.length === 0) {
-      this.toast.error('הברקוד אינו מסומן כמושאל כרגע');
-      this.focusBarcodeField();
-      return null;
-    }
-    this.toast.error('נמצאו מספר התאמות — בחרו ספר');
-    this.focusBarcodeField();
-    return null;
-  }
-
   private findAvailableCopy(
     code: string
   ): { bookId: number; copyNumber: string } | null {
@@ -642,10 +507,6 @@ export class LibraryLendingComponent implements OnInit {
       }
     }
     return hits.length === 1 ? hits[0] : null;
-  }
-
-  private focusBarcodeField(): void {
-    queueMicrotask(() => this.focusAndSelect(this.barcodeField()?.nativeElement));
   }
 
   private focusLoanBarcodeField(): void {
@@ -850,6 +711,29 @@ export class LibraryLendingComponent implements OnInit {
     );
   }
 
+  protected onToolQueryEnter(formId: string, lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitLineAndAddNext(formId, lineId);
+  }
+
+  protected onCodesEnter(formId: string, lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitLineAndAddNext(formId, lineId);
+  }
+
+  protected onAddToolLineClick(formId: string, event: Event): void {
+    const activeLineId = this.activeLineIdForForm(formId);
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeLineId) {
+      this.commitLineAndAddNext(formId, activeLineId);
+      return;
+    }
+    this.addToolLine(formId);
+  }
+
   protected removeToolLine(formId: string, lineId: string): void {
     this.forms.update((list) =>
       list.map((f) => {
@@ -873,7 +757,15 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   protected filteredToolsForLine(form: LendingDraftForm, line: BookLineItem): BookDto[] {
-    const q = line.bookQuery.trim().toLowerCase();
+    return this.filterBooksForLineQuery(form, line, line.bookQuery);
+  }
+
+  private filterBooksForLineQuery(
+    form: LendingDraftForm,
+    line: BookLineItem,
+    query: string
+  ): BookDto[] {
+    const q = query.trim().toLowerCase();
     const usedElsewhere = new Set(
       form.bookLines
         .filter((l) => l.id !== line.id && l.bookId != null)
@@ -923,6 +815,33 @@ export class LibraryLendingComponent implements OnInit {
       })
     );
     this.closeCustomerSuggest();
+    this.tryAutoSelectSingleBookMatch(formId, lineId, value);
+  }
+
+  /** When typing narrows suggestions to one book, select it without a manual click. */
+  private tryAutoSelectSingleBookMatch(formId: string, lineId: string, query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextBookEntry(trimmed);
+    if (parsed && parsed.codes.length > 0) {
+      return;
+    }
+
+    const form = this.forms().find((f) => f.id === formId);
+    const line = form?.bookLines.find((l) => l.id === lineId);
+    if (!form || !line) {
+      return;
+    }
+
+    const matches = this.filterBooksForLineQuery(form, line, query);
+    if (matches.length !== 1) {
+      return;
+    }
+
+    this.selectTool(formId, lineId, matches[0]);
   }
 
   protected onToolQueryFocus(formId: string, lineId: string): void {
@@ -1137,13 +1056,11 @@ export class LibraryLendingComponent implements OnInit {
           });
         this.toast.success('ההשאלה נשמרה');
         this.orderDraft.clearIfKind('library-loan');
-        this.formOpen.set(false);
         this.loanScanCode.set('');
         this.forms.set([this.createDraftForm()]);
         this.ordersSync.notifyLoanChanged();
         this.refreshAvailability();
         this.refreshActiveLoans();
-        this.focusBarcodeField();
       });
   }
 
@@ -1207,7 +1124,7 @@ export class LibraryLendingComponent implements OnInit {
 
   private buildLoanItems(form: LendingDraftForm): BookLoanCreateDto['items'] | null {
     const items: BookLoanCreateDto['items'] = [];
-    const seenCodes = new Set<string>();
+    const seenItems = new Set<string>();
 
     for (const line of form.bookLines) {
       if (line.bookId == null) {
@@ -1222,12 +1139,12 @@ export class LibraryLendingComponent implements OnInit {
         return null;
       }
       for (const code of line.selectedCopies) {
-        const key = code.toLowerCase();
-        if (seenCodes.has(key)) {
-          this.toast.error(`ברקוד ${code} נבחר יותר מפעם אחת`);
+        const key = `${line.bookId}:${code.toLowerCase()}`;
+        if (seenItems.has(key)) {
+          this.toast.error(`ברקוד ${code} נבחר יותר מפעם אחת עבור אותו ספר`);
           return null;
         }
-        seenCodes.add(key);
+        seenItems.add(key);
         items.push({ bookId: line.bookId, copyNumber: code });
       }
     }
@@ -1335,7 +1252,6 @@ export class LibraryLendingComponent implements OnInit {
       }
     ];
     this.forms.set([draft]);
-    this.formOpen.set(true);
     if (pending.phone.replace(/\D/g, '').length >= 9) {
       this.lookupClientNotesByPhone(draft.id, pending.phone.replace(/\D/g, ''));
     }
@@ -1439,5 +1355,284 @@ export class LibraryLendingComponent implements OnInit {
 
   private formatHebrewDate(date: Date): string {
     return this.hebrew.toHebrew(date);
+  }
+
+  private commitLineAndAddNext(formId: string, lineId: string): void {
+    this.commitBookLineFromText(formId, lineId);
+  }
+
+  private commitBookLineFromText(formId: string, lineId: string): void {
+    const form = this.forms().find((f) => f.id === formId);
+    const line = form?.bookLines.find((l) => l.id === lineId);
+    if (!form || !line) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextBookEntry(line.bookQuery);
+    let bookId: number | null;
+    let bookQuery: string;
+    let selectedCopies: string[];
+
+    if (parsed) {
+      bookId = parsed.book.id;
+      bookQuery = parsed.book.title;
+
+      if (parsed.codes.length === 0) {
+        if (line.selectedCopies.length > 0) {
+          const availableCodes = this.availableByBook().get(parsed.book.id) ?? [];
+          for (const code of line.selectedCopies) {
+            if (!this.findCodeMatch(parsed.book.copies ?? [], code)) {
+              this.toast.error(`הקוד "${code}" לא שייך לספר "${parsed.book.title}"`);
+              this.focusBookLineInput(lineId);
+              return;
+            }
+            if (!this.findCodeMatch(availableCodes, code)) {
+              this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+              this.focusBookLineInput(lineId);
+              return;
+            }
+          }
+          selectedCopies = [...line.selectedCopies];
+        } else {
+          this.forms.update((list) =>
+            list.map((f) => {
+              if (f.id !== formId) {
+                return f;
+              }
+              return {
+                ...f,
+                bookLines: f.bookLines.map((l) =>
+                  l.id !== lineId
+                    ? l
+                    : {
+                        ...l,
+                        bookId,
+                        bookQuery,
+                        selectedCopies: [],
+                        bookSuggestOpen: false,
+                        copiesOpen: false
+                      }
+                )
+              };
+            })
+          );
+          this.scheduleFocusCopiesDropdown(formId, lineId);
+          return;
+        }
+      } else {
+        const canonicalBookCodes = parsed.codes.map((code) =>
+          this.findCodeMatch(parsed.book.copies ?? [], code)
+        );
+        const invalidCodeIndex = canonicalBookCodes.findIndex((code) => !code);
+        if (invalidCodeIndex >= 0) {
+          const badCode = parsed.codes[invalidCodeIndex];
+          this.toast.error(`הקוד "${badCode}" לא שייך לספר "${parsed.book.title}"`);
+          this.focusBookLineInput(lineId);
+          return;
+        }
+
+        const availableCodes = this.availableByBook().get(parsed.book.id) ?? [];
+        const canonicalAvailableCodes = parsed.codes.map((code) =>
+          this.findCodeMatch(availableCodes, code)
+        );
+        const unavailableCodeIndex = canonicalAvailableCodes.findIndex((code) => !code);
+        if (unavailableCodeIndex >= 0) {
+          const missingCode =
+            canonicalBookCodes[unavailableCodeIndex] ?? parsed.codes[unavailableCodeIndex];
+          this.toast.warning(`הקוד "${missingCode}" אינו זמין כרגע להשאלה`);
+          this.focusBookLineInput(lineId);
+          return;
+        }
+
+        selectedCopies = [
+          ...new Set(canonicalAvailableCodes.filter((code): code is string => !!code))
+        ];
+      }
+    } else if (line.bookId != null && line.selectedCopies.length > 0) {
+      const book = this.definitions().find((d) => d.id === line.bookId);
+      if (!book) {
+        this.toast.error('הספר שנבחר אינו קיים');
+        this.focusBookLineInput(lineId);
+        return;
+      }
+
+      const availableCodes = this.availableByBook().get(line.bookId) ?? [];
+      for (const code of line.selectedCopies) {
+        if (!this.findCodeMatch(book.copies ?? [], code)) {
+          this.toast.error(`הקוד "${code}" לא שייך לספר "${book.title}"`);
+          this.focusBookLineInput(lineId);
+          return;
+        }
+        if (!this.findCodeMatch(availableCodes, code)) {
+          this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+          this.focusBookLineInput(lineId);
+          return;
+        }
+      }
+
+      bookId = line.bookId;
+      bookQuery = book.title;
+      selectedCopies = [...line.selectedCopies];
+    } else {
+      this.toast.warning('הקלידו שם ספר ולפחות קוד אחד, למשל: 36 מעלות בצל 1');
+      this.focusBookLineInput(lineId);
+      return;
+    }
+
+    const nextLineId = `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        const updatedLines = f.bookLines.map((l) =>
+          l.id !== lineId
+            ? l
+            : {
+                ...l,
+                bookId,
+                bookQuery,
+                selectedCopies,
+                bookSuggestOpen: false,
+                copiesOpen: false
+              }
+        );
+        const insertAt = updatedLines.findIndex((l) => l.id === lineId);
+        const freshLine: BookLineItem = {
+          id: nextLineId,
+          bookId: null,
+          bookQuery: '',
+          selectedCopies: [],
+          bookSuggestOpen: false,
+          copiesOpen: false
+        };
+        const bookLines = [...updatedLines];
+        bookLines.splice(insertAt + 1, 0, freshLine);
+        return { ...f, bookLines };
+      })
+    );
+    this.scheduleFocusBookLineInput(nextLineId);
+  }
+
+  private parseFreeTextBookEntry(raw: string): { book: BookDto; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input) {
+      return null;
+    }
+
+    if (this.isStrictPrefixOfLongerCatalogBookTitle(input)) {
+      return null;
+    }
+
+    const lower = input.toLocaleLowerCase();
+    const defs = [...this.definitions()].sort(
+      (a, b) => b.title.trim().length - a.title.trim().length
+    );
+
+    for (const book of defs) {
+      const name = book.title.trim();
+      const lowerName = name.toLocaleLowerCase();
+      if (!lower.startsWith(lowerName)) {
+        continue;
+      }
+
+      const remainder = input.slice(name.length).replace(/^[\s\-:;,#/\\]+/, '').trim();
+      if (!remainder) {
+        return { book, codes: [] };
+      }
+
+      const codes = remainder
+        .split(/[\s,;|/\\]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+      if (codes.length === 0) {
+        continue;
+      }
+
+      return { book, codes };
+    }
+
+    return null;
+  }
+
+  private isStrictPrefixOfLongerCatalogBookTitle(input: string): boolean {
+    const lower = input.trim().toLocaleLowerCase();
+    const isExactCatalogTitle = this.definitions().some(
+      (book) => book.title.trim().toLocaleLowerCase() === lower
+    );
+    if (isExactCatalogTitle) {
+      return false;
+    }
+
+    return this.definitions().some((book) => {
+      const lowerName = book.title.trim().toLocaleLowerCase();
+      return lowerName.startsWith(lower) && lowerName !== lower;
+    });
+  }
+
+  private findCodeMatch(codes: string[], candidate: string): string | null {
+    const normalized = candidate.trim().toLocaleLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    return codes.find((code) => code.trim().toLocaleLowerCase() === normalized) ?? null;
+  }
+
+  private activeLineIdForForm(formId: string): string | null {
+    const active = this.document.activeElement as HTMLElement | null;
+    if (!active) {
+      return null;
+    }
+    const holder = active.closest<HTMLElement>('[data-line-id][data-form-id]');
+    if (!holder) {
+      return null;
+    }
+    if (holder.dataset['formId'] !== formId) {
+      return null;
+    }
+    return holder.dataset['lineId'] ?? null;
+  }
+
+  private focusBookLineInput(lineId: string): void {
+    const input = this.document.querySelector<HTMLInputElement>(
+      `[data-book-line-input][data-line-id="${lineId}"]`
+    );
+    input?.focus();
+    input?.select();
+  }
+
+  private scheduleFocusBookLineInput(lineId: string): void {
+    afterNextRender(
+      () => {
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-book-line-input][data-line-id="${lineId}"]`
+        );
+        if (!input) {
+          return;
+        }
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+      { injector: this.injector }
+    );
+  }
+
+  private scheduleFocusCopiesDropdown(formId: string, lineId: string): void {
+    afterNextRender(
+      () => {
+        this.patchBookLineUi(formId, lineId, { copiesOpen: true });
+        const button = this.document.querySelector<HTMLButtonElement>(
+          `[data-codes-dropdown] button[data-line-id="${lineId}"][data-form-id="${formId}"]`
+        );
+        if (!button) {
+          return;
+        }
+        button.scrollIntoView({ block: 'nearest' });
+        button.focus({ preventScroll: true });
+      },
+      { injector: this.injector }
+    );
   }
 }

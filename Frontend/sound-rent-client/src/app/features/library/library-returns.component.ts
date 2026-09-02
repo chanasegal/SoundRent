@@ -85,6 +85,9 @@ export class LibraryReturnsComponent implements OnInit {
   protected readonly pageTitle = inject(WorkspaceUiService).title('החזרות');
 
   private readonly barcodeField = viewChild<ElementRef<HTMLInputElement>>('barcodeField');
+  /** Quick-return barcode field — kept focused for sequential scanner wedges. */
+  private readonly quickReturnBarcodeField =
+    viewChild<ElementRef<HTMLInputElement>>('quickReturnBarcodeField');
   private readonly wedge = new BarcodeWedgeScanner();
 
   protected readonly loading = signal(true);
@@ -100,6 +103,21 @@ export class LibraryReturnsComponent implements OnInit {
   protected readonly historySearching = signal(false);
   protected readonly historyMode = signal(false);
   protected readonly historyRows = signal<CompletedLoanRowView[]>([]);
+
+  /** Quick return by code — local page state only. */
+  protected readonly quickReturnToolId = signal<number | null>(null);
+  protected readonly quickReturnCode = signal('');
+  protected readonly quickReturnCharge = signal('');
+  protected readonly quickReturning = signal(false);
+
+  protected readonly quickReturnCodes = computed(() => {
+    const bookId = this.quickReturnToolId();
+    if (bookId == null) {
+      return [] as string[];
+    }
+    const def = this.definitions().find((d) => d.id === bookId);
+    return sortNumericCodes(def?.copies ?? []);
+  });
 
   protected readonly historyCodes = computed(() => {
     const bookId = this.historyToolId();
@@ -193,7 +211,8 @@ export class LibraryReturnsComponent implements OnInit {
         this.loading() ||
         this.markingDebtId() != null ||
         this.undoingRowKey() != null ||
-        this.deletingLoanId() != null
+        this.deletingLoanId() != null ||
+        this.quickReturning()
     });
 
     if (isDevMode()) {
@@ -229,15 +248,15 @@ export class LibraryReturnsComponent implements OnInit {
     }
   }
 
-  /** Global wedge scan when no input is focused — fills barcode and searches history. */
+  /** Global wedge scan when no input is focused — routes to quick return. */
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
     const code = this.wedge.push(event);
     if (!code) {
       return;
     }
-    this.historyCode.set(code);
-    this.searchItemHistory();
+    this.quickReturnCode.set(code);
+    this.submitQuickReturn();
   }
 
   protected refresh(): void {
@@ -253,6 +272,74 @@ export class LibraryReturnsComponent implements OnInit {
   protected onHistoryToolChange(bookId: number | null): void {
     this.historyToolId.set(bookId != null && bookId > 0 ? bookId : null);
     this.historyCode.set('');
+  }
+
+  protected onQuickReturnToolChange(bookId: number | null): void {
+    this.quickReturnToolId.set(bookId != null && bookId > 0 ? bookId : null);
+    this.quickReturnCode.set('');
+  }
+
+  protected onQuickReturnCodeInput(value: string): void {
+    this.quickReturnCode.set(value);
+  }
+
+  protected onQuickReturnChargeInput(value: string): void {
+    this.quickReturnCharge.set(value);
+  }
+
+  /** Enter from scanner (or keyboard) on the focused barcode field. */
+  protected onQuickReturnKeydownEnter(event: Event): void {
+    event.preventDefault();
+    this.submitQuickReturn();
+  }
+
+  protected submitQuickReturn(): void {
+    if (this.quickReturning()) {
+      return;
+    }
+
+    const serial = this.quickReturnCode().trim();
+    if (!serial) {
+      this.toast.error('יש להזין ברקוד');
+      this.focusQuickReturnBarcodeField();
+      return;
+    }
+
+    let bookId = this.quickReturnToolId();
+    if (bookId == null) {
+      const resolved = this.resolveActiveLoanByCopy(serial);
+      if (!resolved) {
+        return;
+      }
+      bookId = resolved.bookId;
+      this.quickReturnToolId.set(bookId);
+    }
+
+    const charge = this.parseCharge(this.quickReturnCharge());
+    const hebrew = this.formatHebrewDate(new Date());
+    this.quickReturning.set(true);
+    this.data
+      .returnBookLoanByCode({
+        bookId: bookId,
+        copyNumber: serial,
+        hebrewReturnedDisplay: hebrew,
+        chargeAmount: charge && charge > 0 ? charge : null
+      })
+      .pipe(finalize(() => this.quickReturning.set(false)))
+      .subscribe((updated) => {
+        if (!updated) {
+          this.quickReturnCode.set('');
+          this.focusQuickReturnBarcodeField();
+          return;
+        }
+        this.toast.success('ההחזרה נרשמה');
+        this.quickReturnCode.set('');
+        this.quickReturnCharge.set('');
+        this.ordersSync.notifyLoanChanged();
+        this.refresh();
+        this.booksStore.load().subscribe();
+        this.focusQuickReturnBarcodeField();
+      });
   }
 
   protected onHistoryCodeInput(value: string): void {
@@ -318,6 +405,42 @@ export class LibraryReturnsComponent implements OnInit {
     return hits.length === 1 ? hits[0] : null;
   }
 
+  /** Match barcode to a currently active (unreturned) loan item. */
+  private resolveActiveLoanByCopy(serial: string): { bookId: number } | null {
+    const needle = serial.toLowerCase();
+    const matches: { bookId: number }[] = [];
+    for (const loan of this.loans()) {
+      for (const item of loan.items) {
+        if (!item.returnedAt && item.copyNumber.toLowerCase() === needle) {
+          matches.push({ bookId: item.bookId });
+        }
+      }
+    }
+    if (matches.length === 1) {
+      return { bookId: matches[0].bookId };
+    }
+    if (matches.length === 0) {
+      this.toast.error('הברקוד אינו מסומן כמושאל כרגע');
+      this.focusQuickReturnBarcodeField();
+      return null;
+    }
+    this.toast.error('נמצאו מספר התאמות — בחרו ספר');
+    this.focusQuickReturnBarcodeField();
+    return null;
+  }
+
+  private parseCharge(raw: string | undefined | null): number | null {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed) {
+      return null;
+    }
+    const n = Number(trimmed.replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) {
+      return null;
+    }
+    return n;
+  }
+
   private focusBarcodeField(): void {
     queueMicrotask(() => {
       const el = this.barcodeField()?.nativeElement;
@@ -326,6 +449,17 @@ export class LibraryReturnsComponent implements OnInit {
       }
       el.focus();
       // Select leftover text so the next wedge scan replaces it.
+      el.select();
+    });
+  }
+
+  private focusQuickReturnBarcodeField(): void {
+    queueMicrotask(() => {
+      const el = this.quickReturnBarcodeField()?.nativeElement;
+      if (!el) {
+        return;
+      }
+      el.focus();
       el.select();
     });
   }

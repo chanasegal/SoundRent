@@ -3,7 +3,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  Injector,
   OnInit,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -59,6 +61,15 @@ interface QuickLoanAccessoryRow {
   /** Codes assigned when the order was loaded for edit (stay selectable until save). */
   initialCodes?: string[];
   lineId?: number;
+}
+
+interface AccessoryDraftLine {
+  id: string;
+  query: string;
+  inventoryDefinitionId: number | null;
+  selectedCodes: string[];
+  suggestOpen: boolean;
+  codesOpen: boolean;
 }
 
 interface ReturnModalRow {
@@ -131,6 +142,7 @@ export class QuickLoanComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   protected readonly pageTitle = inject(WorkspaceUiService).title('השאלת אביזרים');
@@ -148,9 +160,9 @@ export class QuickLoanComponent implements OnInit {
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
   protected readonly accessoryRows = signal<QuickLoanAccessoryRow[]>([]);
-  protected readonly addAccessoryOpen = signal(false);
-  protected readonly accessoryTypeQuery = signal('');
-  private accessorySearchBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly accessoryDraftLines = signal<AccessoryDraftLine[]>([
+    this.createAccessoryDraftLine()
+  ]);
   private nextOneTimeAccessoryId = -1;
 
   private readonly availabilityByDefinitionId = signal<
@@ -333,24 +345,16 @@ export class QuickLoanComponent implements OnInit {
     );
   }
 
-  /** Unused catalog rows from the shared sorted inventory store. */
-  protected availableAccessoryTypes(): InventoryDefinitionDto[] {
-    const used = new Set(this.accessoryRows().map((r) => r.inventoryDefinitionId));
-    return this.inventoryStore.definitions().filter((d) => !used.has(d.id));
+  protected filteredAccessoryTypesForDraft(line: AccessoryDraftLine): InventoryDefinitionDto[] {
+    return this.filterAccessoryTypesForDraftLine(line, line.query);
   }
 
-  protected filteredAccessoryTypes(): InventoryDefinitionDto[] {
-    const query = this.accessoryTypeQuery().trim().toLowerCase();
-    const available = this.availableAccessoryTypes();
-    if (!query) {
-      return available;
+  protected showCustomAccessoryOptionForDraft(line: AccessoryDraftLine): boolean {
+    const query = line.query.trim();
+    if (query.length < 2 || line.inventoryDefinitionId != null) {
+      return false;
     }
-    return available.filter((d) => d.displayName.toLowerCase().includes(query));
-  }
-
-  protected showCustomAccessoryOption(): boolean {
-    const query = this.accessoryTypeQuery().trim();
-    if (query.length < 2) {
+    if (this.parseFreeTextAccessoryEntry(query)) {
       return false;
     }
     const lower = query.toLowerCase();
@@ -359,128 +363,556 @@ export class QuickLoanComponent implements OnInit {
     );
   }
 
-  protected customAccessoryOptionLabel(): string {
-    return `הוסף "${this.accessoryTypeQuery().trim()}" להשאלה זו בלבד`;
+  protected customAccessoryOptionLabelForDraft(line: AccessoryDraftLine): string {
+    return `הוסף "${line.query.trim()}" להשאלה זו בלבד`;
   }
 
   protected accessoryTypeLabel(def: InventoryDefinitionDto): string {
     return def.displayName;
   }
 
-  protected toggleAddAccessory(): void {
-    const willOpen = !this.addAccessoryOpen();
-    this.addAccessoryOpen.set(willOpen);
-    this.accessoryTypeQuery.set('');
-    if (willOpen) {
-      queueMicrotask(() => this.focusAccessoryTypeSearch());
-    }
+  protected onDraftQueryInput(lineId: string, value: string): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) =>
+        l.id !== lineId
+          ? { ...l, suggestOpen: false, codesOpen: false }
+          : {
+              ...l,
+              query: value,
+              inventoryDefinitionId: null,
+              selectedCodes: [],
+              suggestOpen: true,
+              codesOpen: false
+            }
+      )
+    );
+    this.tryAutoSelectSingleAccessoryMatch(lineId, value);
   }
 
-  protected onAccessoryTypeChosen(defOrId: InventoryDefinitionDto | number | string, event?: Event): void {
+  protected onDraftQueryFocus(lineId: string): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => ({
+        ...l,
+        suggestOpen: l.id === lineId,
+        codesOpen: false
+      }))
+    );
+  }
+
+  protected onDraftQueryEnter(lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitDraftLineAndAddNext(lineId);
+  }
+
+  protected onDraftCodesEnter(lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.commitDraftLineAndAddNext(lineId);
+  }
+
+  protected onAddDraftLineClick(event: Event): void {
+    const activeLineId = this.activeDraftLineId();
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeLineId) {
+      this.commitDraftLineAndAddNext(activeLineId);
+      return;
+    }
+    this.accessoryDraftLines.update((lines) => [...lines, this.createAccessoryDraftLine()]);
+  }
+
+  protected selectAccessoryDefinition(
+    lineId: string,
+    def: InventoryDefinitionDto,
+    event?: Event
+  ): void {
     event?.preventDefault();
-    this.clearAccessorySearchBlurTimer();
-    const id = typeof defOrId === 'object' ? defOrId.id : Number(defOrId);
-    if (!Number.isFinite(id) || id <= 0) {
-      return;
+    this.patchDraftLine(lineId, {
+      inventoryDefinitionId: def.id,
+      query: def.displayName,
+      selectedCodes: [],
+      suggestOpen: false,
+      codesOpen: false
+    });
+  }
+
+  protected onCustomAccessoryDraftChosen(lineId: string, event?: Event): void {
+    event?.preventDefault();
+    this.commitDraftLineAndAddNext(lineId);
+  }
+
+  protected closeDraftSuggest(lineId: string): void {
+    this.patchDraftLine(lineId, { suggestOpen: false });
+  }
+
+  protected closeDraftCodesDropdown(lineId: string): void {
+    this.patchDraftLine(lineId, { codesOpen: false });
+  }
+
+  protected toggleDraftCodesDropdown(lineId: string, event: Event): void {
+    event.stopPropagation();
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => ({
+        ...l,
+        codesOpen: l.id === lineId ? !l.codesOpen : false,
+        suggestOpen: false
+      }))
+    );
+  }
+
+  protected toggleDraftCodeSelection(lineId: string, code: string, event: Event): void {
+    event.stopPropagation();
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => {
+        if (l.id !== lineId) {
+          return l;
+        }
+        const selected = l.selectedCodes.includes(code)
+          ? l.selectedCodes.filter((c) => c !== code)
+          : [...l.selectedCodes, code];
+        return { ...l, selectedCodes: selected };
+      })
+    );
+  }
+
+  protected isDraftCodeSelected(line: AccessoryDraftLine, code: string): boolean {
+    return line.selectedCodes.includes(code);
+  }
+
+  protected serialOptionsForDraftLine(line: AccessoryDraftLine): AccessorySerialOptionDto[] {
+    if (line.inventoryDefinitionId == null || line.inventoryDefinitionId <= 0) {
+      return [];
     }
-    const def = this.inventoryStore.byId(id);
+    const def = this.inventoryStore.byId(line.inventoryDefinitionId);
     if (!def) {
-      this.toast.warning('הפריט לא נמצא במלאי');
-      return;
+      return [];
     }
-    if (this.accessoryRows().some((r) => r.inventoryDefinitionId === def.id)) {
-      this.toast.warning('סוג אביזר זה כבר נוסף');
+    const tempRow: QuickLoanAccessoryRow = {
+      inventoryDefinitionId: line.inventoryDefinitionId,
+      type: this.resolveLinkedEquipmentType(def),
+      label: line.query,
+      quantity: 1,
+      selectedCodes: line.selectedCodes
+    };
+    return this.serialOptionsForRow(tempRow);
+  }
+
+  protected draftCodesPanelState(
+    line: AccessoryDraftLine
+  ): 'loading' | 'no-inventory' | 'all-booked' | 'options' {
+    if (line.inventoryDefinitionId == null || line.inventoryDefinitionId <= 0) {
+      return 'no-inventory';
+    }
+    if (this.availabilityLoading()) {
+      return 'loading';
+    }
+    const options = this.serialOptionsForDraftLine(line);
+    if (options.length === 0) {
+      return 'no-inventory';
+    }
+    if (options.every((opt) => !opt.isAvailable)) {
+      return 'all-booked';
+    }
+    return 'options';
+  }
+
+  protected removeDraftLine(lineId: string): void {
+    this.accessoryDraftLines.update((lines) => {
+      const next = lines.filter((l) => l.id !== lineId);
+      return next.length > 0 ? next : [this.createAccessoryDraftLine()];
+    });
+  }
+
+  private filterAccessoryTypesForDraftLine(
+    line: AccessoryDraftLine,
+    query: string
+  ): InventoryDefinitionDto[] {
+    const used = new Set([
+      ...this.accessoryRows().map((r) => r.inventoryDefinitionId),
+      ...this.accessoryDraftLines()
+        .filter((l) => l.id !== line.id && l.inventoryDefinitionId != null)
+        .map((l) => l.inventoryDefinitionId as number)
+    ]);
+    const q = query.trim().toLowerCase();
+    return this.inventoryStore.definitions().filter((d) => {
+      if (used.has(d.id)) {
+        return false;
+      }
+      if (!q) {
+        return true;
+      }
+      return d.displayName.toLowerCase().includes(q);
+    });
+  }
+
+  /** When typing narrows suggestions to one accessory, select it without a manual click. */
+  private tryAutoSelectSingleAccessoryMatch(lineId: string, query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) {
       return;
     }
 
-    const linkedType =
+    const parsed = this.parseFreeTextAccessoryEntry(trimmed);
+    if (parsed && parsed.codes.length > 0) {
+      return;
+    }
+
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return;
+    }
+
+    const matches = this.filterAccessoryTypesForDraftLine(line, query);
+    if (matches.length !== 1) {
+      return;
+    }
+
+    this.selectAccessoryDefinition(lineId, matches[0]);
+  }
+
+  private commitDraftLineAndAddNext(lineId: string): void {
+    this.commitDraftLineFromText(lineId);
+  }
+
+  private commitDraftLineFromText(lineId: string): void {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return;
+    }
+
+    const trimmed = line.query.trim();
+    if (!trimmed) {
+      this.focusDraftInput(lineId);
+      return;
+    }
+
+    const parsed = this.parseFreeTextAccessoryEntry(trimmed);
+    let committed = false;
+
+    if (parsed) {
+      if (parsed.codes.length === 0) {
+        if (line.selectedCodes.length > 0) {
+          if (
+            !this.validateSerialCodesForDefinition(
+              parsed.def.id,
+              line.selectedCodes,
+              parsed.def.displayName
+            )
+          ) {
+            this.focusDraftInput(lineId);
+            return;
+          }
+          committed = this.appendAccessoryRowFromDefinition(parsed.def, [...line.selectedCodes]);
+        } else {
+          this.patchDraftLine(lineId, {
+            inventoryDefinitionId: parsed.def.id,
+            query: parsed.def.displayName,
+            selectedCodes: [],
+            suggestOpen: false,
+            codesOpen: false
+          });
+          this.scheduleFocusDraftCodesDropdown(lineId);
+          return;
+        }
+      } else if (
+        !this.validateSerialCodesForDefinition(parsed.def.id, parsed.codes, parsed.def.displayName)
+      ) {
+        this.focusDraftInput(lineId);
+        return;
+      } else {
+        committed = this.appendAccessoryRowFromDefinition(parsed.def, [...parsed.codes]);
+      }
+    } else if (line.inventoryDefinitionId != null && line.inventoryDefinitionId > 0) {
+      const def = this.inventoryStore.byId(line.inventoryDefinitionId);
+      if (!def) {
+        this.toast.error('הפריט לא נמצא במלאי');
+        this.focusDraftInput(lineId);
+        return;
+      }
+      if (line.selectedCodes.length === 0) {
+        this.toast.warning(`יש לבחור לפחות קוד עבור "${def.displayName}"`);
+        this.scheduleFocusDraftCodesDropdown(lineId);
+        return;
+      }
+      if (
+        !this.validateSerialCodesForDefinition(
+          def.id,
+          line.selectedCodes,
+          def.displayName
+        )
+      ) {
+        this.focusDraftInput(lineId);
+        return;
+      }
+      committed = this.appendAccessoryRowFromDefinition(def, [...line.selectedCodes]);
+    } else if (this.showCustomAccessoryOptionForDraft(line)) {
+      const temporary = this.parseTemporaryAccessoryEntry(trimmed);
+      const name = temporary?.name ?? trimmed;
+      const codes =
+        line.selectedCodes.length > 0
+          ? [...line.selectedCodes]
+          : temporary && temporary.codes.length > 0
+            ? [...temporary.codes]
+            : [];
+      if (name.length < 2) {
+        this.toast.warning('יש להזין לפחות שני תווים');
+        this.focusDraftInput(lineId);
+        return;
+      }
+      committed = this.appendCustomAccessoryRow(name, codes);
+    } else {
+      this.toast.warning('הקלידו שם אביזר ולפחות קוד אחד, למשל: מיקסר 123');
+      this.focusDraftInput(lineId);
+      return;
+    }
+
+    if (!committed) {
+      this.focusDraftInput(lineId);
+      return;
+    }
+
+    const nextLineId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.accessoryDraftLines.update((lines) => {
+      const idx = lines.findIndex((l) => l.id === lineId);
+      const fresh: AccessoryDraftLine = {
+        id: nextLineId,
+        query: '',
+        inventoryDefinitionId: null,
+        selectedCodes: [],
+        suggestOpen: false,
+        codesOpen: false
+      };
+      const next = lines.filter((l) => l.id !== lineId);
+      next.splice(idx < 0 ? next.length : idx, 0, fresh);
+      return next;
+    });
+    this.scheduleFocusDraftInput(nextLineId);
+  }
+
+  private parseFreeTextAccessoryEntry(
+    raw: string
+  ): { def: InventoryDefinitionDto; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input) {
+      return null;
+    }
+
+    const lower = input.toLocaleLowerCase();
+    const defs = [...this.inventoryStore.definitions()].sort(
+      (a, b) => b.displayName.trim().length - a.displayName.trim().length
+    );
+
+    for (const def of defs) {
+      const name = def.displayName.trim();
+      const lowerName = name.toLocaleLowerCase();
+      if (!lower.startsWith(lowerName)) {
+        continue;
+      }
+
+      const remainder = input.slice(name.length).replace(/^[\s\-:;,#/\\]+/, '').trim();
+      if (!remainder) {
+        return { def, codes: [] };
+      }
+
+      const codes = remainder
+        .split(/[\s,;|/\\]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+      if (codes.length === 0) {
+        continue;
+      }
+
+      return { def, codes };
+    }
+
+    return null;
+  }
+
+  private parseTemporaryAccessoryEntry(raw: string): { name: string; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input || this.parseFreeTextAccessoryEntry(input)) {
+      return null;
+    }
+
+    const tokens = input
+      .split(/[\s,;|/\\]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+    if (tokens.length === 0) {
+      return null;
+    }
+
+    let splitAt = tokens.length;
+    while (splitAt > 1 && /^[\d\-]+$/u.test(tokens[splitAt - 1])) {
+      splitAt--;
+    }
+
+    const name = tokens.slice(0, splitAt).join(' ').trim();
+    const codes = tokens.slice(splitAt);
+    if (!name) {
+      return null;
+    }
+
+    return { name, codes };
+  }
+
+  private appendAccessoryRowFromDefinition(
+    def: InventoryDefinitionDto,
+    selectedCodes: string[]
+  ): boolean {
+    if (this.accessoryRows().some((r) => r.inventoryDefinitionId === def.id)) {
+      this.toast.warning('סוג אביזר זה כבר נוסף');
+      return false;
+    }
+
+    const row: QuickLoanAccessoryRow = {
+      inventoryDefinitionId: def.id,
+      type: this.resolveLinkedEquipmentType(def),
+      label: def.displayName,
+      quantity: Math.max(1, selectedCodes.length),
+      selectedCodes: [...selectedCodes]
+    };
+    this.accessoryRows.update((rows) => [...rows, row]);
+    this.refreshAvailability();
+    return true;
+  }
+
+  private appendCustomAccessoryRow(name: string, selectedCodes: string[]): boolean {
+    if (
+      this.accessoryRows().some((r) => r.label.trim().toLowerCase() === name.toLowerCase())
+    ) {
+      this.toast.warning('סוג אביזר זה כבר נוסף');
+      return false;
+    }
+
+    const row: QuickLoanAccessoryRow = {
+      inventoryDefinitionId: this.nextOneTimeAccessoryId--,
+      type: null,
+      label: name,
+      quantity: Math.max(1, selectedCodes.length),
+      selectedCodes: [...selectedCodes]
+    };
+    this.accessoryRows.update((rows) => [...rows, row]);
+    this.toast.success(`"${name}" נוסף להשאלה זו בלבד`);
+    return true;
+  }
+
+  private validateSerialCodesForDefinition(
+    definitionId: number,
+    codes: string[],
+    label: string
+  ): boolean {
+    const def = this.inventoryStore.byId(definitionId);
+    if (!def) {
+      this.toast.error('הפריט לא נמצא במלאי');
+      return false;
+    }
+    const tempRow: QuickLoanAccessoryRow = {
+      inventoryDefinitionId: definitionId,
+      type: this.resolveLinkedEquipmentType(def),
+      label,
+      quantity: 1,
+      selectedCodes: []
+    };
+    const options = this.serialOptionsForRow(tempRow);
+    if (options.length === 0) {
+      return true;
+    }
+
+    for (const code of codes) {
+      const match = options.find(
+        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+      );
+      if (!match) {
+        this.toast.error(`הקוד "${code}" לא שייך ל"${label}"`);
+        return false;
+      }
+      if (!match.isAvailable) {
+        this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private resolveLinkedEquipmentType(def: InventoryDefinitionDto): LoanedEquipmentType | null {
+    return (
       LOANED_EQUIPMENT_ORDER.find(
         (type) =>
           def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
             sensitivity: 'accent'
           }) === 0
-      ) ?? null;
+      ) ?? null
+    );
+  }
 
-    const row: QuickLoanAccessoryRow = {
-      inventoryDefinitionId: def.id,
-      type: linkedType,
-      label: def.displayName,
-      quantity: 1,
-      selectedCodes: []
+  private patchDraftLine(lineId: string, patch: Partial<AccessoryDraftLine>): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => (l.id === lineId ? { ...l, ...patch } : l))
+    );
+  }
+
+  private createAccessoryDraftLine(): AccessoryDraftLine {
+    return {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      query: '',
+      inventoryDefinitionId: null,
+      selectedCodes: [],
+      suggestOpen: false,
+      codesOpen: false
     };
-    this.accessoryRows.update((rows) => [...rows, row]);
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
-    this.refreshAvailability();
   }
 
-  protected onCustomAccessoryTypeChosen(event?: Event): void {
-    event?.preventDefault();
-    this.clearAccessorySearchBlurTimer();
-    const name = this.accessoryTypeQuery().trim();
-    if (name.length < 2) {
-      this.toast.warning('יש להזין לפחות שני תווים');
-      return;
+  private activeDraftLineId(): string | null {
+    const active = this.document.activeElement as HTMLElement | null;
+    if (!active) {
+      return null;
     }
-    if (
-      this.accessoryRows().some((r) => r.label.trim().toLowerCase() === name.toLowerCase())
-    ) {
-      this.toast.warning('סוג אביזר זה כבר נוסף');
-      return;
-    }
-
-    // One-time loan-only item — do not persist into the inventory master list.
-    const row: QuickLoanAccessoryRow = {
-      inventoryDefinitionId: this.nextOneTimeAccessoryId--,
-      type: null,
-      label: name,
-      quantity: 1,
-      selectedCodes: []
-    };
-    this.accessoryRows.update((rows) => [...rows, row]);
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
-    this.toast.success(`"${name}" נוסף להשאלה זו בלבד`);
+    const holder = active.closest<HTMLElement>('[data-accessory-draft-input][data-line-id]');
+    return holder?.dataset['lineId'] ?? null;
   }
 
-  protected onAccessorySearchFocus(): void {
-    this.clearAccessorySearchBlurTimer();
+  private focusDraftInput(lineId: string): void {
+    const input = this.document.querySelector<HTMLInputElement>(
+      `[data-accessory-draft-input][data-line-id="${lineId}"]`
+    );
+    input?.focus();
+    input?.select();
   }
 
-  protected onAccessorySearchBlur(): void {
-    this.clearAccessorySearchBlurTimer();
-    this.accessorySearchBlurTimer = setTimeout(() => {
-      this.accessorySearchBlurTimer = null;
-      if (!this.addAccessoryOpen()) {
-        return;
-      }
-      const filtered = this.filteredAccessoryTypes();
-      if (filtered.length === 1) {
-        this.onAccessoryTypeChosen(filtered[0]);
-        return;
-      }
-      if (this.showCustomAccessoryOption()) {
-        this.onCustomAccessoryTypeChosen();
-      }
-    }, 150);
+  private scheduleFocusDraftInput(lineId: string): void {
+    afterNextRender(
+      () => {
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-accessory-draft-input][data-line-id="${lineId}"]`
+        );
+        if (!input) {
+          return;
+        }
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+      { injector: this.injector }
+    );
   }
 
-  protected onAccessorySearchKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    this.clearAccessorySearchBlurTimer();
-
-    const filtered = this.filteredAccessoryTypes();
-    if (filtered.length === 1) {
-      this.onAccessoryTypeChosen(filtered[0]);
-      return;
-    }
-
-    if (this.showCustomAccessoryOption()) {
-      this.onCustomAccessoryTypeChosen();
-    }
+  private scheduleFocusDraftCodesDropdown(lineId: string): void {
+    afterNextRender(
+      () => {
+        this.patchDraftLine(lineId, { codesOpen: true });
+        const button = this.document.querySelector<HTMLButtonElement>(
+          `[data-accessory-draft-codes] button[data-line-id="${lineId}"]`
+        );
+        if (!button) {
+          return;
+        }
+        button.scrollIntoView({ block: 'nearest' });
+        button.focus({ preventScroll: true });
+      },
+      { injector: this.injector }
+    );
   }
 
   private applyMixerDefaultAccessories(mixerSerialCode: string): void {
@@ -1000,28 +1432,6 @@ export class QuickLoanComponent implements OnInit {
     this.customerSuggestField.set(null);
   }
 
-  protected closeAddAccessoryPicker(): void {
-    this.clearAccessorySearchBlurTimer();
-    if (this.showCustomAccessoryOption()) {
-      this.onCustomAccessoryTypeChosen();
-      return;
-    }
-    const filtered = this.filteredAccessoryTypes();
-    if (filtered.length === 1 && this.accessoryTypeQuery().trim()) {
-      this.onAccessoryTypeChosen(filtered[0]);
-      return;
-    }
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
-  }
-
-  private clearAccessorySearchBlurTimer(): void {
-    if (this.accessorySearchBlurTimer) {
-      clearTimeout(this.accessorySearchBlurTimer);
-      this.accessorySearchBlurTimer = null;
-    }
-  }
-
   protected closeReturnSerialDropdown(): void {
     this.returnSerialDropdownRowId.set(null);
   }
@@ -1487,7 +1897,7 @@ export class QuickLoanComponent implements OnInit {
     }
 
     this.accessoryRows.set(rows);
-    this.addAccessoryOpen.set(false);
+    this.accessoryDraftLines.set([this.createAccessoryDraftLine()]);
 
     this.refreshAvailability();
     queueMicrotask(() => {
@@ -1991,8 +2401,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   private closeDraftOnlyUi(): void {
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.accessoryDraftLines.set([this.createAccessoryDraftLine()]);
     this.openSerialDropdownId.set(null);
     this.serialQuickEntry.set('');
     this.closeCustomerSuggestions();
@@ -2000,8 +2409,7 @@ export class QuickLoanComponent implements OnInit {
 
   private resetSelections(): void {
     this.accessoryRows.set([]);
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.accessoryDraftLines.set([this.createAccessoryDraftLine()]);
     this.openSerialDropdownId.set(null);
     this.serialQuickEntry.set('');
   }
@@ -2016,11 +2424,6 @@ export class QuickLoanComponent implements OnInit {
       .getQuickLoans()
       .pipe(finalize(() => this.recentLoading.set(false)))
       .subscribe((orders) => this.recentLoans.set(orders));
-  }
-
-  private focusAccessoryTypeSearch(): void {
-    const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
-    input?.focus();
   }
 
   private focusSerialQuickEntry(): void {
