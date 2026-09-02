@@ -17,7 +17,13 @@
     <form [formGroup]="form" class="space-y-6" (ngSubmit)="submit()">
     @if (editingId(); as editId) {
       <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
-        עורכים השאלת אביזרים <strong>#{{ editId }}</strong> — שמירה תעדכן את ההזמנה הקיימת.
+        @if (editingGroupedOrderIds().length > 0) {
+          עורכים השאלות
+          <strong>{{ formatOrderIdList([editId, ...editingGroupedOrderIds()]) }}</strong>
+          — שמירה תעדכן את ההזמנה הראשית ותאחד את כל פריטי האביזרים.
+        } @else {
+          עורכים השאלת אביזרים <strong>#{{ editId }}</strong> — שמירה תעדכן את ההזמנה הקיימת.
+        }
       </div>
     }
 
@@ -547,10 +553,9 @@
     } @else {
       <div class="recent-loans-list standalone-loans-cards">
         @for (card of standaloneLoanCards(); track card.key) {
-          @let primaryOrder = card.orders[0];
           <article
             class="recent-loan-card active-loan-card"
-            [class.recent-loan-card--editing]="card.orders.length === 1 && editingId() === primaryOrder.id"
+            [class.recent-loan-card--editing]="isCardEditing(card)"
             [class.active-loan-card--removing]="isRemovingOrder(card)"
           >
             <header class="recent-loan-card__header">
@@ -570,11 +575,7 @@
                 <button
                   type="button"
                   class="active-loans-return-all-btn"
-                  [disabled]="
-                    isReturningOrder(card) ||
-                    isRemovingOrder(card) ||
-                    returningLineKey() !== null
-                  "
+                  [disabled]="isCardBusy(card)"
                   (click)="markOrderAllReturned(card)"
                 >
                   @if (isReturningOrder(card)) {
@@ -586,13 +587,14 @@
                     סמן הכל כהוחזר
                   }
                 </button>
-                @if (card.orders.length === 1) {
+                @if (card.orders.length > 0) {
                   <button
                     type="button"
                     class="recent-loan-action"
                     title="עריכה"
                     aria-label="עריכה"
-                    (click)="startEdit(primaryOrder)"
+                    [disabled]="isCardBusy(card)"
+                    (click)="startEditCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
@@ -604,8 +606,8 @@
                     class="recent-loan-action recent-loan-action--delete"
                     title="מחיקה"
                     aria-label="מחיקה"
-                    [disabled]="deletingId() === primaryOrder.id"
-                    (click)="askDelete(primaryOrder)"
+                    [disabled]="isCardBusy(card)"
+                    (click)="askDeleteCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M4 7h16"></path>
@@ -737,8 +739,13 @@
       </div>
       <div class="space-y-3 px-5 py-4 text-sm text-slate-700">
         <p>
-          למחוק את השאלה
-          <strong>#{{ doomed.id }}</strong>
+          @if (doomed.orderIds.length === 1) {
+            למחוק את השאלה
+            <strong>#{{ doomed.orderIds[0] }}</strong>
+          } @else {
+            למחוק את ההשאלות
+            <strong>{{ formatOrderIdList(doomed.orderIds) }}</strong>
+          }
           עבור
           <strong>{{ doomed.customerName || formatPhone(doomed.phone) }}</strong>?
         </p>
@@ -748,7 +755,7 @@
         <button
           type="button"
           class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          [disabled]="deletingId() === doomed.id"
+          [disabled]="deletingCardKey() !== null"
           (click)="closeDeleteConfirm()"
         >
           ביטול
@@ -756,10 +763,10 @@
         <button
           type="button"
           class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-          [disabled]="deletingId() === doomed.id"
+          [disabled]="deletingCardKey() !== null"
           (click)="confirmDelete()"
         >
-          {{ deletingId() === doomed.id ? 'מוחק…' : 'מחק' }}
+          {{ deletingCardKey() !== null ? 'מוחק…' : 'מחק' }}
         </button>
       </div>
     </div>

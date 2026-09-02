@@ -164,7 +164,6 @@
     } @else {
       <div class="customer-breakdown-list active-loans-cards">
         @for (card of activeLoanCustomerCards(); track card.key) {
-          @let soleOrder = cardSoleOrder(card);
           <article
             class="customer-breakdown-card active-loan-card"
             [class.active-loan-card--removing]="isRemovingCustomer(card)"
@@ -220,12 +219,7 @@
                   <button
                     type="button"
                     class="active-loans-return-all-btn"
-                    [disabled]="
-                      isReturningCustomer(card) ||
-                      isRemovingCustomer(card) ||
-                      returningLineKey() !== null ||
-                      deletingId() === soleOrder?.id
-                    "
+                    [disabled]="isCardBusy(card)"
                     (click)="markCustomerAllReturned(card)"
                   >
                     @if (isReturningCustomer(card)) {
@@ -238,17 +232,13 @@
                     }
                   </button>
                 }
-                @if (soleOrder; as order) {
+                @if (cardOrderRefs(card).length > 0) {
                   <button
                     type="button"
                     class="recent-loan-action"
                     title="עריכה"
                     aria-label="עריכה"
-                    [disabled]="
-                      isReturningCustomer(card) ||
-                      isRemovingCustomer(card) ||
-                      deletingId() === order.id
-                    "
+                    [disabled]="isCardBusy(card)"
                     (click)="startEditCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -261,11 +251,7 @@
                     class="recent-loan-action recent-loan-action--delete"
                     title="מחיקה"
                     aria-label="מחיקה"
-                    [disabled]="
-                      isReturningCustomer(card) ||
-                      isRemovingCustomer(card) ||
-                      deletingId() === order.id
-                    "
+                    [disabled]="isCardBusy(card)"
                     (click)="askDeleteCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -512,14 +498,23 @@
     >
       <div class="border-b border-slate-200 px-5 py-4">
         <h2 id="active-loans-delete-title" class="text-lg font-bold text-[#002244]">
-          {{ doomed.isOrderBased ? 'מחיקת הזמנה' : 'מחיקת השאלה' }}
+          @if (doomed.orders.length === 1) {
+            {{ doomed.orders[0].isOrderBased ? 'מחיקת הזמנה' : 'מחיקת השאלה' }}
+          } @else {
+            מחיקת הזמנות
+          }
         </h2>
       </div>
       <div class="space-y-3 px-5 py-4 text-sm text-slate-700">
         <p>
-          למחוק את
-          {{ doomed.isOrderBased ? 'ההזמנה' : 'ההשאלה' }}
-          <strong>#{{ doomed.id }}</strong>
+          @if (doomed.orders.length === 1) {
+            למחוק את
+            {{ doomed.orders[0].isOrderBased ? 'ההזמנה' : 'ההשאלה' }}
+            <strong>#{{ doomed.orders[0].id }}</strong>
+          } @else {
+            למחוק את ההזמנות
+            <strong>{{ formatOrderIdList(doomed.orders.map((o) => o.id)) }}</strong>
+          }
           עבור
           <strong>{{ doomed.customerName || formatPhone(doomed.phone) }}</strong>?
         </p>
@@ -529,7 +524,7 @@
         <button
           type="button"
           class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          [disabled]="deletingId() === doomed.id"
+          [disabled]="deletingCardKey() !== null"
           (click)="closeDeleteConfirm()"
         >
           ביטול
@@ -537,10 +532,10 @@
         <button
           type="button"
           class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-          [disabled]="deletingId() === doomed.id"
+          [disabled]="deletingCardKey() !== null"
           (click)="confirmDeleteOrder()"
         >
-          {{ deletingId() === doomed.id ? 'מוחק…' : 'מחק' }}
+          {{ deletingCardKey() !== null ? 'מוחק…' : 'מחק' }}
         </button>
       </div>
     </div>

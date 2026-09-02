@@ -41,7 +41,10 @@ interface ActiveLoanRow {
   phone: string;
   address: string;
   accessoryName: string;
+  /** Outstanding (not yet returned) quantity. */
   quantity: number;
+  /** Original loaned quantity on the line (used for absolute quantity returns). */
+  quantityLoaned: number;
   codes: string[];
   loanDateIso: string;
   isCustomItem: boolean;
@@ -86,6 +89,8 @@ interface QuickReturnItem {
   /** Specific serial being offered for return; null for quantity-only lines. */
   serialCode: string | null;
   quantity: number;
+  /** Original loaned quantity — required for absolute quantity-only returns. */
+  quantityLoaned: number;
   /** Gregorian loan/order date (yyyy-MM-dd) used for Hebrew grouping. */
   loanDateIso: string;
   selected: boolean;
@@ -106,6 +111,13 @@ interface QuickReturnSession {
   phone: string;
   address: string;
   items: QuickReturnItem[];
+}
+
+interface DeleteConfirmOrder {
+  orders: ActiveLoanOrderRef[];
+  cardKey: string;
+  customerName: string;
+  phone: string;
 }
 
 @Component({
@@ -132,11 +144,8 @@ export class ActiveLoansComponent implements OnInit {
   protected readonly activeLoading = signal(false);
   protected readonly returningLineKey = signal<string | null>(null);
   protected readonly removingLineKeys = signal<Set<string>>(new Set());
-  protected readonly deletingId = signal<number | null>(null);
-  protected readonly deleteConfirmOrder = signal<ActiveLoanOrderRef & {
-    customerName: string;
-    phone: string;
-  } | null>(null);
+  protected readonly deletingCardKey = signal<string | null>(null);
+  protected readonly deleteConfirmOrder = signal<DeleteConfirmOrder | null>(null);
 
   protected readonly quickReturnTypeId = signal<number | null>(null);
   protected readonly quickReturnCode = signal('');
@@ -238,7 +247,7 @@ export class ActiveLoansComponent implements OnInit {
           this.activeLoading() ||
           this.returningLineKey() != null ||
           this.removingLineKeys().size > 0 ||
-          this.deletingId() != null ||
+          this.deletingCardKey() != null ||
           this.quickReturnSaving() ||
           this.quickReturnSearching() ||
           this.quickReturnSession() != null
@@ -319,19 +328,47 @@ export class ActiveLoansComponent implements OnInit {
     return this.removingLineKeys().has(card.key);
   }
 
-  /** Single order on the card — same gate as accessory quick-loan edit/delete. */
-  protected cardSoleOrder(card: ActiveLoanCustomerCard): ActiveLoanOrderRef | null {
-    if (card.orders.length !== 1 || card.orders[0].id <= 0) {
-      return null;
+  protected isCardDeleting(card: ActiveLoanCustomerCard): boolean {
+    return this.deletingCardKey() === card.key;
+  }
+
+  protected isCardBusy(card: ActiveLoanCustomerCard): boolean {
+    return (
+      this.isReturningCustomer(card) ||
+      this.isRemovingCustomer(card) ||
+      this.isCardDeleting(card) ||
+      this.returningLineKey() !== null
+    );
+  }
+
+  protected cardOrderRefs(card: ActiveLoanCustomerCard): ActiveLoanOrderRef[] {
+    const seen = new Set<number>();
+    const orders: ActiveLoanOrderRef[] = [];
+    for (const order of card.orders) {
+      if (order.id <= 0 || seen.has(order.id)) {
+        continue;
+      }
+      seen.add(order.id);
+      orders.push(order);
     }
-    return card.orders[0];
+    return orders.sort((a, b) => a.id - b.id);
+  }
+
+  protected formatOrderIdList(orderIds: number[]): string {
+    return orderIds.map((id) => `#${id}`).join(', ');
   }
 
   protected startEditCard(card: ActiveLoanCustomerCard): void {
-    const order = this.cardSoleOrder(card);
-    if (!order) {
+    const orders = this.cardOrderRefs(card);
+    if (orders.length === 0) {
       return;
     }
+    if (orders.length > 1) {
+      this.toast.error('לא ניתן לערוך מספר הזמנות בבת אחת — ערכו כל הזמנה בנפרד');
+      return;
+    }
+
+    const order = orders[0];
     if (order.isOrderBased) {
       void this.router.navigate(['/orders', order.id]);
       return;
@@ -342,19 +379,20 @@ export class ActiveLoansComponent implements OnInit {
   }
 
   protected askDeleteCard(card: ActiveLoanCustomerCard): void {
-    const order = this.cardSoleOrder(card);
-    if (!order) {
+    const orders = this.cardOrderRefs(card);
+    if (orders.length === 0) {
       return;
     }
     this.deleteConfirmOrder.set({
-      ...order,
+      orders,
+      cardKey: card.key,
       customerName: card.customerName,
       phone: card.phone
     });
   }
 
   protected closeDeleteConfirm(): void {
-    if (this.deletingId()) {
+    if (this.deletingCardKey()) {
       return;
     }
     this.deleteConfirmOrder.set(null);
@@ -362,20 +400,26 @@ export class ActiveLoansComponent implements OnInit {
 
   protected confirmDeleteOrder(): void {
     const doomed = this.deleteConfirmOrder();
-    if (!doomed || this.deletingId()) {
+    if (!doomed || this.deletingCardKey()) {
       return;
     }
 
-    this.deletingId.set(doomed.id);
-    this.data
-      .deleteOrder(doomed.id)
-      .pipe(finalize(() => this.deletingId.set(null)))
-      .subscribe((ok) => {
-        if (!ok) {
+    this.deletingCardKey.set(doomed.cardKey);
+    const requests = doomed.orders.map((order) => this.data.deleteOrder(order.id));
+    forkJoin(requests)
+      .pipe(finalize(() => this.deletingCardKey.set(null)))
+      .subscribe((results) => {
+        const okCount = results.filter((ok) => ok).length;
+        if (okCount === 0) {
           return;
         }
+        const orderIds = doomed.orders.map((o) => o.id);
         this.toast.success(
-          doomed.isOrderBased ? `הזמנה #${doomed.id} נמחקה` : `השאלה #${doomed.id} נמחקה`
+          doomed.orders.length === 1
+            ? doomed.orders[0].isOrderBased
+              ? `הזמנה #${orderIds[0]} נמחקה`
+              : `השאלה #${orderIds[0]} נמחקה`
+            : `${okCount} הזמנות נמחקו (${this.formatOrderIdList(orderIds)})`
         );
         this.deleteConfirmOrder.set(null);
         this.ordersSync.notifyLoanChanged();
@@ -403,9 +447,11 @@ export class ActiveLoansComponent implements OnInit {
       .map((c) => (c ?? '').trim())
       .filter((c) => c.length > 0);
     const hasSerializedLine = assignedCodes.length > 0;
+    // Quantity-only returns use absolute ReturnedQuantity on the API — send the
+    // full loaned quantity so a prior partial return is not overwritten downward.
     const quantityReturned = hasSerializedLine
       ? assignedCodes.length
-      : Math.max(row.quantity || 0, 1);
+      : Math.max(row.quantityLoaned || row.quantity || 0, 1);
 
     this.returningLineKey.set(row.key);
     this.data
@@ -508,7 +554,7 @@ export class ActiveLoansComponent implements OnInit {
         list.push({
           loanedEquipmentId: row.loanedEquipmentId,
           serialCodes: [],
-          quantityOnly: Math.max(row.quantity || 0, 1)
+          quantityOnly: Math.max(row.quantityLoaned || row.quantity || 0, 1)
         });
       }
       byOrder.set(row.orderId, list);
@@ -695,12 +741,9 @@ export class ActiveLoansComponent implements OnInit {
       }
 
       const match = matches[0];
-      const phoneKey = this.normalizePhone(match.phone);
+      // Only offer other outstanding lines from the same order/transaction (#ID).
       const customerRows = this.activeLoanRows().filter(
-        (row) =>
-          !row.isOneTimeItem &&
-          this.normalizePhone(row.phone) === phoneKey &&
-          phoneKey.length > 0
+        (row) => !row.isOneTimeItem && row.orderId > 0 && row.orderId === match.orderId
       );
       const items = this.buildQuickReturnItems(
         customerRows.length > 0 ? customerRows : [match],
@@ -851,7 +894,8 @@ export class ActiveLoansComponent implements OnInit {
           entry.serialCodes.push(item.serialCode);
         }
       } else {
-        entry.quantityOnly += Math.max(1, item.quantity);
+        // Absolute ReturnedQuantity API — send full loaned qty, not remaining.
+        entry.quantityOnly = Math.max(item.quantityLoaned || item.quantity || 1, entry.quantityOnly);
       }
     }
 
@@ -957,6 +1001,10 @@ export class ActiveLoansComponent implements OnInit {
     return `${row.customerName.trim()}|${this.normalizePhone(row.phone)}`;
   }
 
+  private customerDayCardKey(row: Pick<ActiveLoanRow, 'customerName' | 'phone' | 'loanDateIso'>): string {
+    return `${this.customerCardKey(row)}|${(row.loanDateIso ?? '').trim()}`;
+  }
+
   private codeReturnKey(row: ActiveLoanRow, code: string): string {
     return `${row.key}::${code.trim()}`;
   }
@@ -968,7 +1016,9 @@ export class ActiveLoansComponent implements OnInit {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = this.customerCardKey(row);
+      // One card per order/transaction so returns and edits never cross #IDs.
+      const key =
+        row.orderId > 0 ? `order:${row.orderId}` : this.customerDayCardKey(row);
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -1024,6 +1074,7 @@ export class ActiveLoansComponent implements OnInit {
         address: (report.address ?? '').trim(),
         accessoryName,
         quantity: report.missingQuantity > 0 ? report.missingQuantity : 1,
+        quantityLoaned: report.missingQuantity > 0 ? report.missingQuantity : 1,
         codes,
         loanDateIso: report.returnDate,
         isCustomItem: report.isCustomItem || !report.inventoryDefinitionId,
@@ -1054,7 +1105,7 @@ export class ActiveLoansComponent implements OnInit {
         continue;
       }
 
-      const key = this.customerCardKey(reportRow);
+      const key = this.customerDayCardKey(reportRow);
       byCustomer.set(key, {
         key,
         customerName: reportRow.customerName,
@@ -1103,8 +1154,14 @@ export class ActiveLoansComponent implements OnInit {
     report: UnreturnedItemDto,
     cards: Map<string, ActiveLoanCustomerCard>
   ): string | null {
+    const reportDate = (report.returnDate ?? '').trim();
     const phone = this.normalizePhone(report.phone);
     if (phone.length >= 7) {
+      for (const [key, card] of cards) {
+        if (this.normalizePhone(card.phone) === phone && (!reportDate || card.loanDateIso === reportDate)) {
+          return key;
+        }
+      }
       for (const [key, card] of cards) {
         if (this.normalizePhone(card.phone) === phone) {
           return key;
@@ -1114,6 +1171,14 @@ export class ActiveLoansComponent implements OnInit {
 
     const name = (report.customerName ?? '').trim().toLowerCase();
     if (name.length > 0) {
+      for (const [key, card] of cards) {
+        if (
+          card.customerName.trim().toLowerCase() === name &&
+          (!reportDate || card.loanDateIso === reportDate)
+        ) {
+          return key;
+        }
+      }
       for (const [key, card] of cards) {
         if (card.customerName.trim().toLowerCase() === name) {
           return key;
@@ -1147,6 +1212,7 @@ export class ActiveLoansComponent implements OnInit {
             accessoryName: row.accessoryName,
             serialCode: code,
             quantity: 1,
+            quantityLoaned: row.quantityLoaned || row.quantity || 1,
             loanDateIso: row.loanDateIso,
             selected: isScannedMatch,
             isScannedMatch
@@ -1164,6 +1230,7 @@ export class ActiveLoansComponent implements OnInit {
         accessoryName: row.accessoryName,
         serialCode: null,
         quantity: row.quantity,
+        quantityLoaned: row.quantityLoaned || row.quantity || 1,
         loanDateIso: row.loanDateIso,
         selected: isScannedMatch,
         isScannedMatch
@@ -1263,7 +1330,7 @@ export class ActiveLoansComponent implements OnInit {
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
         );
-        const allCodes = sortNumericCodes(
+        const allCodesForLabel = sortNumericCodes(
           (le.notes ?? [])
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
@@ -1273,7 +1340,11 @@ export class ActiveLoansComponent implements OnInit {
           if (!this.inventoryStore.isPlaceholderItemName(fromLine)) {
             return fromLine;
           }
-          return this.inventoryStore.definitionForSerialCodes(allCodes)?.displayName?.trim() || fromLine;
+          return (
+            this.inventoryStore.definitionForSerialCodes(codes)?.displayName?.trim() ||
+            this.inventoryStore.definitionForSerialCodes(allCodesForLabel)?.displayName?.trim() ||
+            fromLine
+          );
         })();
         rows.push({
           key: `${order.id}-${le.id}`,
@@ -1284,11 +1355,12 @@ export class ActiveLoansComponent implements OnInit {
           address: order.address?.trim() || '',
           accessoryName,
           quantity: le.quantity - returned,
-          codes: codes.length > 0 ? codes : allCodes,
+          quantityLoaned: le.quantity,
+          codes,
           loanDateIso,
           isCustomItem: !!le.isCustomItem,
           isOneTimeItem: this.isOneTimeAccessoryName(accessoryName, !!le.isCustomItem),
-          assignedSerialCodes: codes.length > 0 ? codes : allCodes,
+          assignedSerialCodes: codes,
           isOrderBased,
           deposit,
           loanNotes

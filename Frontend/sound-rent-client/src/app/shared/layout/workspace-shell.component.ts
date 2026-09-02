@@ -131,6 +131,11 @@ import { ClickOutsideDirective } from '../directives/click-outside.directive';
                   routerLinkActive="bg-white/10 text-white"
                   class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
                 >ניהול ספרים</a>
+                <a
+                  routerLink="/library/reports"
+                  routerLinkActive="bg-white/10 text-white"
+                  class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+                >דוחות</a>
               }
               <a
                 [routerLink]="customersPath()"

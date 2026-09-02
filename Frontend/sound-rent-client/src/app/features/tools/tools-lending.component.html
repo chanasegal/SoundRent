@@ -89,7 +89,13 @@
 
     @if (editingLoanId(); as editId) {
       <div class="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
-        עורכים השאלת כלי עבודה <strong>#{{ editId }}</strong> — שמירה תעדכן את ההשאלה הקיימת.
+        @if (editingGroupedLoanIds().length > 0) {
+          עורכים השאלות
+          <strong>{{ formatLoanIdList([editId, ...editingGroupedLoanIds()]) }}</strong>
+          — שמירה תעדכן את ההשאלה הראשית ותאחד את כל פריטי כלי העבודה.
+        } @else {
+          עורכים השאלת כלי עבודה <strong>#{{ editId }}</strong> — שמירה תעדכן את ההשאלה הקיימת.
+        }
       </div>
     }
 
@@ -510,10 +516,9 @@
     } @else {
       <div class="customer-breakdown-list active-loans-cards">
         @for (card of activeCustomerCards(); track card.key) {
-          @let soleLoan = cardSoleLoan(card);
           <article
             class="customer-breakdown-card active-loan-card"
-            [class.recent-loan-card--editing]="soleLoan?.source === 'tools' && editingLoanId() === soleLoan?.loanId"
+            [class.recent-loan-card--editing]="isCardEditing(card)"
           >
             <header class="customer-breakdown-card__header">
               <div class="customer-breakdown-card__primary">
@@ -560,7 +565,7 @@
                   <button
                     type="button"
                     class="active-loans-return-all-btn"
-                    [disabled]="isCardBusy(card) || deletingId() === soleLoan?.loanId"
+                    [disabled]="isCardBusy(card) || isCardDeleting(card)"
                     (click)="markCustomerAllReturned(card)"
                   >
                     @if (isReturningCustomer(card)) {
@@ -573,13 +578,13 @@
                     }
                   </button>
                 }
-                @if (soleLoan; as loan) {
+                @if (card.items.length > 0) {
                   <button
                     type="button"
                     class="recent-loan-action"
                     title="עריכה"
                     aria-label="עריכה"
-                    [disabled]="isCardBusy(card) || deletingId() === loan.loanId"
+                    [disabled]="isCardBusy(card) || isCardDeleting(card)"
                     (click)="startEditCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -592,7 +597,7 @@
                     class="recent-loan-action recent-loan-action--delete"
                     title="מחיקה"
                     aria-label="מחיקה"
-                    [disabled]="isCardBusy(card) || deletingId() === loan.loanId"
+                    [disabled]="isCardBusy(card) || isCardDeleting(card)"
                     (click)="askDeleteCard(card)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -713,8 +718,13 @@
       </div>
       <div class="space-y-3 px-5 py-4 text-sm text-slate-700">
         <p>
-          למחוק את השאלה
-          <strong>#{{ doomed.loanId }}</strong>
+          @if (doomed.targets.length === 1) {
+            למחוק את השאלה
+            <strong>#{{ doomed.targets[0].loanId }}</strong>
+          } @else {
+            למחוק את ההשאלות
+            <strong>{{ formatLoanIdList(doomed.targets.map((t) => t.loanId)) }}</strong>
+          }
           עבור
           <strong>{{ doomed.customerName || formatPhone(doomed.phone) }}</strong>?
         </p>
@@ -724,7 +734,7 @@
         <button
           type="button"
           class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          [disabled]="deletingId() === doomed.loanId"
+          [disabled]="deletingCardKey() !== null"
           (click)="closeDeleteConfirm()"
         >
           ביטול
@@ -732,10 +742,10 @@
         <button
           type="button"
           class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-          [disabled]="deletingId() === doomed.loanId"
+          [disabled]="deletingCardKey() !== null"
           (click)="confirmDeleteLoan()"
         >
-          {{ deletingId() === doomed.loanId ? 'מוחק…' : 'מחק' }}
+          {{ deletingCardKey() !== null ? 'מוחק…' : 'מחק' }}
         </button>
       </div>
     </div>

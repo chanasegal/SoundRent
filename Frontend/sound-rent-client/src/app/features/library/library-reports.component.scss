@@ -1,0 +1,347 @@
+:host {
+  display: block;
+}
+
+.reports-panel {
+  border-radius: 1rem;
+  background: #fff;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  border: 1px solid #e2e8f0;
+}
+
+.reports-panel__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.reports-panel__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.reports-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.reports-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #15803d;
+  border-radius: 0.65rem;
+  background: #f0fdf4;
+  color: #166534;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: #166534;
+    background: #dcfce7;
+    color: #14532d;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+.reports-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #002244;
+  border-radius: 0.65rem;
+  background: #002244;
+  color: #fff;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #003366;
+    border-color: #003366;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.875rem;
+
+  thead tr {
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #334155;
+  }
+
+  th {
+    padding: 0.55rem 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid #f1f5f9;
+
+    &:hover {
+      background: rgb(248 250 252 / 0.85);
+    }
+  }
+
+  td {
+    padding: 0.6rem 0.75rem;
+    vertical-align: middle;
+  }
+}
+
+.reports-empty {
+  padding: 2rem 0;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.reports-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.reports-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+}
+
+.reports-icon-btn--edit {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+  color: #0369a1;
+
+  &:hover:not(:disabled) {
+    border-color: #0284c7;
+    background: #e0f2fe;
+    color: #075985;
+  }
+}
+
+.reports-icon-btn--paid {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+
+  &:hover:not(:disabled) {
+    border-color: #16a34a;
+    background: #dcfce7;
+    color: #14532d;
+  }
+}
+
+.reports-icon-btn--delete {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+
+  &:hover:not(:disabled) {
+    border-color: #dc2626;
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+}
+
+.client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.3;
+  min-width: 8.5rem;
+
+  .phone {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: #475569;
+  }
+
+  .address {
+    font-size: 0.75rem;
+    color: #94a3b8;
+  }
+}
+
+.ltr-field {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.reports-modal-panel--debt {
+  overflow: hidden;
+  max-height: min(85vh, 90dvh);
+}
+
+.debt-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.debt-modal-notes {
+  resize: vertical;
+  min-height: 2.75rem;
+  max-height: 8rem;
+  box-sizing: border-box;
+}
+
+.debt-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+}
+
+$date-control-height: 2.5rem;
+
+.hebrew-date-field-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+  --hebrew-calendar-control-height: #{$date-control-height};
+}
+
+.hebrew-date-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: $date-control-height;
+  margin: 0;
+  padding: 0 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  font-size: 0.875rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus {
+    outline: none;
+    border-color: #002244;
+    box-shadow: 0 0 0 2px rgba(0, 34, 68, 0.12);
+  }
+
+  &[readonly] {
+    cursor: default;
+    background: #f8fafc;
+  }
+}
+
+.reports-suggest-list {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  top: calc(100% + 0.2rem);
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 10px 25px rgb(15 23 42 / 0.12);
+}
+
+.reports-suggest-item {
+  display: block;
+  width: 100%;
+  text-align: right;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  color: #0f172a;
+
+  &:hover,
+  &--active {
+    background: #f1f5f9;
+  }
+}
+
+@media (max-width: 900px) {
+  .reports-table {
+    font-size: 0.8rem;
+
+    th,
+    td {
+      padding: 0.45rem 0.5rem;
+    }
+  }
+
+  .reports-panel__title-row {
+    width: 100%;
+  }
+
+  .reports-add-btn,
+  .reports-export-btn {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.65rem;
+  }
+}

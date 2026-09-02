@@ -42,9 +42,13 @@ export interface QuickLoanDraftPayload {
     selectedCodes: string[];
     initialCodes?: string[];
     lineId?: number;
+    preservedReturnedCodes?: string[];
+    alreadyReturnedQuantity?: number;
   }>;
   editingId: number | null;
   nextOneTimeAccessoryId: number;
+  /** Fully-returned lines kept off the edit form while drafting. */
+  preservedReturnedLines?: import('../models/order.model').OrderLoanedEquipmentDto[];
 }
 
 export interface OrderDraftSnapshot {

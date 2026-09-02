@@ -32,6 +32,11 @@ const libraryChildren: Routes = [
     path: 'customers',
     loadComponent: () =>
       import('./features/admin/customers-admin.component').then((m) => m.CustomersAdminComponent)
+  },
+  {
+    path: 'reports',
+    loadComponent: () =>
+      import('./features/library/library-reports.component').then((m) => m.LibraryReportsComponent)
   }
 ];
 

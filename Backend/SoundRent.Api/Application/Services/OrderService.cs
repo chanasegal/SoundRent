@@ -1059,18 +1059,22 @@ public class OrderService : IOrderService
 
         foreach (var item in incomingItems)
         {
-            if (item.IsCustomItem || item.LoanedEquipmentType is not LoanedEquipmentType type)
-            {
-                continue;
-            }
-
             OrderLoanedEquipment? existingLine = null;
             if (item.Id > 0)
             {
                 existingLinesById.TryGetValue(item.Id, out existingLine);
             }
 
-            existingLine ??= existingLinesByType.GetValueOrDefault(type);
+            // Prefer line-id match for all line kinds (catalog, custom, definition-only).
+            // Fall back to typed catalog matching only when the incoming DTO has no id.
+            if (existingLine is null
+                && item.Id <= 0
+                && !item.IsCustomItem
+                && item.LoanedEquipmentType is LoanedEquipmentType type)
+            {
+                existingLine = existingLinesByType.GetValueOrDefault(type);
+            }
+
             if (existingLine is null)
             {
                 continue;
