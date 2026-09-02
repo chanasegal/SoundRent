@@ -598,19 +598,48 @@ export class QuickLoanComponent implements OnInit {
   }
 
   private commitDraftLineAndAddNext(lineId: string): void {
-    this.commitDraftLineFromText(lineId);
+    this.commitDraftLineFromText(lineId, { addNext: true });
   }
 
-  private commitDraftLineFromText(lineId: string): void {
+  /**
+   * Commits in-progress draft rows before save so users are not blocked
+   * when they forget to press Enter on the final accessory line.
+   * @returns false when a non-empty draft could not be committed (toast already shown).
+   */
+  private commitPendingDraftLinesBeforeSave(): boolean {
+    const pending = this.accessoryDraftLines().filter(
+      (line) =>
+        line.query.trim().length > 0 ||
+        line.selectedCodes.length > 0 ||
+        line.inventoryDefinitionId != null
+    );
+    for (const line of pending) {
+      const result = this.commitDraftLineFromText(line.id, { addNext: false });
+      if (result === 'failed') {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @returns 'committed' | 'skipped' (empty line) | 'failed' (validation / incomplete).
+   */
+  private commitDraftLineFromText(
+    lineId: string,
+    options: { addNext: boolean } = { addNext: true }
+  ): 'committed' | 'skipped' | 'failed' {
     const line = this.accessoryDraftLines().find((l) => l.id === lineId);
     if (!line) {
-      return;
+      return 'skipped';
     }
 
     const trimmed = line.query.trim();
     if (!trimmed) {
-      this.focusDraftInput(lineId);
-      return;
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'skipped';
     }
 
     const parsed = this.parseFreeTextAccessoryEntry(trimmed);
@@ -626,8 +655,10 @@ export class QuickLoanComponent implements OnInit {
               parsed.def.displayName
             )
           ) {
-            this.focusDraftInput(lineId);
-            return;
+            if (options.addNext) {
+              this.focusDraftInput(lineId);
+            }
+            return 'failed';
           }
           committed = this.appendAccessoryRowFromDefinition(parsed.def, [...line.selectedCodes]);
         } else {
@@ -638,14 +669,19 @@ export class QuickLoanComponent implements OnInit {
             suggestOpen: false,
             codesOpen: false
           });
+          if (!options.addNext) {
+            this.toast.warning(`יש לבחור לפחות קוד עבור "${parsed.def.displayName}"`);
+          }
           this.scheduleFocusDraftCodesDropdown(lineId);
-          return;
+          return 'failed';
         }
       } else if (
         !this.validateSerialCodesForDefinition(parsed.def.id, parsed.codes, parsed.def.displayName)
       ) {
-        this.focusDraftInput(lineId);
-        return;
+        if (options.addNext) {
+          this.focusDraftInput(lineId);
+        }
+        return 'failed';
       } else {
         committed = this.appendAccessoryRowFromDefinition(parsed.def, [...parsed.codes]);
       }
@@ -653,13 +689,15 @@ export class QuickLoanComponent implements OnInit {
       const def = this.inventoryStore.byId(line.inventoryDefinitionId);
       if (!def) {
         this.toast.error('הפריט לא נמצא במלאי');
-        this.focusDraftInput(lineId);
-        return;
+        if (options.addNext) {
+          this.focusDraftInput(lineId);
+        }
+        return 'failed';
       }
       if (line.selectedCodes.length === 0) {
         this.toast.warning(`יש לבחור לפחות קוד עבור "${def.displayName}"`);
         this.scheduleFocusDraftCodesDropdown(lineId);
-        return;
+        return 'failed';
       }
       if (
         !this.validateSerialCodesForDefinition(
@@ -668,8 +706,10 @@ export class QuickLoanComponent implements OnInit {
           def.displayName
         )
       ) {
-        this.focusDraftInput(lineId);
-        return;
+        if (options.addNext) {
+          this.focusDraftInput(lineId);
+        }
+        return 'failed';
       }
       committed = this.appendAccessoryRowFromDefinition(def, [...line.selectedCodes]);
     } else if (this.showCustomAccessoryOptionForDraft(line)) {
@@ -683,19 +723,25 @@ export class QuickLoanComponent implements OnInit {
             : [];
       if (name.length < 2) {
         this.toast.warning('יש להזין לפחות שני תווים');
-        this.focusDraftInput(lineId);
-        return;
+        if (options.addNext) {
+          this.focusDraftInput(lineId);
+        }
+        return 'failed';
       }
       committed = this.appendCustomAccessoryRow(name, codes);
     } else {
       this.toast.warning('הקלידו שם אביזר ולפחות קוד אחד, למשל: מיקסר 123');
-      this.focusDraftInput(lineId);
-      return;
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'failed';
     }
 
     if (!committed) {
-      this.focusDraftInput(lineId);
-      return;
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'failed';
     }
 
     const nextLineId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -713,7 +759,10 @@ export class QuickLoanComponent implements OnInit {
       next.splice(idx < 0 ? next.length : idx, 0, fresh);
       return next;
     });
-    this.scheduleFocusDraftInput(nextLineId);
+    if (options.addNext) {
+      this.scheduleFocusDraftInput(nextLineId);
+    }
+    return 'committed';
   }
 
   private parseFreeTextAccessoryEntry(
@@ -2359,6 +2408,11 @@ export class QuickLoanComponent implements OnInit {
     const iso = this.selectedIso();
     if (!iso) {
       this.toast.warning('תאריך לא תקין');
+      return;
+    }
+
+    // Commit any in-progress draft row (Enter not pressed) before building the payload.
+    if (!this.commitPendingDraftLinesBeforeSave()) {
       return;
     }
 
