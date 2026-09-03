@@ -3,7 +3,8 @@
     <div>
       <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
       <p class="mt-1 text-sm text-slate-600">
-        כל האביזרים הפעילים לפי לקוח — החזרה מהירה, לפי קוד, או סמן הכל כהוחזר.
+        כל האביזרים הפעילים לפי לקוח — השאלות עצמאיות והשאלות מהזמנות בלוח השבועי.
+        החזרה מהירה, לפי קוד, או סמן הכל כהוחזר.
       </p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
@@ -199,7 +200,8 @@
                 }
                 @if (card.orders.length === 1) {
                   <a
-                    [routerLink]="['/orders', card.orders[0].id]"
+                    [routerLink]="activeLoanOrderLink(card.orders[0])"
+                    [queryParams]="activeLoanOrderQueryParams(card.orders[0])"
                     class="customer-breakdown-card__order-link"
                   >
                     {{ activeLoanOrderLabelForId(card.orders[0]) }}
@@ -207,7 +209,11 @@
                 } @else if (card.orders.length > 1) {
                   <span class="customer-breakdown-card__order-link">
                     @for (order of card.orders; track order.id; let last = $last) {
-                      <a [routerLink]="['/orders', order.id]" class="customer-breakdown-card__order-id">
+                      <a
+                        [routerLink]="activeLoanOrderLink(order)"
+                        [queryParams]="activeLoanOrderQueryParams(order)"
+                        class="customer-breakdown-card__order-id"
+                      >
                         {{ activeLoanOrderLabelForId(order) }}
                       </a>@if (!last) {<span>, </span>}
                     }
@@ -518,6 +524,11 @@
           עבור
           <strong>{{ doomed.customerName || formatPhone(doomed.phone) }}</strong>?
         </p>
+        @if (doomed.orders.some((o) => o.isOrderBased)) {
+          <p class="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 ring-1 ring-amber-200">
+            מחיקה זו מסירה את כל ההזמנה מהלוח השבועי (כולל ציוד ההגברה), לא רק את האביזרים.
+          </p>
+        }
         <p class="text-slate-500">הפריטים המקושרים יוחזרו למלאי והרשומה תימחק לצמיתות.</p>
       </div>
       <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">

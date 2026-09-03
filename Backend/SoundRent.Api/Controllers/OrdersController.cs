@@ -81,7 +81,10 @@ public class OrdersController : ControllerBase
         }
     }
 
-    /// <summary>Recent accessory-only unpaid orders created via Quick Loan.</summary>
+    /// <summary>
+    /// Active accessory loans with outstanding quantity — standalone quick loans and
+    /// weekly-schedule bookings that still have accessories out.
+    /// </summary>
     [HttpGet("quick-loans")]
     public async Task<ActionResult<List<OrderDto>>> GetQuickLoans(CancellationToken cancellationToken)
     {

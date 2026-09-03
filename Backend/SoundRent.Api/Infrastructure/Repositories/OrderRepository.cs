@@ -384,6 +384,11 @@ public class OrderRepository : IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Active accessory loans: standalone (no board equipment) and weekly bookings
+    /// that still have outstanding <see cref="OrderLoanedEquipment"/> lines.
+    /// Callers that need accessory-only rows filter with <c>!Equipments.Any()</c> / empty equipment ids.
+    /// </summary>
     public Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
     {
         return WithOrderGraph(_db.Orders)
@@ -391,7 +396,6 @@ public class OrderRepository : IOrderRepository
             .Where(o =>
                 !o.IsCancelled
                 && !o.IsReturnProcessed
-                && !o.Equipments.Any()
                 && o.LoanedEquipments.Any(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity))
             .OrderByDescending(o => o.CreatedAt)
             .ThenByDescending(o => o.Id)

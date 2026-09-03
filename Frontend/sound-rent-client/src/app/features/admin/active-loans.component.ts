@@ -640,6 +640,19 @@ export class ActiveLoansComponent implements OnInit {
     return order.isOrderBased ? `הזמנה #${order.id}` : `השאלה #${order.id}`;
   }
 
+  /** Weekly bookings open the order form; standalone accessory loans open השאלת אביזרים. */
+  protected activeLoanOrderLink(order: ActiveLoanOrderRef): string[] {
+    return order.isOrderBased
+      ? ['/orders', String(order.id)]
+      : ['/tools/accessory-lending'];
+  }
+
+  protected activeLoanOrderQueryParams(
+    order: ActiveLoanOrderRef
+  ): Record<string, string> | null {
+    return order.isOrderBased ? null : { edit: String(order.id) };
+  }
+
   protected onQuickReturnKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       this.quickReturnCodeOpen.set(false);
