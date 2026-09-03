@@ -147,88 +147,121 @@
       </p>
 
       <form [formGroup]="addForm" (ngSubmit)="submitAddMissing()" class="space-y-4">
-        <div
-          class="relative"
-          (appClickOutside)="closeCustomerSuggestions()"
-          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
-        >
-          <label class="mb-1 block text-sm font-medium text-slate-700">שם לקוח</label>
-          <input
-            formControlName="customerName"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            maxlength="200"
-            autocomplete="off"
-            placeholder="חיפוש לפי שם…"
-            (focus)="onCustomerSuggestFocus('name')"
-            (blur)="onCustomerSuggestBlur()"
-            (keydown)="onCustomerSuggestKeydown($event, 'name')"
-          />
-          @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
-            <ul class="customer-suggest-list" role="listbox">
-              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
-                <li>
-                  <button
-                    type="button"
-                    class="customer-suggest-item"
-                    [class.customer-suggest-item--active]="customerSuggestIndex() === i"
-                    (mousedown)="selectCustomerSuggestion(c, $event)"
-                  >
-                    {{ customerSuggestLabel(c) }}
-                  </button>
-                </li>
-              }
-            </ul>
-          }
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="unreturned-add-name">שם לקוח</label>
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'name'"
+          >
+            <input
+              id="unreturned-add-name"
+              type="text"
+              formControlName="customerName"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              maxlength="200"
+              autocomplete="off"
+              placeholder="חיפוש לפי שם…"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'name'"
+              aria-controls="unreturned-customer-suggest-name"
+              (focus)="onCustomerSuggestFocus('name')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'name')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'name' && customerSuggestions().length > 0) {
+              <ul
+                id="unreturned-customer-suggest-name"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
+                      @if (c.address?.trim()) {
+                        <span class="customer-suggest__address">{{ c.address }}</span>
+                      }
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
         </div>
 
-        <div
-          class="relative"
-          (appClickOutside)="closeCustomerSuggestions()"
-          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
-        >
-          <label class="mb-1 block text-sm font-medium text-slate-700">טלפון</label>
-          <input
-            type="tel"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            formControlName="phone"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ltr-field"
-            maxlength="10"
-            appIsraeliPhoneInput
-            autocomplete="off"
-            placeholder="חיפוש לפי טלפון…"
-            (focus)="onCustomerSuggestFocus('phone')"
-            (blur)="onCustomerSuggestBlur()"
-            (keydown)="onCustomerSuggestKeydown($event, 'phone')"
-          />
-          @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
-            <ul class="customer-suggest-list" role="listbox">
-              @for (c of customerSuggestions(); track c.phone1; let i = $index) {
-                <li>
-                  <button
-                    type="button"
-                    class="customer-suggest-item"
-                    [class.customer-suggest-item--active]="customerSuggestIndex() === i"
-                    (mousedown)="selectCustomerSuggestion(c, $event)"
-                  >
-                    {{ customerSuggestLabel(c) }}
-                  </button>
-                </li>
-              }
-            </ul>
-          }
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="unreturned-add-phone">טלפון</label>
+          <div
+            class="customer-suggest"
+            (appClickOutside)="closeCustomerSuggestions()"
+            [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+          >
+            <input
+              id="unreturned-add-phone"
+              type="tel"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              formControlName="phone"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ltr-field"
+              maxlength="10"
+              appIntegerOnly
+              appIsraeliPhoneInput
+              autocomplete="off"
+              placeholder="חיפוש לפי טלפון…"
+              role="combobox"
+              aria-autocomplete="list"
+              [attr.aria-expanded]="customerSuggestOpen() && customerSuggestField() === 'phone'"
+              aria-controls="unreturned-customer-suggest-phone"
+              (focus)="onCustomerSuggestFocus('phone')"
+              (blur)="onCustomerSuggestBlur()"
+              (keydown)="onCustomerSuggestKeydown($event, 'phone')"
+            />
+            @if (customerSuggestOpen() && customerSuggestField() === 'phone' && customerSuggestions().length > 0) {
+              <ul
+                id="unreturned-customer-suggest-phone"
+                class="customer-suggest__panel"
+                role="listbox"
+                aria-label="לקוחות תואמים"
+              >
+                @for (c of customerSuggestions(); track c.phone1; let i = $index) {
+                  <li role="option" [attr.aria-selected]="customerSuggestIndex() === i">
+                    <button
+                      type="button"
+                      class="customer-suggest__item"
+                      [class.customer-suggest__item--active]="customerSuggestIndex() === i"
+                      (mousedown)="selectCustomerSuggestion(c, $event)"
+                    >
+                      <span class="customer-suggest__primary">{{ customerSuggestLabel(c) }}</span>
+                      @if (c.address?.trim()) {
+                        <span class="customer-suggest__address">{{ c.address }}</span>
+                      }
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
           @if (addForm.controls.phone.touched && addForm.controls.phone.errors?.['israeliPhone']) {
             <p class="mt-1 text-xs text-rose-600">{{ israeliPhoneInvalidMessage }}</p>
           }
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700">כתובת</label>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="unreturned-add-address">כתובת</label>
           <input
+            id="unreturned-add-address"
             formControlName="address"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             maxlength="200"
-            autocomplete="off"
+            autocomplete="street-address"
           />
         </div>
 

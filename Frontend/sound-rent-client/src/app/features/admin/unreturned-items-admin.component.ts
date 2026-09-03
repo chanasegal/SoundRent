@@ -33,6 +33,7 @@ import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
+import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   clampIsraeliPhoneDigits,
@@ -54,7 +55,14 @@ interface AddMissingSaveEntry {
 @Component({
   selector: 'app-unreturned-items-admin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ReactiveFormsModule, IsraeliPhoneInputDirective, ClickOutsideDirective],
+  imports: [
+    CommonModule,
+    RouterLink,
+    ReactiveFormsModule,
+    IsraeliPhoneInputDirective,
+    IntegerOnlyDirective,
+    ClickOutsideDirective
+  ],
   templateUrl: './unreturned-items-admin.component.html',
   styleUrl: './unreturned-items-admin.component.scss'
 })
@@ -366,7 +374,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     const customer = { customerName, phone, address };
 
     const saveEntries: AddMissingSaveEntry[] = [];
-    const itemCodesInBatch: string[] = [];
+    const itemCodeKeysInBatch: string[] = [];
 
     for (const ctrl of this.itemRows().controls) {
       const row = (ctrl as FormGroup).getRawValue() as AddMissingItemRowValue;
@@ -376,9 +384,9 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         return;
       }
 
-      const normalizedCode = (payload.itemCode ?? '').trim();
-      if (normalizedCode) {
-        itemCodesInBatch.push(normalizedCode);
+      const compositeKey = this.manualUnreturnedItemCodeKey(payload);
+      if (compositeKey) {
+        itemCodeKeysInBatch.push(compositeKey);
       }
 
       saveEntries.push({
@@ -387,8 +395,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
       });
     }
 
-    if (itemCodesInBatch.length !== new Set(itemCodesInBatch).size) {
-      this.toast.error('קוד פריט כפול — יש להזין קוד ייחודי לכל שורה');
+    if (itemCodeKeysInBatch.length !== new Set(itemCodeKeysInBatch).size) {
+      this.toast.error('פריט וקוד כפולים — אותה שילוב של פריט וקוד כבר קיימת בשורות');
       return;
     }
 
@@ -445,6 +453,25 @@ export class UnreturnedItemsAdminComponent implements OnInit {
           this.toast.success(`${newRows.length} פריטים נוספו להשאלות פעילות ולרשימת פריטים שלא חזרו`);
         }
       });
+  }
+
+  /**
+   * Composite uniqueness key for coded rows: catalog id + code, or custom name + code.
+   * Same code on different items is allowed; returns null when there is no code.
+   */
+  private manualUnreturnedItemCodeKey(payload: CreateManualUnreturnedItemDto): string | null {
+    const code = (payload.itemCode ?? '').trim();
+    if (!code) {
+      return null;
+    }
+
+    const definitionId = Number(payload.inventoryDefinitionId);
+    if (Number.isFinite(definitionId) && definitionId > 0) {
+      return `def:${definitionId}|${code.toLowerCase()}`;
+    }
+
+    const itemName = (payload.itemName ?? '').trim().toLowerCase();
+    return `name:${itemName}|${code.toLowerCase()}`;
   }
 
   private buildManualUnreturnedApiPayload(

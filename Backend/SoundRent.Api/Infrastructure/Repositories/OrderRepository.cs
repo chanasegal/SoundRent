@@ -840,12 +840,31 @@ public class OrderRepository : IOrderRepository
 
         if (normalizedCode != null)
         {
-            var duplicate = await _db.ManualUnreturnedItems.AnyAsync(
-                m => !m.IsResolved && m.ItemCode == normalizedCode,
-                cancellationToken);
+            // Uniqueness is (item + code): the same code may appear on different catalog /
+            // custom items. Only the same unresolved item+code pair is rejected.
+            bool duplicate;
+            if (inventoryDefinitionId.HasValue)
+            {
+                var definitionId = inventoryDefinitionId.Value;
+                duplicate = await _db.ManualUnreturnedItems.AnyAsync(
+                    m => !m.IsResolved
+                        && m.ItemCode == normalizedCode
+                        && m.InventoryDefinitionId == definitionId,
+                    cancellationToken);
+            }
+            else
+            {
+                duplicate = await _db.ManualUnreturnedItems.AnyAsync(
+                    m => !m.IsResolved
+                        && m.ItemCode == normalizedCode
+                        && m.InventoryDefinitionId == null
+                        && m.ItemName == itemName,
+                    cancellationToken);
+            }
+
             if (duplicate)
             {
-                throw new ValidationException("קוד פריט זה כבר רשום כפריט שלא חזר");
+                throw new ValidationException("שילוב זה של פריט וקוד כבר רשום כפריט שלא חזר");
             }
         }
 
