@@ -215,7 +215,9 @@ export class DataService {
   }
 
   getQuickLoans(): Observable<OrderDto[]> {
-    return this.http.get<OrderDto[]>(`${this.ordersBase}/quick-loans`).pipe(
+    return this.http.get<OrderDto[]>(`${this.ordersBase}/quick-loans`, {
+      params: this.withSystemType()
+    }).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);

@@ -48,7 +48,9 @@ public interface IOrderService
 
     Task<List<OrderDto>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default);
 
-    Task<List<OrderDto>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
+    Task<List<OrderDto>> GetQuickLoansAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
         CancellationToken cancellationToken = default);

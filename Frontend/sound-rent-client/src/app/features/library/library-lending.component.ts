@@ -67,6 +67,7 @@ interface BookLineItem {
 
 interface LendingDraftForm {
   id: string;
+  editingLoanId: number | null;
   createdAt: Date;
   hebrewDateTime: string;
   bookLines: BookLineItem[];
@@ -102,8 +103,6 @@ interface ActiveLoanCustomerCard {
   phone: string;
   address: string;
   loanDate: Date;
-  deposit: string;
-  loanNotes: string;
   customerNotes: string | null;
   items: ActiveLoanRowView[];
 }
@@ -113,6 +112,7 @@ interface DeleteConfirmLoan {
   cardKey: string;
   customerName: string;
   phone: string;
+  editingLoanId?: number | null;
 }
 
 @Component({
@@ -351,6 +351,7 @@ export class LibraryLendingComponent implements OnInit {
       const parsed = JSON.parse(payload.formsJson) as Array<Record<string, unknown>>;
       const revived: LendingDraftForm[] = parsed.map((raw) => ({
         id: String(raw['id'] ?? `draft-${Date.now()}`),
+        editingLoanId: typeof raw['editingLoanId'] === 'number' ? raw['editingLoanId'] : null,
         createdAt: new Date(String(raw['createdAt'] ?? Date.now())),
         hebrewDateTime: String(raw['hebrewDateTime'] ?? ''),
         bookLines: Array.isArray(raw['bookLines'])
@@ -747,72 +748,29 @@ export class LibraryLendingComponent implements OnInit {
     }
 
     const loans = this.activeLoans().filter((l) => loanIds.includes(l.id));
-    const primaryLoanId = loanIds[0];
-    const loan = loans.find((l) => l.id === primaryLoanId);
-    if (!loan) {
+    if (loans.length === 0) {
       this.toast.error('ההשאלה לא נמצאה');
       return;
     }
 
     this.deleteConfirmLoan.set(null);
-    this.editingLoanId.set(primaryLoanId);
-    this.editingGroupedLoanIds.set(loanIds.filter((id) => id !== primaryLoanId));
+    this.editingLoanId.set(loans[0]?.id ?? null);
+    this.editingGroupedLoanIds.set(loanIds.slice(1));
     this.editingCardKey.set(card.key);
     this.formMinimized.set(false);
     this.orderDraft.clearIfKind('library-loan');
     this.closeToolUi();
     this.closeCustomerSuggest();
-
-    const activeItems = loans.flatMap((l) => (l.items ?? []).filter((i) => !i.returnedAt));
-    const linesByBook = new Map<number, BookLineItem>();
-    const bookLines: BookLineItem[] = [];
-
-    for (const item of activeItems) {
-      const copy = (item.copyNumber ?? '').trim();
-      const existing = linesByBook.get(item.bookId);
-      if (existing) {
-        if (copy) {
-          existing.selectedCopies = [...existing.selectedCopies, copy];
-        }
-        continue;
-      }
-
-      const def = this.definitions().find((d) => d.id === item.bookId);
-      const line: BookLineItem = {
-        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        bookId: item.bookId,
-        bookQuery: def?.title ?? item.bookTitle ?? '',
-        selectedCopies: copy ? [copy] : [],
-        bookSuggestOpen: false,
-        copiesOpen: false
-      };
-      linesByBook.set(item.bookId, line);
-      bookLines.push(line);
+    const sortedLoans = [...loans].sort(
+      (a, b) =>
+        (this.parseLoanDate(b.lentAt)?.getTime() ?? 0) - (this.parseLoanDate(a.lentAt)?.getTime() ?? 0)
+    );
+    const drafts = sortedLoans.map((loan) => this.createDraftFormFromLoan(loan));
+    this.timeLimitEnabled.set(drafts.some((draft) => draft.deadlineAt != null));
+    this.forms.set(drafts);
+    for (const draft of drafts) {
+      this.lookupClientNotesByPhone(draft.id, draft.phone);
     }
-
-    const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
-    const deadlineAt = this.parseLoanDate(loan.deadlineAt);
-    if (deadlineAt) {
-      this.timeLimitEnabled.set(true);
-    }
-
-    const draft: LendingDraftForm = {
-      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: lentAt,
-      hebrewDateTime: (loan.hebrewLentDisplay ?? '').trim() || this.formatHebrewDate(lentAt),
-      bookLines: bookLines.length > 0 ? bookLines : [this.createToolLine()],
-      clientName: loan.clientName ?? '',
-      phone: loan.phone ?? '',
-      phone2: loan.phone2 ?? '',
-      address: loan.address ?? '',
-      deposit: loan.deposit ?? '',
-      notes: loan.notes ?? '',
-      clientAlertNotes: null,
-      deadlineAt
-    };
-
-    this.forms.set([draft]);
-    this.lookupClientNotesByPhone(draft.id, draft.phone);
     queueMicrotask(() => {
       this.document.getElementById('library-loan-form-title')?.scrollIntoView({
         behavior: 'smooth',
@@ -837,7 +795,21 @@ export class LibraryLendingComponent implements OnInit {
       loanIds,
       cardKey: card.key,
       customerName: card.customerName,
-      phone: card.phone
+      phone: card.phone,
+      editingLoanId: null
+    });
+  }
+
+  protected askDeleteEditingLoan(form: LendingDraftForm): void {
+    if (form.editingLoanId == null || this.deletingCardKey()) {
+      return;
+    }
+    this.deleteConfirmLoan.set({
+      loanIds: [form.editingLoanId],
+      cardKey: this.editingCardKey() ?? `edit-loan:${form.editingLoanId}`,
+      customerName: form.clientName,
+      phone: form.phone,
+      editingLoanId: form.editingLoanId
     });
   }
 
@@ -869,7 +841,12 @@ export class LibraryLendingComponent implements OnInit {
             : `${okCount} השאלות נמחקו (${this.formatLoanIdList(doomed.loanIds)})`
         );
         this.deleteConfirmLoan.set(null);
-        if (this.editingCardKey() === doomed.cardKey) {
+        if (doomed.editingLoanId != null) {
+          this.forms.update((list) => list.filter((form) => form.editingLoanId !== doomed.editingLoanId));
+          if (this.forms().length === 0) {
+            this.cancelEdit();
+          }
+        } else if (this.editingCardKey() === doomed.cardKey) {
           this.cancelEdit();
         }
         this.ordersSync.notifyLoanChanged();
@@ -889,7 +866,7 @@ export class LibraryLendingComponent implements OnInit {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
     for (const row of rows) {
-      const key = `${this.customerCardKey(row)}|${this.toIsoDate(row.lentAt)}`;
+      const key = this.customerCardKey(row);
       let card = byCustomer.get(key);
       if (!card) {
         card = {
@@ -899,8 +876,6 @@ export class LibraryLendingComponent implements OnInit {
           address: row.address,
           loanDate: row.lentAt,
           customerNotes: this.customers.notesForPhone(row.phone),
-          deposit: row.deposit,
-          loanNotes: row.loanNotes,
           items: []
         };
         byCustomer.set(key, card);
@@ -911,11 +886,8 @@ export class LibraryLendingComponent implements OnInit {
       if (!card.customerNotes) {
         card.customerNotes = this.customers.notesForPhone(row.phone);
       }
-      if (!card.deposit && row.deposit) {
-        card.deposit = row.deposit;
-      }
-      if (!card.loanNotes && row.loanNotes) {
-        card.loanNotes = row.loanNotes;
+      if (!card.loanDate || Number.isNaN(card.loanDate.getTime()) || row.lentAt.getTime() > card.loanDate.getTime()) {
+        card.loanDate = row.lentAt;
       }
       card.items.push(row);
     }
@@ -930,6 +902,34 @@ export class LibraryLendingComponent implements OnInit {
       const dateCmp = (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
       return dateCmp !== 0 ? dateCmp : a.phone.localeCompare(b.phone, 'he');
     });
+  }
+
+  protected cardDeposits(card: ActiveLoanCustomerCard): string[] {
+    const seen = new Set<string>();
+    const deposits: string[] = [];
+    for (const row of card.items) {
+      const value = (row.deposit ?? '').trim();
+      if (!value || seen.has(value)) {
+        continue;
+      }
+      seen.add(value);
+      deposits.push(value);
+    }
+    return deposits;
+  }
+
+  protected cardLoanNotes(card: ActiveLoanCustomerCard): string[] {
+    const seen = new Set<string>();
+    const notes: string[] = [];
+    for (const row of card.items) {
+      const value = (row.loanNotes ?? '').trim();
+      if (!value || seen.has(value)) {
+        continue;
+      }
+      seen.add(value);
+      notes.push(value);
+    }
+    return notes;
   }
 
   private toIsoDate(date: Date | null | undefined): string {
@@ -1045,7 +1045,7 @@ export class LibraryLendingComponent implements OnInit {
     }
     // Local filter only — from the single bulk cache loaded at page init.
     const inStock = this.availableByBook().get(line.bookId) ?? [];
-    return sortNumericCodes(inStock);
+    return sortNumericCodes([...new Set([...inStock, ...line.selectedCopies.map((c) => c.trim()).filter(Boolean)])]);
   }
 
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
@@ -1282,7 +1282,7 @@ export class LibraryLendingComponent implements OnInit {
     };
 
     this.submittingId.set(form.id);
-    const editingId = this.editingLoanId();
+    const editingId = form.editingLoanId;
     const request$ =
       editingId != null
         ? this.data.updateBookLoan(editingId, payload)
@@ -1315,33 +1315,29 @@ export class LibraryLendingComponent implements OnInit {
               this.customers.upsert(saved);
             }
           });
-        const groupedIds = this.editingGroupedLoanIds();
         const finishSave = (): void => {
           this.toast.success(
             editingId != null ? `השאלה #${created.id} עודכנה` : 'ההשאלה נשמרה'
           );
-          this.clearEditState();
+          if (editingId != null) {
+            this.forms.update((list) => list.filter((draft) => draft.id !== form.id));
+            if (this.forms().length === 0) {
+              this.clearEditState();
+              this.formMinimized.set(false);
+              this.loanScanCode.set('');
+              this.forms.set([this.createDraftForm()]);
+            }
+          } else {
+            this.clearEditState();
+            this.formMinimized.set(false);
+            this.loanScanCode.set('');
+            this.forms.set([this.createDraftForm()]);
+          }
           this.orderDraft.clearIfKind('library-loan');
-          this.formMinimized.set(false);
-          this.loanScanCode.set('');
-          this.forms.set([this.createDraftForm()]);
           this.ordersSync.notifyLoanChanged();
           this.refreshAvailability();
           this.refreshActiveLoans();
         };
-
-        if (editingId != null && groupedIds.length > 0) {
-          forkJoin(groupedIds.map((loanId) => this.data.deleteBookLoan(loanId))).subscribe(
-            (results) => {
-              const okCount = results.filter((ok) => ok).length;
-              if (okCount < groupedIds.length) {
-                this.toast.error('חלק מההשאלות המאוחדות לא נמחקו — ייתכן שיופיעו כפילויות');
-              }
-              finishSave();
-            }
-          );
-          return;
-        }
 
         finishSave();
       });
@@ -1609,6 +1605,7 @@ export class LibraryLendingComponent implements OnInit {
     const timeLimitOn = this.isTimeLimitEnabled();
     return {
       id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      editingLoanId: null,
       createdAt,
       hebrewDateTime: this.formatHebrewDate(createdAt),
       bookLines: [this.createToolLine()],
@@ -1620,6 +1617,52 @@ export class LibraryLendingComponent implements OnInit {
       notes: '',
       clientAlertNotes: null,
       deadlineAt: timeLimitOn ? this.computeDeadline(createdAt, days) : null
+    };
+  }
+
+  private createDraftFormFromLoan(loan: BookLoanDto): LendingDraftForm {
+    const linesByBook = new Map<number, BookLineItem>();
+    const bookLines: BookLineItem[] = [];
+    const activeItems = (loan.items ?? []).filter((item) => !item.returnedAt);
+
+    for (const item of activeItems) {
+      const copy = (item.copyNumber ?? '').trim();
+      const existing = linesByBook.get(item.bookId);
+      if (existing) {
+        if (copy) {
+          existing.selectedCopies = [...existing.selectedCopies, copy];
+        }
+        continue;
+      }
+
+      const def = this.definitions().find((book) => book.id === item.bookId);
+      const line: BookLineItem = {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        bookId: item.bookId,
+        bookQuery: def?.title ?? item.bookTitle ?? '',
+        selectedCopies: copy ? [copy] : [],
+        bookSuggestOpen: false,
+        copiesOpen: false
+      };
+      linesByBook.set(item.bookId, line);
+      bookLines.push(line);
+    }
+
+    const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
+    return {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      editingLoanId: loan.id,
+      createdAt: lentAt,
+      hebrewDateTime: (loan.hebrewLentDisplay ?? '').trim() || this.formatHebrewDate(lentAt),
+      bookLines: bookLines.length > 0 ? bookLines : [this.createToolLine()],
+      clientName: loan.clientName ?? '',
+      phone: loan.phone ?? '',
+      phone2: loan.phone2 ?? '',
+      address: loan.address ?? '',
+      deposit: loan.deposit ?? '',
+      notes: loan.notes ?? '',
+      clientAlertNotes: null,
+      deadlineAt: this.parseLoanDate(loan.deadlineAt)
     };
   }
 

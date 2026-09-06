@@ -4162,7 +4162,8 @@ export class OrderFormComponent implements OnInit {
           ? this.optionalText(booking['customReturnTime'])
           : null,
         loanedEquipments: loaned,
-        allowDoubleBooking: false
+        allowDoubleBooking: false,
+        systemType: this.systemContext.currentSystemType()
       });
     }
 

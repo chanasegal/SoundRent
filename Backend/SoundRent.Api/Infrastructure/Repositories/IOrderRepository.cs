@@ -92,7 +92,9 @@ public interface IOrderRepository
     /// <summary>
     /// Accessory-only unpaid orders (no booking-slot equipment), newest first.
     /// </summary>
-    Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default);
+    Task<List<Order>> GetQuickLoansAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
         CancellationToken cancellationToken = default);

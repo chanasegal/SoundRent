@@ -86,9 +86,13 @@ public class OrdersController : ControllerBase
     /// weekly-schedule bookings that still have accessories out.
     /// </summary>
     [HttpGet("quick-loans")]
-    public async Task<ActionResult<List<OrderDto>>> GetQuickLoans(CancellationToken cancellationToken)
+    public async Task<ActionResult<List<OrderDto>>> GetQuickLoans(
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
     {
-        var orders = await _orderService.GetQuickLoansAsync(cancellationToken);
+        var orders = await _orderService.GetQuickLoansAsync(
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(orders);
     }
 

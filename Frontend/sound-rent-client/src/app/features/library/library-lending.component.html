@@ -39,8 +39,8 @@
     <div class="loan-form-inline-shell__header">
       <div>
         <h2 id="library-loan-form-title" class="text-lg font-bold text-[#002244]">
-          @if (editingLoanId(); as editId) {
-            עריכת השאלה #{{ editId }}
+          @if (editingCardKey()) {
+            עריכת השאלות הפעילות ללקוח
           } @else {
             השאלה חדשה
           }
@@ -87,21 +87,38 @@
       </div>
     </div>
 
-    @if (editingLoanId(); as editId) {
+    @if (editingCardKey()) {
       <div class="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
-        @if (editingGroupedLoanIds().length > 0) {
-          עורכים השאלות
-          <strong>{{ formatLoanIdList([editId, ...editingGroupedLoanIds()]) }}</strong>
-          — שמירה תעדכן את ההשאלה הראשית ותאחד את כל הפריטים.
-        } @else {
-          עורכים השאלת ספר <strong>#{{ editId }}</strong> — שמירה תעדכן את ההשאלה הקיימת.
-        }
+        כל השאלה מוצגת כקבוצה נפרדת. כל קבוצה שומרת פיקדון, הערות ותאריך/שעה עצמאיים.
       </div>
     }
 
     <div class="forms-stack">
       @for (form of forms(); track form.id) {
         <section class="loan-card loan-card--inline">
+          @if (form.editingLoanId; as editId) {
+            <div class="mb-4 flex items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+              <div class="text-sm text-sky-900">
+                <strong>#{{ editId }}</strong> · {{ form.hebrewDateTime }}
+              </div>
+              <button
+                type="button"
+                class="recent-loan-action recent-loan-action--delete"
+                title="מחיקת השאלה"
+                aria-label="מחיקת השאלה"
+                [disabled]="!!submittingId() || deletingCardKey() !== null"
+                (click)="askDeleteEditingLoan(form)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16"></path>
+                  <path d="M10 11v6"></path>
+                  <path d="M14 11v6"></path>
+                  <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                  <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+              </button>
+            </div>
+          }
           <div class="loan-card__grid">
             <div class="field-block field-block--span2">
               <label class="field-label">ספרים מושאלים</label>
@@ -380,7 +397,7 @@
               [disabled]="submittingId() === form.id"
               (click)="submitForm(form)"
             >
-              {{ submittingId() === form.id ? 'שומר…' : editingLoanId() ? 'עדכון השאלה #' + editingLoanId() : 'שמירת השאלה' }}
+              {{ submittingId() === form.id ? 'שומר…' : form.editingLoanId ? 'עדכון השאלה #' + form.editingLoanId : 'שמירת השאלה' }}
             </button>
             <button
               type="button"
@@ -450,24 +467,6 @@
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
-                @if (card.deposit) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
-                  </div>
-                }
-                @if (card.loanNotes) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
-                  </div>
-                }
-                @if (card.customerNotes) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערת לקוח:</span>
-                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
-                  </div>
-                }
                 <span class="customer-breakdown-card__total">
                   סכום כולל:
                   <strong dir="ltr">{{ formatChargeTotal(cardTotalCharge(card)) }}</strong>
@@ -523,38 +522,48 @@
               </div>
             </header>
 
+            @if (cardDeposits(card).length > 0 || cardLoanNotes(card).length > 0 || card.customerNotes) {
+              <div class="mb-3 space-y-2">
+                @for (deposit of cardDeposits(card); track deposit) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">{{ deposit }}</span>
+                  </div>
+                }
+                @for (note of cardLoanNotes(card); track note) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">{{ note }}</span>
+                  </div>
+                }
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
+                  </div>
+                }
+              </div>
+            }
+
             <ul class="customer-breakdown-card__items">
               @for (row of card.items; track row.rowKey) {
                 <li
-                  class="loan-item-row"
-                  [class.loan-item-row--overdue]="isOverdue(row)"
+                  class="accessory-row active-loan-item"
                 >
-                  <div class="loan-item-row__main">
-                    <span class="loan-item-row__name">{{ row.item.bookTitle }}</span>
-                    <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
-                    <span class="loan-item-row__meta">שעה: {{ activeLoanTimeLabel(row.lentAt) }}</span>
-                    <span class="loan-item-row__meta">
-                      מועד נדרש:
-                      {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
+                  <span class="customer-breakdown-card__qty">1</span>
+                  <time class="active-loan-item__date">
+                    {{ activeLoanHebrewDate(row.lentAt) }} · {{ activeLoanTimeLabel(row.lentAt) }}
+                  </time>
+                  <span class="accessory-row__label">{{ row.item.bookTitle }}</span>
+                  <span class="accessory-row__serial">
+                    <span class="accessory-row__serial-sep">:</span>
+                    <span class="accessory-row__serial-chip-list">
+                      <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ row.item.copyNumber }}</span>
                     </span>
-                    <span
-                      class="loan-item-row__duration"
-                      [class.duration-overdue]="isOverdue(row)"
-                    >
-                      {{ durationText(row) }}
-                    </span>
-                    <button
-                      type="button"
-                      class="action-icon-btn action-icon-btn--calendar"
-                      (click)="loanRangeCal.open($event, row.lentAt, null)"
-                      title="תצוגת טווח השאלה"
-                      aria-label="תצוגת טווח השאלה"
-                    >
-                      <i class="pi pi-calendar" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                  <div class="loan-item-row__actions">
-                    <label class="loan-item-row__charge">
+                  </span>
+
+                  <div class="active-loan-item__meta">
+                    <label class="tool-row-charge">
                       <span>סכום חיוב</span>
                       <input
                         type="number"
@@ -569,15 +578,21 @@
                         [disabled]="row.returning || isCardBusy(card)"
                       />
                     </label>
-                    <label class="returned-check">
-                      <input
-                        type="checkbox"
-                        [checked]="false"
-                        [disabled]="row.returning || isCardBusy(card)"
-                        (change)="onReturnedToggle(row, $any($event.target).checked)"
-                      />
-                      <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
-                    </label>
+                    <button
+                      type="button"
+                      class="active-loans-return-btn"
+                      [disabled]="row.returning || isCardBusy(card)"
+                      (click)="onReturnedToggle(row, true)"
+                    >
+                      @if (row.returning) {
+                        מחזיר…
+                      } @else {
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M20 6 9 17l-5-5"></path>
+                        </svg>
+                        סמן כהוחזר
+                      }
+                    </button>
                   </div>
                 </li>
               }

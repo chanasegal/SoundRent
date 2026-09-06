@@ -797,20 +797,12 @@ export class WeeklyGridComponent {
       return this.finalReturnTimeLabel(order);
     }
 
-    const cellIso = this.toIsoDate(cellDate);
-    const isOnEndDate = cellIso === lastShift.orderDate;
-
-    if (!isOnEndDate) {
-      const returnDay = this.hebrew.parseIso(lastShift.orderDate);
-      if (returnDay) {
-        const dayName = DAY_NAMES_HE[returnDay.getDay()];
-        if (dayName) {
-          return `מחזיר ב${dayName}`;
-        }
-      }
+    const returnDate = this.hebrew.parseIso(lastShift.orderDate);
+    if (!returnDate) {
+      return this.finalReturnTimeLabel(order);
     }
 
-    return this.finalReturnTimeLabel(order);
+    return `${this.hebrew.formatGregorianWithDayName(returnDate)} · ${this.finalReturnTimeLabel(order)}`;
   }
 
   private finalReturnTimeLabel(order: OrderDto): string {

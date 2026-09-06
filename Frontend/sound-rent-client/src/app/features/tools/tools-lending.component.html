@@ -94,11 +94,433 @@
       <div class="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
         כל השאלה מוצגת כקבוצה נפרדת. כל קבוצה שומרת פיקדון, הערות ותאריך/שעה עצמאיים.
       </div>
+
+      @if (sharedEditForm(); as sharedForm) {
+        <div
+          class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          data-customer-suggest
+          (appClickOutside)="closeCustomerSuggest()"
+          [appClickOutsideEnabled]="customerSuggestOpen() && customerSuggestFormId() === sharedForm.id"
+        >
+          <label class="mb-3 block text-sm font-semibold text-slate-700">פרטי לקוח</label>
+          @if (sharedForm.clientAlertNotes) {
+            <div class="client-alert mb-3" role="alert">
+              <div class="client-alert__body">
+                <strong>התראת לקוח</strong>
+                <span>{{ sharedForm.clientAlertNotes }}</span>
+              </div>
+              <button type="button" class="client-alert__dismiss" (click)="dismissClientAlert(sharedForm.id)">
+                סגור
+              </button>
+            </div>
+          }
+          @if (sharedForm.clientRiskAlerts.cancelledDebtMessage) {
+            <div class="client-alert client-alert--risk mb-2" role="alert">
+              <div class="client-alert__body">
+                <span>{{ sharedForm.clientRiskAlerts.cancelledDebtMessage }}</span>
+              </div>
+            </div>
+          }
+          @if (sharedForm.clientRiskAlerts.openDebtMessage) {
+            <div class="client-alert client-alert--risk mb-2" role="alert">
+              <div class="client-alert__body">
+                <span>{{ sharedForm.clientRiskAlerts.openDebtMessage }}</span>
+              </div>
+            </div>
+          }
+          @if (sharedForm.clientRiskAlerts.unreturnedMessage) {
+            <div class="client-alert client-alert--risk mb-3" role="alert">
+              <div class="client-alert__body">
+                <span>{{ sharedForm.clientRiskAlerts.unreturnedMessage }}</span>
+              </div>
+            </div>
+          }
+          <div class="client-grid">
+            <div class="relative">
+              <input
+                type="text"
+                class="field-input"
+                placeholder="שם לקוח"
+                [value]="sharedForm.clientName"
+                (input)="onSharedClientNameInput($any($event.target).value)"
+                (focus)="onSharedClientNameInput(sharedForm.clientName)"
+                autocomplete="off"
+              />
+              @if (
+                customerSuggestOpen() &&
+                customerSuggestFormId() === sharedForm.id &&
+                customerSuggestField() === 'name'
+              ) {
+                <ul class="suggest-list">
+                  @for (c of customerSuggestions(); track c.phone1) {
+                    <li>
+                      <button type="button" (click)="selectCustomerSuggestion(sharedForm.id, c)">
+                        <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
+                        <span class="suggest-meta">
+                          <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
+                          @if (c.address) {
+                            <span>{{ c.address }}</span>
+                          }
+                        </span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <div class="relative">
+              <input
+                type="tel"
+                class="field-input phone-input"
+                [class.phone-input--filled]="!!sharedForm.phone"
+                placeholder="טלפון"
+                maxlength="10"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                appIsraeliPhoneInput
+                [value]="sharedForm.phone"
+                (input)="onSharedPhoneInput($any($event.target).value)"
+                (focus)="onSharedPhoneInput(sharedForm.phone)"
+                autocomplete="off"
+              />
+              @if (
+                customerSuggestOpen() &&
+                customerSuggestFormId() === sharedForm.id &&
+                customerSuggestField() === 'phone'
+              ) {
+                <ul class="suggest-list">
+                  @for (c of customerSuggestions(); track c.phone1) {
+                    <li>
+                      <button type="button" (click)="selectCustomerSuggestion(sharedForm.id, c)">
+                        <span class="suggest-main">{{ c.fullName || 'ללא שם' }}</span>
+                        <span class="suggest-meta">
+                          <span class="ltr-field" dir="ltr">{{ c.phone1 }}</span>
+                          @if (c.address) {
+                            <span>{{ c.address }}</span>
+                          }
+                        </span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <div class="relative">
+              <input
+                type="tel"
+                class="field-input phone-input"
+                [class.phone-input--filled]="!!sharedForm.phone2"
+                placeholder="טלפון 2"
+                maxlength="10"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                appIsraeliPhoneInput
+                [value]="sharedForm.phone2"
+                (input)="onSharedPhone2Input($any($event.target).value)"
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="client-grid__address-row">
+              <div class="relative">
+                <input
+                  type="text"
+                  class="field-input"
+                  placeholder="כתובת"
+                  [value]="sharedForm.address"
+                  (input)="onSharedAddressInput($any($event.target).value)"
+                  autocomplete="off"
+                />
+              </div>
+
+              <div
+                class="relative"
+                data-institution-suggest
+                (appClickOutside)="closeInstitutionSuggest()"
+                [appClickOutsideEnabled]="
+                  institutionSuggestOpen() && institutionSuggestFormId() === sharedForm.id
+                "
+              >
+                <input
+                  type="text"
+                  class="field-input"
+                  placeholder="מוסד"
+                  maxlength="200"
+                  [value]="sharedForm.institutionName"
+                  (input)="onSharedInstitutionInput($any($event.target).value)"
+                  (focus)="onInstitutionFocus(sharedForm.id)"
+                  (blur)="onInstitutionBlur()"
+                  (keydown)="onInstitutionKeydown(sharedForm.id, $event)"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  [attr.aria-expanded]="
+                    institutionSuggestOpen() &&
+                    institutionSuggestFormId() === sharedForm.id &&
+                    institutionSuggestions().length > 0
+                  "
+                />
+                @if (
+                  institutionSuggestOpen() &&
+                  institutionSuggestFormId() === sharedForm.id &&
+                  institutionSuggestions().length > 0
+                ) {
+                  <ul class="suggest-list" role="listbox" aria-label="מוסדות תואמים">
+                    @for (inst of institutionSuggestions(); track inst.id; let i = $index) {
+                      <li role="option" [attr.aria-selected]="institutionSuggestIndex() === i">
+                        <button
+                          type="button"
+                          [class.suggest-item--active]="institutionSuggestIndex() === i"
+                          (mousedown)="selectInstitutionSuggestion(sharedForm.id, inst, $event)"
+                        >
+                          <span class="suggest-main">{{ inst.name }}</span>
+                          @if (inst.defaultNote?.trim()) {
+                            <span class="suggest-meta">{{ inst.defaultNote }}</span>
+                          }
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      }
     }
 
     <div class="forms-stack">
       @for (form of forms(); track form.id) {
+        @if (editingCardKey()) {
+        <section class="rounded-xl border border-sky-200 bg-sky-50/50 p-4">
+          @if (form.editingLoanId; as editId) {
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="space-y-1">
+                <strong class="text-[#002244]">השאלה #{{ editId }}</strong>
+                <div class="text-sm text-slate-600">
+                  {{ form.hebrewDateTime }}
+                  @if (showDeadline()) {
+                    <span class="loan-form-modal__deadline">· מועד החזרה: {{ formatDeadline(form.deadlineAt) }}</span>
+                  }
+                </div>
+              </div>
+              <button
+                type="button"
+                class="recent-loan-action recent-loan-action--delete"
+                title="מחיקת השאלה"
+                aria-label="מחיקת השאלה"
+                [disabled]="!!submittingId() || deletingCardKey() !== null"
+                (click)="askDeleteEditingLoan(form)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16"></path>
+                  <path d="M10 11v6"></path>
+                  <path d="M14 11v6"></path>
+                  <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                  <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+              </button>
+            </div>
+          }
+
+          <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון</label>
+              <input
+                type="text"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="פרטי פיקדון"
+                [value]="form.deposit"
+                (input)="patchForm(form.id, { deposit: $any($event.target).value })"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">הערות</label>
+              <input
+                type="text"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="הערות"
+                [value]="form.notes"
+                (input)="patchForm(form.id, { notes: $any($event.target).value })"
+              />
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <label class="field-label">ציוד מושאל</label>
+            <div class="tool-lines">
+              @for (line of form.toolLines; track line.id) {
+                <div class="tool-line" [class.tool-line--temporary]="line.isTemporary">
+                  <div
+                    class="tool-line__tool"
+                    data-tool-suggest
+                    (appClickOutside)="closeToolSuggest(form.id, line.id)"
+                    [appClickOutsideEnabled]="line.toolSuggestOpen"
+                  >
+                    <input
+                      type="text"
+                      class="field-input"
+                      [class.field-input--temporary]="line.isTemporary"
+                      placeholder="שם כלי + קוד (למשל: מברגה 123)"
+                      data-tool-line-input
+                      [attr.data-line-id]="line.id"
+                      [attr.data-form-id]="form.id"
+                      [value]="line.toolQuery"
+                      (input)="onToolQueryInput(form.id, line.id, $any($event.target).value)"
+                      (focus)="onToolQueryFocus(form.id, line.id)"
+                      (blur)="onToolQueryBlur(form.id, line.id)"
+                      (keydown.enter)="onToolQueryEnter(form.id, line.id, $event)"
+                      autocomplete="off"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      [attr.aria-expanded]="line.toolSuggestOpen"
+                    />
+                    @if (line.toolSuggestOpen) {
+                      <ul class="suggest-list" role="listbox" (click)="$event.stopPropagation()">
+                        @for (tool of filteredToolsForLine(form, line); track tool.id) {
+                          <li role="option">
+                            <button type="button" (mousedown)="selectTool(form.id, line.id, tool, $event)">
+                              <span class="suggest-main">{{ tool.displayName }}</span>
+                              <span class="suggest-meta">
+                                {{ availableByTool().get(tool.id)?.length ?? 0 }} קודים זמינים
+                              </span>
+                            </button>
+                          </li>
+                        } @empty {
+                          @if (!showCustomTemporaryToolOption(form, line)) {
+                            <li class="suggest-empty">לא נמצאו כלים תואמים</li>
+                          }
+                        }
+                        @if (showCustomTemporaryToolOption(form, line)) {
+                          <li role="option">
+                            <button
+                              type="button"
+                              class="suggest-item--custom"
+                              (mousedown)="onCustomTemporaryToolChosen(form.id, line.id, $event)"
+                            >
+                              <span class="suggest-main">{{ customTemporaryToolOptionLabel(line) }}</span>
+                              <span class="suggest-meta">לא במלאי — חד-פעמי להשאלה זו</span>
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    }
+                    @if (line.isTemporary) {
+                      <p class="tool-line__temp-note">פריט חד-פעמי — לא יתווסף למלאי</p>
+                    }
+                  </div>
+
+                  <div
+                    class="tool-line__codes"
+                    data-codes-dropdown
+                    (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                    (appClickOutside)="closeCodesDropdown(form.id, line.id)"
+                    [appClickOutsideEnabled]="line.codesOpen"
+                  >
+                    <button
+                      type="button"
+                      class="ms-dropdown__btn"
+                      [attr.data-line-id]="line.id"
+                      [attr.data-form-id]="form.id"
+                      [disabled]="line.toolId == null"
+                      (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                      (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                    >
+                      @if (line.selectedCodes.length === 0) {
+                        <span class="placeholder">בחרו קודים…</span>
+                      } @else {
+                        <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                      }
+                    </button>
+                    @if (line.codesOpen) {
+                      <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
+                        @for (code of availableCodesForLine(form, line); track code) {
+                          <label class="ms-dropdown__option">
+                            <input
+                              type="checkbox"
+                              [checked]="line.selectedCodes.includes(code)"
+                              (change)="toggleCodeSelection(form.id, line.id, code, $event)"
+                            />
+                            <span class="ltr-field" dir="ltr">{{ code }}</span>
+                          </label>
+                        } @empty {
+                          <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  @if (form.toolLines.length > 1) {
+                    <button
+                      type="button"
+                      class="tool-line__remove"
+                      (click)="removeToolLine(form.id, line.id)"
+                      aria-label="הסר שורת כלי"
+                    >
+                      ×
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
+            <button
+              type="button"
+              class="add-tool-btn add-tool-btn--compact"
+              [disabled]="!!submittingId()"
+              (click)="onAddToolLineClick(form.id, $event)"
+              aria-label="הוסף שורת כלי"
+              title="הוסף שורת כלי"
+            >
+              +
+            </button>
+          </div>
+
+          <div class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="save-btn"
+              [disabled]="submittingId() === form.id"
+              (click)="submitForm(form)"
+            >
+              {{
+                submittingId() === form.id
+                  ? 'שומר…'
+                  : form.editingLoanId
+                    ? 'עדכון השאלה #' + form.editingLoanId
+                    : 'שמירת השאלה'
+              }}
+            </button>
+          </div>
+        </section>
+        } @else {
         <section class="loan-card loan-card--inline">
+          @if (form.editingLoanId; as editId) {
+            <div class="mb-4 flex items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+              <div class="text-sm text-sky-900">
+                <strong>#{{ editId }}</strong> · {{ form.hebrewDateTime }}
+              </div>
+              <button
+                type="button"
+                class="recent-loan-action recent-loan-action--delete"
+                title="מחיקת השאלה"
+                aria-label="מחיקת השאלה"
+                [disabled]="!!submittingId() || deletingCardKey() !== null"
+                (click)="askDeleteEditingLoan(form)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16"></path>
+                  <path d="M10 11v6"></path>
+                  <path d="M14 11v6"></path>
+                  <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                  <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+              </button>
+            </div>
+          }
           <div class="loan-card__grid">
             <div class="field-block field-block--span2">
               <label class="field-label">ציוד מושאל</label>
@@ -235,6 +657,7 @@
               </button>
             </div>
 
+            @if (!editingCardKey()) {
             <div
               class="field-block field-block--span2"
               data-customer-suggest
@@ -427,6 +850,7 @@
                 </div>
               </div>
             </div>
+            }
 
             <div class="field-block">
               <label class="field-label">פיקדון</label>
@@ -476,6 +900,7 @@
             </button>
           </footer>
         </section>
+        }
       }
     </div>
   </section>
@@ -525,20 +950,8 @@
                   </span>
                 </div>
                 <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
-                <span class="customer-breakdown-card__address">
-                  {{ activeLoanDateLabel(card.loanDate) }}
-                  @if (activeLoanHebrewDate(card.loanDate); as heb) {
-                    · {{ heb }}
-                  }
-                </span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
-                }
-                @if (card.customerNotes) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערת לקוח:</span>
-                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
-                  </div>
                 }
                 <span class="customer-breakdown-card__total">
                   סכום כולל:
@@ -564,6 +977,7 @@
                   </button>
                 }
                 @if (card.items.length > 0) {
+                  @if (canEditCard(card)) {
                   <button
                     type="button"
                     class="recent-loan-action"
@@ -577,6 +991,7 @@
                       <path d="M13.5 6 18 10.5"></path>
                     </svg>
                   </button>
+                  }
                   <button
                     type="button"
                     class="recent-loan-action recent-loan-action--delete"
@@ -597,47 +1012,118 @@
               </div>
             </header>
 
+            @if (cardDepositEntries(card).length > 0 || cardLoanNoteEntries(card).length > 0 || card.customerNotes) {
+              <div class="mb-3 space-y-2">
+                @for (deposit of cardDepositEntries(card); track deposit.key) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">
+                      {{ deposit.text }}
+                      @if (activeLoanTimeLabel(deposit.lentAt); as time) {
+                        · {{ time }}
+                      }
+                      @if (activeLoanHebrewDate(deposit.lentAt); as heb) {
+                        · {{ heb }}
+                      }
+                    </span>
+                  </div>
+                }
+                @for (note of cardLoanNoteEntries(card); track note.key) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">
+                      {{ note.text }}
+                      @if (activeLoanTimeLabel(note.lentAt); as time) {
+                        · {{ time }}
+                      }
+                      @if (activeLoanHebrewDate(note.lentAt); as heb) {
+                        · {{ heb }}
+                      }
+                    </span>
+                  </div>
+                }
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
+                  </div>
+                }
+              </div>
+            }
+
             <ul class="customer-breakdown-card__items">
               @for (row of card.items; track row.rowKey) {
                 <li
-                  class="loan-item-row"
-                  [class.loan-item-row--overdue]="isOverdue(row)"
+                  class="accessory-row active-loan-item"
                 >
-                  <div class="loan-item-row__main">
-                    <span class="loan-item-row__name">
-                      {{ row.item.toolName }}
+                  <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
+                  <time class="active-loan-item__date">
+                    {{ activeLoanHebrewDate(row.lentAt) }} · {{ activeLoanTimeLabel(row.lentAt) }}
+                  </time>
+                  <span class="accessory-row__label">
+                    {{ row.item.toolName }}
+                  </span>
+
+                  @if (row.activeSerialCodes.length > 0) {
+                    <span class="accessory-row__serial">
+                      <span class="accessory-row__serial-sep">:</span>
+                      <span class="accessory-row__serial-chip-list">
+                        @if (!isAccessoryLoan(row) && row.toolCodeItems.length > 0) {
+                          @for (codeItem of row.toolCodeItems; track codeItem.itemId) {
+                            <button
+                              type="button"
+                              class="accessory-row__serial-chip accessory-row__serial-chip--returnable"
+                              [class.accessory-row__serial-chip--busy]="isReturningToolCode(codeItem.itemId)"
+                              [class.accessory-row__serial-chip--removing]="isReturningToolCode(codeItem.itemId)"
+                              [disabled]="
+                                isReturningToolCode(codeItem.itemId) ||
+                                (returningItemId() !== null && !isReturningToolCode(codeItem.itemId)) ||
+                                isCardBusy(card)
+                              "
+                              [title]="'סמן קוד ' + codeItem.code + ' כהוחזר'"
+                              [attr.aria-label]="'סמן קוד ' + codeItem.code + ' כהוחזר'"
+                              (click)="markToolCodeReturned(row, codeItem.itemId)"
+                            >
+                              <span class="ltr-field" dir="ltr">{{ codeItem.code }}</span>
+                              @if (isReturningToolCode(codeItem.itemId)) {
+                                <span class="return-chip-hint">…</span>
+                              } @else {
+                                <span class="return-chip-hint">החזר</span>
+                              }
+                            </button>
+                          }
+                        } @else {
+                          @for (code of row.activeSerialCodes; track code) {
+                            <button
+                              type="button"
+                              class="accessory-row__serial-chip accessory-row__serial-chip--returnable"
+                              [class.accessory-row__serial-chip--busy]="isReturningAccessoryCode(row, code)"
+                              [class.accessory-row__serial-chip--removing]="isReturningAccessoryCode(row, code)"
+                              [disabled]="
+                                isReturningAccessoryCode(row, code) ||
+                                (returningAccessoryKey() !== null && !isReturningAccessoryCode(row, code)) ||
+                                isCardBusy(card)
+                              "
+                              [title]="'סמן קוד ' + code + ' כהוחזר'"
+                              [attr.aria-label]="'סמן קוד ' + code + ' כהוחזר'"
+                              (click)="markAccessoryCodeReturned(row, code)"
+                            >
+                              <span class="ltr-field" dir="ltr">{{ code }}</span>
+                              @if (isReturningAccessoryCode(row, code)) {
+                                <span class="return-chip-hint">…</span>
+                              } @else {
+                                <span class="return-chip-hint">החזר</span>
+                              }
+                            </button>
+                          }
+                        }
+                      </span>
                     </span>
-                    @if (row.item.serialCode) {
-                      <span class="loan-item-row__code ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
-                    }
-                    @if (!isAccessoryLoan(row)) {
-                      <span class="loan-item-row__meta">שעה: {{ activeLoanTimeLabel(row.lentAt) }}</span>
-                    }
-                    @if (!isAccessoryLoan(row)) {
-                      <span class="loan-item-row__meta">
-                        מועד נדרש:
-                        {{ formatDeadline(row.deadlineAt) === '—' ? '—' : formatDeadline(row.deadlineAt) }}
-                      </span>
-                      <span
-                        class="loan-item-row__duration"
-                        [class.duration-overdue]="isOverdue(row)"
-                      >
-                        {{ durationText(row) }}
-                      </span>
-                      <button
-                        type="button"
-                        class="action-icon-btn action-icon-btn--calendar"
-                        (click)="loanRangeCal.open($event, row.lentAt, null)"
-                        title="תצוגת טווח השאלה"
-                        aria-label="תצוגת טווח השאלה"
-                      >
-                        <i class="pi pi-calendar" aria-hidden="true"></i>
-                      </button>
-                    }
-                  </div>
-                  @if (!isAccessoryLoan(row) && row.itemId !== null) {
-                    <div class="loan-item-row__actions">
-                      <label class="loan-item-row__charge">
+                  }
+
+                  <div class="active-loan-item__meta">
+                    @if (!isAccessoryLoan(row) && row.toolItemIds.length > 0) {
+                      <label class="tool-row-charge">
                         <span>סכום חיוב</span>
                         <input
                           type="number"
@@ -646,34 +1132,54 @@
                           class="charge-input ltr-field"
                           dir="ltr"
                           placeholder="0"
-                          [value]="rowChargeValue(row.itemId)"
-                          (input)="onRowChargeInput(row.itemId, $any($event.target).value)"
+                          [value]="rowChargeValue(rowChargeKey(row))"
+                          (input)="onRowChargeInput(rowChargeKey(row), $any($event.target).value)"
                           [disabled]="row.returning || isCardBusy(card)"
                         />
                       </label>
-                      <label class="returned-check">
-                        <input
-                          type="checkbox"
-                          [checked]="false"
-                          [disabled]="row.returning || isCardBusy(card)"
-                          (change)="onReturnedToggle(row, $any($event.target).checked)"
-                        />
-                        <span>{{ row.returning ? 'מחזיר…' : 'הוחזר' }}</span>
-                      </label>
-                    </div>
-                  } @else if (isAccessoryLoan(row) && row.loanedEquipmentId !== null) {
-                    <div class="loan-item-row__actions">
-                      <label class="returned-check">
-                        <input
-                          type="checkbox"
-                          [checked]="false"
-                          [disabled]="row.returning || isCardBusy(card)"
-                          (change)="onReturnedToggle(row, $any($event.target).checked)"
-                        />
-                        <span>{{ isCardBusy(card) ? 'מחזיר…' : 'הוחזר' }}</span>
-                      </label>
-                    </div>
-                  }
+                    }
+                    @if (!isAccessoryLoan(row) && row.toolItemIds.length > 0) {
+                      <button
+                        type="button"
+                        class="active-loans-return-btn"
+                        [disabled]="row.returning || isCardBusy(card)"
+                        (click)="onReturnedToggle(row, true)"
+                      >
+                        @if (row.returning) {
+                          מחזיר…
+                        } @else {
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5"></path>
+                          </svg>
+                          סמן כהוחזר
+                        }
+                      </button>
+                    } @else if (isAccessoryLoan(row) && row.loanedEquipmentId !== null) {
+                      <button
+                        type="button"
+                        class="active-loans-return-btn"
+                        [disabled]="row.returning || isCardBusy(card)"
+                        (click)="onReturnedToggle(row, true)"
+                      >
+                        @if (isCardBusy(card) && returningAccessoryKey() === row.rowKey) {
+                          מחזיר…
+                        } @else {
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5"></path>
+                          </svg>
+                          סמן כהוחזר
+                        }
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="active-loans-return-btn"
+                        disabled
+                      >
+                        סמן כהוחזר
+                      </button>
+                    }
+                  </div>
                 </li>
               }
             </ul>

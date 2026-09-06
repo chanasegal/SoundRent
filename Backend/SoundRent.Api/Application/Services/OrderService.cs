@@ -332,9 +332,11 @@ public class OrderService : IOrderService
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
-    public async Task<List<OrderDto>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
+    public async Task<List<OrderDto>> GetQuickLoansAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        var orders = await _orderRepository.GetQuickLoansAsync(cancellationToken);
+        var orders = await _orderRepository.GetQuickLoansAsync(systemType, cancellationToken);
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
