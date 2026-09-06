@@ -27,6 +27,7 @@ export interface AccessorySerialAvailabilityRequestDto {
   equipmentTypes?: LoanedEquipmentType[];
   inventoryDefinitionIds?: number[];
   excludeOrderId?: number | null;
+  excludeOrderIds?: number[] | null;
 }
 
 export interface AccessorySerialOptionDto {

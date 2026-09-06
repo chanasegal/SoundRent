@@ -17,10 +17,10 @@
     <form [formGroup]="form" class="space-y-6" (ngSubmit)="submit()">
     @if (editingId(); as editId) {
       <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
-        @if (editingGroupedOrderIds().length > 0) {
-          עורכים השאלות
-          <strong>{{ formatOrderIdList([editId, ...editingGroupedOrderIds()]) }}</strong>
-          — שמירה תעדכן את ההזמנה הראשית ותאחד את כל פריטי האביזרים.
+        @if (editingOrderGroups().length > 1) {
+          עורכים מספר הזמנות אביזרים:
+          <strong>{{ formatOrderIdList(editingOrderGroups().map((g) => g.orderId)) }}</strong>
+          — כל הזמנה שומרת פיקדון/הערות ותאריך נפרדים.
         } @else {
           עורכים השאלת אביזרים <strong>#{{ editId }}</strong> — שמירה תעדכן את ההזמנה הקיימת.
         }
@@ -232,132 +232,462 @@
       </p>
 
       <article class="customer-breakdown-card">
-        @if (accessoryRows().length === 0) {
-          <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים — הזינו שורה למטה</p>
-        }
-
-        <ul class="customer-breakdown-card__items">
-          @for (item of accessoryRows(); track item.inventoryDefinitionId) {
-            <li
-              class="accessory-row"
-              (appClickOutside)="closeSerialDropdown(item)"
-              [appClickOutsideEnabled]="isSerialDropdownOpen(item)"
-            >
-              <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
-                <span class="accessory-row__qty-label">כמות</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  inputmode="numeric"
-                  class="accessory-row__qty-input"
-                  [value]="item.quantity"
-                  (input)="updateRowQuantity(item, $any($event.target).value)"
-                />
-              </label>
-              <span class="accessory-row__label">{{ item.label }}</span>
-
-              <span class="accessory-row__serial">
-                <span class="accessory-row__serial-sep">:</span>
-                @if (selectedCodes(item).length > 0) {
-                  <button
-                    type="button"
-                    class="accessory-row__serial-codes"
-                    (click)="toggleSerialDropdown(item)"
-                  >
-                    <span class="accessory-row__serial-chip-list">
-                      @for (code of selectedCodes(item); track code) {
-                        <span class="accessory-row__serial-chip">
-                          <span class="ltr-field">{{ code }}</span>
-                        </span>
+        @if (isMultiOrderEditing()) {
+          <div class="space-y-4">
+            @for (group of editingOrderGroups(); track group.orderId) {
+              <section class="rounded-xl border border-sky-200 bg-sky-50/50 p-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="space-y-1">
+                    <strong class="text-[#002244]">הזמנה #{{ group.orderId }}</strong>
+                    <div class="text-sm text-slate-600">
+                      {{ activeLoanDateLabel(group.orderDateIso) }}
+                      @if (editingGroupHebrewDate(group.orderDateIso); as heb) {
+                        · {{ heb }}
                       }
-                    </span>
-                  </button>
-                } @else {
+                      @if (editingGroupTimeSlotLabel(group.timeSlot); as slot) {
+                        · {{ slot }}
+                      }
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    class="accessory-row__serial-placeholder"
-                    (click)="toggleSerialDropdown(item)"
+                    class="recent-loan-action recent-loan-action--delete"
+                    title="מחק הזמנה זו"
+                    aria-label="מחק הזמנה זו"
+                    [disabled]="submitting() || deletingCardKey() !== null"
+                    (click)="askDeleteEditingGroup(group)"
                   >
-                    לקביעת קודים בהמשך
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 7h16"></path>
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                    </svg>
                   </button>
-                }
-                <button
-                  type="button"
-                  class="accessory-row__serial-edit"
-                  (click)="toggleSerialDropdown(item)"
-                  aria-label="עריכת קוד פריט"
-                  title="עריכת קודי פריט"
-                >
-                  ✎
-                </button>
-                <button
-                  type="button"
-                  class="accessory-row__remove"
-                  (click)="removeAccessoryRow(item)"
-                  aria-label="הסרת אביזר"
-                  title="הסרת אביזר"
-                >
-                  ×
-                </button>
-              </span>
+                </div>
 
-              @if (isSerialDropdownOpen(item)) {
-                <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
-                  @if (serialPanelState(item) === 'loading') {
-                    <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
-                  } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
-                    <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
-                      {{ serialPanelEmptyMessage(item) }}
-                    </p>
-                  } @else {
-                    <div class="multi-select__quick-entry">
-                      <input
-                        type="text"
-                        class="multi-select__quick-input"
-                        placeholder="הקלידו קוד ולחצו Enter"
-                        autocomplete="off"
-                        [value]="serialQuickEntry()"
-                        (input)="serialQuickEntry.set($any($event.target).value)"
-                        (keydown.enter)="onSerialQuickEnter(item, $event)"
-                      />
-                    </div>
-                    @for (opt of serialOptionsForRow(item); track opt.serialCode) {
-                      <label
-                        class="multi-select__option"
-                        [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
-                      >
-                        <input
-                          type="checkbox"
-                          [checked]="isSerialSelected(item, opt.serialCode)"
-                          [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
-                          (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
-                        />
-                        <span class="multi-select__option-label">
-                          <span class="ltr-field">{{ opt.serialCode }}</span>
-                          @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
-                            <span class="equipment-occupied-badge">תפוס</span>
-                          }
-                        </span>
-                      </label>
-                    }
-                  }
-
-                  <div class="accessory-serial-panel__actions">
-                    <button
-                      type="button"
-                      class="accessory-serial-panel__btn accessory-serial-panel__btn--ghost"
-                      (click)="closeSerialDropdown(item, $event)"
+                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-slate-700"
+                      [attr.for]="'quick-loan-deposit-' + group.orderId"
                     >
-                      סגור
-                    </button>
+                      פיקדון
+                    </label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      [attr.id]="'quick-loan-deposit-' + group.orderId"
+                      [value]="group.deposit"
+                      (input)="updateOrderGroupDeposit(group.orderId, $any($event.target).value)"
+                      maxlength="100"
+                      autocomplete="off"
+                      [disabled]="submitting()"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-slate-700"
+                      [attr.for]="'quick-loan-notes-' + group.orderId"
+                    >
+                      הערות
+                    </label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      [attr.id]="'quick-loan-notes-' + group.orderId"
+                      [value]="group.notes"
+                      (input)="updateOrderGroupNotes(group.orderId, $any($event.target).value)"
+                      maxlength="1000"
+                      autocomplete="off"
+                      [disabled]="submitting()"
+                    />
                   </div>
                 </div>
-              }
-            </li>
-          }
-        </ul>
 
+                <ul class="mt-4 customer-breakdown-card__items">
+                  @for (item of accessoryRowsForOrder(group.orderId); track item.orderId + ':' + item.inventoryDefinitionId) {
+                    <li
+                      class="accessory-row"
+                      (appClickOutside)="closeSerialDropdown(item)"
+                      [appClickOutsideEnabled]="isSerialDropdownOpen(item)"
+                    >
+                      <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
+                        <span class="accessory-row__qty-label">כמות</span>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputmode="numeric"
+                          class="accessory-row__qty-input"
+                          [value]="item.quantity"
+                          (input)="updateRowQuantity(item, $any($event.target).value)"
+                        />
+                      </label>
+                      <span class="accessory-row__label">{{ item.label }}</span>
+
+                      <span class="accessory-row__serial">
+                        <span class="accessory-row__serial-sep">:</span>
+                        @if (selectedCodes(item).length > 0) {
+                          <button
+                            type="button"
+                            class="accessory-row__serial-codes"
+                            (click)="toggleSerialDropdown(item)"
+                          >
+                            <span class="accessory-row__serial-chip-list">
+                              @for (code of selectedCodes(item); track code) {
+                                <span class="accessory-row__serial-chip">
+                                  <span class="ltr-field">{{ code }}</span>
+                                </span>
+                              }
+                            </span>
+                          </button>
+                        } @else {
+                          <button
+                            type="button"
+                            class="accessory-row__serial-placeholder"
+                            (click)="toggleSerialDropdown(item)"
+                          >
+                            לקביעת קודים בהמשך
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          class="accessory-row__serial-edit"
+                          (click)="toggleSerialDropdown(item)"
+                          aria-label="עריכת קוד פריט"
+                          title="עריכת קודי פריט"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          class="accessory-row__remove"
+                          (click)="removeAccessoryRow(item)"
+                          aria-label="הסרת אביזר"
+                          title="הסרת אביזר"
+                        >
+                          ×
+                        </button>
+                      </span>
+
+                      @if (isSerialDropdownOpen(item)) {
+                        <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                          @if (serialPanelState(item) === 'loading') {
+                            <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
+                          } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
+                            <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
+                              {{ serialPanelEmptyMessage(item) }}
+                            </p>
+                          } @else {
+                            <div class="multi-select__quick-entry">
+                              <input
+                                type="text"
+                                class="multi-select__quick-input"
+                                placeholder="הקלידו קוד ולחצו Enter"
+                                autocomplete="off"
+                                [value]="serialQuickEntry()"
+                                (input)="serialQuickEntry.set($any($event.target).value)"
+                                (keydown.enter)="onSerialQuickEnter(item, $event)"
+                              />
+                            </div>
+                            @for (opt of serialOptionsForRow(item); track opt.serialCode) {
+                              <label
+                                class="multi-select__option"
+                                [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                              >
+                                <input
+                                  type="checkbox"
+                                  [checked]="isSerialSelected(item, opt.serialCode)"
+                                  [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                                  (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
+                                />
+                                <span class="multi-select__option-label">
+                                  <span class="ltr-field">{{ opt.serialCode }}</span>
+                                  @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
+                                    <span class="equipment-occupied-badge">תפוס</span>
+                                  }
+                                </span>
+                              </label>
+                            }
+                          }
+
+                          <div class="accessory-serial-panel__actions">
+                            <button
+                              type="button"
+                              class="accessory-serial-panel__btn accessory-serial-panel__btn--ghost"
+                              (click)="closeSerialDropdown(item, $event)"
+                            >
+                              סגור
+                            </button>
+                          </div>
+                        </div>
+                      }
+                    </li>
+                  } @empty {
+                    <li class="customer-breakdown-card__empty-hint">אין כרגע אביזרים פעילים בהזמנה זו</li>
+                  }
+                </ul>
+
+                <div class="mt-4 accessory-draft-lines">
+                  @for (line of draftLinesForOrder(group.orderId); track line.id) {
+                    <div class="accessory-draft-line">
+                      <div
+                        class="accessory-draft-line__search"
+                        (appClickOutside)="closeDraftSuggest(line.id)"
+                        [appClickOutsideEnabled]="line.suggestOpen"
+                      >
+                        <input
+                          type="text"
+                          class="accessory-draft-line__input"
+                          placeholder="שם אביזר + קוד (למשל: מיקסר 123)"
+                          data-accessory-draft-input
+                          [attr.data-line-id]="line.id"
+                          [value]="line.query"
+                          (input)="onDraftQueryInput(line.id, $any($event.target).value)"
+                          (focus)="onDraftQueryFocus(line.id)"
+                          (keydown.enter)="onDraftQueryEnter(line.id, $event)"
+                          autocomplete="off"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          [attr.aria-expanded]="line.suggestOpen"
+                        />
+                        @if (line.suggestOpen) {
+                          <ul class="accessory-draft-line__options" role="listbox">
+                            @for (def of filteredAccessoryTypesForDraft(line); track def.id) {
+                              <li role="option">
+                                <button
+                                  type="button"
+                                  class="accessory-draft-line__option"
+                                  (mousedown)="selectAccessoryDefinition(line.id, def, $event)"
+                                >
+                                  {{ accessoryTypeLabel(def) }}
+                                </button>
+                              </li>
+                            } @empty {
+                              @if (!showCustomAccessoryOptionForDraft(line) && line.query.trim().length >= 2) {
+                                <li class="accessory-draft-line__empty">לא נמצאו אביזרים תואמים</li>
+                              }
+                            }
+                            @if (showCustomAccessoryOptionForDraft(line)) {
+                              <li role="option">
+                                <button
+                                  type="button"
+                                  class="accessory-draft-line__option accessory-draft-line__option--custom"
+                                  (mousedown)="onCustomAccessoryDraftChosen(line.id, $event)"
+                                >
+                                  {{ customAccessoryOptionLabelForDraft(line) }}
+                                </button>
+                              </li>
+                            }
+                          </ul>
+                        }
+                      </div>
+
+                      <div
+                        class="accessory-draft-line__codes"
+                        data-accessory-draft-codes
+                        (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                        (appClickOutside)="closeDraftCodesDropdown(line.id)"
+                        [appClickOutsideEnabled]="line.codesOpen"
+                      >
+                        <button
+                          type="button"
+                          class="accessory-draft-line__codes-btn"
+                          [attr.data-line-id]="line.id"
+                          [disabled]="line.inventoryDefinitionId == null"
+                          (click)="toggleDraftCodesDropdown(line.id, $event)"
+                          (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                        >
+                          @if (line.selectedCodes.length === 0) {
+                            <span class="placeholder">בחרו קודים…</span>
+                          } @else {
+                            <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                          }
+                        </button>
+                        @if (line.codesOpen) {
+                          <div class="accessory-draft-line__codes-panel" (click)="$event.stopPropagation()">
+                            @if (draftCodesPanelState(line) === 'loading') {
+                              <p class="accessory-draft-line__codes-empty">טוען קודי פריטים…</p>
+                            } @else if (draftCodesPanelState(line) === 'no-inventory' || draftCodesPanelState(line) === 'all-booked') {
+                              <p class="accessory-draft-line__codes-empty">אין קודים זמינים לפריט זה</p>
+                            } @else {
+                              @for (opt of serialOptionsForDraftLine(line); track opt.serialCode) {
+                                <label
+                                  class="accessory-draft-line__codes-option"
+                                  [class.accessory-draft-line__codes-option--disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    [checked]="isDraftCodeSelected(line, opt.serialCode)"
+                                    [disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
+                                    (change)="toggleDraftCodeSelection(line.id, opt.serialCode, $event)"
+                                  />
+                                  <span class="ltr-field" dir="ltr">{{ opt.serialCode }}</span>
+                                </label>
+                              }
+                            }
+                          </div>
+                        }
+                      </div>
+
+                      @if (draftLinesForOrder(group.orderId).length > 1) {
+                        <button
+                          type="button"
+                          class="accessory-draft-line__remove"
+                          (click)="removeDraftLine(line.id)"
+                          aria-label="הסר שורת אביזר"
+                        >
+                          ×
+                        </button>
+                      }
+                    </div>
+                  }
+                  <button
+                    type="button"
+                    class="add-tool-btn add-tool-btn--compact"
+                    [disabled]="submitting()"
+                    (click)="onAddDraftLineClick($event, group.orderId)"
+                    aria-label="הוסף שורת אביזר"
+                    title="הוסף שורת אביזר"
+                  >
+                    +
+                  </button>
+                </div>
+              </section>
+            }
+          </div>
+        } @else {
+          @if (accessoryRows().length === 0) {
+            <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים — הזינו שורה למטה</p>
+          }
+
+          <ul class="customer-breakdown-card__items">
+            @for (item of accessoryRows(); track item.orderId + ':' + item.inventoryDefinitionId) {
+              <li
+                class="accessory-row"
+                (appClickOutside)="closeSerialDropdown(item)"
+                [appClickOutsideEnabled]="isSerialDropdownOpen(item)"
+              >
+                <label class="accessory-row__qty-wrap" [attr.aria-label]="'כמות עבור ' + item.label">
+                  <span class="accessory-row__qty-label">כמות</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    class="accessory-row__qty-input"
+                    [value]="item.quantity"
+                    (input)="updateRowQuantity(item, $any($event.target).value)"
+                  />
+                </label>
+                <span class="accessory-row__label">{{ item.label }}</span>
+
+                <span class="accessory-row__serial">
+                  <span class="accessory-row__serial-sep">:</span>
+                  @if (selectedCodes(item).length > 0) {
+                    <button
+                      type="button"
+                      class="accessory-row__serial-codes"
+                      (click)="toggleSerialDropdown(item)"
+                    >
+                      <span class="accessory-row__serial-chip-list">
+                        @for (code of selectedCodes(item); track code) {
+                          <span class="accessory-row__serial-chip">
+                            <span class="ltr-field">{{ code }}</span>
+                          </span>
+                        }
+                      </span>
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="accessory-row__serial-placeholder"
+                      (click)="toggleSerialDropdown(item)"
+                    >
+                      לקביעת קודים בהמשך
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="accessory-row__serial-edit"
+                    (click)="toggleSerialDropdown(item)"
+                    aria-label="עריכת קוד פריט"
+                    title="עריכת קודי פריט"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    class="accessory-row__remove"
+                    (click)="removeAccessoryRow(item)"
+                    aria-label="הסרת אביזר"
+                    title="הסרת אביזר"
+                  >
+                    ×
+                  </button>
+                </span>
+
+                @if (isSerialDropdownOpen(item)) {
+                  <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                    @if (serialPanelState(item) === 'loading') {
+                      <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
+                    } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
+                      <p class="accessory-serial-panel__empty accessory-serial-panel__empty--warn">
+                        {{ serialPanelEmptyMessage(item) }}
+                      </p>
+                    } @else {
+                      <div class="multi-select__quick-entry">
+                        <input
+                          type="text"
+                          class="multi-select__quick-input"
+                          placeholder="הקלידו קוד ולחצו Enter"
+                          autocomplete="off"
+                          [value]="serialQuickEntry()"
+                          (input)="serialQuickEntry.set($any($event.target).value)"
+                          (keydown.enter)="onSerialQuickEnter(item, $event)"
+                        />
+                      </div>
+                      @for (opt of serialOptionsForRow(item); track opt.serialCode) {
+                        <label
+                          class="multi-select__option"
+                          [class.multi-select__option--disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                        >
+                          <input
+                            type="checkbox"
+                            [checked]="isSerialSelected(item, opt.serialCode)"
+                            [disabled]="!opt.isAvailable && !isSerialSelected(item, opt.serialCode)"
+                            (change)="toggleSerialSelection(item, opt.serialCode, $any($event.target).checked)"
+                          />
+                          <span class="multi-select__option-label">
+                            <span class="ltr-field">{{ opt.serialCode }}</span>
+                            @if (!opt.isAvailable && !isSerialSelected(item, opt.serialCode)) {
+                              <span class="equipment-occupied-badge">תפוס</span>
+                            }
+                          </span>
+                        </label>
+                      }
+                    }
+
+                    <div class="accessory-serial-panel__actions">
+                      <button
+                        type="button"
+                        class="accessory-serial-panel__btn accessory-serial-panel__btn--ghost"
+                        (click)="closeSerialDropdown(item, $event)"
+                      >
+                        סגור
+                      </button>
+                    </div>
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+        }
+
+        @if (!isMultiOrderEditing()) {
         <div class="accessory-draft-lines">
           @for (line of accessoryDraftLines(); track line.id) {
             <div class="accessory-draft-line">
@@ -483,6 +813,7 @@
             +
           </button>
         </div>
+        }
       </article>
     </section>
 
@@ -501,7 +832,13 @@
           class="rounded-lg bg-[#002244] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#003366] disabled:opacity-50"
           [disabled]="submitting()"
         >
-          {{ submitting() ? 'שומר…' : 'עדכון השאלה #' + editId }}
+          {{
+            submitting()
+              ? 'שומר…'
+              : editingOrderGroups().length > 1
+                ? 'עדכון ההשאלות'
+                : 'עדכון השאלה #' + editId
+          }}
         </button>
       } @else {
         <a
@@ -621,19 +958,39 @@
               </div>
             </header>
 
-            @if (card.deposits.length > 0 || card.loanNotes.length > 0 || card.customerNotes) {
+            @if (card.sessions.length > 0 || card.customerNotes) {
               <div class="recent-loan-card__notes">
-                @for (deposit of card.deposits; track deposit) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ deposit }}</span>
-                  </div>
+                @for (session of cardSessions(card); track session.key) {
+                  @if (session.deposit) {
+                    <div class="customer-profile-note" role="status">
+                      <span class="customer-profile-note__label">פיקדון:</span>
+                      <span class="customer-profile-note__text">
+                        {{ session.deposit }}
+                        @if (itemHebrewDate(session.loanDateIso); as heb) {
+                          · {{ heb }}
+                        }
+                        @if (session.loanTimeLabel) {
+                          · {{ session.loanTimeLabel }}
+                        }
+                      </span>
+                    </div>
+                  }
                 }
-                @for (note of card.loanNotes; track note) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ note }}</span>
-                  </div>
+                @for (session of cardSessions(card); track session.key) {
+                  @if (session.notes) {
+                    <div class="customer-profile-note" role="status">
+                      <span class="customer-profile-note__label">הערות:</span>
+                      <span class="customer-profile-note__text">
+                        {{ session.notes }}
+                        @if (itemHebrewDate(session.loanDateIso); as heb) {
+                          · {{ heb }}
+                        }
+                        @if (session.loanTimeLabel) {
+                          · {{ session.loanTimeLabel }}
+                        }
+                      </span>
+                    </div>
+                  }
                 }
                 @if (card.customerNotes) {
                   <div class="customer-profile-note" role="status">
@@ -651,13 +1008,13 @@
                   [class.accessory-row--removing]="isRemovingLine(row)"
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
-                  @if (itemHebrewDate(row.loanDateIso); as heb) {
-                    <time
-                      class="active-loan-item__date"
-                      [attr.datetime]="row.loanDateIso"
-                      [title]="activeLoanHebrewDate(row.loanDateIso)"
-                    >{{ heb }}@if (row.loanTimeLabel) { · {{ row.loanTimeLabel }} }</time>
-                  }
+                  <time
+                    class="active-loan-item__date"
+                    [attr.datetime]="row.loanDateIso"
+                    [title]="activeLoanHebrewDate(row.loanDateIso)"
+                  >
+                    {{ itemHebrewDate(row.loanDateIso) }}@if (row.loanTimeLabel) { · {{ row.loanTimeLabel }} }
+                  </time>
                   <span class="accessory-row__label">{{ row.accessoryName }}</span>
 
                   @if (row.assignedSerialCodes.length > 0) {

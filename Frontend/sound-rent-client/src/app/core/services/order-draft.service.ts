@@ -1,4 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { TimeSlot } from '../models/enums';
 
 export type OrderDraftKind = 'sound-order' | 'tools-loan' | 'library-loan' | 'quick-loan';
 
@@ -35,6 +36,7 @@ export interface WorkspaceLendingDraftPayload {
 export interface QuickLoanDraftPayload {
   formValue: Record<string, unknown>;
   accessoryRows: Array<{
+    orderId?: number;
     inventoryDefinitionId: number;
     type: string | null;
     label: string;
@@ -48,7 +50,18 @@ export interface QuickLoanDraftPayload {
   editingId: number | null;
   nextOneTimeAccessoryId: number;
   /** Fully-returned lines kept off the edit form while drafting. */
-  preservedReturnedLines?: import('../models/order.model').OrderLoanedEquipmentDto[];
+  preservedReturnedLines?: Array<{
+    orderId: number;
+    line: import('../models/order.model').OrderLoanedEquipmentDto;
+  }>;
+  /** Per-order group fields (needed when editing multiple accessory orders). */
+  editingOrderGroups?: Array<{
+    orderId: number;
+    orderDateIso: string;
+    timeSlot: TimeSlot;
+    deposit: string;
+    notes: string;
+  }>;
 }
 
 export interface OrderDraftSnapshot {

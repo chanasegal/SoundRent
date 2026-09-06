@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using SoundRent.Api.Application.Auth;
 using SoundRent.Api.Application.Services;
 using SoundRent.Api.Filters;
@@ -32,7 +33,18 @@ var connectionString = ResolveDatabaseConnectionString(builder);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         connectionString,
-        npgsql => npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
+        npgsql =>
+        {
+            // Split queries avoid cartesian explosion on order graphs (loans + notes + shifts).
+            npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+            // Cloud Postgres / PgBouncer often drops the TCP stream mid-read
+            // (Npgsql EndOfStreamException). Retry the whole command with backoff.
+            npgsql.EnableRetryOnFailure(
+                maxRetryCount: 6,
+                maxRetryDelay: TimeSpan.FromSeconds(20),
+                errorCodesToAdd: null);
+            npgsql.CommandTimeout(60);
+        }));
 
 // --- DI: Repositories & Services -----------------------------------------
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
@@ -150,6 +162,7 @@ try
         .GetRequiredService<ILoggerFactory>()
         .CreateLogger("Startup");
 
+    LogDatabasePoolMode(startupLogger, connectionString);
     startupLogger.LogInformation("Applying pending Entity Framework migrations…");
     dbContext.Database.Migrate();
     startupLogger.LogInformation("Entity Framework migrations applied successfully.");
@@ -216,5 +229,87 @@ static string ResolveDatabaseConnectionString(WebApplicationBuilder builder)
             "Database connection string is not configured. Set ConnectionStrings:DefaultConnection for local development, or CONNECTION_STRING for production.");
     }
 
-    return connectionString;
+    return AlignNpgsqlPooling(connectionString);
+}
+
+static void LogDatabasePoolMode(ILogger logger, string connectionString)
+{
+    try
+    {
+        var cs = new NpgsqlConnectionStringBuilder(connectionString);
+        var host = cs.Host ?? string.Empty;
+        var isPooler = host.Contains("pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+        if (!isPooler)
+        {
+            logger.LogInformation("Postgres host {Host}:{Port} (direct / non-pooler).", host, cs.Port);
+            return;
+        }
+
+        if (cs.Port == 6543)
+        {
+            logger.LogWarning(
+                "Supabase transaction-mode pooler detected ({Host}:{Port}). Prefer session-mode pooler on port 5432 for EF split queries.",
+                host,
+                cs.Port);
+            return;
+        }
+
+        logger.LogInformation(
+            "Supabase session-mode pooler ({Host}:{Port}); Npgsql pooling Min={Min} Max={Max} KeepAlive={KeepAlive}s.",
+            host,
+            cs.Port,
+            cs.MinPoolSize,
+            cs.MaxPoolSize,
+            cs.KeepAlive);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not inspect database pooler mode from the connection string.");
+    }
+}
+
+/// <summary>
+/// Aligns Npgsql client pooling with Supabase PgBouncer.
+/// Session pooler: *.pooler.supabase.com:5432 (safe for EF split queries / prepared statements).
+/// Transaction pooler: *.pooler.supabase.com:6543 (no prepared statements; avoid for split graphs).
+/// </summary>
+static string AlignNpgsqlPooling(string connectionString)
+{
+    var incoming = new NpgsqlConnectionStringBuilder(connectionString);
+    var maxPool = incoming.MaxPoolSize > 0 ? incoming.MaxPoolSize : 10;
+
+    var cs = new NpgsqlConnectionStringBuilder(connectionString)
+    {
+        Pooling = true,
+        MinPoolSize = 0,
+        MaxPoolSize = Math.Clamp(maxPool, 5, 20),
+        ConnectionIdleLifetime = 60,
+        ConnectionPruningInterval = 10,
+        Timeout = 15,
+        KeepAlive = 30,
+        TcpKeepAlive = true,
+        Multiplexing = false,
+        ApplicationName = string.IsNullOrWhiteSpace(incoming.ApplicationName)
+            ? "SoundRent.Api"
+            : incoming.ApplicationName
+    };
+
+    var host = cs.Host ?? string.Empty;
+    var isSupabasePooler = host.Contains("pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+    var isTransactionMode = isSupabasePooler && cs.Port == 6543;
+    var isSessionMode = isSupabasePooler && cs.Port == 5432;
+
+    if (isTransactionMode)
+    {
+        // Transaction pooling recycles the backend after each command — prepared
+        // statements and multi-command split queries are not session-sticky.
+        cs.MaxAutoPrepare = 0;
+        cs.NoResetOnClose = true;
+    }
+    else if (isSessionMode)
+    {
+        cs.MaxAutoPrepare = 20;
+    }
+
+    return cs.ConnectionString;
 }

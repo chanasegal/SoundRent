@@ -389,18 +389,49 @@ public class OrderRepository : IOrderRepository
     /// that still have outstanding <see cref="OrderLoanedEquipment"/> lines.
     /// Callers that need accessory-only rows filter with <c>!Equipments.Any()</c> / empty equipment ids.
     /// </summary>
-    public Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
+    public async Task<List<Order>> GetQuickLoansAsync(CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
-            .AsSplitQuery()
+        // Phase 1: ids only — avoids holding a wide split-query stream open while filtering.
+        var ids = await _db.Orders
+            .AsNoTracking()
             .Where(o =>
                 !o.IsCancelled
                 && !o.IsReturnProcessed
                 && o.LoanedEquipments.Any(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity))
             .OrderByDescending(o => o.CreatedAt)
             .ThenByDescending(o => o.Id)
-            .AsNoTracking()
+            .Select(o => o.Id)
             .ToListAsync(cancellationToken);
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        // Phase 2: slim graph (no Institution / EquipmentDefinition / serial catalogs).
+        var loaded = await _db.Orders
+            .AsNoTracking()
+            .Where(o => ids.Contains(o.Id))
+            .Include(o => o.Equipments)
+            .Include(o => o.Shifts)
+            .Include(o => o.LoanedEquipments)
+                .ThenInclude(le => le.Notes)
+            .Include(o => o.LoanedEquipments)
+                .ThenInclude(le => le.InventoryDefinition)
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        var byId = loaded.ToDictionary(o => o.Id);
+        var ordered = new List<Order>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (byId.TryGetValue(id, out var order))
+            {
+                ordered.Add(order);
+            }
+        }
+
+        return ordered;
     }
 
     public async Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(

@@ -51,6 +51,8 @@ import { ClickOutsideDirective } from '../../shared/directives/click-outside.dir
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 
 interface QuickLoanAccessoryRow {
+  /** Owning order id (0 while drafting a brand-new order). */
+  orderId: number;
   /** Catalog row id from InventoryDefinitions (shared store). */
   inventoryDefinitionId: number;
   /** Set when the catalog row is linked to a system LoanedEquipmentType. */
@@ -67,8 +69,18 @@ interface QuickLoanAccessoryRow {
   alreadyReturnedQuantity?: number;
 }
 
+interface AccessoryOrderGroupDraft {
+  orderId: number;
+  orderDateIso: string;
+  timeSlot: TimeSlot;
+  /** depositOnName text (not formatted). */
+  deposit: string;
+  notes: string;
+}
+
 interface AccessoryDraftLine {
   id: string;
+  targetOrderId: number;
   query: string;
   inventoryDefinitionId: number | null;
   selectedCodes: string[];
@@ -105,6 +117,16 @@ interface StandaloneLoanItem {
   loanTimeLabel: string;
 }
 
+interface StandaloneLoanSessionGroup {
+  key: string;
+  orderId: number;
+  loanDateIso: string;
+  loanTimeLabel: string;
+  deposit: string | null;
+  notes: string | null;
+  items: StandaloneLoanItem[];
+}
+
 interface StandaloneLoanCard {
   key: string;
   customerName: string;
@@ -113,11 +135,10 @@ interface StandaloneLoanCard {
   /** Newest loan date among items — used for card ordering. */
   loanDateIso: string;
   orders: OrderDto[];
+  sessions: StandaloneLoanSessionGroup[];
   items: StandaloneLoanItem[];
   totalQuantity: number;
   customerNotes: string | null;
-  deposits: string[];
-  loanNotes: string[];
 }
 
 interface DeleteConfirmOrder {
@@ -125,6 +146,7 @@ interface DeleteConfirmOrder {
   cardKey: string;
   customerName: string;
   phone: string;
+  editGroupOrderId?: number | null;
 }
 
 @Component({
@@ -180,7 +202,7 @@ export class QuickLoanComponent implements OnInit {
     Map<number, AccessorySerialOptionDto[]>
   >(new Map());
   private readonly availabilityLoading = signal(false);
-  protected readonly openSerialDropdownId = signal<number | null>(null);
+  protected readonly openSerialDropdownId = signal<string | null>(null);
   protected readonly serialQuickEntry = signal('');
   protected readonly submitting = signal(false);
   protected readonly editingId = signal<number | null>(null);
@@ -188,7 +210,11 @@ export class QuickLoanComponent implements OnInit {
   protected readonly editingGroupedOrderIds = signal<number[]>([]);
   protected readonly editingCardKey = signal<string | null>(null);
   /** Fully-returned lines kept off the edit form but re-sent on save so they are not deleted. */
-  private readonly editingPreservedReturnedLines = signal<OrderLoanedEquipmentDto[]>([]);
+  private readonly editingPreservedReturnedLines = signal<
+    Array<{ orderId: number; line: OrderLoanedEquipmentDto }>
+  >([]);
+  /** When editing multiple accessory orders at once, each group keeps its own deposit/notes/date. */
+  protected readonly editingOrderGroups = signal<AccessoryOrderGroupDraft[]>([]);
   protected readonly recentLoans = signal<OrderDto[]>([]);
   protected readonly recentLoading = signal(false);
   protected readonly returningLineKey = signal<string | null>(null);
@@ -235,6 +261,10 @@ export class QuickLoanComponent implements OnInit {
     this.inventoryStore.definitions();
     return this.buildStandaloneLoanCards(this.standaloneLoans());
   });
+
+  protected readonly isMultiOrderEditing = computed(
+    () => this.editingId() != null && this.editingOrderGroups().length > 1
+  );
 
   constructor() {
     effect(() => {
@@ -314,10 +344,14 @@ export class QuickLoanComponent implements OnInit {
         })),
         editingId: this.editingId(),
         nextOneTimeAccessoryId: this.nextOneTimeAccessoryId,
-        preservedReturnedLines: this.editingPreservedReturnedLines().map((line) => ({
-          ...line,
-          notes: (line.notes ?? []).map((n) => ({ ...n }))
-        }))
+        preservedReturnedLines: this.editingPreservedReturnedLines().map(({ orderId, line }) => ({
+          orderId,
+          line: {
+            ...line,
+            notes: (line.notes ?? []).map((n) => ({ ...n }))
+          }
+        })),
+        editingOrderGroups: this.editingOrderGroups().map((g) => ({ ...g }))
       }
     });
     this.closeDraftOnlyUi();
@@ -367,7 +401,11 @@ export class QuickLoanComponent implements OnInit {
     const parsed = Number.parseInt(raw, 10);
     const quantity = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
     this.accessoryRows.update((rows) =>
-      rows.map((r) => (r.inventoryDefinitionId === row.inventoryDefinitionId ? { ...r, quantity } : r))
+      rows.map((r) =>
+        r.orderId === row.orderId && r.inventoryDefinitionId === row.inventoryDefinitionId
+          ? { ...r, quantity }
+          : r
+      )
     );
   }
 
@@ -437,7 +475,7 @@ export class QuickLoanComponent implements OnInit {
     this.commitDraftLineAndAddNext(lineId);
   }
 
-  protected onAddDraftLineClick(event: Event): void {
+  protected onAddDraftLineClick(event: Event, targetOrderId?: number): void {
     const activeLineId = this.activeDraftLineId();
     event.preventDefault();
     event.stopPropagation();
@@ -445,7 +483,10 @@ export class QuickLoanComponent implements OnInit {
       this.commitDraftLineAndAddNext(activeLineId);
       return;
     }
-    this.accessoryDraftLines.update((lines) => [...lines, this.createAccessoryDraftLine()]);
+    this.accessoryDraftLines.update((lines) => [
+      ...lines,
+      this.createAccessoryDraftLine(targetOrderId ?? this.currentDraftTargetOrderId())
+    ]);
   }
 
   protected selectAccessoryDefinition(
@@ -515,6 +556,7 @@ export class QuickLoanComponent implements OnInit {
       return [];
     }
     const tempRow: QuickLoanAccessoryRow = {
+      orderId: line.targetOrderId,
       inventoryDefinitionId: line.inventoryDefinitionId,
       type: this.resolveLinkedEquipmentType(def),
       label: line.query,
@@ -545,8 +587,15 @@ export class QuickLoanComponent implements OnInit {
 
   protected removeDraftLine(lineId: string): void {
     this.accessoryDraftLines.update((lines) => {
+      const removed = lines.find((l) => l.id === lineId);
       const next = lines.filter((l) => l.id !== lineId);
-      return next.length > 0 ? next : [this.createAccessoryDraftLine()];
+      if (!removed) {
+        return next.length > 0 ? next : [this.createAccessoryDraftLine()];
+      }
+      if (next.some((l) => l.targetOrderId === removed.targetOrderId)) {
+        return next;
+      }
+      return [...next, this.createAccessoryDraftLine(removed.targetOrderId)];
     });
   }
 
@@ -555,9 +604,16 @@ export class QuickLoanComponent implements OnInit {
     query: string
   ): InventoryDefinitionDto[] {
     const used = new Set([
-      ...this.accessoryRows().map((r) => r.inventoryDefinitionId),
+      ...this.accessoryRows()
+        .filter((r) => r.orderId === line.targetOrderId)
+        .map((r) => r.inventoryDefinitionId),
       ...this.accessoryDraftLines()
-        .filter((l) => l.id !== line.id && l.inventoryDefinitionId != null)
+        .filter(
+          (l) =>
+            l.id !== line.id &&
+            l.targetOrderId === line.targetOrderId &&
+            l.inventoryDefinitionId != null
+        )
         .map((l) => l.inventoryDefinitionId as number)
     ]);
     const q = query.trim().toLowerCase();
@@ -652,7 +708,8 @@ export class QuickLoanComponent implements OnInit {
             !this.validateSerialCodesForDefinition(
               parsed.def.id,
               line.selectedCodes,
-              parsed.def.displayName
+              parsed.def.displayName,
+              line.targetOrderId
             )
           ) {
             if (options.addNext) {
@@ -660,7 +717,11 @@ export class QuickLoanComponent implements OnInit {
             }
             return 'failed';
           }
-          committed = this.appendAccessoryRowFromDefinition(parsed.def, [...line.selectedCodes]);
+          committed = this.appendAccessoryRowFromDefinition(
+            parsed.def,
+            [...line.selectedCodes],
+            line.targetOrderId
+          );
         } else {
           this.patchDraftLine(lineId, {
             inventoryDefinitionId: parsed.def.id,
@@ -676,14 +737,23 @@ export class QuickLoanComponent implements OnInit {
           return 'failed';
         }
       } else if (
-        !this.validateSerialCodesForDefinition(parsed.def.id, parsed.codes, parsed.def.displayName)
+        !this.validateSerialCodesForDefinition(
+          parsed.def.id,
+          parsed.codes,
+          parsed.def.displayName,
+          line.targetOrderId
+        )
       ) {
         if (options.addNext) {
           this.focusDraftInput(lineId);
         }
         return 'failed';
       } else {
-        committed = this.appendAccessoryRowFromDefinition(parsed.def, [...parsed.codes]);
+        committed = this.appendAccessoryRowFromDefinition(
+          parsed.def,
+          [...parsed.codes],
+          line.targetOrderId
+        );
       }
     } else if (line.inventoryDefinitionId != null && line.inventoryDefinitionId > 0) {
       const def = this.inventoryStore.byId(line.inventoryDefinitionId);
@@ -703,7 +773,8 @@ export class QuickLoanComponent implements OnInit {
         !this.validateSerialCodesForDefinition(
           def.id,
           line.selectedCodes,
-          def.displayName
+          def.displayName,
+          line.targetOrderId
         )
       ) {
         if (options.addNext) {
@@ -711,7 +782,11 @@ export class QuickLoanComponent implements OnInit {
         }
         return 'failed';
       }
-      committed = this.appendAccessoryRowFromDefinition(def, [...line.selectedCodes]);
+      committed = this.appendAccessoryRowFromDefinition(
+        def,
+        [...line.selectedCodes],
+        line.targetOrderId
+      );
     } else if (this.showCustomAccessoryOptionForDraft(line)) {
       const temporary = this.parseTemporaryAccessoryEntry(trimmed);
       const name = temporary?.name ?? trimmed;
@@ -728,7 +803,7 @@ export class QuickLoanComponent implements OnInit {
         }
         return 'failed';
       }
-      committed = this.appendCustomAccessoryRow(name, codes);
+      committed = this.appendCustomAccessoryRow(name, codes, line.targetOrderId);
     } else {
       this.toast.warning('הקלידו שם אביזר ולפחות קוד אחד, למשל: מיקסר 123');
       if (options.addNext) {
@@ -749,6 +824,7 @@ export class QuickLoanComponent implements OnInit {
       const idx = lines.findIndex((l) => l.id === lineId);
       const fresh: AccessoryDraftLine = {
         id: nextLineId,
+        targetOrderId: line.targetOrderId,
         query: '',
         inventoryDefinitionId: null,
         selectedCodes: [],
@@ -834,14 +910,20 @@ export class QuickLoanComponent implements OnInit {
 
   private appendAccessoryRowFromDefinition(
     def: InventoryDefinitionDto,
-    selectedCodes: string[]
+    selectedCodes: string[],
+    targetOrderId: number
   ): boolean {
-    if (this.accessoryRows().some((r) => r.inventoryDefinitionId === def.id)) {
+    if (
+      this.accessoryRows().some(
+        (r) => r.orderId === targetOrderId && r.inventoryDefinitionId === def.id
+      )
+    ) {
       this.toast.warning('סוג אביזר זה כבר נוסף');
       return false;
     }
 
     const row: QuickLoanAccessoryRow = {
+      orderId: targetOrderId,
       inventoryDefinitionId: def.id,
       type: this.resolveLinkedEquipmentType(def),
       label: def.displayName,
@@ -853,15 +935,24 @@ export class QuickLoanComponent implements OnInit {
     return true;
   }
 
-  private appendCustomAccessoryRow(name: string, selectedCodes: string[]): boolean {
+  private appendCustomAccessoryRow(
+    name: string,
+    selectedCodes: string[],
+    targetOrderId: number
+  ): boolean {
     if (
-      this.accessoryRows().some((r) => r.label.trim().toLowerCase() === name.toLowerCase())
+      this.accessoryRows().some(
+        (r) =>
+          r.orderId === targetOrderId &&
+          r.label.trim().toLowerCase() === name.toLowerCase()
+      )
     ) {
       this.toast.warning('סוג אביזר זה כבר נוסף');
       return false;
     }
 
     const row: QuickLoanAccessoryRow = {
+      orderId: targetOrderId,
       inventoryDefinitionId: this.nextOneTimeAccessoryId--,
       type: null,
       label: name,
@@ -876,7 +967,8 @@ export class QuickLoanComponent implements OnInit {
   private validateSerialCodesForDefinition(
     definitionId: number,
     codes: string[],
-    label: string
+    label: string,
+    targetOrderId = 0
   ): boolean {
     const def = this.inventoryStore.byId(definitionId);
     if (!def) {
@@ -884,6 +976,7 @@ export class QuickLoanComponent implements OnInit {
       return false;
     }
     const tempRow: QuickLoanAccessoryRow = {
+      orderId: targetOrderId,
       inventoryDefinitionId: definitionId,
       type: this.resolveLinkedEquipmentType(def),
       label,
@@ -928,15 +1021,27 @@ export class QuickLoanComponent implements OnInit {
     );
   }
 
-  private createAccessoryDraftLine(): AccessoryDraftLine {
+  private createAccessoryDraftLine(targetOrderId = 0): AccessoryDraftLine {
     return {
       id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      targetOrderId,
       query: '',
       inventoryDefinitionId: null,
       selectedCodes: [],
       suggestOpen: false,
       codesOpen: false
     };
+  }
+
+  private currentDraftTargetOrderId(): number {
+    return this.editingId() ?? 0;
+  }
+
+  private currentAvailabilityExcludedOrderIds(): number[] {
+    const ids = this.editingOrderGroups()
+      .map((group) => group.orderId)
+      .filter((id) => id > 0);
+    return ids.length > 0 ? ids : (this.editingId() != null ? [this.editingId() as number] : []);
   }
 
   private activeDraftLineId(): string | null {
@@ -990,7 +1095,7 @@ export class QuickLoanComponent implements OnInit {
     );
   }
 
-  private applyMixerDefaultAccessories(mixerSerialCode: string): void {
+  private applyMixerDefaultAccessories(mixerSerialCode: string, targetOrderId: number): void {
     const parentSerial = mixerSerialCode.trim();
     if (!parentSerial) {
       return;
@@ -1044,6 +1149,7 @@ export class QuickLoanComponent implements OnInit {
           for (const group of byDefinition.values()) {
             const result = this.mergeDefaultAccessoryCodesIntoRowsByDefinition(
               next,
+              targetOrderId,
               group.defId,
               group.type,
               group.codes
@@ -1054,7 +1160,7 @@ export class QuickLoanComponent implements OnInit {
             }
           }
           for (const [type, codes] of byType) {
-            const result = this.mergeDefaultAccessoryCodesIntoRows(next, type, codes);
+            const result = this.mergeDefaultAccessoryCodesIntoRows(next, targetOrderId, type, codes);
             next = result.rows;
             if (result.changed) {
               addedAny = true;
@@ -1071,6 +1177,7 @@ export class QuickLoanComponent implements OnInit {
 
   private mergeDefaultAccessoryCodesIntoRowsByDefinition(
     rows: QuickLoanAccessoryRow[],
+    targetOrderId: number,
     inventoryDefinitionId: number,
     type: LoanedEquipmentType | null,
     codes: string[]
@@ -1079,16 +1186,19 @@ export class QuickLoanComponent implements OnInit {
       return { rows, changed: false };
     }
 
-    const index = rows.findIndex((r) => r.inventoryDefinitionId === inventoryDefinitionId);
+    const index = rows.findIndex(
+      (r) => r.orderId === targetOrderId && r.inventoryDefinitionId === inventoryDefinitionId
+    );
     if (index < 0) {
       const def = this.inventoryStore.byId(inventoryDefinitionId);
       if (!def) {
         return type
-          ? this.mergeDefaultAccessoryCodesIntoRows(rows, type, codes)
+          ? this.mergeDefaultAccessoryCodesIntoRows(rows, targetOrderId, type, codes)
           : { rows, changed: false };
       }
       const available = this.filterAvailableCodesForQuickLoan(
         {
+          orderId: targetOrderId,
           inventoryDefinitionId: def.id,
           type,
           label: def.displayName,
@@ -1104,6 +1214,7 @@ export class QuickLoanComponent implements OnInit {
         rows: [
           ...rows,
           {
+            orderId: targetOrderId,
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
@@ -1140,6 +1251,7 @@ export class QuickLoanComponent implements OnInit {
 
   private mergeDefaultAccessoryCodesIntoRows(
     rows: QuickLoanAccessoryRow[],
+    targetOrderId: number,
     type: LoanedEquipmentType,
     codes: string[]
   ): { rows: QuickLoanAccessoryRow[]; changed: boolean } {
@@ -1147,7 +1259,11 @@ export class QuickLoanComponent implements OnInit {
       return { rows, changed: false };
     }
 
-    const index = rows.findIndex((r) => r.inventoryDefinitionId === this.inventoryStore.definitionIdForType(type));
+    const index = rows.findIndex(
+      (r) =>
+        r.orderId === targetOrderId &&
+        r.inventoryDefinitionId === this.inventoryStore.definitionIdForType(type)
+    );
     if (index < 0) {
       const def = this.inventoryStore.definitionForType(type);
       if (!def) {
@@ -1155,6 +1271,7 @@ export class QuickLoanComponent implements OnInit {
       }
       const available = this.filterAvailableCodesForQuickLoan(
         {
+          orderId: targetOrderId,
           inventoryDefinitionId: def.id,
           type,
           label: def.displayName,
@@ -1170,6 +1287,7 @@ export class QuickLoanComponent implements OnInit {
         rows: [
           ...rows,
           {
+            orderId: targetOrderId,
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
@@ -1232,11 +1350,62 @@ export class QuickLoanComponent implements OnInit {
     return available;
   }
 
+  private accessoryRowKey(row: QuickLoanAccessoryRow): string {
+    return `${row.orderId}:${row.inventoryDefinitionId}`;
+  }
+
+  protected accessoryRowsForOrder(orderId: number): QuickLoanAccessoryRow[] {
+    return this.accessoryRows().filter((r) => r.orderId === orderId);
+  }
+
+  protected editingGroupHebrewDate(orderDateIso: string): string {
+    if (!orderDateIso) {
+      return '';
+    }
+    const date = this.hebrew.parseIso(orderDateIso);
+    return date ? this.hebrew.toHebrewWithDayOfWeek(date) : orderDateIso;
+  }
+
+  protected editingGroupTimeSlotLabel(timeSlot: TimeSlot): string {
+    return TIME_SLOT_LABELS[timeSlot] ?? '';
+  }
+
+  protected editingGroupForOrder(orderId: number): AccessoryOrderGroupDraft | null {
+    return this.editingOrderGroups().find((g) => g.orderId === orderId) ?? null;
+  }
+
+  protected isFirstRowForOrder(item: QuickLoanAccessoryRow): boolean {
+    const first = this.accessoryRows().find((r) => r.orderId === item.orderId);
+    return first === item;
+  }
+
+  protected updateOrderGroupDeposit(orderId: number, value: string): void {
+    this.editingOrderGroups.update((groups) =>
+      groups.map((g) => (g.orderId === orderId ? { ...g, deposit: value } : g))
+    );
+  }
+
+  protected updateOrderGroupNotes(orderId: number, value: string): void {
+    this.editingOrderGroups.update((groups) =>
+      groups.map((g) => (g.orderId === orderId ? { ...g, notes: value } : g))
+    );
+  }
+
+  protected cardSessions(card: StandaloneLoanCard): StandaloneLoanSessionGroup[] {
+    return [...card.sessions];
+  }
+
+  protected draftLinesForOrder(orderId: number): AccessoryDraftLine[] {
+    return this.accessoryDraftLines().filter((line) => line.targetOrderId === orderId);
+  }
+
   protected removeAccessoryRow(row: QuickLoanAccessoryRow): void {
     this.accessoryRows.update((rows) =>
-      rows.filter((r) => r.inventoryDefinitionId !== row.inventoryDefinitionId)
+      rows.filter(
+        (r) => !(r.orderId === row.orderId && r.inventoryDefinitionId === row.inventoryDefinitionId)
+      )
     );
-    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+    if (this.openSerialDropdownId() === this.accessoryRowKey(row)) {
       this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
     }
@@ -1244,7 +1413,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected isSerialDropdownOpen(row: QuickLoanAccessoryRow): boolean {
-    return this.openSerialDropdownId() === row.inventoryDefinitionId;
+    return this.openSerialDropdownId() === this.accessoryRowKey(row);
   }
 
   protected serialOptionsForRow(row: QuickLoanAccessoryRow): AccessorySerialOptionDto[] {
@@ -1326,13 +1495,13 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected toggleSerialDropdown(row: QuickLoanAccessoryRow): void {
-    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+    if (this.openSerialDropdownId() === this.accessoryRowKey(row)) {
       this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
       return;
     }
 
-    this.openSerialDropdownId.set(row.inventoryDefinitionId);
+    this.openSerialDropdownId.set(this.accessoryRowKey(row));
     this.serialQuickEntry.set('');
     if (
       row.inventoryDefinitionId > 0 &&
@@ -1360,7 +1529,10 @@ export class QuickLoanComponent implements OnInit {
 
     this.accessoryRows.update((rows) =>
       rows.map((r) => {
-        if (r.inventoryDefinitionId !== row.inventoryDefinitionId) {
+        if (
+          r.orderId !== row.orderId ||
+          r.inventoryDefinitionId !== row.inventoryDefinitionId
+        ) {
           return r;
         }
         let next = [...r.selectedCodes];
@@ -1377,7 +1549,7 @@ export class QuickLoanComponent implements OnInit {
     );
 
     if (checked && row.type === LoanedEquipmentType.Mixer) {
-      this.applyMixerDefaultAccessories(code);
+      this.applyMixerDefaultAccessories(code, row.orderId);
     }
   }
 
@@ -1412,7 +1584,7 @@ export class QuickLoanComponent implements OnInit {
 
   protected closeSerialDropdown(row: QuickLoanAccessoryRow, event?: Event): void {
     event?.stopPropagation();
-    if (this.openSerialDropdownId() === row.inventoryDefinitionId) {
+    if (this.openSerialDropdownId() === this.accessoryRowKey(row)) {
       this.openSerialDropdownId.set(null);
       this.serialQuickEntry.set('');
     }
@@ -1623,12 +1795,16 @@ export class QuickLoanComponent implements OnInit {
   }
 
   protected startEditCard(card: StandaloneLoanCard): void {
-    const orders = this.cardOrders(card);
+    const orders = [...card.orders].sort((a, b) => {
+      const aIso = a.shifts?.[0]?.orderDate ?? '';
+      const bIso = b.shifts?.[0]?.orderDate ?? '';
+      const dateCmp = bIso.localeCompare(aIso);
+      if (dateCmp !== 0) {
+        return dateCmp;
+      }
+      return b.id - a.id;
+    });
     if (orders.length === 0) {
-      return;
-    }
-    if (orders.length > 1) {
-      this.toast.error('לא ניתן לערוך מספר הזמנות בבת אחת — ערכו כל הזמנה בנפרד (#ID)');
       return;
     }
     this.applyEditOrders(orders, card.key);
@@ -1643,7 +1819,21 @@ export class QuickLoanComponent implements OnInit {
       orderIds: orders.map((order) => order.id),
       cardKey: card.key,
       customerName: card.customerName,
-      phone: card.phone
+      phone: card.phone,
+      editGroupOrderId: null
+    });
+  }
+
+  protected askDeleteEditingGroup(group: AccessoryOrderGroupDraft): void {
+    if (group.orderId <= 0 || this.deletingCardKey()) {
+      return;
+    }
+    this.deleteConfirmOrder.set({
+      orderIds: [group.orderId],
+      cardKey: this.editingCardKey() ?? `edit-order:${group.orderId}`,
+      customerName: String(this.form.controls.customerName.value ?? '').trim(),
+      phone: String(this.form.controls.phone.value ?? '').trim(),
+      editGroupOrderId: group.orderId
     });
   }
 
@@ -1803,7 +1993,7 @@ export class QuickLoanComponent implements OnInit {
   }
 
   private buildStandaloneLoanCards(orders: OrderDto[]): StandaloneLoanCard[] {
-    const byOrder = new Map<string, StandaloneLoanCard>();
+    const byCustomer = new Map<string, StandaloneLoanCard>();
     for (const order of orders) {
       if (order.isReturnProcessed || order.isCancelled) {
         continue;
@@ -1838,36 +2028,61 @@ export class QuickLoanComponent implements OnInit {
       if (items.length === 0) {
         continue;
       }
-      // One card per transaction/order ID so edits and returns never cross loans.
-      const key = `order:${order.id}`;
-      const card: StandaloneLoanCard = {
-        key,
-        customerName: order.customerName ?? '',
-        phone: order.phone ?? '',
-        address: (order.address ?? '').trim(),
+
+      const key = this.standaloneLoanCardKey(order);
+      let card = byCustomer.get(key);
+      if (!card) {
+        card = {
+          key,
+          customerName: order.customerName ?? '',
+          phone: order.phone ?? '',
+          address: (order.address ?? '').trim(),
+          loanDateIso,
+          orders: [],
+          sessions: [],
+          items: [],
+          totalQuantity: 0,
+          customerNotes: this.customers.notesForPhone(order.phone)
+        };
+        byCustomer.set(key, card);
+      }
+
+      const session: StandaloneLoanSessionGroup = {
+        key: `order:${order.id}`,
+        orderId: order.id,
         loanDateIso,
-        orders: [order],
-        items,
-        totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-        customerNotes: this.customers.notesForPhone(order.phone),
-        deposits: [],
-        loanNotes: []
+        loanTimeLabel: this.loanTimeFromCreatedAt(order.createdAt),
+        deposit: (order.depositOnName ?? '').trim() || null,
+        notes: (order.notes ?? '').trim() || null,
+        items
       };
-      const deposit = (order.depositOnName ?? '').trim();
-      if (deposit) {
-        card.deposits.push(deposit);
+
+      if (!card.address && order.address?.trim()) {
+        card.address = order.address.trim();
       }
-      const notes = (order.notes ?? '').trim();
-      if (notes) {
-        card.loanNotes.push(notes);
+      if (!card.customerNotes) {
+        card.customerNotes = this.customers.notesForPhone(order.phone);
       }
-      byOrder.set(key, card);
+      card.orders.push(order);
+      card.sessions.push(session);
+      card.items.push(...items);
+      card.totalQuantity += items.reduce((sum, item) => sum + item.quantity, 0);
     }
 
-    const cards = [...byOrder.values()];
+    const cards = [...byCustomer.values()];
     for (const card of cards) {
-      this.sortStandaloneLoanItems(card.items);
-      card.loanDateIso = card.items[0]?.loanDateIso ?? card.loanDateIso;
+      for (const session of card.sessions) {
+        this.sortStandaloneLoanItems(session.items);
+      }
+      card.sessions.sort((a, b) => {
+        const dateCmp = (b.loanDateIso || '').localeCompare(a.loanDateIso || '');
+        if (dateCmp !== 0) {
+          return dateCmp;
+        }
+        return b.orderId - a.orderId;
+      });
+      card.items = card.sessions.flatMap((session) => session.items);
+      card.loanDateIso = card.sessions[0]?.loanDateIso ?? card.loanDateIso;
     }
     return cards.sort((a, b) => {
       const nameCmp = a.customerName.localeCompare(b.customerName, 'he');
@@ -1882,6 +2097,12 @@ export class QuickLoanComponent implements OnInit {
       const bId = b.orders[0]?.id ?? 0;
       return bId - aId;
     });
+  }
+
+  private standaloneLoanCardKey(order: OrderDto): string {
+    const name = (order.customerName ?? '').trim();
+    const phone = (order.phone ?? '').replace(/\D/g, '');
+    return `${name}|${phone}`;
   }
 
   private sortStandaloneLoanItems(items: StandaloneLoanItem[]): void {
@@ -1910,6 +2131,19 @@ export class QuickLoanComponent implements OnInit {
     this.editingId.set(order.id);
     this.editingGroupedOrderIds.set(orders.length > 1 ? orders.slice(1).map((o) => o.id) : []);
     this.editingCardKey.set(cardKey);
+    this.editingOrderGroups.set(
+      orders.map((o) => {
+        const shift = o.shifts?.[0];
+        return {
+          orderId: o.id,
+          orderDateIso: shift?.orderDate ?? '',
+          timeSlot: shift?.timeSlot ?? this.defaultTimeSlot,
+          deposit: o.depositOnName ?? '',
+          notes: o.notes ?? ''
+        };
+      })
+    );
+    this.syncFormControlsForEditingGroups();
     this.editingPreservedReturnedLines.set(this.collectFullyReturnedLines(orders));
     this.formMinimized.set(false);
     this.openSerialDropdownId.set(null);
@@ -1945,7 +2179,11 @@ export class QuickLoanComponent implements OnInit {
 
     const rows = orders.flatMap((entry) => this.buildEditRowsFromOrder(entry));
     this.accessoryRows.set(rows);
-    this.accessoryDraftLines.set([this.createAccessoryDraftLine()]);
+    this.accessoryDraftLines.set(
+      orders.length > 1
+        ? orders.map((entry) => this.createAccessoryDraftLine(entry.id))
+        : [this.createAccessoryDraftLine(order.id)]
+    );
 
     this.refreshAvailability();
     queueMicrotask(() => {
@@ -1954,8 +2192,10 @@ export class QuickLoanComponent implements OnInit {
   }
 
   /** Fully-returned lines are hidden from the edit form but must be re-posted on save. */
-  private collectFullyReturnedLines(orders: OrderDto[]): OrderLoanedEquipmentDto[] {
-    const lines: OrderLoanedEquipmentDto[] = [];
+  private collectFullyReturnedLines(
+    orders: OrderDto[]
+  ): Array<{ orderId: number; line: OrderLoanedEquipmentDto }> {
+    const lines: Array<{ orderId: number; line: OrderLoanedEquipmentDto }> = [];
     for (const order of orders) {
       for (const le of order.loanedEquipments ?? []) {
         if (le.id == null || le.id <= 0 || le.quantity <= 0) {
@@ -1973,15 +2213,18 @@ export class QuickLoanComponent implements OnInit {
           }))
           .filter((n) => (n.content ?? '').length > 0 || n.isReturned);
         lines.push({
-          id: le.id,
-          isCustomItem: !!le.isCustomItem,
-          customItemName: le.customItemName ?? null,
-          loanedEquipmentType: le.loanedEquipmentType ?? null,
-          inventoryDefinitionId: le.inventoryDefinitionId ?? null,
-          quantity: le.quantity,
-          expectedNoteCount: Math.max(le.expectedNoteCount ?? 0, notes.length, le.quantity),
-          returnedQuantity: returned,
-          notes
+          orderId: order.id,
+          line: {
+            id: le.id,
+            isCustomItem: !!le.isCustomItem,
+            customItemName: le.customItemName ?? null,
+            loanedEquipmentType: le.loanedEquipmentType ?? null,
+            inventoryDefinitionId: le.inventoryDefinitionId ?? null,
+            quantity: le.quantity,
+            expectedNoteCount: Math.max(le.expectedNoteCount ?? 0, notes.length, le.quantity),
+            returnedQuantity: returned,
+            notes
+          }
         });
       }
     }
@@ -2031,6 +2274,7 @@ export class QuickLoanComponent implements OnInit {
                 }) === 0
             ) ?? null;
           rows.push({
+            orderId: order.id,
             inventoryDefinitionId: catalogMatch.id,
             type: linkedType,
             label: catalogMatch.displayName,
@@ -2044,6 +2288,7 @@ export class QuickLoanComponent implements OnInit {
           continue;
         }
         rows.push({
+          orderId: order.id,
           inventoryDefinitionId: this.nextOneTimeAccessoryId--,
           type: null,
           label: name,
@@ -2067,6 +2312,7 @@ export class QuickLoanComponent implements OnInit {
       const type = le.loanedEquipmentType ?? null;
       if (!def && definitionId == null && type != null) {
         rows.push({
+          orderId: order.id,
           inventoryDefinitionId: -LOANED_EQUIPMENT_ORDER.indexOf(type) - 1,
           type,
           label: LOANED_EQUIPMENT_LABELS[type] ?? String(type),
@@ -2083,6 +2329,7 @@ export class QuickLoanComponent implements OnInit {
         continue;
       }
       rows.push({
+        orderId: order.id,
         inventoryDefinitionId: def?.id ?? definitionId ?? this.nextOneTimeAccessoryId--,
         type,
         label: def?.displayName ?? (type ? LOANED_EQUIPMENT_LABELS[type] : String(type)),
@@ -2379,7 +2626,29 @@ export class QuickLoanComponent implements OnInit {
             : `${okCount} השאלות נמחקו (${this.formatOrderIdList(doomed.orderIds)})`
         );
         this.deleteConfirmOrder.set(null);
-        if (this.editingCardKey() === doomed.cardKey) {
+        if (doomed.editGroupOrderId != null) {
+          const remainingOrders = this.cardOrders({
+            key: doomed.cardKey,
+            customerName: '',
+            phone: '',
+            address: '',
+            loanDateIso: '',
+            orders: this.recentLoans().filter((order) =>
+              this.editingOrderGroups().some(
+                (group) => group.orderId !== doomed.editGroupOrderId && group.orderId === order.id
+              )
+            ),
+            sessions: [],
+            items: [],
+            totalQuantity: 0,
+            customerNotes: null
+          });
+          if (remainingOrders.length > 0) {
+            this.applyEditOrders(remainingOrders, this.editingCardKey());
+          } else {
+            this.cancelEdit();
+          }
+        } else if (this.editingCardKey() === doomed.cardKey) {
           this.cancelEdit();
         }
         this.loadRecentLoans();
@@ -2392,6 +2661,32 @@ export class QuickLoanComponent implements OnInit {
     this.editingGroupedOrderIds.set([]);
     this.editingCardKey.set(null);
     this.editingPreservedReturnedLines.set([]);
+    this.editingOrderGroups.set([]);
+  }
+
+  private syncFormControlsForEditingGroups(): void {
+    const multi = this.editingOrderGroups().length > 1;
+
+    const yearCtrl = this.form.controls.hebrewYear;
+    const monthCtrl = this.form.controls.hebrewMonth;
+    const dayCtrl = this.form.controls.hebrewDay;
+    const depositCtrl = this.form.controls.deposit;
+    const notesCtrl = this.form.controls.notes;
+
+    if (multi) {
+      yearCtrl.disable({ emitEvent: false });
+      monthCtrl.disable({ emitEvent: false });
+      dayCtrl.disable({ emitEvent: false });
+      depositCtrl.disable({ emitEvent: false });
+      notesCtrl.disable({ emitEvent: false });
+      return;
+    }
+
+    yearCtrl.enable({ emitEvent: false });
+    monthCtrl.enable({ emitEvent: false });
+    dayCtrl.enable({ emitEvent: false });
+    depositCtrl.enable({ emitEvent: false });
+    notesCtrl.enable({ emitEvent: false });
   }
 
   protected submit(): void {
@@ -2405,19 +2700,197 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
+    // Commit any in-progress draft row (Enter not pressed) before building the payload.
+    if (!this.commitPendingDraftLinesBeforeSave()) {
+      return;
+    }
+
+    const editingId = this.editingId();
+    const editingGroups = this.editingOrderGroups();
+    const isMultiOrderEdit = editingId != null && editingGroups.length > 1;
+
+    if (isMultiOrderEdit) {
+      // Validate all edited rows (shared UI state) before firing API updates.
+      for (const row of this.accessoryRows()) {
+        if (row.quantity <= 0) {
+          continue;
+        }
+        const def = this.inventoryStore.byId(row.inventoryDefinitionId);
+        const hasRegisteredSerials =
+          (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
+        const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
+        if (hasRegisteredSerials && codes.length !== row.quantity) {
+          this.toast.warning(`יש לבחור קוד לכל יחידה עבור "${row.label}"`);
+          return;
+        }
+        const options = this.serialOptionsForRow(row);
+        for (const code of codes) {
+          const match = options.find(
+            (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+          );
+          if (match && !match.isAvailable) {
+            this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה (${row.label})`);
+            return;
+          }
+        }
+      }
+
+      const customerName = (this.form.controls.customerName.value ?? '').trim() || null;
+      const phone = (this.form.controls.phone.value ?? '').trim();
+      const address = (this.form.controls.address.value ?? '').trim() || null;
+
+      const requests = [];
+      for (const group of editingGroups) {
+        const orderIso = group.orderDateIso?.trim();
+        if (!orderIso) {
+          this.toast.warning(`תאריך לא תקין לקבוצה של הזמנה #${group.orderId}`);
+          return;
+        }
+
+        const loanedEquipments: OrderLoanedEquipmentDto[] = this.accessoryRows()
+          .filter((row) => row.quantity > 0 && row.orderId === group.orderId)
+          .map((row) => {
+            const activeCodes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
+            const returnedCodes = (row.preservedReturnedCodes ?? [])
+              .map((c) => c.trim())
+              .filter((c) => c.length > 0)
+              .filter(
+                (code) =>
+                  !activeCodes.some(
+                    (active) => active.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
+                  )
+              );
+            const alreadyReturned = Math.max(0, row.alreadyReturnedQuantity ?? 0);
+            const notes = [
+              ...activeCodes.map((code, ordinal) => ({
+                ordinal,
+                content: code,
+                isReturned: false
+              })),
+              ...returnedCodes.map((code, index) => ({
+                ordinal: activeCodes.length + index,
+                content: code,
+                isReturned: true
+              }))
+            ];
+            const quantity = Math.max(row.quantity + alreadyReturned, notes.length, 1);
+
+            // Catalog rows (positive definition id) must never be saved as custom.
+            if (row.inventoryDefinitionId > 0) {
+              const linkedType =
+                row.type ??
+                LOANED_EQUIPMENT_ORDER.find(
+                  (type) =>
+                    row.label.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+                      sensitivity: 'accent'
+                    }) === 0
+                ) ?? null;
+              return {
+                ...(row.lineId ? { id: row.lineId } : {}),
+                isCustomItem: false,
+                inventoryDefinitionId: row.inventoryDefinitionId,
+                loanedEquipmentType: linkedType,
+                customItemName: null,
+                quantity,
+                expectedNoteCount: quantity,
+                notes
+              };
+            }
+
+            return {
+              ...(row.lineId ? { id: row.lineId } : {}),
+              isCustomItem: true,
+              customItemName: row.label,
+              loanedEquipmentType: null,
+              inventoryDefinitionId: null,
+              quantity,
+              expectedNoteCount: quantity,
+              notes
+            };
+          });
+
+        const preservedReturned = this.editingPreservedReturnedLines()
+          .filter((p) => p.orderId === group.orderId)
+          .map((p) => p.line);
+
+        if (preservedReturned.length > 0) {
+          const activeLineIds = new Set(
+            loanedEquipments.map((le) => le.id).filter((id): id is number => id != null && id > 0)
+          );
+          for (const line of preservedReturned) {
+            if (line.id != null && line.id > 0 && activeLineIds.has(line.id)) {
+              continue;
+            }
+            loanedEquipments.push(line);
+          }
+        }
+
+        if (loanedEquipments.length === 0) {
+          this.toast.warning(`יש להוסיף לפחות אביזר אחד עם כמות לקבוצה של #${group.orderId}`);
+          return;
+        }
+
+        const shifts: OrderShiftDto[] = [
+          {
+            orderDate: orderIso,
+            timeSlot: group.timeSlot
+          }
+        ];
+
+        const payload: OrderCreateUpdateDto = {
+          equipmentDefinitionIds: [],
+          shifts,
+          customerName,
+          phone,
+          phone2: null,
+          address,
+          depositType: null,
+          depositOnName: group.deposit.trim() || null,
+          paymentAmount: null,
+          isUnpaid: false,
+          // Accessory loans are date-based only; shift/return-time rules do not apply.
+          returnTimeType: ReturnTimeType.LateNight,
+          customReturnTime: null,
+          notes: group.notes.trim() || null,
+          loanedEquipments,
+          allowDoubleBooking: false,
+          systemType: SystemType.Tools
+        };
+
+        requests.push(this.data.updateOrder(group.orderId, payload));
+      }
+
+      this.submitting.set(true);
+      forkJoin(requests)
+        .pipe(finalize(() => this.submitting.set(false)))
+        .subscribe((orders) => {
+          const updated = orders.filter((o): o is OrderDto => !!o);
+          if (updated.length === 0) {
+            return;
+          }
+          for (const order of updated) {
+            this.ordersSync.notifyOrderUpdated(order);
+          }
+          this.toast.success(`ההשאלות עודכנו (${updated.length} הזמנות)`);
+          this.orderDraft.clearIfKind('quick-loan');
+          this.resetFormFully();
+          this.loadRecentLoans();
+          this.refreshAvailability();
+          this.inventoryStore.load({ force: true }).subscribe();
+        });
+      return;
+    }
+
     const iso = this.selectedIso();
     if (!iso) {
       this.toast.warning('תאריך לא תקין');
       return;
     }
 
-    // Commit any in-progress draft row (Enter not pressed) before building the payload.
-    if (!this.commitPendingDraftLinesBeforeSave()) {
-      return;
-    }
+    const activeOrderId = editingId ?? 0;
 
     const loanedEquipments: OrderLoanedEquipmentDto[] = this.accessoryRows()
-      .filter((row) => row.quantity > 0)
+      .filter((row) => row.quantity > 0 && row.orderId === activeOrderId)
       .map((row) => {
         const activeCodes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
         const returnedCodes = (row.preservedReturnedCodes ?? [])
@@ -2480,7 +2953,9 @@ export class QuickLoanComponent implements OnInit {
         };
       });
 
-    const preservedReturned = this.editingPreservedReturnedLines();
+    const preservedReturned = this.editingPreservedReturnedLines()
+      .filter((p) => p.orderId === activeOrderId)
+      .map((p) => p.line);
     if (preservedReturned.length > 0) {
       const activeLineIds = new Set(
         loanedEquipments.map((le) => le.id).filter((id): id is number => id != null && id > 0)
@@ -2522,10 +2997,11 @@ export class QuickLoanComponent implements OnInit {
       }
     }
 
+    const timeSlot = editingGroups[0]?.timeSlot ?? this.defaultTimeSlot;
     const shifts: OrderShiftDto[] = [
       {
         orderDate: iso,
-        timeSlot: this.defaultTimeSlot
+        timeSlot
       }
     ];
 
@@ -2549,7 +3025,6 @@ export class QuickLoanComponent implements OnInit {
       systemType: SystemType.Tools
     };
 
-    const editingId = this.editingId();
     this.submitting.set(true);
     const request$ =
       editingId != null
@@ -2590,6 +3065,7 @@ export class QuickLoanComponent implements OnInit {
 
   private resetFormFully(): void {
     this.clearEditState();
+    this.syncFormControlsForEditingGroups();
     this.formMinimized.set(false);
     this.resetSelections();
     this.form.patchValue({
@@ -2645,14 +3121,20 @@ export class QuickLoanComponent implements OnInit {
     this.nextOneTimeAccessoryId = Number.isFinite(draft.nextOneTimeAccessoryId)
       ? draft.nextOneTimeAccessoryId
       : -1;
+    this.editingOrderGroups.set((draft.editingOrderGroups ?? []).map((g) => ({ ...g })));
+    this.syncFormControlsForEditingGroups();
     this.editingPreservedReturnedLines.set(
-      (draft.preservedReturnedLines ?? []).map((line) => ({
-        ...line,
-        notes: (line.notes ?? []).map((n) => ({ ...n }))
+      (draft.preservedReturnedLines ?? []).map(({ orderId, line }) => ({
+        orderId,
+        line: {
+          ...line,
+          notes: (line.notes ?? []).map((n) => ({ ...n }))
+        }
       }))
     );
     this.accessoryRows.set(
       (draft.accessoryRows ?? []).map((row) => ({
+        orderId: Number.isFinite(row.orderId as number) ? (row.orderId as number) : 0,
         inventoryDefinitionId: row.inventoryDefinitionId,
         type: row.type as LoanedEquipmentType | null,
         label: row.label,
@@ -2819,7 +3301,8 @@ export class QuickLoanComponent implements OnInit {
       .getAccessorySerialAvailability({
         dates: [iso],
         inventoryDefinitionIds: definitionIds,
-        excludeOrderId: this.editingId()
+        excludeOrderId: this.editingId(),
+        excludeOrderIds: this.currentAvailabilityExcludedOrderIds()
       })
       .pipe(finalize(() => this.availabilityLoading.set(false)))
       .subscribe((groups) => {

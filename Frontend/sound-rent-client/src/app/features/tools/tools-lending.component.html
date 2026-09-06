@@ -39,14 +39,17 @@
     <div class="loan-form-inline-shell__header">
       <div>
         <h2 id="tools-loan-form-title" class="text-lg font-bold text-[#002244]">
-          @if (editingLoanId(); as editId) {
-            עריכת השאלה #{{ editId }}
+          @if (editingCardKey()) {
+            עריכת השאלות הפעילות ללקוח
           } @else {
             השאלה חדשה
           }
         </h2>
         @for (form of forms(); track form.id) {
           <p class="mt-1 text-sm text-slate-500">
+            @if (form.editingLoanId; as editId) {
+              <strong>השאלה #{{ editId }}</strong> ·
+            }
             {{ form.hebrewDateTime }}
             @if (showDeadline()) {
               <span class="loan-form-modal__deadline">
@@ -65,7 +68,7 @@
         >
           מזער
         </button>
-        @if (editingLoanId()) {
+        @if (editingCardKey()) {
           <button
             type="button"
             class="add-row-btn"
@@ -87,15 +90,9 @@
       </div>
     </div>
 
-    @if (editingLoanId(); as editId) {
+    @if (editingCardKey()) {
       <div class="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status">
-        @if (editingGroupedLoanIds().length > 0) {
-          עורכים השאלות
-          <strong>{{ formatLoanIdList([editId, ...editingGroupedLoanIds()]) }}</strong>
-          — שמירה תעדכן את ההשאלה הראשית ותאחד את כל פריטי כלי העבודה.
-        } @else {
-          עורכים השאלת כלי עבודה <strong>#{{ editId }}</strong> — שמירה תעדכן את ההשאלה הקיימת.
-        }
+        כל השאלה מוצגת כקבוצה נפרדת. כל קבוצה שומרת פיקדון, הערות ותאריך/שעה עצמאיים.
       </div>
     }
 
@@ -464,8 +461,8 @@
               {{
                 submittingId() === form.id
                   ? 'שומר…'
-                  : editingLoanId()
-                    ? 'עדכון השאלה #' + editingLoanId()
+                  : form.editingLoanId
+                    ? 'עדכון השאלה #' + form.editingLoanId
                     : 'שמירת השאלה'
               }}
             </button>
@@ -536,18 +533,6 @@
                 </span>
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
-                }
-                @if (card.deposit) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">פיקדון:</span>
-                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
-                  </div>
-                }
-                @if (card.loanNotes) {
-                  <div class="customer-profile-note" role="status">
-                    <span class="customer-profile-note__label">הערות:</span>
-                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
-                  </div>
                 }
                 @if (card.customerNotes) {
                   <div class="customer-profile-note" role="status">

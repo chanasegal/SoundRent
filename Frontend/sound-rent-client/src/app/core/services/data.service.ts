@@ -1002,6 +1002,7 @@ export class DataService {
   ): Observable<AccessorySerialAvailabilityGroupDto[]> {
     const payload = {
       excludeOrderId: request.excludeOrderId ?? null,
+      excludeOrderIds: request.excludeOrderIds ?? [],
       inventoryDefinitionIds: request.inventoryDefinitionIds ?? []
     };
     return this.http

@@ -306,7 +306,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         var reservedByDef = excludeOrderId is int orderId
             ? await GetAssignedCodesForOrderAsync(orderId, cancellationToken)
             : new Dictionary<int, HashSet<string>>();
-        var activeByDef = await GetActiveAssignedCodesAsync(excludeOrderId, cancellationToken);
+        var activeByDef = await GetActiveAssignedCodesAsync(
+            excludeOrderId is int excluded ? new HashSet<int> { excluded } : null,
+            cancellationToken);
         var claimedInRequest = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         _logger.LogInformation(
@@ -554,7 +556,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             .GroupBy(r => r.InventoryDefinitionId)
             .ToDictionary(g => g.Key, g => g.Select(x => x.Code).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
-        var activeByDef = await GetActiveAssignedCodesAsync(excludeOrderId, cancellationToken);
+        var activeByDef = await GetActiveAssignedCodesAsync(
+            excludeOrderId is int excluded ? new HashSet<int> { excluded } : null,
+            cancellationToken);
         foreach (var (definitionId, codes) in byDef)
         {
             if (!activeByDef.TryGetValue(definitionId, out var active))
@@ -630,10 +634,18 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         var idsFilter = request.InventoryDefinitionIds?.Count > 0
             ? request.InventoryDefinitionIds.Distinct().ToList()
             : null;
+        var excludedOrderIds = request.ExcludeOrderIds?
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList() ?? [];
+        if (request.ExcludeOrderId is int legacyExcludeId && legacyExcludeId > 0 && !excludedOrderIds.Contains(legacyExcludeId))
+        {
+            excludedOrderIds.Add(legacyExcludeId);
+        }
 
         _logger.LogInformation(
-            "[SerialAvailability] GetAvailability START excludeOrderId={ExcludeOrderId} inventoryDefinitionIds=[{Ids}]",
-            request.ExcludeOrderId,
+            "[SerialAvailability] GetAvailability START excludeOrderIds=[{ExcludeOrderIds}] inventoryDefinitionIds=[{Ids}]",
+            string.Join(",", excludedOrderIds),
             idsFilter is null ? "(all active)" : string.Join(",", idsFilter));
 
         var query = _db.InventoryDefinitions.AsNoTracking()
@@ -645,13 +657,14 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         }
 
         var definitions = await query.OrderBy(d => d.SortOrder).ThenBy(d => d.Id).ToListAsync(cancellationToken);
-        var loanedOutByDef = await GetActiveAssignedCodesAsync(request.ExcludeOrderId, cancellationToken);
-        var reservedByDef = request.ExcludeOrderId is int orderId
-            ? await GetAssignedCodesForOrderAsync(orderId, cancellationToken)
+        var excludedOrderIdSet = excludedOrderIds.ToHashSet();
+        var loanedOutByDef = await GetActiveAssignedCodesAsync(excludedOrderIdSet, cancellationToken);
+        var reservedByDef = excludedOrderIdSet.Count > 0
+            ? await GetAssignedCodesForOrdersAsync(excludedOrderIdSet, cancellationToken)
             : new Dictionary<int, HashSet<string>>();
 
         _logger.LogInformation(
-            "[SerialAvailability] GetAvailability takenFromActiveLoans={Taken} reservedOnExcludedOrder={Reserved} definitionCount={DefCount}",
+            "[SerialAvailability] GetAvailability takenFromActiveLoans={Taken} reservedOnExcludedOrders={Reserved} definitionCount={DefCount}",
             FormatTakenMap(loanedOutByDef),
             FormatTakenMap(reservedByDef),
             definitions.Count);
@@ -1154,8 +1167,36 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         return result;
     }
 
+    private async Task<Dictionary<int, HashSet<string>>> GetAssignedCodesForOrdersAsync(
+        IReadOnlyCollection<int> orderIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = orderIds.Where(id => id > 0).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<int, HashSet<string>>();
+        }
+
+        var merged = new Dictionary<int, HashSet<string>>();
+        foreach (var orderId in ids)
+        {
+            var forOrder = await GetAssignedCodesForOrderAsync(orderId, cancellationToken);
+            foreach (var (definitionId, codes) in forOrder)
+            {
+                if (!merged.TryGetValue(definitionId, out var existing))
+                {
+                    existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    merged[definitionId] = existing;
+                }
+                existing.UnionWith(codes);
+            }
+        }
+
+        return merged;
+    }
+
     private async Task<Dictionary<int, HashSet<string>>> GetActiveAssignedCodesAsync(
-        int? excludeOrderId,
+        IReadOnlySet<int>? excludeOrderIds,
         CancellationToken cancellationToken)
     {
         // Do not filter IsCustomItem: quick-loan historically persisted catalog units
@@ -1177,18 +1218,18 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 Code = note.Content!
             };
 
-        if (excludeOrderId is int excluded)
+        if (excludeOrderIds is { Count: > 0 })
         {
-            query = query.Where(row => row.OrderId != excluded);
+            query = query.Where(row => !excludeOrderIds.Contains(row.OrderId));
         }
 
         var rows = await query.ToListAsync(cancellationToken);
         var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
 
         _logger.LogInformation(
-            "[SerialAvailability] GetActiveAssignedCodes rawUnreturnedNotes={Count} excludeOrderId={ExcludeOrderId}",
+            "[SerialAvailability] GetActiveAssignedCodes rawUnreturnedNotes={Count} excludeOrderIds=[{ExcludeOrderIds}]",
             rows.Count,
-            excludeOrderId);
+            excludeOrderIds is null ? string.Empty : string.Join(",", excludeOrderIds));
 
         var mappedPairs = new List<(int DefinitionId, string Code)>();
         foreach (var r in rows)
@@ -2142,7 +2183,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         IReadOnlyDictionary<int, HashSet<string>>? stillAssigned = keepAssignedOnOrder;
         if (status == AccessorySerialPhysicalStatus.InWarehouse && stillAssigned is null)
         {
-            stillAssigned = await GetActiveAssignedCodesAsync(excludeOrderId: null, cancellationToken);
+            stillAssigned = await GetActiveAssignedCodesAsync(excludeOrderIds: null, cancellationToken);
         }
 
         var changed = false;

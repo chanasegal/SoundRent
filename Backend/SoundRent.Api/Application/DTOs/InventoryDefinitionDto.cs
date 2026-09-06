@@ -40,6 +40,8 @@ public class InventorySerialAvailabilityRequestDto
 {
     public int? ExcludeOrderId { get; set; }
 
+    public List<int>? ExcludeOrderIds { get; set; }
+
     public List<int>? InventoryDefinitionIds { get; set; }
 }
 
