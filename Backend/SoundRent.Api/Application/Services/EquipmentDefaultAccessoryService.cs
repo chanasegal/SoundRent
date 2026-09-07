@@ -178,6 +178,22 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
 
         if (dto.ParentEquipmentType == LoanedEquipmentType.Mixer && parentDefinition is not null)
         {
+            var conflictingLinks = await _db.EquipmentDefaultAccessories
+                .AsNoTracking()
+                .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
+                            && e.InventoryDefinitionId == definitionId
+                            && toAdd.Contains(e.AccessorySerialCode)
+                            && e.ParentSerialCode != parentCode)
+                .Select(e => new { e.AccessorySerialCode, e.ParentSerialCode })
+                .ToListAsync(cancellationToken);
+
+            if (conflictingLinks.Count > 0)
+            {
+                var conflict = conflictingLinks[0];
+                throw new ValidationException(
+                    $"קוד {conflict.AccessorySerialCode} כבר משויך למיקסר {conflict.ParentSerialCode} ולא ניתן לשייך אותו ליותר ממיקסר אחד");
+            }
+
             var parentMixerSerial = await _db.InventorySerialCodes
                 .FirstAsync(
                     s => s.InventoryDefinitionId == parentDefinition.Id && s.SerialCode == parentCode,

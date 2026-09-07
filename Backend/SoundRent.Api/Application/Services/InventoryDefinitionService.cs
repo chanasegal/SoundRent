@@ -447,9 +447,13 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     && serial.MixerId is int attachedMixerId
                     && !nextParentSerialIds.Contains(attachedMixerId))
                 {
-                    // Direct accessory rental (parent mixer not on this order) disconnects attachment.
-                    serial.MixerId = null;
-                    changed = true;
+                    // Direct accessory rental (parent mixer not on this order) disconnects
+                    // the live attachment and removes the default-kit mapping so it will not
+                    // be auto-added back to that mixer later without an explicit relink.
+                    if (await DetachAccessoryFromMixerAsync(serial, cancellationToken))
+                    {
+                        changed = true;
+                    }
                 }
 
                 if (SetSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
@@ -592,8 +596,10 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     && serial.MixerId is int attachedMixerId
                     && !markedParentIds.Contains(attachedMixerId))
                 {
-                    serial.MixerId = null;
-                    changed = true;
+                    if (await DetachAccessoryFromMixerAsync(serial, cancellationToken))
+                    {
+                        changed = true;
+                    }
                 }
 
                 if (SetSerialStatus(def, code, AccessorySerialPhysicalStatus.LoanedOut))
@@ -2210,6 +2216,46 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             serial.PhysicalStatus = status;
             changed = true;
+        }
+
+        return changed;
+    }
+
+    private async Task<bool> DetachAccessoryFromMixerAsync(
+        InventorySerialCode serial,
+        CancellationToken cancellationToken)
+    {
+        if (serial.MixerId is not int mixerId)
+        {
+            return false;
+        }
+
+        serial.MixerId = null;
+        var changed = true;
+
+        var parentSerialCode = await _db.InventorySerialCodes
+            .AsNoTracking()
+            .Where(s => s.Id == mixerId)
+            .Select(s => s.SerialCode)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var parentCode = (parentSerialCode ?? string.Empty).Trim();
+        var accessoryCode = (serial.SerialCode ?? string.Empty).Trim();
+        if (serial.InventoryDefinitionId <= 0 || parentCode.Length == 0 || accessoryCode.Length == 0)
+        {
+            return changed;
+        }
+
+        var defaultLinks = await _db.EquipmentDefaultAccessories
+            .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
+                        && e.ParentSerialCode == parentCode
+                        && e.InventoryDefinitionId == serial.InventoryDefinitionId
+                        && e.AccessorySerialCode == accessoryCode)
+            .ToListAsync(cancellationToken);
+
+        if (defaultLinks.Count > 0)
+        {
+            _db.EquipmentDefaultAccessories.RemoveRange(defaultLinks);
         }
 
         return changed;

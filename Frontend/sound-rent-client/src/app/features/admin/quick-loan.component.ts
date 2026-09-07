@@ -15,7 +15,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { EMPTY, finalize, forkJoin, merge } from 'rxjs';
+import { EMPTY, finalize, forkJoin, merge, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -932,6 +932,9 @@ export class QuickLoanComponent implements OnInit {
     };
     this.accessoryRows.update((rows) => [...rows, row]);
     this.refreshAvailability();
+    if (row.type === LoanedEquipmentType.Mixer && row.selectedCodes.length > 0) {
+      this.applyMixerDefaultAccessoriesForCodes(row.selectedCodes, targetOrderId);
+    }
     return true;
   }
 
@@ -1095,7 +1098,11 @@ export class QuickLoanComponent implements OnInit {
     );
   }
 
-  private applyMixerDefaultAccessories(mixerSerialCode: string, targetOrderId: number): void {
+  private applyMixerDefaultAccessories(
+    mixerSerialCode: string,
+    targetOrderId: number,
+    options: { showToast?: boolean } = {}
+  ): void {
     const parentSerial = mixerSerialCode.trim();
     if (!parentSerial) {
       return;
@@ -1104,75 +1111,159 @@ export class QuickLoanComponent implements OnInit {
     this.data
       .getEquipmentDefaultAccessories(LoanedEquipmentType.Mixer, parentSerial)
       .subscribe((defaults) => {
-        if (!defaults?.length) {
-          return;
-        }
-
-        const byDefinition = new Map<
-          number,
-          { defId: number; type: LoanedEquipmentType | null; codes: string[] }
-        >();
-        const byType = new Map<LoanedEquipmentType, string[]>();
-
-        for (const row of defaults) {
-          const code = (row.accessorySerialCode ?? '').trim();
-          if (!code) {
-            continue;
-          }
-          if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
-            const key = row.inventoryDefinitionId;
-            const existing = byDefinition.get(key) ?? {
-              defId: key,
-              type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
-              codes: []
-            };
-            if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
-              existing.codes.push(code);
-            }
-            byDefinition.set(key, existing);
-            continue;
-          }
-          const type = row.accessoryEquipmentType as LoanedEquipmentType | null;
-          if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
-            continue;
-          }
-          const list = byType.get(type) ?? [];
-          if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
-            list.push(code);
-          }
-          byType.set(type, list);
-        }
-
-        let addedAny = false;
-        this.accessoryRows.update((rows) => {
-          let next = [...rows];
-          for (const group of byDefinition.values()) {
-            const result = this.mergeDefaultAccessoryCodesIntoRowsByDefinition(
-              next,
-              targetOrderId,
-              group.defId,
-              group.type,
-              group.codes
-            );
-            next = result.rows;
-            if (result.changed) {
-              addedAny = true;
-            }
-          }
-          for (const [type, codes] of byType) {
-            const result = this.mergeDefaultAccessoryCodesIntoRows(next, targetOrderId, type, codes);
-            next = result.rows;
-            if (result.changed) {
-              addedAny = true;
-            }
-          }
-          return next;
-        });
-
+        const addedAny = this.mergeMixerDefaultAccessoriesIntoRows(defaults ?? [], targetOrderId);
         if (addedAny) {
+          this.refreshAvailability();
+        }
+
+        if (addedAny && options.showToast !== false) {
           this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
         }
       });
+  }
+
+  private applyMixerDefaultAccessoriesForCodes(
+    mixerSerialCodes: string[],
+    targetOrderId: number
+  ): void {
+    const uniqueCodes = [
+      ...new Set(mixerSerialCodes.map((code) => code.trim()).filter((code) => code.length > 0))
+    ];
+
+    for (const code of uniqueCodes) {
+      this.applyMixerDefaultAccessories(code, targetOrderId, { showToast: false });
+    }
+  }
+
+  private mergeMixerDefaultAccessoriesIntoRows(
+    defaults: Array<{
+      inventoryDefinitionId?: number | null;
+      accessoryEquipmentType?: LoanedEquipmentType | null;
+      accessorySerialCode?: string | null;
+    }>,
+    targetOrderId: number
+  ): boolean {
+    if (defaults.length === 0) {
+      return false;
+    }
+
+    const byDefinition = new Map<
+      number,
+      { defId: number; type: LoanedEquipmentType | null; codes: string[] }
+    >();
+    const byType = new Map<LoanedEquipmentType, string[]>();
+
+    for (const row of defaults) {
+      const code = (row.accessorySerialCode ?? '').trim();
+      if (!code) {
+        continue;
+      }
+      if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
+        const key = row.inventoryDefinitionId;
+        const existing = byDefinition.get(key) ?? {
+          defId: key,
+          type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
+          codes: []
+        };
+        if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+          existing.codes.push(code);
+        }
+        byDefinition.set(key, existing);
+        continue;
+      }
+      const type = row.accessoryEquipmentType as LoanedEquipmentType | null;
+      if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
+        continue;
+      }
+      const list = byType.get(type) ?? [];
+      if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        list.push(code);
+      }
+      byType.set(type, list);
+    }
+
+    let addedAny = false;
+    this.accessoryRows.update((rows) => {
+      let next = [...rows];
+      for (const group of byDefinition.values()) {
+        const result = this.mergeDefaultAccessoryCodesIntoRowsByDefinition(
+          next,
+          targetOrderId,
+          group.defId,
+          group.type,
+          group.codes
+        );
+        next = result.rows;
+        if (result.changed) {
+          addedAny = true;
+        }
+      }
+      for (const [type, codes] of byType) {
+        const result = this.mergeDefaultAccessoryCodesIntoRows(next, targetOrderId, type, codes);
+        next = result.rows;
+        if (result.changed) {
+          addedAny = true;
+        }
+      }
+      return next;
+    });
+
+    return addedAny;
+  }
+
+  private ensureMixerDefaultAccessoriesForRows(rows: QuickLoanAccessoryRow[]): void {
+    for (const row of rows) {
+      if (row.type !== LoanedEquipmentType.Mixer || row.selectedCodes.length === 0) {
+        continue;
+      }
+
+      this.applyMixerDefaultAccessoriesForCodes(row.selectedCodes, row.orderId);
+    }
+  }
+
+  private ensureMixerDefaultAccessoriesBeforeSubmit() {
+    const mixerSelections = this.accessoryRows()
+      .filter((row) => row.type === LoanedEquipmentType.Mixer && row.selectedCodes.length > 0)
+      .flatMap((row) =>
+        row.selectedCodes
+          .map((code) => code.trim())
+          .filter((code) => code.length > 0)
+          .map((code) => ({ orderId: row.orderId, code }))
+      );
+
+    const uniqueSelections = mixerSelections.filter(
+      (selection, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.orderId === selection.orderId &&
+            candidate.code.localeCompare(selection.code, undefined, { sensitivity: 'accent' }) === 0
+        ) === index
+    );
+
+    if (uniqueSelections.length === 0) {
+      return of(void 0);
+    }
+
+    return forkJoin(
+      uniqueSelections.map((selection) =>
+        this.data
+          .getEquipmentDefaultAccessories(LoanedEquipmentType.Mixer, selection.code)
+          .pipe(map((defaults) => ({ ...selection, defaults: defaults ?? [] })))
+      )
+    ).pipe(
+      map((results) => {
+        let changedAny = false;
+        for (const result of results) {
+          if (this.mergeMixerDefaultAccessoriesIntoRows(result.defaults, result.orderId)) {
+            changedAny = true;
+          }
+        }
+
+        if (changedAny) {
+          this.refreshAvailability();
+        }
+      })
+    );
   }
 
   private mergeDefaultAccessoryCodesIntoRowsByDefinition(
@@ -2179,6 +2270,7 @@ export class QuickLoanComponent implements OnInit {
 
     const rows = orders.flatMap((entry) => this.buildEditRowsFromOrder(entry));
     this.accessoryRows.set(rows);
+    this.ensureMixerDefaultAccessoriesForRows(rows);
     this.accessoryDraftLines.set(
       orders.length > 1
         ? orders.map((entry) => this.createAccessoryDraftLine(entry.id))
@@ -2705,6 +2797,14 @@ export class QuickLoanComponent implements OnInit {
       return;
     }
 
+    this.submitting.set(true);
+    this.ensureMixerDefaultAccessoriesBeforeSubmit().subscribe({
+      next: () => this.submitResolvedAccessoryLoan(),
+      error: () => this.submitting.set(false)
+    });
+  }
+
+  private submitResolvedAccessoryLoan(): void {
     const editingId = this.editingId();
     const editingGroups = this.editingOrderGroups();
     const isMultiOrderEdit = editingId != null && editingGroups.length > 1;
@@ -2860,7 +2960,6 @@ export class QuickLoanComponent implements OnInit {
         requests.push(this.data.updateOrder(group.orderId, payload));
       }
 
-      this.submitting.set(true);
       forkJoin(requests)
         .pipe(finalize(() => this.submitting.set(false)))
         .subscribe((orders) => {
@@ -3025,7 +3124,6 @@ export class QuickLoanComponent implements OnInit {
       systemType: SystemType.Tools
     };
 
-    this.submitting.set(true);
     const request$ =
       editingId != null
         ? this.data.updateOrder(editingId, payload)
@@ -3132,8 +3230,7 @@ export class QuickLoanComponent implements OnInit {
         }
       }))
     );
-    this.accessoryRows.set(
-      (draft.accessoryRows ?? []).map((row) => ({
+    const restoredRows = (draft.accessoryRows ?? []).map((row) => ({
         orderId: Number.isFinite(row.orderId as number) ? (row.orderId as number) : 0,
         inventoryDefinitionId: row.inventoryDefinitionId,
         type: row.type as LoanedEquipmentType | null,
@@ -3148,8 +3245,9 @@ export class QuickLoanComponent implements OnInit {
         ...(row.alreadyReturnedQuantity != null
           ? { alreadyReturnedQuantity: Number(row.alreadyReturnedQuantity) || 0 }
           : {})
-      }))
-    );
+      }));
+    this.accessoryRows.set(restoredRows);
+    this.ensureMixerDefaultAccessoriesForRows(restoredRows);
     this.closeDraftOnlyUi();
     this.formMinimized.set(false);
     this.refreshAvailability();
