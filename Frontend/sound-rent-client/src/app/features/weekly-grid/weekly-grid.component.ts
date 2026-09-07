@@ -802,7 +802,11 @@ export class WeeklyGridComponent {
       return this.finalReturnTimeLabel(order);
     }
 
-    return `${this.hebrew.formatGregorianWithDayName(returnDate)} · ${this.finalReturnTimeLabel(order)}`;
+    if (this.toIsoDate(cellDate) !== this.toIsoDate(returnDate)) {
+      return `מחזיר ${this.dayReferencePrefix(returnDate)}`;
+    }
+
+    return this.finalReturnTimeLabel(order);
   }
 
   private finalReturnTimeLabel(order: OrderDto): string {
@@ -817,6 +821,11 @@ export class WeeklyGridComponent {
       default:
         return 'עד הלילה';
     }
+  }
+
+  private dayReferencePrefix(date: Date): string {
+    const dayName = this.hebrew.dayOfWeekHebrew(date);
+    return dayName === 'ראשון' ? 'בראשון' : `ב${dayName}`;
   }
 
   private orderLastShift(order: OrderDto): OrderShiftDto | null {
