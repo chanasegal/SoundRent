@@ -86,6 +86,7 @@ export interface ActiveOneTimeAccessoryLoanDto {
 
 /** Flattened history row for a returned accessory (serial or quantity-only). */
 export interface ReturnedAccessoryHistoryDto {
+  manualItemId?: number | null;
   orderId: number;
   loanedEquipmentId: number;
   itemName: string;

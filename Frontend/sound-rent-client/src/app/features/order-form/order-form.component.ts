@@ -350,6 +350,10 @@ export class OrderFormComponent implements OnInit {
   protected readonly returnTimeTypeLabels = RETURN_TIME_TYPE_LABELS;
   protected readonly returnTimeTypeEnum = ReturnTimeType;
 
+  private defaultReturnTimeTypeForEndShift(endShift: TimeSlot | null | undefined): ReturnTimeType {
+    return endShift === TimeSlot.Evening ? ReturnTimeType.LateNight : ReturnTimeType.SpecificTime;
+  }
+
   /**
    * Friday ends at morning only — LateNight / NextMorning would spill into non-existent
    * evening/overnight slots, so only SpecificTime (optional clock = end of morning) is offered.
@@ -1782,11 +1786,8 @@ export class OrderFormComponent implements OnInit {
       if (this.equipmentIdsControl(i).errors?.['required']) {
         return `${prefix}יש לבחור לפחות תא ציוד אחד`;
       }
-      if (booking.errors?.['returnTimeRequired']) {
-        return `${prefix}יש להזין שעת החזרה`;
-      }
       if (booking.errors?.['fridayReturnTimeInvalid']) {
-        return `${prefix}ביום שישי ההשאלה אפשרית רק במסגרת משמרת הבוקר — יש לבחור שעת החזרה מדויקת`;
+        return `${prefix}ביום שישי ניתן לבחור רק החזרה מסוג "עד"`;
       }
     }
     const phoneCtrl = this.form.controls['phone'];
@@ -1950,8 +1951,8 @@ export class OrderFormComponent implements OnInit {
     const today = new Date();
     const todayIso = this.toIso(today);
     const todayParts = this.hebrew.toHebrewParts(today);
-    const defaultReturnType =
-      today.getDay() === 5 ? ReturnTimeType.SpecificTime : ReturnTimeType.LateNight;
+    const defaultEndShift = TimeSlot.Morning;
+    const defaultReturnType = this.defaultReturnTimeTypeForEndShift(defaultEndShift);
 
     while (this.bookings.length > 1) {
       this.bookings.removeAt(this.bookings.length - 1);
@@ -1965,7 +1966,7 @@ export class OrderFormComponent implements OnInit {
       startDate: todayIso,
       startShift: TimeSlot.Morning,
       endDate: todayIso,
-      endShift: TimeSlot.Morning,
+      endShift: defaultEndShift,
       orderDate: todayIso,
       startHebrewYear: todayParts.year,
       startHebrewMonth: todayParts.month,
@@ -2329,8 +2330,8 @@ export class OrderFormComponent implements OnInit {
     const today = new Date();
     const todayIso = this.toIso(today);
     const parts = this.hebrew.toHebrewParts(today);
-    const defaultReturnType =
-      today.getDay() === 5 ? ReturnTimeType.SpecificTime : ReturnTimeType.LateNight;
+    const defaultEndShift = TimeSlot.Morning;
+    const defaultReturnType = this.defaultReturnTimeTypeForEndShift(defaultEndShift);
 
     return this.fb.group(
       {
@@ -2338,7 +2339,7 @@ export class OrderFormComponent implements OnInit {
         startDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
         startShift: this.fb.nonNullable.control<TimeSlot>(TimeSlot.Morning, Validators.required),
         endDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
-        endShift: this.fb.nonNullable.control<TimeSlot>(TimeSlot.Morning, Validators.required),
+        endShift: this.fb.nonNullable.control<TimeSlot>(defaultEndShift, Validators.required),
         orderDate: this.fb.nonNullable.control<string>(todayIso, Validators.required),
         shifts: this.fb.array([]),
 
@@ -2554,20 +2555,12 @@ export class OrderFormComponent implements OnInit {
 
   private returnTimeValidator(group: AbstractControl): ValidationErrors | null {
     const type = group.get('returnTimeType')?.value as ReturnTimeType | undefined;
-    const custom = group.get('customReturnTime')?.value;
     if (this.groupEndsOnFridayMorning(group)) {
       if (type === ReturnTimeType.LateNight || type === ReturnTimeType.NextMorning) {
         return { fridayReturnTimeInvalid: true };
       }
-      // SpecificTime on Friday may omit the clock (= end of morning shift).
-      return null;
     }
-    if (type !== ReturnTimeType.SpecificTime) {
-      return null;
-    }
-    return typeof custom === 'string' && custom.trim().length > 0
-      ? null
-      : { returnTimeRequired: true };
+    return null;
   }
 
   /** True when the booking range ends on Friday morning (the only Friday shift). */
@@ -2600,6 +2593,20 @@ export class OrderFormComponent implements OnInit {
     const current = typeCtrl.value as ReturnTimeType;
     if (current === ReturnTimeType.LateNight || current === ReturnTimeType.NextMorning) {
       typeCtrl.setValue(ReturnTimeType.SpecificTime, { emitEvent: false });
+    }
+  }
+
+  private syncReturnTimeTypeToEndShift(booking: FormGroup): void {
+    if (this.groupEndsOnFridayMorning(booking)) {
+      this.applyFridayReturnTimeRestriction(booking);
+      return;
+    }
+
+    const endShift = booking.controls['endShift'].value as TimeSlot | null | undefined;
+    const desiredType = this.defaultReturnTimeTypeForEndShift(endShift);
+    const typeCtrl = booking.controls['returnTimeType'];
+    if (typeCtrl.value !== desiredType) {
+      typeCtrl.setValue(desiredType, { emitEvent: false });
     }
   }
 
@@ -2864,7 +2871,7 @@ export class OrderFormComponent implements OnInit {
       }), { emitEvent: false });
     }
     booking.controls['orderDate'].setValue(startDate, { emitEvent: false });
-    this.applyFridayReturnTimeRestriction(booking);
+    this.syncReturnTimeTypeToEndShift(booking);
     booking.updateValueAndValidity({ emitEvent: false });
     this.availabilityFetchTrigger$.next(bookingIndex);
     this.institutionConflictTrigger$.next();

@@ -398,8 +398,10 @@ public class OrderRepository : IOrderRepository
             .AsNoTracking()
             .Where(o =>
                 !o.IsCancelled
-                && !o.IsReturnProcessed
-                && o.LoanedEquipments.Any(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity));
+                && o.LoanedEquipments.Any(le =>
+                    le.Quantity > 0
+                    && (le.ReturnedQuantity < le.Quantity
+                        || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != ""))));
 
         if (systemType.HasValue)
         {
@@ -459,12 +461,13 @@ public class OrderRepository : IOrderRepository
 
         var orderRows = await _db.Orders
             .AsNoTracking()
-            .Where(o => !o.IsCancelled && !o.IsReturnProcessed)
+            .Where(o => !o.IsCancelled)
             .SelectMany(o => o.LoanedEquipments
                 .Where(le =>
                     le.IsCustomItem
                     && le.Quantity > 0
-                    && le.ReturnedQuantity < le.Quantity)
+                    && (le.ReturnedQuantity < le.Quantity
+                        || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != "")))
                 .Select(le => new
                 {
                     OrderId = o.Id,
@@ -560,28 +563,46 @@ public class OrderRepository : IOrderRepository
         return fromManual.Concat(fromOrders).ToList();
     }
 
-    public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        // Outstanding leftovers after a partial return (or any return activity on the order).
-        // Note: IsReturnProcessed means "fully returned", so we must NOT require it here.
-        var rows = await _db.Orders
+        // Phase 1: order ids only. This keeps the SQL predicate aligned with quick returns
+        // and avoids APPLY-heavy projections that are harder to reason about and inspect.
+        var orderQuery = _db.Orders
             .AsNoTracking()
             .Where(o => !o.IsCancelled)
             .Where(o => o.LoanedEquipments.Any(le =>
-                le.ReturnedQuantity > 0 || le.Notes.Any(n => n.IsReturned)))
-            .SelectMany(o => o.LoanedEquipments
-                .Where(le => le.Quantity > 0 && le.ReturnedQuantity < le.Quantity)
-                .Select(le => new
-                {
-                    Order = o,
-                    Line = le,
-                    ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
-                    Notes = le.Notes.Select(n => new { n.Content, n.IsReturned }).ToList()
-                }))
-            .OrderByDescending(r => r.ReturnDate ?? DateOnly.MinValue)
-            .ThenByDescending(r => r.Order.Id)
-            .ThenByDescending(r => r.Line.Id)
+                le.Quantity > 0
+                && (le.ReturnedQuantity < le.Quantity
+                    || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != ""))));
+        if (systemType.HasValue)
+        {
+            orderQuery = orderQuery.Where(o => o.SystemType == systemType.Value);
+        }
+
+        var orderIds = await orderQuery
+            .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
+            .ThenByDescending(o => o.Id)
+            .Select(o => o.Id)
             .ToListAsync(cancellationToken);
+
+        var loadedOrders = orderIds.Count == 0
+            ? []
+            : await _db.Orders
+                .AsNoTracking()
+                .Where(o => orderIds.Contains(o.Id))
+                .Include(o => o.Shifts)
+                .Include(o => o.LoanedEquipments)
+                    .ThenInclude(le => le.Notes)
+                .AsSplitQuery()
+                .ToListAsync(cancellationToken);
+
+        var loadedById = loadedOrders.ToDictionary(o => o.Id);
+        var orderedOrders = orderIds
+            .Where(id => loadedById.ContainsKey(id))
+            .Select(id => loadedById[id])
+            .ToList();
 
         var catalogRows = await _db.InventoryDefinitions
             .AsNoTracking()
@@ -596,16 +617,28 @@ public class OrderRepository : IOrderRepository
             StringComparer.OrdinalIgnoreCase);
         var uniqueSerialToDefinitionId = await LoadUniqueSerialToDefinitionIdAsync(cancellationToken);
 
-        var fromOrders = rows.Select(r =>
+        var fromOrders = orderedOrders
+            .SelectMany(order => order.LoanedEquipments
+                .Where(le =>
+                    le.Quantity > 0
+                    && (le.ReturnedQuantity < le.Quantity
+                        || le.Notes.Any(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content))))
+                .Select(le => new
+                {
+                    Order = order,
+                    Line = le,
+                    ReturnDate = order.Shifts.Max(s => (DateOnly?)s.OrderDate)
+                }))
+            .Select(r =>
         {
-            var assignedSerialCodes = r.Notes
+            var assignedSerialCodes = r.Line.Notes
                 .Select(n => (n.Content ?? string.Empty).Trim())
                 .Where(c => c.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(c => c, NumericStringComparer.Instance)
                 .ToList();
 
-            var missingSerialCodes = r.Notes
+            var missingSerialCodes = r.Line.Notes
                 .Where(n => !n.IsReturned)
                 .Select(n => (n.Content ?? string.Empty).Trim())
                 .Where(c => c.Length > 0)
@@ -647,12 +680,20 @@ public class OrderRepository : IOrderRepository
             };
         }).ToList();
 
-        var manual = await _db.ManualUnreturnedItems
+        var manualQuery = _db.ManualUnreturnedItems
             .AsNoTracking()
-            .Where(m => !m.IsResolved)
+            .Where(m => !m.IsResolved);
+        if (systemType.HasValue)
+        {
+            manualQuery = manualQuery.Where(m => m.OrderId == null || (m.Order != null && m.Order.SystemType == systemType.Value));
+        }
+
+        var manual = await manualQuery
             .OrderByDescending(m => m.CreatedAt)
             .ThenBy(m => m.Id)
             .ToListAsync(cancellationToken);
+
+        var coveredManualKeys = BuildCoveredManualUnreturnedKeys(fromOrders);
 
         var fromManual = manual.Select(m =>
         {
@@ -670,7 +711,9 @@ public class OrderRepository : IOrderRepository
             dto.EquipmentName = resolved.DisplayName;
             dto.IsCustomItem = resolved.DefinitionId is null && dto.IsCustomItem;
             return dto;
-        }).ToList();
+        })
+            .Where(dto => !coveredManualKeys.Contains(BuildManualUnreturnedKey(dto)))
+            .ToList();
 
         return fromManual.Concat(fromOrders)
             .OrderByDescending(dto => dto.ReturnDate)
@@ -730,6 +773,7 @@ public class OrderRepository : IOrderRepository
                 .Select(d => (d.DisplayName ?? string.Empty).Trim())
                 .Where(n => n.Length > 0),
             StringComparer.OrdinalIgnoreCase);
+        var uniqueSerialToDefinitionId = await LoadUniqueSerialToDefinitionIdAsync(cancellationToken);
 
         var results = new List<ReturnedAccessoryHistoryDto>();
 
@@ -811,7 +855,48 @@ public class OrderRepository : IOrderRepository
                 .ToList();
         }
 
+        var resolvedManualRows = await _db.ManualUnreturnedItems
+            .AsNoTracking()
+            .Where(m => m.IsResolved && m.ResolvedAt != null)
+            .OrderByDescending(m => m.ResolvedAt)
+            .ThenByDescending(m => m.Id)
+            .ToListAsync(cancellationToken);
+
+        var manualResults = resolvedManualRows
+            .Select(m =>
+            {
+                var code = (m.ItemCode ?? string.Empty).Trim();
+                var serialCodes = code.Length > 0 ? new[] { code } : Array.Empty<string>();
+                var resolved = ResolveCatalogIdentity(
+                    m.InventoryDefinitionId,
+                    !m.InventoryDefinitionId.HasValue,
+                    m.ItemName,
+                    m.LoanedEquipmentType,
+                    serialCodes,
+                    catalogById,
+                    uniqueSerialToDefinitionId);
+                return new ReturnedAccessoryHistoryDto
+                {
+                    ManualItemId = m.Id,
+                    OrderId = m.OrderId ?? 0,
+                    LoanedEquipmentId = 0,
+                    ItemName = resolved.DisplayName,
+                    SerialCode = code.Length > 0 ? code : null,
+                    Quantity = 1,
+                    CustomerName = m.CustomerName,
+                    Phone = m.Phone ?? string.Empty,
+                    Address = m.Address,
+                    LoanDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
+                    ReturnDate = DateOnly.FromDateTime(m.ResolvedAt!.Value.ToUniversalTime()),
+                    IsCustomItem = resolved.DefinitionId is null,
+                    IsOrderBased = m.OrderId is > 0
+                };
+            })
+            .Where(dto => needle.Length == 0 || MatchesReturnedAccessorySearch(dto, needle))
+            .ToList();
+
         return results
+            .Concat(manualResults)
             .OrderByDescending(dto => dto.ReturnDate ?? DateOnly.MinValue)
             .ThenByDescending(dto => dto.OrderId)
             .ThenBy(dto => dto.ItemName, StringComparer.OrdinalIgnoreCase)
@@ -831,6 +916,14 @@ public class OrderRepository : IOrderRepository
             || Contains(dto.Phone, needle)
             || Contains(dto.Address, needle)
             || dto.OrderId.ToString().Contains(needle, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public Task<ManualUnreturnedItem?> GetManualUnreturnedItemByIdAsync(
+        int manualItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return _db.ManualUnreturnedItems
+            .FirstOrDefaultAsync(m => m.Id == manualItemId, cancellationToken);
     }
 
     public async Task<UnreturnedItemDto> CreateManualUnreturnedItemAsync(
@@ -948,6 +1041,48 @@ public class OrderRepository : IOrderRepository
         }
 
         entity.IsResolved = true;
+        entity.ResolvedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UndoResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    {
+        if (manualItemId <= 0)
+        {
+            throw new ValidationException("מזהה פריט לא תקין");
+        }
+
+        var entity = await _db.ManualUnreturnedItems
+            .FirstOrDefaultAsync(m => m.Id == manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        if (!entity.IsResolved)
+        {
+            return;
+        }
+
+        entity.IsResolved = false;
+        entity.ResolvedAt = null;
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeleteResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    {
+        if (manualItemId <= 0)
+        {
+            throw new ValidationException("מזהה פריט לא תקין");
+        }
+
+        var entity = await _db.ManualUnreturnedItems
+            .FirstOrDefaultAsync(m => m.Id == manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        if (!entity.IsResolved)
+        {
+            throw new ValidationException("ניתן למחוק רק רשומת החזרה שכבר הושלמה");
+        }
+
+        _db.ManualUnreturnedItems.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
     }
 
@@ -972,6 +1107,53 @@ public class OrderRepository : IOrderRepository
             MissingSerialCodes = code.Length > 0 ? [code] : [],
             AssignedSerialCodes = code.Length > 0 ? [code] : []
         };
+    }
+
+    private static HashSet<string> BuildCoveredManualUnreturnedKeys(IEnumerable<UnreturnedItemDto> rows)
+    {
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            foreach (var code in row.MissingSerialCodes.Concat(row.AssignedSerialCodes))
+            {
+                var key = BuildManualUnreturnedKey(row, code);
+                if (key.Length > 0)
+                {
+                    keys.Add(key);
+                }
+            }
+        }
+
+        return keys;
+    }
+
+    private static string BuildManualUnreturnedKey(UnreturnedItemDto row)
+    {
+        var codes = row.MissingSerialCodes.Concat(row.AssignedSerialCodes)
+            .Select(c => (c ?? string.Empty).Trim())
+            .Where(c => c.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (codes.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return BuildManualUnreturnedKey(row, codes[0]);
+    }
+
+    private static string BuildManualUnreturnedKey(UnreturnedItemDto row, string rawCode)
+    {
+        var code = (rawCode ?? string.Empty).Trim();
+        if (row.OrderId <= 0 || code.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var definitionId = row.InventoryDefinitionId is > 0 ? row.InventoryDefinitionId.Value.ToString() : "-";
+        var type = row.LoanedEquipmentType?.ToString() ?? "-";
+        var name = (row.EquipmentName ?? string.Empty).Trim();
+        return $"{row.OrderId}|{definitionId}|{type}|{name}|{code}";
     }
 
     private async Task<Dictionary<string, int>> LoadUniqueSerialToDefinitionIdAsync(

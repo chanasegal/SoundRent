@@ -43,9 +43,13 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet("unreturned")]
-    public async Task<ActionResult<List<UnreturnedItemDto>>> GetUnreturned(CancellationToken cancellationToken)
+    public async Task<ActionResult<List<UnreturnedItemDto>>> GetUnreturned(
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
     {
-        var items = await _orderService.GetUnreturnedItemsAsync(cancellationToken);
+        var items = await _orderService.GetUnreturnedItemsAsync(
+            systemType ?? SystemType.Tools,
+            cancellationToken);
         return Ok(items);
     }
 
@@ -78,6 +82,44 @@ public class OrdersController : ControllerBase
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Undo a completed manual-unreturned return so it becomes active again.</summary>
+    [HttpPost("unreturned/manual/{id:int}/undo-resolve")]
+    public async Task<IActionResult> UndoResolvedManualUnreturned(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.UndoResolvedManualUnreturnedItemAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Permanently delete a completed manual-unreturned return record.</summary>
+    [HttpDelete("unreturned/manual/{id:int}/return-record")]
+    public async Task<IActionResult> DeleteResolvedManualUnreturned(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.DeleteResolvedManualUnreturnedItemAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
     }
 

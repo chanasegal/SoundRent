@@ -40,5 +40,8 @@ public class ManualUnreturnedItem
 
     public bool IsResolved { get; set; }
 
+    /// <summary>UTC timestamp when the missing item was checked back in / resolved.</summary>
+    public DateTime? ResolvedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

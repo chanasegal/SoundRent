@@ -99,7 +99,9 @@ public interface IOrderRepository
     Task<List<ActiveOneTimeAccessoryLoanDto>> GetActiveOneTimeAccessoryLoansAsync(
         CancellationToken cancellationToken = default);
 
-    Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+    Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returned accessories (standalone Tools/Sound loans + weekly-schedule Sound orders),
@@ -114,5 +116,13 @@ public interface IOrderRepository
         CreateManualUnreturnedItemDto dto,
         CancellationToken cancellationToken = default);
 
+    Task<ManualUnreturnedItem?> GetManualUnreturnedItemByIdAsync(
+        int manualItemId,
+        CancellationToken cancellationToken = default);
+
     Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task UndoResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task DeleteResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 }

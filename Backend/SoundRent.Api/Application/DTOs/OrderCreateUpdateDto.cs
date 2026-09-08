@@ -90,23 +90,23 @@ public class OrderCreateUpdateDto : IValidatableObject
             .OrderBy(s => s.OrderDate)
             .ThenBy(s => s.TimeSlot)
             .LastOrDefault();
+        var endsMorning = lastShift is not null && lastShift.TimeSlot == TimeSlot.Morning;
         var endsFridayMorning =
-            lastShift is not null
-            && lastShift.OrderDate.DayOfWeek == DayOfWeek.Friday
-            && lastShift.TimeSlot == TimeSlot.Morning;
+            endsMorning
+            && lastShift!.OrderDate.DayOfWeek == DayOfWeek.Friday;
 
         // Friday morning end: night / next-morning options are invalid (no evening shift).
-        // SpecificTime may omit the clock (= end of morning shift).
+        // Any morning end may omit the clock (= open morning / end of morning shift).
         if (endsFridayMorning
             && ReturnTimeType is ReturnTimeType.LateNight or ReturnTimeType.NextMorning)
         {
             yield return new ValidationResult(
-                "ביום שישי ההחזרה היא עד סוף משמרת בוקר בלבד — יש לבחור שעת החזרה מדויקת",
+                "ביום שישי ניתן לבחור רק החזרה מסוג \"עד\"",
                 new[] { nameof(ReturnTimeType) });
         }
         else if (ReturnTimeType == ReturnTimeType.SpecificTime
                  && string.IsNullOrWhiteSpace(CustomReturnTime)
-                 && !endsFridayMorning)
+                 && !endsMorning)
         {
             yield return new ValidationResult(
                 "יש להזין שעת החזרה",

@@ -18,21 +18,21 @@
       type="button"
       role="tab"
       class="reports-tab"
-      [class.reports-tab--active]="activeTab() === 'cancelled'"
-      [attr.aria-selected]="activeTab() === 'cancelled'"
-      (click)="switchTab('cancelled')"
-    >
-      הזמנות מבוטלות
-    </button>
-    <button
-      type="button"
-      role="tab"
-      class="reports-tab"
       [class.reports-tab--active]="activeTab() === 'unpaid'"
       [attr.aria-selected]="activeTab() === 'unpaid'"
       (click)="switchTab('unpaid')"
     >
       חובות פתוחים (לא שולם)
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="reports-tab"
+      [class.reports-tab--active]="activeTab() === 'cancelled'"
+      [attr.aria-selected]="activeTab() === 'cancelled'"
+      (click)="switchTab('cancelled')"
+    >
+      הזמנות מבוטלות
     </button>
   </div>
 

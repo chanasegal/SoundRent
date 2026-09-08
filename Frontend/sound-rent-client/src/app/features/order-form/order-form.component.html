@@ -535,9 +535,6 @@
             @if (bookingEndsOnFridayMorning(bi)) {
               <p class="form-hint mt-2">ביום שישי ההשאלה אפשרית רק במסגרת משמרת הבוקר.</p>
             }
-            @if (bookingGroup(bi).errors?.['returnTimeRequired'] && bookingGroup(bi).controls['customReturnTime'].touched) {
-              <p class="form-error mt-2">יש להזין שעת החזרה</p>
-            }
             @if (bookingGroup(bi).errors?.['fridayReturnTimeInvalid']) {
               <p class="form-error mt-2">ביום שישי ההשאלה אפשרית רק במסגרת משמרת בוקר</p>
             }

@@ -5,6 +5,8 @@ namespace SoundRent.Api.Application.DTOs;
 /// </summary>
 public class ReturnedAccessoryHistoryDto
 {
+    public int? ManualItemId { get; set; }
+
     public int OrderId { get; set; }
 
     public int LoanedEquipmentId { get; set; }

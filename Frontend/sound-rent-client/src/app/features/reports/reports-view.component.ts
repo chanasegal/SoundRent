@@ -66,7 +66,7 @@ export class ReportsViewComponent implements OnInit {
   protected readonly pageTitle = inject(WorkspaceUiService).title('דוחות');
 
   protected readonly boardQueryParams = computed(() => this.calendarView.dashboardQueryParams());
-  protected readonly activeTab = signal<ReportsTab>('cancelled');
+  protected readonly activeTab = signal<ReportsTab>('unpaid');
   protected readonly cancelledOrders = signal<OrderDto[]>([]);
   protected readonly openDebtGroups = signal<OpenDebtGroupDto[]>([]);
   protected readonly debtCategoryFilter = signal<DebtCategoryFilter>('all');

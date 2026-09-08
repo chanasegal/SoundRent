@@ -85,6 +85,7 @@ interface QuickReturnItem {
   key: string;
   orderId: number;
   loanedEquipmentId: number;
+  manualItemId?: number | null;
   accessoryName: string;
   /** Specific serial being offered for return; null for quantity-only lines. */
   serialCode: string | null;
@@ -162,10 +163,19 @@ export class ActiveLoansComponent implements OnInit {
     return this.buildActiveLoanRows(this.activeLoans());
   });
 
+  protected readonly manualActiveLoanRows = computed(() =>
+    this.buildManualActiveLoanRows(this.unreturnedReports(), this.activeLoanRows())
+  );
+
+  protected readonly allActiveLoanRows = computed(() => [
+    ...this.activeLoanRows(),
+    ...this.manualActiveLoanRows()
+  ]);
+
   protected readonly activeLoanCustomerCards = computed(() => {
     // Touch customers signal so notes refresh after profile load/upsert.
     this.customers.customers();
-    const cards = this.buildActiveLoanCustomerCards(this.activeLoanRows(), this.unreturnedReports());
+    const cards = this.buildActiveLoanCustomerCards(this.allActiveLoanRows());
     return this.filterCustomerCards(cards, this.loanSearchQuery());
   });
 
@@ -185,7 +195,7 @@ export class ActiveLoansComponent implements OnInit {
     }
 
     const codes = new Set<string>();
-    for (const row of this.activeLoanRows()) {
+    for (const row of this.allActiveLoanRows()) {
       // Quick return is catalog-only — skip one-time / custom free-text rows.
       if (row.isOneTimeItem || !this.rowMatchesAccessoryType(row, def)) {
         continue;
@@ -600,6 +610,7 @@ export class ActiveLoansComponent implements OnInit {
         }
         if (resolvedManual > 0) {
           this.ordersSync.notifyUnreturnedChanged(null);
+          this.ordersSync.notifyLoanChanged();
         }
         this.animateActiveLineOut(card.key);
         this.toast.success(
@@ -630,6 +641,7 @@ export class ActiveLoansComponent implements OnInit {
           list.filter((r) => r.manualItemId !== manualItemId)
         );
         this.ordersSync.notifyUnreturnedChanged(null);
+        this.ordersSync.notifyLoanChanged();
         this.animateActiveLineOut(row.key);
         this.toast.success('הפריט סומן כהוחזר');
         this.inventoryStore.load({ force: true }).subscribe();
@@ -716,29 +728,36 @@ export class ActiveLoansComponent implements OnInit {
     }
 
     const code = this.quickReturnCode().trim();
+    const normalizedCode = this.normalizeQuickReturnLookupValue(code);
+    console.log('[QuickReturn] searchQuickReturn target', {
+      rawCodeInput: this.quickReturnCode(),
+      trimmedCode: code,
+      normalizedCode,
+      selectedAccessoryType: def
+    });
     if (!code) {
-      this.toast.warning('יש לבחור או להזין קוד פריט או שם אביזר');
+      this.toast.warning('יש לבחור או להזין קוד פריט');
       return;
     }
 
     const openFromRows = (): void => {
-      let matches = this.findActiveLoansByAccessoryCode(code).filter(
-        (row) => !row.isOneTimeItem && this.rowMatchesAccessoryType(row, def)
-      );
+      const activeRows = this.allActiveLoanRows();
+      console.log('[QuickReturn] activeLoanRows snapshot', activeRows);
 
-      // Also allow matching the permanent accessory display name (catalog only).
-      if (matches.length === 0) {
-        const needle = code.toLowerCase();
-        matches = this.activeLoanRows().filter(
-          (row) =>
-            !row.isOneTimeItem &&
-            this.rowMatchesAccessoryType(row, def) &&
-            (row.accessoryName.toLowerCase().includes(needle) ||
-              def.displayName.toLowerCase().includes(needle))
-        );
-      }
+      const codeMatches = this.findActiveLoansByAccessoryCode(code, def);
+      console.log('[QuickReturn] code matches after code+accessory-type filter', {
+        count: codeMatches.length,
+        matches: codeMatches
+      });
+      const matches = codeMatches;
 
       if (matches.length === 0) {
+        console.log('[QuickReturn] no active match found', {
+          code,
+          normalizedCode,
+          accessoryType: def,
+          activeRowsCount: activeRows.length
+        });
         this.toast.warning(`לא נמצאה השאלה פעילה עבור ${def.displayName} עם קוד "${code}"`);
         queueMicrotask(() => this.focusQuickReturnCodeInput());
         return;
@@ -747,6 +766,11 @@ export class ActiveLoansComponent implements OnInit {
       const phoneKeys = new Set(
         matches.map((m) => this.normalizePhone(m.phone)).filter((p) => p.length > 0)
       );
+      console.log('[QuickReturn] phone grouping after final matches', {
+        phoneKeys: [...phoneKeys],
+        finalMatchCount: matches.length,
+        matches
+      });
       if (phoneKeys.size > 1) {
         this.toast.warning('נמצאו מספר לקוחות עם אותו קוד — בחרו מהרשימה למטה');
         queueMicrotask(() => this.focusQuickReturnCodeInput());
@@ -755,7 +779,7 @@ export class ActiveLoansComponent implements OnInit {
 
       const match = matches[0];
       // Only offer other outstanding lines from the same order/transaction (#ID).
-      const customerRows = this.activeLoanRows().filter(
+      const customerRows = this.allActiveLoanRows().filter(
         (row) => !row.isOneTimeItem && row.orderId > 0 && row.orderId === match.orderId
       );
       const items = this.buildQuickReturnItems(
@@ -779,6 +803,7 @@ export class ActiveLoansComponent implements OnInit {
       .getQuickLoans()
       .pipe(finalize(() => this.quickReturnSearching.set(false)))
       .subscribe((orders) => {
+        console.log('[QuickReturn] raw orders from getQuickLoans', orders);
         this.activeLoans.set(orders);
         this.activeLoading.set(false);
         openFromRows();
@@ -885,8 +910,14 @@ export class ActiveLoansComponent implements OnInit {
       quantityOnly: number;
     };
     const byOrderLine = new Map<string, LineReturn>();
+    const manualIds = new Set<number>();
 
     for (const item of selected) {
+      if (item.manualItemId != null && item.manualItemId > 0) {
+        manualIds.add(item.manualItemId);
+        continue;
+      }
+
       const lineKey = `${item.orderId}:${item.loanedEquipmentId}`;
       let entry = byOrderLine.get(lineKey);
       if (!entry) {
@@ -936,17 +967,26 @@ export class ActiveLoansComponent implements OnInit {
         })
       })
     );
+    const manualRequests = [...manualIds].map((id) => this.data.resolveManualUnreturnedItem(id));
 
     this.quickReturnSaving.set(true);
-    forkJoin(requests)
+    forkJoin({
+      orders: requests.length > 0 ? forkJoin(requests) : of([] as (OrderDto | null)[]),
+      manuals: manualRequests.length > 0 ? forkJoin(manualRequests) : of([] as boolean[])
+    })
       .pipe(finalize(() => this.quickReturnSaving.set(false)))
-      .subscribe((results) => {
-        const updated = results.filter((r): r is OrderDto => !!r);
-        if (updated.length === 0) {
+      .subscribe(({ orders, manuals }) => {
+        const updated = orders.filter((r): r is OrderDto => !!r);
+        const resolvedManual = manuals.filter((ok) => ok).length;
+        if (updated.length === 0 && resolvedManual === 0) {
           return;
         }
         for (const order of updated) {
           this.ordersSync.notifyOrderUpdated(order);
+        }
+        if (resolvedManual > 0) {
+          this.ordersSync.notifyUnreturnedChanged(null);
+          this.ordersSync.notifyLoanChanged();
         }
         this.quickReturnSession.set(null);
         this.resetQuickReturnSelection();
@@ -1023,8 +1063,7 @@ export class ActiveLoansComponent implements OnInit {
   }
 
   private buildActiveLoanCustomerCards(
-    rows: ActiveLoanRow[],
-    unreturned: UnreturnedItemDto[]
+    rows: ActiveLoanRow[]
   ): ActiveLoanCustomerCard[] {
     const byCustomer = new Map<string, ActiveLoanCustomerCard>();
 
@@ -1067,72 +1106,6 @@ export class ActiveLoansComponent implements OnInit {
       }
       card.items.push(row);
       card.totalQuantity += row.quantity;
-    }
-
-    const manualReports = unreturned.filter(
-      (r) => r.manualItemId != null && r.manualItemId > 0
-    );
-
-    for (const report of manualReports) {
-      const manualItemId = report.manualItemId!;
-      const code = (report.missingSerialCodes?.[0] ?? '').trim();
-      const codes = code ? [code] : [];
-      const accessoryName = report.equipmentName;
-      const reportRow: ActiveLoanRow = {
-        key: `manual-${manualItemId}`,
-        orderId: report.orderId > 0 ? report.orderId : 0,
-        loanedEquipmentId: 0,
-        customerName: (report.customerName ?? '').trim() || 'ללא שם',
-        phone: report.phone ?? '',
-        address: (report.address ?? '').trim(),
-        accessoryName,
-        quantity: report.missingQuantity > 0 ? report.missingQuantity : 1,
-        quantityLoaned: report.missingQuantity > 0 ? report.missingQuantity : 1,
-        codes,
-        loanDateIso: report.returnDate,
-        isCustomItem: report.isCustomItem || !report.inventoryDefinitionId,
-        isOneTimeItem:
-          report.manualItemId != null && report.manualItemId > 0
-            ? !report.inventoryDefinitionId
-            : this.isOneTimeAccessoryName(accessoryName, report.isCustomItem),
-        assignedSerialCodes: codes,
-        isOrderBased: report.orderId > 0,
-        deposit: null,
-        loanNotes: null,
-        manualItemId
-      };
-
-      const matchKey = this.findCustomerCardKeyForReport(report, byCustomer);
-      if (matchKey) {
-        const card = byCustomer.get(matchKey)!;
-        if (!card.items.some((item) => item.manualItemId === manualItemId)) {
-          card.items.push(reportRow);
-          card.totalQuantity += reportRow.quantity;
-        }
-        if (reportRow.orderId > 0 && !card.orders.some((o) => o.id === reportRow.orderId)) {
-          card.orders.push({ id: reportRow.orderId, isOrderBased: true });
-        }
-        if (!card.address && reportRow.address) {
-          card.address = reportRow.address;
-        }
-        continue;
-      }
-
-      const key = this.customerDayCardKey(reportRow);
-      byCustomer.set(key, {
-        key,
-        customerName: reportRow.customerName,
-        phone: reportRow.phone,
-        address: reportRow.address,
-        loanDateIso: reportRow.loanDateIso,
-        customerNotes: this.customers.notesForPhone(reportRow.phone),
-        deposits: [],
-        loanNotesList: [],
-        orders:
-          reportRow.orderId > 0 ? [{ id: reportRow.orderId, isOrderBased: true }] : [],
-        items: [reportRow],
-        totalQuantity: reportRow.quantity
-      });
     }
 
     const cards = [...byCustomer.values()];
@@ -1222,6 +1195,7 @@ export class ActiveLoansComponent implements OnInit {
             key: `${row.key}::${code}`,
             orderId: row.orderId,
             loanedEquipmentId: row.loanedEquipmentId,
+            manualItemId: row.manualItemId ?? null,
             accessoryName: row.accessoryName,
             serialCode: code,
             quantity: 1,
@@ -1240,6 +1214,7 @@ export class ActiveLoansComponent implements OnInit {
         key: row.key,
         orderId: row.orderId,
         loanedEquipmentId: row.loanedEquipmentId,
+        manualItemId: row.manualItemId ?? null,
         accessoryName: row.accessoryName,
         serialCode: null,
         quantity: row.quantity,
@@ -1262,38 +1237,108 @@ export class ActiveLoansComponent implements OnInit {
   }
 
   private rowMatchesAccessoryType(row: ActiveLoanRow, def: InventoryDefinitionDto): boolean {
+    const directMatch =
+      row.accessoryName.localeCompare(def.displayName, 'he', { sensitivity: 'accent' }) === 0;
     if (
-      row.accessoryName.localeCompare(def.displayName, 'he', { sensitivity: 'accent' }) === 0
+      directMatch
     ) {
+      console.log('[QuickReturn] rowMatchesAccessoryType direct match', {
+        rowAccessoryName: row.accessoryName,
+        definitionDisplayName: def.displayName,
+        rowKey: row.key,
+        matched: true
+      });
       return true;
     }
     for (const type of LOANED_EQUIPMENT_ORDER) {
       const linkedLabel = LOANED_EQUIPMENT_LABELS[type];
-      if (
+      const linkedMatch =
         def.displayName.trim().localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0 &&
-        row.accessoryName.localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0
+        row.accessoryName.localeCompare(linkedLabel, 'he', { sensitivity: 'accent' }) === 0;
+      if (
+        linkedMatch
       ) {
+        console.log('[QuickReturn] rowMatchesAccessoryType linked-label match', {
+          rowAccessoryName: row.accessoryName,
+          definitionDisplayName: def.displayName,
+          linkedLabel,
+          rowKey: row.key,
+          matched: true
+        });
         return true;
       }
     }
+    console.log('[QuickReturn] rowMatchesAccessoryType no match', {
+      rowAccessoryName: row.accessoryName,
+      definitionDisplayName: def.displayName,
+      rowKey: row.key,
+      matched: false
+    });
     return false;
   }
 
-  private findActiveLoansByAccessoryCode(rawCode: string): ActiveLoanRow[] {
+  private findActiveLoansByAccessoryCode(
+    rawCode: string,
+    def: InventoryDefinitionDto
+  ): ActiveLoanRow[] {
     const code = rawCode.trim();
     if (!code) {
+      console.log('[QuickReturn] findActiveLoansByAccessoryCode skipped empty code', {
+        rawCode
+      });
       return [];
     }
 
-    return this.activeLoanRows().filter(
-      (row) =>
-        row.assignedSerialCodes.some(
-          (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-        ) ||
-        row.codes.some(
-          (c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-        )
-    );
+    const normalizedCode = this.normalizeQuickReturnLookupValue(code);
+    const rows = this.allActiveLoanRows();
+    console.log('[QuickReturn] findActiveLoansByAccessoryCode input', {
+      rawCode,
+      trimmedCode: code,
+      normalizedCode,
+      selectedAccessoryType: def,
+      activeRowsCount: rows.length,
+      activeRows: rows
+    });
+
+    const matches = rows.filter((row) => {
+      const nonOneTimeMatch = !row.isOneTimeItem;
+      const typeMatch = nonOneTimeMatch && this.rowMatchesAccessoryType(row, def);
+      const assignedMatch = row.assignedSerialCodes.some((c) =>
+        this.quickReturnCodeEquals(c, normalizedCode)
+      );
+      const codeMatch = row.codes.some((c) =>
+        this.quickReturnCodeEquals(c, normalizedCode)
+      );
+      const matched = nonOneTimeMatch && typeMatch && (assignedMatch || codeMatch);
+      console.log('[QuickReturn] findActiveLoansByAccessoryCode row evaluation', {
+        rowKey: row.key,
+        orderId: row.orderId,
+        accessoryName: row.accessoryName,
+        isOneTimeItem: row.isOneTimeItem,
+        assignedSerialCodes: row.assignedSerialCodes,
+        codes: row.codes,
+        nonOneTimeMatch,
+        typeMatch,
+        assignedMatch,
+        codeMatch,
+        matched
+      });
+      return matched;
+    });
+
+    console.log('[QuickReturn] findActiveLoansByAccessoryCode result', {
+      count: matches.length,
+      matches
+    });
+    return matches;
+  }
+
+  private quickReturnCodeEquals(candidate: string | null | undefined, normalizedCode: string): boolean {
+    return this.normalizeQuickReturnLookupValue(candidate) === normalizedCode;
+  }
+
+  private normalizeQuickReturnLookupValue(value: string | null | undefined): string {
+    return (value ?? '').trim().replace(/[\s-]+/g, '').toLowerCase();
   }
 
   private normalizePhone(phone: string | null | undefined): string {
@@ -1381,6 +1426,80 @@ export class ActiveLoansComponent implements OnInit {
       }
     }
     return rows;
+  }
+
+  private buildManualActiveLoanRows(
+    reports: UnreturnedItemDto[],
+    orderRows: ActiveLoanRow[]
+  ): ActiveLoanRow[] {
+    return reports
+      .filter((report) => report.manualItemId != null && report.manualItemId > 0)
+      .filter((report) => !this.isManualReportCoveredByOrderRows(report, orderRows))
+      .map((report) => {
+        const manualItemId = report.manualItemId!;
+        const codes = sortNumericCodes(
+          [...(report.missingSerialCodes ?? []), ...(report.assignedSerialCodes ?? [])]
+            .map((code) => (code ?? '').trim())
+            .filter((code) => code.length > 0)
+        );
+        const accessoryName = report.equipmentName;
+        return {
+          key: `manual-${manualItemId}`,
+          orderId: report.orderId > 0 ? report.orderId : 0,
+          loanedEquipmentId: 0,
+          customerName: (report.customerName ?? '').trim() || 'ללא שם',
+          phone: report.phone ?? '',
+          address: (report.address ?? '').trim(),
+          accessoryName,
+          quantity: report.missingQuantity > 0 ? report.missingQuantity : 1,
+          quantityLoaned: report.quantityLoaned > 0 ? report.quantityLoaned : 1,
+          codes,
+          loanDateIso: report.returnDate,
+          isCustomItem: report.isCustomItem || !report.inventoryDefinitionId,
+          isOneTimeItem: !report.inventoryDefinitionId,
+          assignedSerialCodes: codes,
+          isOrderBased: report.orderId > 0,
+          deposit: null,
+          loanNotes: null,
+          manualItemId
+        } satisfies ActiveLoanRow;
+      });
+  }
+
+  private isManualReportCoveredByOrderRows(
+    report: UnreturnedItemDto,
+    orderRows: ActiveLoanRow[]
+  ): boolean {
+    if (report.orderId <= 0) {
+      return false;
+    }
+
+    const reportCodes = new Set(
+      [...(report.missingSerialCodes ?? []), ...(report.assignedSerialCodes ?? [])]
+        .map((code) => this.normalizeQuickReturnLookupValue(code))
+        .filter((code) => code.length > 0)
+    );
+    const reportName = (report.equipmentName ?? '').trim();
+
+    return orderRows.some((row) => {
+      if (row.orderId !== report.orderId) {
+        return false;
+      }
+
+      const sameName =
+        row.accessoryName.trim().localeCompare(reportName, 'he', { sensitivity: 'accent' }) === 0;
+      if (!sameName) {
+        return false;
+      }
+
+      if (reportCodes.size === 0) {
+        return true;
+      }
+
+      return [...row.assignedSerialCodes, ...row.codes]
+        .map((code) => this.normalizeQuickReturnLookupValue(code))
+        .some((code) => reportCodes.has(code));
+    });
   }
 
   private formatOrderDeposit(order: OrderDto): string | null {

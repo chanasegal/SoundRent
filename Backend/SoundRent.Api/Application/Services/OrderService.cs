@@ -169,6 +169,7 @@ public class OrderService : IOrderService
         var priorReturns = existing.LoanedEquipments
             .ToDictionary(le => le.Id, le => le.ReturnedQuantity);
         SyncLoanedEquipments(existing, dto.LoanedEquipments, priorReturns);
+        existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
 
         await _inventoryDefinitions.SyncInventorySerialStatusForOrderAsync(
             priorAssignedSerials,
@@ -337,6 +338,10 @@ public class OrderService : IOrderService
         CancellationToken cancellationToken = default)
     {
         var orders = await _orderRepository.GetQuickLoansAsync(systemType, cancellationToken);
+        foreach (var order in orders)
+        {
+            NormalizeQuickLoanReadModelForReturnState(order);
+        }
         return orders.Select(OrderMapper.ToDto).ToList();
     }
 
@@ -619,8 +624,7 @@ public class OrderService : IOrderService
             line.ReturnedQuantity = item.QuantityReturned;
         }
 
-        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
-            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
+        existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
         await _inventoryDefinitions.ReleaseReturnedInventorySerialsAsync(returnedInventorySerials, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
@@ -712,7 +716,7 @@ public class OrderService : IOrderService
                 continue;
             }
 
-            if (!existing.IsReturnProcessed)
+            if (!AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments))
             {
                 var assigned = GetAssignedSerialCodes(line);
                 if (assigned.Count > 0)
@@ -763,9 +767,11 @@ public class OrderService : IOrderService
             cancellationToken);
     }
 
-    public Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default)
+    public Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
     {
-        return _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
+        return _orderRepository.GetUnreturnedItemsAsync(systemType, cancellationToken);
     }
 
     public Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(
@@ -841,8 +847,7 @@ public class OrderService : IOrderService
             line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - undoQty);
         }
 
-        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
-            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
+        existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
 
         if (reloanInventory.Count > 0)
         {
@@ -937,7 +942,7 @@ public class OrderService : IOrderService
         }
 
         var hasMainEquipment = existing.Equipments.Any();
-        var hasRemainingAccessories = existing.LoanedEquipments.Any(le => le.Quantity > 0);
+        var hasRemainingAccessories = existing.LoanedEquipments.Any(IsLoanedEquipmentActiveForReturnState);
 
         if (!hasMainEquipment && !hasRemainingAccessories)
         {
@@ -947,8 +952,7 @@ public class OrderService : IOrderService
             return;
         }
 
-        existing.IsReturnProcessed = !existing.LoanedEquipments.Any(le =>
-            le.Quantity > 0 && le.ReturnedQuantity < le.Quantity);
+        existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
 
         // Inventory stays InWarehouse — do not re-loan.
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -986,31 +990,52 @@ public class OrderService : IOrderService
 
     public async Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
     {
-        var items = await _orderRepository.GetUnreturnedItemsAsync(cancellationToken);
-        var match = items.FirstOrDefault(i => i.ManualItemId == manualItemId);
+        var entity = await _orderRepository.GetManualUnreturnedItemByIdAsync(manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
 
         await _orderRepository.ResolveManualUnreturnedItemAsync(manualItemId, cancellationToken);
 
-        if (match is null)
-        {
-            return;
-        }
-
-        var code = (match.MissingSerialCodes?.FirstOrDefault()
-                    ?? match.AssignedSerialCodes?.FirstOrDefault()
-                    ?? string.Empty).Trim();
+        var code = (entity.ItemCode ?? string.Empty).Trim();
         if (code.Length == 0)
         {
             return;
         }
 
-        if (match.InventoryDefinitionId is > 0)
+        if (entity.InventoryDefinitionId is > 0)
         {
             await _inventoryDefinitions.RestoreSerialAsync(
-                match.InventoryDefinitionId.Value,
+                entity.InventoryDefinitionId.Value,
                 code,
                 cancellationToken);
         }
+    }
+
+    public async Task UndoResolvedManualUnreturnedItemAsync(
+        int manualItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _orderRepository.GetManualUnreturnedItemByIdAsync(manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        await _orderRepository.UndoResolvedManualUnreturnedItemAsync(manualItemId, cancellationToken);
+
+        var code = (entity.ItemCode ?? string.Empty).Trim();
+        if (code.Length == 0 || entity.InventoryDefinitionId is not > 0)
+        {
+            return;
+        }
+
+        await _inventoryDefinitions.MarkSerialMissingAsync(
+            entity.InventoryDefinitionId.Value,
+            code,
+            cancellationToken);
+    }
+
+    public Task DeleteResolvedManualUnreturnedItemAsync(
+        int manualItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return _orderRepository.DeleteResolvedManualUnreturnedItemAsync(manualItemId, cancellationToken);
     }
 
     private static Dictionary<int, HashSet<string>> ExtractAssignedSerialCodesByDefinitionId(Order order)
@@ -1216,6 +1241,59 @@ public class OrderService : IOrderService
                 && assignedCodes.Contains(code)
                 && returned.Contains(code);
         }
+    }
+
+    internal static bool AreAllLoanedEquipmentsReturnedForReturnState(IEnumerable<OrderLoanedEquipment> lines) =>
+        !lines.Any(IsLoanedEquipmentActiveForReturnState);
+
+    internal static void NormalizeQuickLoanReadModelForReturnState(Order order)
+    {
+        foreach (var line in order.LoanedEquipments)
+        {
+            NormalizeLoanedEquipmentReturnState(line);
+        }
+
+        order.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(order.LoanedEquipments);
+    }
+
+    internal static void NormalizeLoanedEquipmentReturnState(OrderLoanedEquipment line)
+    {
+        if (line.Quantity <= 0)
+        {
+            line.ReturnedQuantity = 0;
+            return;
+        }
+
+        var noteBackedStates = (line.Notes ?? [])
+            .Where(n => !string.IsNullOrWhiteSpace(n.Content))
+            .ToList();
+
+        if (noteBackedStates.Count == 0)
+        {
+            line.ReturnedQuantity = Math.Clamp(line.ReturnedQuantity, 0, line.Quantity);
+            return;
+        }
+
+        line.ReturnedQuantity = Math.Clamp(
+            noteBackedStates.Count(n => n.IsReturned),
+            0,
+            line.Quantity);
+    }
+
+    internal static bool IsLoanedEquipmentActiveForReturnState(OrderLoanedEquipment line)
+    {
+        if (line.Quantity <= 0)
+        {
+            return false;
+        }
+
+        if (line.ReturnedQuantity < line.Quantity)
+        {
+            return true;
+        }
+
+        return (line.Notes ?? [])
+            .Any(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content));
     }
 
     private static void ValidateLoanedEquipments(IReadOnlyCollection<OrderLoanedEquipmentDto> items)
@@ -1614,7 +1692,7 @@ public class OrderService : IOrderService
         if (dto.ReturnTimeType is ReturnTimeType.LateNight or ReturnTimeType.NextMorning)
         {
             throw new ValidationException(
-                "ביום שישי ההחזרה היא עד סוף משמרת בוקר בלבד — יש לבחור שעת החזרה מדויקת");
+                "ביום שישי ניתן לבחור רק החזרה מסוג \"עד\"");
         }
     }
 

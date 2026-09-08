@@ -15,6 +15,7 @@ using SoundRent.Api.Middleware;
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(args);
+var isDevelopment = builder.Environment.IsDevelopment();
 
 // --- Configuration -------------------------------------------------------
 builder.Services.Configure<JwtSettings>(
@@ -31,6 +32,7 @@ var allowedOrigins = builder.Configuration
 // --- EF Core -------------------------------------------------------------
 var connectionString = ResolveDatabaseConnectionString(builder);
 builder.Services.AddDbContext<AppDbContext>(options =>
+{
     options.UseNpgsql(
         connectionString,
         npgsql =>
@@ -44,7 +46,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
                 maxRetryDelay: TimeSpan.FromSeconds(20),
                 errorCodesToAdd: null);
             npgsql.CommandTimeout(60);
-        }));
+        });
+
+    if (isDevelopment)
+    {
+        options.EnableDetailedErrors();
+        options.EnableSensitiveDataLogging();
+        options.LogTo(
+            Console.WriteLine,
+            new[] { DbLoggerCategory.Database.Command.Name },
+            LogLevel.Information);
+    }
+});
 
 // --- DI: Repositories & Services -----------------------------------------
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();

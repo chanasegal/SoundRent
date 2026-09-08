@@ -2392,7 +2392,13 @@
     "HttpMethod": "GET",
     "IsController": true,
     "Order": 0,
-    "Parameters": [],
+    "Parameters": [
+      {
+        "Name": "systemType",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
     "ReturnTypes": [
       {
         "Type": "System.Collections.Generic.List\u00601[[SoundRent.Api.Application.DTOs.UnreturnedItemDto, SoundRent.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
@@ -2435,6 +2441,38 @@
     "ContainingType": "SoundRent.Api.Controllers.OrdersController",
     "Method": "ResolveManualUnreturned",
     "RelativePath": "api/Orders/unreturned/manual/{id}/resolve",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "DeleteResolvedManualUnreturned",
+    "RelativePath": "api/Orders/unreturned/manual/{id}/return-record",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "SoundRent.Api.Controllers.OrdersController",
+    "Method": "UndoResolvedManualUnreturned",
+    "RelativePath": "api/Orders/unreturned/manual/{id}/undo-resolve",
     "HttpMethod": "POST",
     "IsController": true,
     "Order": 0,

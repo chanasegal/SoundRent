@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoundRent.Api", "SoundRent.Api\SoundRent.Api.csproj", "{F109A429-1995-4BD7-A81E-32B99DFF1CA3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoundRent.Api.Tests", "SoundRent.Api.Tests\SoundRent.Api.Tests.csproj", "{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{F109A429-1995-4BD7-A81E-32B99DFF1CA3}.Release|x64.Build.0 = Release|Any CPU
 		{F109A429-1995-4BD7-A81E-32B99DFF1CA3}.Release|x86.ActiveCfg = Release|Any CPU
 		{F109A429-1995-4BD7-A81E-32B99DFF1CA3}.Release|x86.Build.0 = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|x64.Build.0 = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Debug|x86.Build.0 = Debug|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|Any CPU.Build.0 = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|x64.ActiveCfg = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|x64.Build.0 = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|x86.ActiveCfg = Release|Any CPU
+		{98BCBC6F-5FFD-43CB-B3F8-73AE7A31E210}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

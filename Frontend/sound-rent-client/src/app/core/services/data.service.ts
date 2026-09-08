@@ -365,6 +365,7 @@ export class DataService {
   getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
     return this.http
       .get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`, {
+        params: this.withSystemType(),
         context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
       })
       .pipe(
@@ -389,6 +390,30 @@ export class DataService {
   resolveManualUnreturnedItem(manualItemId: number): Observable<boolean> {
     return this.http
       .post<void>(`${this.ordersBase}/unreturned/manual/${manualItemId}/resolve`, {})
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
+  }
+
+  undoResolvedManualUnreturnedItem(manualItemId: number): Observable<boolean> {
+    return this.http
+      .post<void>(`${this.ordersBase}/unreturned/manual/${manualItemId}/undo-resolve`, {})
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
+  }
+
+  deleteResolvedManualUnreturnedItem(manualItemId: number): Observable<boolean> {
+    return this.http
+      .delete<void>(`${this.ordersBase}/unreturned/manual/${manualItemId}/return-record`)
       .pipe(
         map(() => true),
         catchError((err) => {

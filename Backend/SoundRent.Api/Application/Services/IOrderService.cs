@@ -105,7 +105,9 @@ public interface IOrderService
         MarkUnreturnedRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(CancellationToken cancellationToken = default);
+    Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
 
     Task<List<ReturnedAccessoryHistoryDto>> GetReturnedAccessoriesAsync(
         string? search = null,
@@ -116,4 +118,8 @@ public interface IOrderService
         CancellationToken cancellationToken = default);
 
     Task ResolveManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task UndoResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task DeleteResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 }

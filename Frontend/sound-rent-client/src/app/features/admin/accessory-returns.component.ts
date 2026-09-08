@@ -80,6 +80,9 @@ export class AccessoryReturnsComponent implements OnInit {
     this.ordersSync.loanChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refresh());
+    this.ordersSync.unreturnedChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refresh());
 
     startLiveDataRefresh(this.destroyRef, () => this.refresh(), {
       skipWhen: () => this.loading() || this.actionsBusy()
@@ -117,6 +120,22 @@ export class AccessoryReturnsComponent implements OnInit {
     }
 
     this.undoingRowKey.set(row.rowKey);
+    if (row.manualItemId != null && row.manualItemId > 0) {
+      this.data
+        .undoResolvedManualUnreturnedItem(row.manualItemId)
+        .pipe(finalize(() => this.undoingRowKey.set(null)))
+        .subscribe((okResult) => {
+          if (!okResult) {
+            return;
+          }
+          this.ordersSync.notifyUnreturnedChanged(null);
+          this.ordersSync.notifyLoanChanged();
+          this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
+          this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
+        });
+      return;
+    }
+
     this.data
       .undoOrderReturn(row.orderId, {
         loanedEquipmentId: row.loanedEquipmentId,
@@ -145,6 +164,21 @@ export class AccessoryReturnsComponent implements OnInit {
     }
 
     this.deletingRowKey.set(row.rowKey);
+    if (row.manualItemId != null && row.manualItemId > 0) {
+      this.data
+        .deleteResolvedManualUnreturnedItem(row.manualItemId)
+        .pipe(finalize(() => this.deletingRowKey.set(null)))
+        .subscribe((okResult) => {
+          if (!okResult) {
+            return;
+          }
+          this.ordersSync.notifyLoanChanged();
+          this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
+          this.toast.success('רשומת ההחזרה נמחקה לצמיתות');
+        });
+      return;
+    }
+
     this.data
       .deleteReturnedAccessory(row.orderId, {
         loanedEquipmentId: row.loanedEquipmentId,
@@ -189,13 +223,20 @@ export class AccessoryReturnsComponent implements OnInit {
   }
 
   protected orderLabel(row: ReturnedAccessoryRow): string {
+    if (row.manualItemId != null && row.manualItemId > 0 && row.orderId <= 0) {
+      return 'רישום ידני';
+    }
     return row.isOrderBased ? `הזמנה #${row.orderId}` : `השאלה #${row.orderId}`;
+  }
+
+  protected hasOrderLink(row: ReturnedAccessoryRow): boolean {
+    return row.orderId > 0;
   }
 
   private mapRows(items: ReturnedAccessoryHistoryDto[]): ReturnedAccessoryRow[] {
     return items.map((item, index) => ({
       ...item,
-      rowKey: `${item.orderId}-${item.loanedEquipmentId}-${item.serialCode ?? 'qty'}-${index}`
+      rowKey: `${item.manualItemId ?? 'order'}-${item.orderId}-${item.loanedEquipmentId}-${item.serialCode ?? 'qty'}-${index}`
     }));
   }
 }
