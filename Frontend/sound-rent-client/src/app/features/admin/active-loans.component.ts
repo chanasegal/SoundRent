@@ -1382,13 +1382,13 @@ export class ActiveLoansComponent implements OnInit {
         if (returned >= le.quantity) {
           continue;
         }
-        const codes = sortNumericCodes(
+        const codes = this.uniqueSortedCodes(
           (le.notes ?? [])
             .filter((n) => !n.isReturned)
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
         );
-        const allCodesForLabel = sortNumericCodes(
+        const allCodesForLabel = this.uniqueSortedCodes(
           (le.notes ?? [])
             .map((n) => (n.content ?? '').trim())
             .filter((c) => c.length > 0)
@@ -1437,7 +1437,7 @@ export class ActiveLoansComponent implements OnInit {
       .filter((report) => !this.isManualReportCoveredByOrderRows(report, orderRows))
       .map((report) => {
         const manualItemId = report.manualItemId!;
-        const codes = sortNumericCodes(
+        const codes = this.uniqueSortedCodes(
           [...(report.missingSerialCodes ?? []), ...(report.assignedSerialCodes ?? [])]
             .map((code) => (code ?? '').trim())
             .filter((code) => code.length > 0)
@@ -1515,6 +1515,22 @@ export class ActiveLoansComponent implements OnInit {
       return onName;
     }
     return onName ? `${typeLabel} — ${onName}` : typeLabel;
+  }
+
+  /** Case-insensitive unique codes, then numeric display order (keeps @for track code unique). */
+  private uniqueSortedCodes(codes: readonly string[]): string[] {
+    const byKey = new Map<string, string>();
+    for (const raw of codes) {
+      const code = (raw ?? '').trim();
+      if (!code) {
+        continue;
+      }
+      const key = code.toLowerCase();
+      if (!byKey.has(key)) {
+        byKey.set(key, code);
+      }
+    }
+    return sortNumericCodes([...byKey.values()]);
   }
 
   /** Free-text loan names that are not in the permanent inventory catalog. */

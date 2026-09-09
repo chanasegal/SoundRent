@@ -488,6 +488,8 @@ public class OrderRepository : IOrderRepository
             .ToListAsync(cancellationToken);
 
         var fromOrders = orderRows
+            // One row per loaned-equipment line (guards against accidental EF fan-out).
+            .DistinctBy(r => r.LoanedEquipmentId)
             .Select(r =>
             {
                 var itemName = string.IsNullOrWhiteSpace(r.CustomItemName)
@@ -527,11 +529,20 @@ public class OrderRepository : IOrderRepository
             .ThenByDescending(m => m.Id)
             .ToListAsync(cancellationToken);
 
-        var coveredOrderLineKeys = fromOrders
-            .Select(o => $"{o.OrderId}:{o.LoanedEquipmentId}")
-            .ToHashSet(StringComparer.Ordinal);
+        // Manual rows always have LoanedEquipmentId=0, so match by order+name / order+serial
+        // instead of order+line-id to avoid showing the same outstanding custom item twice.
+        var coveredByOrderKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var o in fromOrders.Where(o => o.OrderId > 0))
+        {
+            coveredByOrderKeys.Add(BuildOneTimeCoverageNameKey(o.OrderId, o.ItemName));
+            foreach (var code in o.SerialCodes)
+            {
+                coveredByOrderKeys.Add(BuildOneTimeCoverageCodeKey(o.OrderId, code));
+            }
+        }
 
         var fromManual = manualRows
+            .DistinctBy(m => m.Id)
             .Select(m =>
             {
                 var itemName = string.IsNullOrWhiteSpace(m.ItemName)
@@ -554,13 +565,13 @@ public class OrderRepository : IOrderRepository
                 };
             })
             .Where(dto => !catalogNames.Contains(dto.ItemName))
-            // Avoid duplicating an order line that already covers the same outstanding custom item.
-            .Where(dto =>
-                dto.OrderId <= 0
-                || !coveredOrderLineKeys.Contains($"{dto.OrderId}:{dto.LoanedEquipmentId}"))
+            .Where(dto => !IsOneTimeManualCoveredByOrder(dto, coveredByOrderKeys))
             .ToList();
 
-        return fromManual.Concat(fromOrders).ToList();
+        return fromManual
+            .Concat(fromOrders)
+            .DistinctBy(BuildOneTimeDisplayKey)
+            .ToList();
     }
 
     public async Task<List<UnreturnedItemDto>> GetUnreturnedItemsAsync(
@@ -572,6 +583,7 @@ public class OrderRepository : IOrderRepository
         var orderQuery = _db.Orders
             .AsNoTracking()
             .Where(o => !o.IsCancelled)
+            .Where(o => o.LoanedEquipments.Any(le => le.ReturnedQuantity > 0 || le.Notes.Any(n => n.IsReturned)))
             .Where(o => o.LoanedEquipments.Any(le =>
                 le.Quantity > 0
                 && (le.ReturnedQuantity < le.Quantity
@@ -1107,6 +1119,40 @@ public class OrderRepository : IOrderRepository
             MissingSerialCodes = code.Length > 0 ? [code] : [],
             AssignedSerialCodes = code.Length > 0 ? [code] : []
         };
+    }
+
+    private static string BuildOneTimeDisplayKey(ActiveOneTimeAccessoryLoanDto dto)
+    {
+        if (dto.ManualItemId is > 0)
+        {
+            return $"m:{dto.ManualItemId.Value}";
+        }
+
+        return $"o:{dto.OrderId}:{dto.LoanedEquipmentId}";
+    }
+
+    private static string BuildOneTimeCoverageNameKey(int orderId, string itemName)
+        => $"name:{orderId}:{(itemName ?? string.Empty).Trim()}";
+
+    private static string BuildOneTimeCoverageCodeKey(int orderId, string code)
+        => $"code:{orderId}:{(code ?? string.Empty).Trim()}";
+
+    private static bool IsOneTimeManualCoveredByOrder(
+        ActiveOneTimeAccessoryLoanDto dto,
+        HashSet<string> coveredByOrderKeys)
+    {
+        if (dto.OrderId <= 0)
+        {
+            return false;
+        }
+
+        if (coveredByOrderKeys.Contains(BuildOneTimeCoverageNameKey(dto.OrderId, dto.ItemName)))
+        {
+            return true;
+        }
+
+        return dto.SerialCodes.Any(code =>
+            coveredByOrderKeys.Contains(BuildOneTimeCoverageCodeKey(dto.OrderId, code)));
     }
 
     private static HashSet<string> BuildCoveredManualUnreturnedKeys(IEnumerable<UnreturnedItemDto> rows)

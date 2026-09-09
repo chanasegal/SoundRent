@@ -302,7 +302,7 @@
                     <span class="accessory-row__serial">
                       <span class="accessory-row__serial-sep">:</span>
                       <span class="accessory-row__serial-chip-list">
-                        @for (code of row.assignedSerialCodes; track code) {
+                        @for (code of row.assignedSerialCodes; track $index + ':' + code) {
                           <button
                             type="button"
                             class="accessory-row__serial-chip accessory-row__serial-chip--returnable"
