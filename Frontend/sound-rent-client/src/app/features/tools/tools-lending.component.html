@@ -1057,9 +1057,26 @@
                   class="accessory-row active-loan-item"
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
-                  <time class="active-loan-item__date">
-                    {{ activeLoanHebrewDate(row.lentAt) }} · {{ activeLoanTimeLabel(row.lentAt) }}
-                  </time>
+                  <div class="active-loan-item__when">
+                    <time class="active-loan-item__date">
+                      {{ activeLoanHebrewDate(row.lentAt) }} · {{ activeLoanTimeLabel(row.lentAt) }}
+                    </time>
+                    <span
+                      class="active-loan-item__duration"
+                      [class.duration-overdue]="isOverdue(row)"
+                    >
+                      {{ durationText(row) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="action-icon-btn action-icon-btn--calendar"
+                      (click)="loanRangeCal.open($event, row.lentAt, null)"
+                      title="תצוגת טווח השאלה"
+                      aria-label="תצוגת טווח השאלה"
+                    >
+                      <i class="pi pi-calendar" aria-hidden="true"></i>
+                    </button>
+                  </div>
                   <span class="accessory-row__label">
                     {{ row.item.toolName }}
                   </span>

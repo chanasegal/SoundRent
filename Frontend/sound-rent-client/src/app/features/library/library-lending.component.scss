@@ -821,6 +821,15 @@
   justify-content: flex-start;
   row-gap: 0.45rem;
 
+  &__when {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.45rem;
+    min-width: 0;
+  }
+
   &__date {
     flex: 0 0 auto;
     min-width: 5.5rem;
@@ -831,12 +840,29 @@
     white-space: nowrap;
   }
 
+  &__duration {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #334155;
+    white-space: nowrap;
+  }
+
   &__meta {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.45rem 0.65rem;
     margin-inline-start: auto;
+  }
+
+  .action-icon-btn--calendar {
+    width: 1.75rem;
+    height: 1.75rem;
+
+    .pi {
+      font-size: 0.8rem;
+    }
   }
 }
 
@@ -915,9 +941,12 @@
 }
 
 @media (max-width: 700px) {
+  .active-loan-item__when {
+    width: 100%;
+  }
+
   .active-loan-item__date {
     min-width: 0;
-    width: 100%;
   }
 
   .active-loan-item__meta {
