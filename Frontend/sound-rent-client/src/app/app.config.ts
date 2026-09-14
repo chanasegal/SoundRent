@@ -54,7 +54,7 @@ export const appConfig: ApplicationConfig = {
       },
       ripple: false,
       translation: {
-        dayNames: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'],
+        dayNames: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'מוצא"ש'],
         dayNamesShort: ["א'", "ב'", "ג'", "ד'", "ה'", "ו'", "ש'"],
         dayNamesMin: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
         monthNames: [

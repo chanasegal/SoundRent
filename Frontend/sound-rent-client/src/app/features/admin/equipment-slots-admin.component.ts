@@ -775,6 +775,13 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     return phone ?? '';
   }
 
+  protected formatLocatorSerialCodes(codes: string[] | null | undefined): string {
+    const list = (codes ?? [])
+      .map((c) => (c ?? '').trim())
+      .filter((c) => c.length > 0);
+    return list.length > 0 ? list.join(', ') : '—';
+  }
+
   /** Hebrew calendar date for a loaned-item locator card (from order shift date). */
   protected formatLocatorHebrewDate(loanDate: string | null | undefined): string {
     const iso = (loanDate ?? '').trim();

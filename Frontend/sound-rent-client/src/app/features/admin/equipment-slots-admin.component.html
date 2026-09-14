@@ -336,9 +336,15 @@
 
           @if (typeResult.holders.length > 0) {
             <div class="mt-3 space-y-2">
-              @for (holder of typeResult.holders; track $index) {
+              @for (holder of typeResult.holders; track holder.serialCode || $index) {
                 <div class="rounded-lg border border-slate-200 bg-white/70 p-2 text-sm">
                   <div class="customer-details-grid customer-details-grid--inline-4">
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">קוד פריט</span>
+                      <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+                        holder.serialCode || '—'
+                      }}</span>
+                    </div>
                     <div class="customer-details-grid__item">
                       <span class="customer-details-grid__label">שם לקוח</span>
                       <span class="customer-details-grid__value">{{ holder.customerName || '—' }}</span>
@@ -383,6 +389,12 @@
                     </span>
                   </div>
                   <div class="customer-details-grid customer-details-grid--inline-4">
+                    <div class="customer-details-grid__item">
+                      <span class="customer-details-grid__label">קוד פריט</span>
+                      <span class="customer-details-grid__value ltr-field" dir="ltr">{{
+                        formatLocatorSerialCodes(loan.serialCodes)
+                      }}</span>
+                    </div>
                     <div class="customer-details-grid__item">
                       <span class="customer-details-grid__label">שם לקוח</span>
                       <span class="customer-details-grid__value">{{ loan.customerName || '—' }}</span>

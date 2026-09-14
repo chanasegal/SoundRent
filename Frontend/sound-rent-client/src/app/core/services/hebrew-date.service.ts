@@ -52,7 +52,7 @@ const MONTH_DISPLAY_ORDER_REGULAR = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
 const MONTH_DISPLAY_ORDER_LEAP = [7, 8, 9, 10, 11, 12, 13, 1, 2, 3, 4, 5, 6];
 
 /** Hebrew names of the days of the week (Sun=0 … Sat=6). */
-const HEBREW_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const HEBREW_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'מוצא"ש'];
 
 @Injectable({ providedIn: 'root' })
 export class HebrewDateService {

@@ -178,12 +178,13 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
 
         if (dto.ParentEquipmentType == LoanedEquipmentType.Mixer && parentDefinition is not null)
         {
+            var parentCodeLower = parentCode.ToLowerInvariant();
             var conflictingLinks = await _db.EquipmentDefaultAccessories
                 .AsNoTracking()
                 .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
                             && e.InventoryDefinitionId == definitionId
                             && toAdd.Contains(e.AccessorySerialCode)
-                            && e.ParentSerialCode != parentCode)
+                            && e.ParentSerialCode.ToLower() != parentCodeLower)
                 .Select(e => new { e.AccessorySerialCode, e.ParentSerialCode })
                 .ToListAsync(cancellationToken);
 
@@ -196,17 +197,15 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
 
             var parentMixerSerial = await _db.InventorySerialCodes
                 .FirstAsync(
-                    s => s.InventoryDefinitionId == parentDefinition.Id && s.SerialCode == parentCode,
+                    s => s.InventoryDefinitionId == parentDefinition.Id
+                         && s.SerialCode.ToLower() == parentCodeLower,
                     cancellationToken);
 
+            // Kit table is the source of truth for "already attached".
+            // If no conflicting kit row exists, reclaim any leftover MixerId (orphan from a
+            // partial detach) so the accessory can be attached immediately.
             foreach (var serial in accessorySerials)
             {
-                if (serial.MixerId is int attachedMixerId && attachedMixerId != parentMixerSerial.Id)
-                {
-                    throw new ValidationException(
-                        $"קוד {serial.SerialCode} כבר משויך למיקסר אחר ולא ניתן לשייך אותו ליותר ממיקסר אחד");
-                }
-
                 serial.MixerId = parentMixerSerial.Id;
             }
         }
@@ -236,42 +235,50 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             throw new ValidationException("שיוך הציוד הנלווה לא נמצא");
         }
 
-        if (entity.ParentEquipmentType == LoanedEquipmentType.Mixer
-            && entity.InventoryDefinitionId is int accessoryDefinitionId)
+        // Always clear the live MixerId when removing a mixer kit link.
+        // Do not require resolving the parent mixer serial — that lookup used to skip
+        // cleanup (inactive definition / code mismatch) and left accessories "stuck".
+        if (entity.ParentEquipmentType == LoanedEquipmentType.Mixer)
         {
-            var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
-            var mixerDefinitionId = await _db.InventoryDefinitions.AsNoTracking()
-                .Where(d => d.IsActive && d.DisplayName == mixerLabel)
-                .Select(d => (int?)d.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (mixerDefinitionId is int mixerDefId)
-            {
-                var mixerSerialId = await _db.InventorySerialCodes.AsNoTracking()
-                    .Where(s => s.InventoryDefinitionId == mixerDefId
-                                && s.SerialCode == entity.ParentSerialCode)
-                    .Select(s => (int?)s.Id)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (mixerSerialId is int mixerId)
-                {
-                    var accessorySerial = await _db.InventorySerialCodes
-                        .FirstOrDefaultAsync(
-                            s => s.InventoryDefinitionId == accessoryDefinitionId
-                                 && s.SerialCode == entity.AccessorySerialCode
-                                 && s.MixerId == mixerId,
-                            cancellationToken);
-
-                    if (accessorySerial is not null)
-                    {
-                        accessorySerial.MixerId = null;
-                    }
-                }
-            }
+            await ClearAccessoryMixerLinkAsync(entity, cancellationToken);
         }
 
         _db.EquipmentDefaultAccessories.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Clears <see cref="InventorySerialCode.MixerId"/> for the accessory unit represented by
+    /// this kit row so it is free to attach to another mixer immediately after detach.
+    /// </summary>
+    private async Task ClearAccessoryMixerLinkAsync(
+        EquipmentDefaultAccessory entity,
+        CancellationToken cancellationToken)
+    {
+        var accessoryCode = NormalizeCode(entity.AccessorySerialCode);
+        if (accessoryCode.Length == 0)
+        {
+            return;
+        }
+
+        var accessoryCodeLower = accessoryCode.ToLowerInvariant();
+
+        // Match by catalog definition + code when available; otherwise by code alone (legacy rows).
+        // Do not require MixerId == parent mixer — that condition previously skipped cleanup when
+        // the parent lookup failed or codes differed only by case/whitespace.
+        IQueryable<InventorySerialCode> query = _db.InventorySerialCodes
+            .Where(s => s.SerialCode.ToLower() == accessoryCodeLower && s.MixerId != null);
+
+        if (entity.InventoryDefinitionId is int accessoryDefinitionId)
+        {
+            query = query.Where(s => s.InventoryDefinitionId == accessoryDefinitionId);
+        }
+
+        var candidates = await query.ToListAsync(cancellationToken);
+        foreach (var serial in candidates)
+        {
+            serial.MixerId = null;
+        }
     }
 
     private async Task<InventoryDefinition> ResolveInventoryDefinitionAsync(

@@ -522,6 +522,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             foreach (var code in codes)
             {
+                var serial = FindSerial(def, code);
+                // Returning an accessory while its parent mixer stays out must break the live
+                // attachment; otherwise cascade re-marks it LoanedOut and tracking invents a holder.
+                // Keep the durable kit row so the accessory can auto-attach on a future mixer loan.
+                if (serial is not null && serial.MixerId is not null)
+                {
+                    serial.MixerId = null;
+                    changed = true;
+                }
+
                 if (SetSerialStatus(def, code, AccessorySerialPhysicalStatus.InWarehouse))
                 {
                     changed = true;
@@ -856,12 +866,161 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
     private async Task<List<InventoryDefinitionDto>> BuildAllDtosAsync(CancellationToken cancellationToken)
     {
+        // Repair leftover MixerId after a kit row was removed without clearing the FK
+        // (so admin UI no longer marks those accessories as תפוס).
+        await HealOrphanedAccessoryMixerLinksAsync(cancellationToken);
+        // Reset cascade-only LoanedOut units that are not on any active order line.
+        await HealStaleLoanedOutWithoutOrderNoteAsync(cancellationToken);
+
         var rows = await _repository.GetAllWithSerialsOrderedAsync(cancellationToken);
         var missingByKey = await LoadUnresolvedMissingByKeyAsync(cancellationToken);
         var missingByDefinition = await LoadUnresolvedMissingByDefinitionAsync(cancellationToken);
         var loanHolders = await LoadActiveLoanHoldersByDefinitionAsync(cancellationToken);
         var mixerSerialCodes = await LoadMixerSerialCodesAsync(rows, cancellationToken);
         return rows.Select(r => ToDto(r, missingByKey, missingByDefinition, loanHolders, mixerSerialCodes)).ToList();
+    }
+
+    /// <summary>
+    /// Clears <see cref="InventorySerialCode.MixerId"/> when no matching mixer kit row remains.
+    /// </summary>
+    private async Task HealOrphanedAccessoryMixerLinksAsync(CancellationToken cancellationToken)
+    {
+        var attachedSerials = await _db.InventorySerialCodes
+            .Where(s => s.MixerId != null)
+            .ToListAsync(cancellationToken);
+
+        if (attachedSerials.Count == 0)
+        {
+            return;
+        }
+
+        var mixerIds = attachedSerials
+            .Select(s => s.MixerId!.Value)
+            .Distinct()
+            .ToList();
+
+        var mixerCodeById = await _db.InventorySerialCodes
+            .AsNoTracking()
+            .Where(s => mixerIds.Contains(s.Id))
+            .Select(s => new { s.Id, Code = s.SerialCode.Trim() })
+            .ToDictionaryAsync(s => s.Id, s => s.Code, cancellationToken);
+
+        var kitKeys = await _db.EquipmentDefaultAccessories
+            .AsNoTracking()
+            .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
+                        && e.InventoryDefinitionId != null)
+            .Select(e => new
+            {
+                DefinitionId = e.InventoryDefinitionId!.Value,
+                AccessoryCode = e.AccessorySerialCode.Trim().ToLower(),
+                ParentCode = e.ParentSerialCode.Trim().ToLower()
+            })
+            .ToListAsync(cancellationToken);
+
+        var kitSet = new HashSet<string>(
+            kitKeys.Select(k => $"{k.DefinitionId}|{k.AccessoryCode}|{k.ParentCode}"),
+            StringComparer.Ordinal);
+
+        var changed = false;
+        foreach (var serial in attachedSerials)
+        {
+            if (!mixerCodeById.TryGetValue(serial.MixerId!.Value, out var parentCode)
+                || parentCode.Length == 0)
+            {
+                serial.MixerId = null;
+                changed = true;
+                continue;
+            }
+
+            var key =
+                $"{serial.InventoryDefinitionId}|{serial.SerialCode.Trim().ToLowerInvariant()}|{parentCode.ToLowerInvariant()}";
+            if (!kitSet.Contains(key))
+            {
+                serial.MixerId = null;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Clears <see cref="AccessorySerialPhysicalStatus.LoanedOut"/> (and live MixerId) when the
+    /// serial has no unreturned order note — fixes cascade ghosts that tracking used to show as
+    /// loaned to a customer/order without an equipment line.
+    /// </summary>
+    private async Task HealStaleLoanedOutWithoutOrderNoteAsync(CancellationToken cancellationToken)
+    {
+        var loanedSerials = await _db.InventorySerialCodes
+            .Where(s => s.PhysicalStatus == AccessorySerialPhysicalStatus.LoanedOut)
+            .ToListAsync(cancellationToken);
+
+        if (loanedSerials.Count == 0)
+        {
+            return;
+        }
+
+        var lookup = await LoadCatalogDefinitionLookupAsync(cancellationToken);
+        var activeNotes = await (
+            from le in _db.OrderLoanedEquipments.AsNoTracking()
+            join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
+            join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
+            where !order.IsCancelled
+                  && note.Content != null && note.Content != ""
+                  && !note.IsReturned
+            select new
+            {
+                le.InventoryDefinitionId,
+                le.LoanedEquipmentType,
+                le.CustomItemName,
+                Code = note.Content!
+            }).ToListAsync(cancellationToken);
+
+        var activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in activeNotes)
+        {
+            var definitionId = ResolveInventoryDefinitionId(
+                row.InventoryDefinitionId,
+                row.LoanedEquipmentType,
+                row.CustomItemName,
+                lookup);
+            if (definitionId is not int defId)
+            {
+                continue;
+            }
+
+            var code = row.Code.Trim();
+            if (code.Length > 0)
+            {
+                activeKeys.Add($"{defId}|{code}");
+            }
+        }
+
+        var changed = false;
+        foreach (var serial in loanedSerials)
+        {
+            var key = $"{serial.InventoryDefinitionId}|{serial.SerialCode.Trim()}";
+            if (activeKeys.Contains(key))
+            {
+                continue;
+            }
+
+            serial.PhysicalStatus = AccessorySerialPhysicalStatus.InWarehouse;
+            if (serial.MixerId is not null)
+            {
+                serial.MixerId = null;
+            }
+
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task<InventoryDefinitionDto> ToDtoAsync(
@@ -1359,40 +1518,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             }
         }
 
-        var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
-        var mixerDefId = await _db.InventoryDefinitions.AsNoTracking()
-            .Where(d => d.IsActive && d.DisplayName == mixerLabel)
-            .Select(d => (int?)d.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (mixerDefId is not int mid || !activeByDef.TryGetValue(mid, out var activeMixerCodes))
-        {
-            return;
-        }
-
-        var kitRows = await _db.EquipmentDefaultAccessories.AsNoTracking()
-            .Where(k => k.ParentEquipmentType == LoanedEquipmentType.Mixer && k.InventoryDefinitionId != null)
-            .Select(k => new
-            {
-                k.ParentSerialCode,
-                DefinitionId = k.InventoryDefinitionId!.Value,
-                k.AccessorySerialCode
-            })
-            .ToListAsync(cancellationToken);
-
-        foreach (var kit in kitRows)
-        {
-            if (!activeMixerCodes.Contains(kit.ParentSerialCode.Trim()))
-            {
-                continue;
-            }
-
-            _logger.LogInformation(
-                "[SerialAvailability] KitCascade DefaultAccessory → TAKEN accessoryDefId={DefId} code={Code} because mixer #{Parent} is loaned",
-                kit.DefinitionId,
-                kit.AccessorySerialCode.Trim(),
-                kit.ParentSerialCode.Trim());
-            AddActiveAssignedCode(activeByDef, kit.DefinitionId, kit.AccessorySerialCode);
-        }
+        // Do not mark accessories taken from EquipmentDefaultAccessories alone — the kit is a
+        // default template. Only a live MixerId means the unit is currently traveling with the mixer.
     }
 
     private static string FormatTakenMap(IReadOnlyDictionary<int, HashSet<string>> map)
@@ -1492,114 +1619,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             });
         }
 
-        await EnrichHoldersFromAttachedMixersAsync(result, cancellationToken);
+        // Holders come only from unreturned order notes — do not invent ghost holders from
+        // MixerId / kit cascade (that made accessories look loaned to an order they are not on).
         return result;
-    }
-
-    private async Task EnrichHoldersFromAttachedMixersAsync(
-        Dictionary<int, Dictionary<string, InventoryHolderDto>> holdersByDefinition,
-        CancellationToken cancellationToken)
-    {
-        // Accessories attached via MixerId whose parent mixer has an active loan holder.
-        var attached = await _db.InventorySerialCodes.AsNoTracking()
-            .Where(s => s.MixerId != null)
-            .Select(s => new
-            {
-                s.InventoryDefinitionId,
-                s.SerialCode,
-                MixerId = s.MixerId!.Value
-            })
-            .ToListAsync(cancellationToken);
-
-        var pending = new List<(int DefinitionId, string SerialCode, int MixerInventoryDefinitionId, string MixerSerialCode)>();
-
-        if (attached.Count > 0)
-        {
-            var mixerIds = attached.Select(a => a.MixerId).Distinct().ToList();
-            var mixers = await _db.InventorySerialCodes.AsNoTracking()
-                .Where(s => mixerIds.Contains(s.Id))
-                .Select(s => new { s.Id, s.InventoryDefinitionId, s.SerialCode })
-                .ToListAsync(cancellationToken);
-            var mixerById = mixers.ToDictionary(m => m.Id);
-
-            foreach (var row in attached)
-            {
-                if (!mixerById.TryGetValue(row.MixerId, out var mixer))
-                {
-                    continue;
-                }
-
-                pending.Add((row.InventoryDefinitionId, row.SerialCode, mixer.InventoryDefinitionId, mixer.SerialCode));
-            }
-        }
-
-        // Fallback: kit rows without MixerId still inherit the parent mixer's loan holder.
-        var kitRows = await (
-            from kit in _db.EquipmentDefaultAccessories.AsNoTracking()
-            where kit.ParentEquipmentType == LoanedEquipmentType.Mixer
-                  && kit.InventoryDefinitionId != null
-            select new
-            {
-                ParentSerialCode = kit.ParentSerialCode,
-                DefinitionId = kit.InventoryDefinitionId!.Value,
-                AccessorySerialCode = kit.AccessorySerialCode
-            }).ToListAsync(cancellationToken);
-
-        if (kitRows.Count > 0)
-        {
-            var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
-            var mixerDefId = await _db.InventoryDefinitions.AsNoTracking()
-                .Where(d => d.IsActive && d.DisplayName == mixerLabel)
-                .Select(d => (int?)d.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (mixerDefId is int mid)
-            {
-                foreach (var kit in kitRows)
-                {
-                    pending.Add((kit.DefinitionId, kit.AccessorySerialCode, mid, kit.ParentSerialCode));
-                }
-            }
-        }
-
-        foreach (var row in pending)
-        {
-            var accessoryCode = row.SerialCode.Trim();
-            if (accessoryCode.Length == 0)
-            {
-                continue;
-            }
-
-            if (holdersByDefinition.TryGetValue(row.DefinitionId, out var existingByCode)
-                && existingByCode.ContainsKey(accessoryCode))
-            {
-                continue;
-            }
-
-            if (!holdersByDefinition.TryGetValue(row.MixerInventoryDefinitionId, out var mixerHolders)
-                || !mixerHolders.TryGetValue(row.MixerSerialCode.Trim(), out var mixerHolder))
-            {
-                continue;
-            }
-
-            if (!holdersByDefinition.TryGetValue(row.DefinitionId, out var byCode))
-            {
-                byCode = new Dictionary<string, InventoryHolderDto>(StringComparer.OrdinalIgnoreCase);
-                holdersByDefinition[row.DefinitionId] = byCode;
-            }
-
-            byCode.TryAdd(accessoryCode, new InventoryHolderDto
-            {
-                SerialCode = accessoryCode,
-                Status = AccessorySerialPhysicalStatus.LoanedOut,
-                StatusLabel = AggregateStatusLabel(AccessorySerialPhysicalStatus.LoanedOut),
-                CustomerName = mixerHolder.CustomerName,
-                Phone = mixerHolder.Phone,
-                Address = mixerHolder.Address,
-                EventDate = mixerHolder.EventDate,
-                OrderId = mixerHolder.OrderId
-            });
-        }
     }
 
     private async Task<SerialHolderSnapshot?> ResolveSerialHolderAsync(
@@ -1621,14 +1643,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             holder is not null,
             holder?.OrderId);
 
-        if (holder is null)
-        {
-            holder = await FindHolderViaAttachedMixerAsync(serial, cancellationToken);
-            _logger.LogInformation(
-                "[SerialLocation.ResolveHolder] After FindHolderViaAttachedMixerAsync found={Found} orderId={OrderId}",
-                holder is not null,
-                holder?.OrderId);
-        }
+        // Do not inherit the parent mixer's order holder — accessories only show as loaned to a
+        // customer when they have an unreturned note on that order (same source as the order UI).
 
         if (holder is null)
         {
@@ -1981,99 +1997,6 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         return result;
     }
 
-    private async Task<SerialHolderSnapshot?> FindHolderViaAttachedMixerAsync(
-        InventorySerialCode serial,
-        CancellationToken cancellationToken)
-    {
-        _logger.LogInformation(
-            "[SerialLocation.FindHolderViaAttachedMixer] START accessoryDefId={AccessoryDefId} serialCode={SerialCode} mixerId={MixerId}",
-            serial.InventoryDefinitionId,
-            serial.SerialCode,
-            serial.MixerId);
-
-        if (serial.MixerId is int mixerId)
-        {
-            var mixer = await _db.InventorySerialCodes.AsNoTracking()
-                .Include(s => s.InventoryDefinition)
-                .FirstOrDefaultAsync(s => s.Id == mixerId, cancellationToken);
-
-            _logger.LogInformation(
-                "[SerialLocation.FindHolderViaAttachedMixer] MixerId lookup found={Found} mixerDefId={MixerDefId} mixerCode={MixerCode}",
-                mixer is not null,
-                mixer?.InventoryDefinitionId,
-                mixer?.SerialCode);
-
-            if (mixer?.InventoryDefinition is not null)
-            {
-                var viaFk = await FindActiveHolderAsync(
-                    mixer.InventoryDefinitionId,
-                    mixer.InventoryDefinition.DisplayName,
-                    mixer.SerialCode,
-                    cancellationToken);
-                if (viaFk is not null)
-                {
-                    _logger.LogInformation(
-                        "[SerialLocation.FindHolderViaAttachedMixer] Resolved via MixerId FK orderId={OrderId}",
-                        viaFk.OrderId);
-                    return viaFk;
-                }
-            }
-        }
-
-        // Fallback via default-accessory kit when MixerId is not set yet.
-        var accessoryCode = serial.SerialCode.Trim();
-        var kitRows = await _db.EquipmentDefaultAccessories.AsNoTracking()
-            .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
-                        && e.InventoryDefinitionId == serial.InventoryDefinitionId)
-            .Select(e => new { e.ParentSerialCode, e.AccessorySerialCode })
-            .ToListAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "[SerialLocation.FindHolderViaAttachedMixer] Kit rows for accessory defId={DefId} count={Count}",
-            serial.InventoryDefinitionId,
-            kitRows.Count);
-
-        var kit = kitRows.FirstOrDefault(k =>
-            string.Equals((k.AccessorySerialCode ?? string.Empty).Trim(), accessoryCode, StringComparison.OrdinalIgnoreCase));
-
-        if (kit is null)
-        {
-            _logger.LogInformation(
-                "[SerialLocation.FindHolderViaAttachedMixer] NO kit match for accessoryCode={AccessoryCode}",
-                accessoryCode);
-            return null;
-        }
-
-        _logger.LogInformation(
-            "[SerialLocation.FindHolderViaAttachedMixer] Kit match parentSerialCode={ParentSerialCode}",
-            kit.ParentSerialCode);
-
-        var mixerLabel = LoanedEquipmentTypeLabels.GetLabel(LoanedEquipmentType.Mixer);
-        var mixerDefinition = await _db.InventoryDefinitions.AsNoTracking()
-            .FirstOrDefaultAsync(
-                d => d.IsActive && d.DisplayName == mixerLabel,
-                cancellationToken);
-
-        if (mixerDefinition is null)
-        {
-            _logger.LogInformation(
-                "[SerialLocation.FindHolderViaAttachedMixer] Mixer catalog definition NOT FOUND label={MixerLabel}",
-                mixerLabel);
-            return null;
-        }
-
-        var viaKit = await FindActiveHolderAsync(
-            mixerDefinition.Id,
-            mixerDefinition.DisplayName,
-            kit.ParentSerialCode,
-            cancellationToken);
-        _logger.LogInformation(
-            "[SerialLocation.FindHolderViaAttachedMixer] Resolved via kit found={Found} orderId={OrderId}",
-            viaKit is not null,
-            viaKit?.OrderId);
-        return viaKit;
-    }
-
     private async Task<bool> CascadeMixerAttachedStatusAsync(
         IReadOnlyCollection<int> parentSerialIds,
         AccessorySerialPhysicalStatus status,
@@ -2171,6 +2094,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                         continue;
                     }
 
+                    // When cascading LoanedOut, only pull kit accessories that are actually on the
+                    // order — otherwise ghosts appear as loaned without an equipment line.
+                    if (status == AccessorySerialPhysicalStatus.LoanedOut
+                        && keepAssignedOnOrder is not null
+                        && (!keepAssignedOnOrder.TryGetValue(accessory.InventoryDefinitionId, out var onOrderCodes)
+                            || !onOrderCodes.Contains(accessory.SerialCode)))
+                    {
+                        continue;
+                    }
+
                     if (accessory.MixerId is null)
                     {
                         accessory.MixerId = parentId;
@@ -2199,6 +2132,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 && stillAssigned is not null
                 && stillAssigned.TryGetValue(serial.InventoryDefinitionId, out var keepCodes)
                 && keepCodes.Contains(serial.SerialCode))
+            {
+                continue;
+            }
+
+            // LoanedOut cascade: only mark accessories that are on the current order.
+            // Attached-but-not-listed units must not look loaned in tracking without an order line.
+            if (status == AccessorySerialPhysicalStatus.LoanedOut
+                && keepAssignedOnOrder is not null
+                && (!keepAssignedOnOrder.TryGetValue(serial.InventoryDefinitionId, out var assignedCodes)
+                    || !assignedCodes.Contains(serial.SerialCode)))
             {
                 continue;
             }
@@ -2435,7 +2378,10 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 }
 
                 var unit = BuildSerialUnit(code, status, missing, loan, mixerId, mixerSerialCode);
-                if (status is AccessorySerialPhysicalStatus.Missing or AccessorySerialPhysicalStatus.LoanedOut)
+                // ActiveHolders must match order equipment (notes / missing reports) — do not list
+                // cascade-only LoanedOut units that have no customer/order attribution.
+                if (status == AccessorySerialPhysicalStatus.Missing
+                    || (status == AccessorySerialPhysicalStatus.LoanedOut && loan is not null))
                 {
                     holders.Add(ToHolder(unit, loan?.OrderId));
                 }
