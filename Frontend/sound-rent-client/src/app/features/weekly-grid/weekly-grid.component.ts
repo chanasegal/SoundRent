@@ -17,7 +17,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
-import { forkJoin, finalize, Subscription, timer, EMPTY, merge } from 'rxjs';
+import { forkJoin, finalize, Subscription, EMPTY, merge } from 'rxjs';
 import { debounceTime, map, switchMap } from 'rxjs/operators';
 
 import {
@@ -257,7 +257,6 @@ export class WeeklyGridComponent {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
-  private static readonly POLL_INTERVAL_MS = 30_000;
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
   private weekLoadSub: Subscription | null = null;
@@ -426,14 +425,6 @@ export class WeeklyGridComponent {
         queueMicrotask(() => this.scrollBoardToTop());
       });
     });
-
-    timer(WeeklyGridComponent.POLL_INTERVAL_MS, WeeklyGridComponent.POLL_INTERVAL_MS)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
-        const start = this.toIsoDate(this.weekStart());
-        const end = this.toIsoDate(this.rangeEnd());
-        this.loadWeekData(start, end, { replace: true });
-      });
 
     this.wireWaitlistCustomerAutocomplete();
 

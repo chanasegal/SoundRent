@@ -6,7 +6,7 @@ import { UnreturnedItemDto } from '../models/equipment-return.model';
 
 /**
  * Same-tab broadcast bus for operational data mutations.
- * Cross-device sync uses {@link startLiveDataRefresh} (API refetch), not this bus.
+ * Cross-device sync uses {@link startLiveDataRefresh} (visibility/focus refetch), not this bus.
  */
 @Injectable({ providedIn: 'root' })
 export class OrdersSyncService {
