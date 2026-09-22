@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Domain.Entities;
@@ -142,41 +143,134 @@ public class ToolInventoryService : IToolInventoryService
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
             ?? throw new NotFoundException("פריט המלאי לא נמצא");
 
-        ReplaceSerialCollection(entity, NormalizeCodes(dto.SerialCodes));
-        entity.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        try
+        {
+            ReplaceSerialCollection(entity, NormalizeCodes(dto.SerialCodes));
+            entity.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+            return ToDto(entity);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            throw new ValidationException("קוד פריט כפול — בדקו שאין קודים כפולים לאותו כלי");
+        }
     }
 
     public async Task<List<ToolDefinitionDto>> ReplaceSerialsBatchAsync(
         ToolDefinitionBatchUpdateDto dto,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<ToolDefinitionDto>();
-        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        if (dto is null)
         {
-            foreach (var item in dto.Items ?? [])
-            {
-                var entity = await _db.ToolDefinitions
-                    .Include(t => t.SerialCodes)
-                    .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
-                    ?? throw new NotFoundException($"פריט המלאי #{item.Id} לא נמצא");
+            throw new ValidationException("גוף הבקשה חסר או לא תקין");
+        }
 
-                ReplaceSerialCollection(entity, NormalizeCodes(item.SerialCodes));
-                entity.UpdatedAt = DateTime.UtcNow;
-                results.Add(ToDto(entity));
+        var items = dto.Items ?? [];
+        if (items.Count == 0)
+        {
+            throw new ValidationException("לא נשלחו פריטים לעדכון");
+        }
+
+        const int maxItems = 500;
+        if (items.Count > maxItems)
+        {
+            throw new ValidationException($"ניתן לעדכן עד {maxItems} פריטים בבת אחת");
+        }
+
+        var seenIds = new HashSet<int>();
+        var ids = new List<int>(items.Count);
+        var normalizedById = new Dictionary<int, List<string>>(items.Count);
+        var totalCodes = 0;
+
+        foreach (var item in items)
+        {
+            if (item is null)
+            {
+                throw new ValidationException("פריט בבקשה אינו תקין");
             }
 
-            await _db.SaveChangesAsync(cancellationToken);
-            await tx.CommitAsync(cancellationToken);
-            return results;
+            if (item.Id <= 0)
+            {
+                throw new ValidationException($"מזהה פריט לא תקין: {item.Id}");
+            }
+
+            if (!seenIds.Add(item.Id))
+            {
+                throw new ValidationException($"פריט #{item.Id} מופיע יותר מפעם אחת בבקשה");
+            }
+
+            List<string> codes;
+            try
+            {
+                codes = NormalizeCodes(item.SerialCodes);
+            }
+            catch (ValidationException ex)
+            {
+                throw new ValidationException($"פריט #{item.Id}: {ex.Message}");
+            }
+
+            totalCodes += codes.Count;
+            const int maxTotalCodes = 10_000;
+            if (totalCodes > maxTotalCodes)
+            {
+                throw new ValidationException("מספר קודי הפריטים גדול מדי — פצלו את העדכון למנות קטנות יותר");
+            }
+
+            ids.Add(item.Id);
+            normalizedById[item.Id] = codes;
         }
-        catch
+
+        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+            // Clear any leftover tracking if a prior attempt was retried.
+            _db.ChangeTracker.Clear();
+
+            await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                // Single round-trip instead of N+1 per item (avoids long transactions / timeouts).
+                var entities = await _db.ToolDefinitions
+                    .Include(t => t.SerialCodes)
+                    .Where(t => ids.Contains(t.Id))
+                    .ToListAsync(cancellationToken);
+
+                var byId = entities.ToDictionary(e => e.Id);
+                var missing = ids.Where(id => !byId.ContainsKey(id)).ToList();
+                if (missing.Count > 0)
+                {
+                    throw new NotFoundException(
+                        missing.Count == 1
+                            ? $"פריט המלאי #{missing[0]} לא נמצא"
+                            : $"פריטי המלאי הבאים לא נמצאו: {string.Join(", ", missing)}");
+                }
+
+                var results = new List<ToolDefinitionDto>(items.Count);
+                var now = DateTime.UtcNow;
+                foreach (var id in ids)
+                {
+                    var entity = byId[id];
+                    ReplaceSerialCollection(entity, normalizedById[id]);
+                    entity.UpdatedAt = now;
+                    results.Add(ToDto(entity));
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return results;
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw new ValidationException("קוד פריט כפול — בדקו שאין קודים כפולים לאותו כלי");
+            }
+            catch
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
     public async Task<ToolSerialLocationDto> LocateSerialAsync(
@@ -363,13 +457,42 @@ public class ToolInventoryService : IToolInventoryService
             .ToList();
     }
 
+    /// <summary>
+    /// Sync serials in place. Avoids Clear()+re-Add which can INSERT before DELETE
+    /// and trip the unique index on (ToolDefinitionId, SerialCode).
+    /// </summary>
     private static void ReplaceSerialCollection(ToolDefinition entity, List<string> codes)
     {
-        entity.SerialCodes.Clear();
+        var desired = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var existing in entity.SerialCodes.Where(s => !desired.Contains(s.SerialCode)).ToList())
+        {
+            entity.SerialCodes.Remove(existing);
+        }
+
+        var remaining = entity.SerialCodes
+            .ToDictionary(s => s.SerialCode, StringComparer.OrdinalIgnoreCase);
+
         foreach (var code in codes)
         {
-            entity.SerialCodes.Add(new ToolSerialCode { SerialCode = code });
+            if (remaining.TryGetValue(code, out var row))
+            {
+                if (!string.Equals(row.SerialCode, code, StringComparison.Ordinal))
+                {
+                    row.SerialCode = code;
+                }
+            }
+            else
+            {
+                entity.SerialCodes.Add(new ToolSerialCode { SerialCode = code });
+            }
         }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is PostgresException pg
+            && pg.SqlState == PostgresErrorCodes.UniqueViolation;
     }
 
     private static List<string> BuildSerialCodes(int quantity, List<string>? provided)

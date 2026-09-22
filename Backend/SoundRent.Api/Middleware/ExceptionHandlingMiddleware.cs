@@ -53,7 +53,7 @@ public class ExceptionHandlingMiddleware
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
             _logger.LogWarning(ex, "Unique constraint violation");
-            await WriteErrorAsync(context, HttpStatusCode.Conflict, "מועד זה כבר תפוס עבור ציוד זה");
+            await WriteErrorAsync(context, HttpStatusCode.Conflict, UniqueConstraintUserMessage(ex));
         }
         catch (Exception ex)
         {
@@ -70,6 +70,37 @@ public class ExceptionHandlingMiddleware
         // PostgreSQL: SQLSTATE 23505 = unique_violation
         return ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation;
     }
+
+    private static string UniqueConstraintUserMessage(DbUpdateException ex)
+    {
+        if (ex.InnerException is not PostgresException pg)
+        {
+            return "הערך כבר קיים במערכת — בדקו נתונים כפולים";
+        }
+
+        var table = pg.TableName ?? string.Empty;
+        var constraint = pg.ConstraintName ?? string.Empty;
+
+        if (ContainsIgnoreCase(table, "ToolSerial") || ContainsIgnoreCase(constraint, "ToolSerial"))
+        {
+            return "קוד פריט כפול — בדקו שאין קודים כפולים לאותו כלי";
+        }
+
+        if (ContainsIgnoreCase(table, "BookCop") || ContainsIgnoreCase(constraint, "BookCop"))
+        {
+            return "מספר עותק כפול — בדקו שאין עותקים כפולים לאותו ספר";
+        }
+
+        if (ContainsIgnoreCase(table, "Order") || ContainsIgnoreCase(constraint, "Order"))
+        {
+            return "מועד זה כבר תפוס עבור ציוד זה";
+        }
+
+        return "הערך כבר קיים במערכת — בדקו נתונים כפולים";
+    }
+
+    private static bool ContainsIgnoreCase(string haystack, string needle) =>
+        haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
     private static async Task WriteErrorAsync(HttpContext context, HttpStatusCode statusCode, string message)
     {

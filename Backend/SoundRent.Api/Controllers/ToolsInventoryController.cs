@@ -53,9 +53,14 @@ public class ToolsInventoryController : ControllerBase
 
     [HttpPut("batch")]
     public async Task<ActionResult<List<ToolDefinitionDto>>> ReplaceSerialsBatch(
-        [FromBody] ToolDefinitionBatchUpdateDto dto,
+        [FromBody] ToolDefinitionBatchUpdateDto? dto,
         CancellationToken cancellationToken)
     {
+        if (dto is null)
+        {
+            return BadRequest(new { statusCode = 400, message = "גוף הבקשה חסר או לא תקין" });
+        }
+
         return Ok(await _service.ReplaceSerialsBatchAsync(dto, cancellationToken));
     }
 

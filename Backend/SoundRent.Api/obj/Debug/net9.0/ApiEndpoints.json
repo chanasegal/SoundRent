@@ -2981,7 +2981,7 @@
       {
         "Name": "dto",
         "Type": "SoundRent.Api.Application.DTOs.ToolDefinitionBatchUpdateDto",
-        "IsRequired": true
+        "IsRequired": false
       }
     ],
     "ReturnTypes": [
