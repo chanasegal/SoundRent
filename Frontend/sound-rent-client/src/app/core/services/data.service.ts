@@ -136,27 +136,46 @@ export class DataService {
     this.toast.error(getApiErrorMessage(error));
   }
 
-  getWeeklyOrders(startDate: string, endDate: string): Observable<OrderDto[]> {
+  private handleListError<T>(error: unknown, background: boolean): Observable<T[]> {
+    if (background) {
+      return throwError(() => error);
+    }
+    this.notifyHttpError(error);
+    return of([]);
+  }
+
+  /**
+   * `background`: no global loading overlay, and errors are rethrown instead of toasted and
+   * replaced with an empty list, so a failed refresh never wipes data already on screen.
+   */
+  getWeeklyOrders(
+    startDate: string,
+    endDate: string,
+    options?: { background?: boolean }
+  ): Observable<OrderDto[]> {
     const params = this.withSystemType(
       new HttpParams().set('startDate', startDate).set('endDate', endDate)
     );
-    return this.http.get<OrderDto[]>(`${this.ordersBase}/weekly`, { params }).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of([]);
+    const background = options?.background === true;
+    return this.http
+      .get<OrderDto[]>(`${this.ordersBase}/weekly`, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, background)
       })
-    );
+      .pipe(catchError((err) => this.handleListError<OrderDto>(err, background)));
   }
 
   /** Active orders (any date) whose customer name or phone matches `query`. */
-  searchOrdersByCustomer(query: string): Observable<OrderDto[]> {
+  /** See {@link getWeeklyOrders} for `background`. */
+  searchOrdersByCustomer(query: string, options?: { background?: boolean }): Observable<OrderDto[]> {
     const params = this.withSystemType(new HttpParams().set('q', query));
-    return this.http.get<OrderDto[]>(`${this.ordersBase}/search`, { params }).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of([]);
+    const background = options?.background === true;
+    return this.http
+      .get<OrderDto[]>(`${this.ordersBase}/search`, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, background)
       })
-    );
+      .pipe(catchError((err) => this.handleListError<OrderDto>(err, background)));
   }
 
   /** Every order in the database (any date) — used for full Excel backup. */
@@ -169,16 +188,22 @@ export class DataService {
     );
   }
 
-  getWeeklyWaitlist(startDate: string, endDate: string): Observable<WaitlistEntryDto[]> {
+  /** See {@link getWeeklyOrders} for `background`. */
+  getWeeklyWaitlist(
+    startDate: string,
+    endDate: string,
+    options?: { background?: boolean }
+  ): Observable<WaitlistEntryDto[]> {
     const params = this.withSystemType(
       new HttpParams().set('startDate', startDate).set('endDate', endDate)
     );
-    return this.http.get<WaitlistEntryDto[]>(`${this.waitlistBase}/weekly`, { params }).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of([]);
+    const background = options?.background === true;
+    return this.http
+      .get<WaitlistEntryDto[]>(`${this.waitlistBase}/weekly`, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, background)
       })
-    );
+      .pipe(catchError((err) => this.handleListError<WaitlistEntryDto>(err, background)));
   }
 
   /** Every waitlist row in the database — used for full Excel backup (sorted on the server). */
@@ -963,7 +988,12 @@ export class DataService {
     );
   }
 
-  getBlockedDates(startDate?: string, endDate?: string): Observable<BlockedDateDto[]> {
+  /** See {@link getWeeklyOrders} for `background`. */
+  getBlockedDates(
+    startDate?: string,
+    endDate?: string,
+    options?: { background?: boolean }
+  ): Observable<BlockedDateDto[]> {
     let params = this.withSystemType();
     if (startDate) {
       params = params.set('startDate', startDate);
@@ -971,12 +1001,13 @@ export class DataService {
     if (endDate) {
       params = params.set('endDate', endDate);
     }
-    return this.http.get<BlockedDateDto[]>(this.blockedDatesBase, { params }).pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of([]);
+    const background = options?.background === true;
+    return this.http
+      .get<BlockedDateDto[]>(this.blockedDatesBase, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, background)
       })
-    );
+      .pipe(catchError((err) => this.handleListError<BlockedDateDto>(err, background)));
   }
 
   createBlockedDate(payload: BlockedDateCreateDto): Observable<BlockedDateDto | null> {

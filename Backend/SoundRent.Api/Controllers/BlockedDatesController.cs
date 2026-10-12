@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Services;
 using SoundRent.Api.Domain.Enums;
+using SoundRent.Api.Filters;
 
 namespace SoundRent.Api.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/blocked-dates")]
+[BroadcastScheduleUpdate("blocked-dates")]
 public class BlockedDatesController : ControllerBase
 {
     private readonly IBlockedDateService _blockedDateService;

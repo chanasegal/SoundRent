@@ -4,12 +4,14 @@ using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Services;
 using SoundRent.Api.Domain.Enums;
+using SoundRent.Api.Filters;
 
 namespace SoundRent.Api.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/[controller]")]
+[BroadcastScheduleUpdate("orders")]
 public class OrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;

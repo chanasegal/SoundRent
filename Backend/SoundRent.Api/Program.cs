@@ -8,6 +8,7 @@ using Npgsql;
 using SoundRent.Api.Application.Auth;
 using SoundRent.Api.Application.Services;
 using SoundRent.Api.Filters;
+using SoundRent.Api.Hubs;
 using SoundRent.Api.Infrastructure.Data;
 using SoundRent.Api.Infrastructure.Repositories;
 using SoundRent.Api.Middleware;
@@ -105,6 +106,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Key)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+        // Browsers cannot set an Authorization header on WebSocket/SSE requests,
+        // so the SignalR client sends the JWT as ?access_token= on hub routes only.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken)
+                    && context.HttpContext.Request.Path.StartsWithSegments(ScheduleHub.Route))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -138,6 +154,8 @@ builder.Services
     });
 
 builder.Services.AddOpenApi();
+
+builder.Services.AddSignalR();
 
 builder.Services.AddResponseCompression(options =>
 {
@@ -218,6 +236,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ScheduleHub>(ScheduleHub.Route);
 
 app.Run();
 

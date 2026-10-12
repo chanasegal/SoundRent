@@ -50,6 +50,7 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { ScheduleHubService } from '../../core/services/schedule-hub.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
 import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
@@ -280,12 +281,19 @@ export class WeeklyGridComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly scheduleHub = inject(ScheduleHubService);
 
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
+  private static readonly SCHEDULE_HUB_DEBOUNCE_MS = 300;
 
   private weekLoadSub: Subscription | null = null;
   private appendLoadSub: Subscription | null = null;
   private weekLoadInFlightKey = '';
+  private hubRefreshSub: Subscription | null = null;
+  private hubClientSearchSub: Subscription | null = null;
+  /** A hub signal arrived while a week load / append was in flight; refetch once it lands. */
+  private hubRefreshQueued = false;
+  private destroyed = false;
   private weekIntersectionObserver: IntersectionObserver | null = null;
   private loadMoreObserver: IntersectionObserver | null = null;
   private headerResizeObserver: ResizeObserver | null = null;
@@ -495,6 +503,7 @@ export class WeeklyGridComponent {
 
     this.wireWaitlistCustomerAutocomplete();
     this.wireClientSearch();
+    this.wireScheduleHub();
 
     afterNextRender(() => {
       this.setupScrollObservers();
@@ -508,6 +517,7 @@ export class WeeklyGridComponent {
     });
 
     this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
       this.weekIntersectionObserver?.disconnect();
       this.loadMoreObserver?.disconnect();
       this.headerResizeObserver?.disconnect();
@@ -1301,6 +1311,89 @@ export class WeeklyGridComponent {
     });
   }
 
+  /** Another client changed orders / waitlist / blocked dates: refetch what is on screen. */
+  private wireScheduleHub(): void {
+    this.scheduleHub.signals$
+      .pipe(
+        debounceTime(WeeklyGridComponent.SCHEDULE_HUB_DEBOUNCE_MS),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => {
+        this.refreshLoadedRangeInBackground();
+        this.refreshClientSearchInBackground();
+      });
+  }
+
+  private loadedRangeKey(): string {
+    return `${this.toIsoDate(this.weekStart())}|${this.weeksCount()}|${this.systemContext.currentSystemType()}`;
+  }
+
+  /**
+   * Silent refetch of every loaded week (no global overlay, no toast). On failure the
+   * current board stays as-is; the next hub signal or reconnect resync retries.
+   */
+  private refreshLoadedRangeInBackground(): void {
+    if (this.weekLoadInFlightKey || this.loadingMoreWeeks()) {
+      this.hubRefreshQueued = true;
+      return;
+    }
+    this.hubRefreshQueued = false;
+
+    const rangeKey = this.loadedRangeKey();
+    const start = this.toIsoDate(this.weekStart());
+    const end = this.toIsoDate(this.rangeEnd());
+
+    this.hubRefreshSub?.unsubscribe();
+    this.hubRefreshSub = forkJoin({
+      orders: this.data.getWeeklyOrders(start, end, { background: true }),
+      waitlist: this.data.getWeeklyWaitlist(start, end, { background: true }),
+      blockedDates: this.data.getBlockedDates(start, end, { background: true })
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ orders, waitlist, blockedDates }) => {
+          if (rangeKey !== this.loadedRangeKey() || this.weekLoadInFlightKey || this.loadingMoreWeeks()) {
+            // The board scrolled / appended while fetching, so this snapshot no longer covers it.
+            this.hubRefreshQueued = true;
+            this.flushQueuedHubRefresh();
+            return;
+          }
+          this.orders.set(orders);
+          this.waitlistEntries.set(waitlist);
+          this.blockedDates.set(blockedDates);
+        },
+        error: () => undefined
+      });
+  }
+
+  private flushQueuedHubRefresh(): void {
+    if (this.destroyed) {
+      return;
+    }
+    if (this.hubRefreshQueued && !this.weekLoadInFlightKey && !this.loadingMoreWeeks()) {
+      this.refreshLoadedRangeInBackground();
+    }
+  }
+
+  private refreshClientSearchInBackground(): void {
+    const query = this.clientSearchTerm().trim();
+    if (query.length < CLIENT_SEARCH_MIN_LENGTH) {
+      return;
+    }
+    this.hubClientSearchSub?.unsubscribe();
+    this.hubClientSearchSub = this.data
+      .searchOrdersByCustomer(query, { background: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (orders) => {
+          if (this.clientSearchTerm().trim() === query) {
+            this.clientSearchResponse.set({ query, orders });
+          }
+        },
+        error: () => undefined
+      });
+  }
+
   private loadWeekData(
     start: string,
     end: string,
@@ -1309,6 +1402,11 @@ export class WeeklyGridComponent {
     const key = `${start}|${end}|${options.replace ? 'r' : 'm'}|${this.systemContext.currentSystemType()}`;
 
     this.weekLoadSub?.unsubscribe();
+    if (options.replace) {
+      // A full replace load is at least as fresh as any pending background refresh.
+      this.hubRefreshSub?.unsubscribe();
+      this.hubRefreshQueued = false;
+    }
     this.weekLoadInFlightKey = key;
     this.equipmentSlots.load({ force: true }).subscribe();
 
@@ -1337,10 +1435,12 @@ export class WeeklyGridComponent {
             this.waitlistEntries.update((prev) => this.mergeById(prev, waitlist));
             this.blockedDates.update((prev) => this.mergeBlockedDates(prev, blockedDates));
           }
+          this.flushQueuedHubRefresh();
         },
         error: () => {
           if (this.weekLoadInFlightKey === key) {
             this.weekLoadInFlightKey = '';
+            this.flushQueuedHubRefresh();
           }
         }
       });
@@ -1364,7 +1464,10 @@ export class WeeklyGridComponent {
       blockedDates: this.data.getBlockedDates(start, end)
     })
       .pipe(
-        finalize(() => this.loadingMoreWeeks.set(false)),
+        finalize(() => {
+          this.loadingMoreWeeks.set(false);
+          this.flushQueuedHubRefresh();
+        }),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
