@@ -34,6 +34,7 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { buildOrderDeleteConfirmMessage } from '../../core/utils/order-active-loans';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   israeliPhoneValidator
@@ -836,7 +837,12 @@ export class ReportsViewComponent implements OnInit {
       return;
     }
     const label = order.customerName?.trim() || order.phone;
-    if (!confirm(`למחוק את ההזמנה של ${label}? לא ניתן לשחזר פעולה זו.`)) {
+    const message = buildOrderDeleteConfirmMessage(
+      order,
+      `#${order.id}`,
+      `למחוק את ההזמנה של ${label}? לא ניתן לשחזר פעולה זו.`
+    );
+    if (!confirm(message)) {
       return;
     }
 

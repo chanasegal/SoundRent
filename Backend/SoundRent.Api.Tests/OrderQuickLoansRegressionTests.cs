@@ -76,6 +76,37 @@ public class OrderQuickLoansRegressionTests
     }
 
     [Fact]
+    public async Task GetQuickLoansAsync_ForSound_IncludesToolsAccessoryOnlyLoans()
+    {
+        await using var harness = await CreateSqliteHarnessAsync();
+        var db = harness.Db;
+
+        db.EquipmentDefinitions.Add(new EquipmentDefinition
+        {
+            Id = "tools-board",
+            DisplayName = "Tools Board",
+            Category = "Tools",
+            SystemType = SystemType.Tools
+        });
+
+        db.Orders.AddRange(
+            CreateOutstandingLoan(601, SystemType.Sound),
+            CreateOutstandingLoan(602, SystemType.Tools),
+            CreateOutstandingLoan(603, SystemType.Tools, equipmentDefinitionId: "tools-board"),
+            CreateOutstandingLoan(604, SystemType.Library));
+
+        await db.SaveChangesAsync();
+
+        var repository = new OrderRepository(db);
+
+        var soundIds = (await repository.GetQuickLoansAsync(SystemType.Sound)).Select(o => o.Id).Order();
+        Assert.Equal([601, 602], soundIds);
+
+        var toolsIds = (await repository.GetQuickLoansAsync(SystemType.Tools)).Select(o => o.Id).Order();
+        Assert.Equal([602, 603], toolsIds);
+    }
+
+    [Fact]
     public void ReturnStateRule_TreatsSerializedLineWithUnreturnedNoteAsStillActive()
     {
         var serializedLineWithStaleCounters = new OrderLoanedEquipment
@@ -210,6 +241,42 @@ public class OrderQuickLoansRegressionTests
         Assert.Equal(7001, match.LoanedEquipmentId);
         Assert.Equal(1, match.MissingQuantity);
         Assert.Contains("ACC-42", match.MissingSerialCodes);
+    }
+
+    private static Order CreateOutstandingLoan(
+        int id,
+        SystemType systemType,
+        string? equipmentDefinitionId = null)
+    {
+        var order = new Order
+        {
+            Id = id,
+            CustomerName = $"Borrower {id}",
+            Phone = "0501111111",
+            SystemType = systemType,
+            Shifts =
+            [
+                new OrderShift { OrderDate = new DateOnly(2026, 10, 12), TimeSlot = TimeSlot.Morning }
+            ],
+            LoanedEquipments =
+            [
+                new OrderLoanedEquipment
+                {
+                    Id = id * 10,
+                    IsCustomItem = true,
+                    CustomItemName = "Cable",
+                    Quantity = 1,
+                    ReturnedQuantity = 0
+                }
+            ]
+        };
+
+        if (equipmentDefinitionId != null)
+        {
+            order.Equipments.Add(new OrderEquipment { EquipmentDefinitionId = equipmentDefinitionId });
+        }
+
+        return order;
     }
 
     private static async Task<SqliteHarness> CreateSqliteHarnessAsync()

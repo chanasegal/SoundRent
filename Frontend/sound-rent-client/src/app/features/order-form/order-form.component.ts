@@ -78,6 +78,7 @@ import {
 } from '../../core/utils/customer-risk-alerts';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import { buildOrderDeleteConfirmMessage } from '../../core/utils/order-active-loans';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -2018,13 +2019,22 @@ export class OrderFormComponent implements OnInit {
 
   protected delete(): void {
     const id = this.editingId();
-    if (id === null) return;
-    if (!confirm(`למחוק את הזמנה #${id}? לא ניתן לשחזר פעולה זו.`)) return;
+    if (id === null || this.submitting()) return;
 
     this.submitting.set(true);
     this.data
-      .deleteOrder(id)
-      .pipe(finalize(() => this.submitting.set(false)))
+      .getOrderById(id)
+      .pipe(
+        concatMap((fresh) => {
+          const message = buildOrderDeleteConfirmMessage(
+            fresh ?? this.loadedOrder(),
+            `#${id}`,
+            `למחוק את הזמנה #${id}? לא ניתן לשחזר פעולה זו.`
+          );
+          return confirm(message) ? this.data.deleteOrder(id) : EMPTY;
+        }),
+        finalize(() => this.submitting.set(false))
+      )
       .subscribe({
         next: (ok) => {
           if (!ok) {

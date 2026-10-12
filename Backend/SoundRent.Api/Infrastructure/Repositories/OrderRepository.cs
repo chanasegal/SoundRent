@@ -465,6 +465,8 @@ public class OrderRepository : IOrderRepository
     /// Active accessory loans: standalone (no board equipment) and weekly bookings
     /// that still have outstanding <see cref="OrderLoanedEquipment"/> lines.
     /// Callers that need accessory-only rows filter with <c>!Equipments.Any()</c> / empty equipment ids.
+    /// For <see cref="SystemType.Sound"/>, accessory-only loans (saved under <see cref="SystemType.Tools"/>
+    /// by השאלת אביזרים) are included as well, so the weekly-system loans list shows them.
     /// </summary>
     public async Task<List<Order>> GetQuickLoansAsync(
         SystemType? systemType = null,
@@ -480,7 +482,13 @@ public class OrderRepository : IOrderRepository
                     && (le.ReturnedQuantity < le.Quantity
                         || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != ""))));
 
-        if (systemType.HasValue)
+        if (systemType == SystemType.Sound)
+        {
+            query = query.Where(o =>
+                o.SystemType == SystemType.Sound
+                || (o.SystemType == SystemType.Tools && !o.Equipments.Any()));
+        }
+        else if (systemType.HasValue)
         {
             query = query.Where(o => o.SystemType == systemType.Value);
         }
