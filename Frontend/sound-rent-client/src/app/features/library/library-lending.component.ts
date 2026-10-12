@@ -195,6 +195,8 @@ export class LibraryLendingComponent implements OnInit {
   });
 
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
+  /** Expected number for the next new book loan (shown before save; the server assigns the real id). */
+  protected readonly upcomingLoanNumber = signal<number | null>(null);
   protected readonly formMinimized = signal(false);
 
   protected readonly showDeadline = computed(() => this.timeLimitEnabled());
@@ -267,6 +269,7 @@ export class LibraryLendingComponent implements OnInit {
     this.wireTimeLimitDays();
     this.wireCustomerSuggestDebounce();
     this.refreshActiveLoans();
+    this.refreshUpcomingLoanNumber();
     if (this.orderDraft.draft()?.kind === 'library-loan' && this.orderDraft.showBar()) {
       this.formMinimized.set(true);
     }
@@ -1317,7 +1320,7 @@ export class LibraryLendingComponent implements OnInit {
           });
         const finishSave = (): void => {
           this.toast.success(
-            editingId != null ? `השאלה #${created.id} עודכנה` : 'ההשאלה נשמרה'
+            editingId != null ? `השאלה #${created.id} עודכנה` : `השאלה #${created.id} נשמרה`
           );
           if (editingId != null) {
             this.forms.update((list) => list.filter((draft) => draft.id !== form.id));
@@ -1337,10 +1340,27 @@ export class LibraryLendingComponent implements OnInit {
           this.ordersSync.notifyLoanChanged();
           this.refreshAvailability();
           this.refreshActiveLoans();
+          this.refreshUpcomingLoanNumber();
         };
 
         finishSave();
       });
+  }
+
+  /** Expected loan number for a new (non-editing) draft form; consecutive when several are open. */
+  protected upcomingLoanNumberFor(form: LendingDraftForm): number | null {
+    const next = this.upcomingLoanNumber();
+    if (next == null || form.editingLoanId != null) {
+      return null;
+    }
+    const index = this.forms()
+      .filter((f) => f.editingLoanId == null)
+      .findIndex((f) => f.id === form.id);
+    return index < 0 ? null : next + index;
+  }
+
+  private refreshUpcomingLoanNumber(): void {
+    this.data.getNextReferenceNumber('book-loan').subscribe((next) => this.upcomingLoanNumber.set(next));
   }
 
   private applyClientNotesAlert(formId: string, notes: string | null | undefined): void {

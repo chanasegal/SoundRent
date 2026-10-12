@@ -206,6 +206,8 @@ export class QuickLoanComponent implements OnInit {
   protected readonly serialQuickEntry = signal('');
   protected readonly submitting = signal(false);
   protected readonly editingId = signal<number | null>(null);
+  /** Expected number for the next new accessory loan (shown before save; the server assigns the real id). */
+  protected readonly upcomingLoanNumber = signal<number | null>(null);
   /** Other orders merged into the primary order during grouped-card edit (legacy; prefer one card per order). */
   protected readonly editingGroupedOrderIds = signal<number[]>([]);
   protected readonly editingCardKey = signal<string | null>(null);
@@ -281,11 +283,16 @@ export class QuickLoanComponent implements OnInit {
     this.customers.load().subscribe();
     this.refreshAvailability();
     this.loadRecentLoans();
+    this.refreshUpcomingLoanNumber();
     if (this.orderDraft.draft()?.kind === 'quick-loan' && this.orderDraft.showBar()) {
       this.formMinimized.set(true);
     }
     this.tryRestoreMinimizedDraft();
     this.readEditQueryParam();
+  }
+
+  private refreshUpcomingLoanNumber(): void {
+    this.data.getNextReferenceNumber('order').subscribe((next) => this.upcomingLoanNumber.set(next));
   }
 
   /** Open an existing standalone accessory loan for edit (from loans list deep-link). */
@@ -3142,6 +3149,7 @@ export class QuickLoanComponent implements OnInit {
         this.orderDraft.clearIfKind('quick-loan');
         this.resetFormFully();
         this.loadRecentLoans();
+        this.refreshUpcomingLoanNumber();
         this.refreshAvailability();
         this.inventoryStore.load({ force: true }).subscribe();
       };

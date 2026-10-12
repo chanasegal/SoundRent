@@ -956,6 +956,19 @@
     min-width: 0;
   }
 
+  &__loan-id {
+    flex: 0 0 auto;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #002244;
+    font-size: 0.72rem;
+    font-weight: 700;
+    direction: ltr;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   &__date {
     flex: 0 0 auto;
     min-width: 5.5rem;

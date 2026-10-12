@@ -49,6 +49,11 @@
           <p class="mt-1 text-sm text-slate-500">
             @if (form.editingLoanId; as editId) {
               <strong>השאלה #{{ editId }}</strong> ·
+            } @else if (upcomingLoanNumberFor(form); as nextId) {
+              <strong class="text-[#002244]" title="המספר הסופי נקבע בעת השמירה">השאלה #{{ nextId }}</strong>
+              <span class="text-xs">(צפוי)</span> ·
+            } @else {
+              <span>מס' השאלה יוקצה בשמירה</span> ·
             }
             {{ form.hebrewDateTime }}
             @if (showDeadline()) {
@@ -1058,6 +1063,9 @@
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
                   <div class="active-loan-item__when">
+                    @if (row.loanId > 0) {
+                      <span class="active-loan-item__loan-id">#{{ row.loanId }}</span>
+                    }
                     <time class="active-loan-item__date">
                       {{ activeLoanHebrewDate(row.lentAt) }} · {{ activeLoanTimeLabel(row.lentAt) }}
                     </time>

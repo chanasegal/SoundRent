@@ -108,6 +108,7 @@ interface QuickReturnLoanGroup {
 
 interface QuickReturnSession {
   scannedCode: string;
+  orderRef: ActiveLoanOrderRef | null;
   customerName: string;
   phone: string;
   address: string;
@@ -790,6 +791,7 @@ export class ActiveLoansComponent implements OnInit {
 
       this.quickReturnSession.set({
         scannedCode: code,
+        orderRef: match.orderId > 0 ? { id: match.orderId, isOrderBased: match.isOrderBased } : null,
         customerName: match.customerName,
         phone: match.phone,
         address: match.address,

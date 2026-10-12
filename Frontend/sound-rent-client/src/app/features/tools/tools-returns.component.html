@@ -189,6 +189,7 @@
       <table class="returns-table w-full min-w-[40rem] border-collapse text-right text-sm">
         <thead>
           <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <th class="px-3 py-3 font-semibold">מס' השאלה</th>
             <th class="px-3 py-3 font-semibold">תאריך ושעה</th>
             <th class="px-3 py-3 font-semibold">פריט</th>
             <th class="px-3 py-3 font-semibold">קוד פריט</th>
@@ -202,12 +203,19 @@
         </thead>
         <tbody>
           @if (filteredRows().length === 0) {
-            <tr><td colspan="9" class="px-4 py-8 text-center text-sm text-slate-500">
+            <tr><td colspan="10" class="px-4 py-8 text-center text-sm text-slate-500">
               {{ returnSearchQuery().trim() ? 'לא נמצאו תוצאות לחיפוש' : 'אין החזרות' }}
             </td></tr>
           }
           @for (row of filteredRows(); track row.rowKey) {
             <tr class="border-b border-slate-100" [class.row-overdue]="isOverdue(row)">
+              <td class="px-3 py-3 whitespace-nowrap font-semibold text-[#002244]">
+                @if (row.loanId > 0) {
+                  #{{ row.loanId }}
+                } @else {
+                  <span class="text-slate-400">—</span>
+                }
+              </td>
               <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
                 {{ row.hebrewLentDisplay }}
               </td>
@@ -311,7 +319,7 @@
             </tr>
           } @empty {
             <tr>
-              <td colspan="9" class="px-3 py-8 text-center text-slate-500">
+              <td colspan="10" class="px-3 py-8 text-center text-slate-500">
                 {{ historyMode() ? 'לא נמצאו החזרות לקוד זה' : 'אין החזרות להצגה' }}
               </td>
             </tr>

@@ -82,6 +82,7 @@
           <table class="reports-table">
             <thead>
               <tr>
+                <th>מס' הזמנה</th>
                 <th>תאריך התחלה</th>
                 <th>תאריך סיום</th>
                 <th>ציוד</th>
@@ -95,6 +96,9 @@
             <tbody>
               @for (order of cancelledOrders(); track order.id) {
                 <tr>
+                  <td class="whitespace-nowrap">
+                    <a [routerLink]="['/orders', order.id]" class="font-semibold text-sky-700 hover:underline">#{{ order.id }}</a>
+                  </td>
                   <td class="whitespace-nowrap">{{ startHebrewDate(order) }}</td>
                   <td class="whitespace-nowrap">{{ endHebrewDate(order) }}</td>
                   <td>{{ equipmentLabel(order) }}</td>
@@ -211,6 +215,7 @@
           <table class="reports-table">
             <thead>
               <tr>
+                <th>מס' הזמנה</th>
                 <th>תאריך חיוב</th>
                 <th>ציוד</th>
                 <th>פרטי לקוח</th>
@@ -224,6 +229,13 @@
             <tbody>
               @for (group of filteredOpenDebts(); track group.groupKey) {
                 <tr>
+                  <td class="whitespace-nowrap">
+                    @for (orderId of group.orderIds; track orderId; let last = $last) {
+                      <a [routerLink]="['/orders', orderId]" class="font-semibold text-sky-700 hover:underline">#{{ orderId }}</a>@if (!last) {<span>, </span>}
+                    } @empty {
+                      <span class="text-slate-400">—</span>
+                    }
+                  </td>
                   <td class="whitespace-nowrap">{{ sessionHebrewDate(group) }}</td>
                   <td>{{ group.equipmentSummary || '—' }}</td>
                   <td>

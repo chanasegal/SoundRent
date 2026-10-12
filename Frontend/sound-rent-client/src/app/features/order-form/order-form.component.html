@@ -18,6 +18,26 @@
         מזער
       </button>
       <h1 class="text-2xl font-bold text-[#002244]">{{ title() }}</h1>
+      @if (editingId(); as orderId) {
+        <span
+          class="rounded-full border border-sky-300 bg-sky-50 px-3 py-1 text-base font-bold text-[#002244]"
+          dir="ltr"
+          [attr.aria-label]="'מספר הזמנה ' + orderId"
+        >#{{ orderId }}</span>
+      } @else if (upcomingOrderNumber(); as nextId) {
+        <span
+          class="rounded-full border border-dashed border-sky-300 bg-sky-50/60 px-3 py-1 text-base font-bold text-[#002244]"
+          title="המספר הסופי נקבע בעת השמירה"
+          [attr.aria-label]="'מספר הזמנה צפוי ' + nextId"
+        >
+          <span dir="ltr">#{{ nextId }}@if (bookings.length > 1) {–#{{ nextId + bookings.length - 1 }}}</span>
+          <span class="ms-1 text-xs font-medium text-slate-500">(צפוי)</span>
+        </span>
+      } @else {
+        <span class="rounded-full border border-dashed border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-500">
+          מס' הזמנה יוקצה בשמירה
+        </span>
+      }
     </div>
     @if (isEdit()) {
       <div class="flex flex-wrap items-center gap-2">
@@ -909,7 +929,12 @@
       (click)="$event.stopPropagation()"
     >
       <div class="app-modal-header flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">רישום החזרת ציוד</h2>
+        <h2 id="return-modal-title" class="text-lg font-bold text-[#002244]">
+          רישום החזרת ציוד
+          @if (editingId(); as orderId) {
+            <span class="text-slate-500">— הזמנה #{{ orderId }}</span>
+          }
+        </h2>
         <button
           type="button"
           class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"

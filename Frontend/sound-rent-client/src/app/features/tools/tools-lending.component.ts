@@ -303,6 +303,8 @@ export class ToolsLendingComponent implements OnInit {
   });
 
   protected readonly forms = signal<LendingDraftForm[]>([this.createDraftForm()]);
+  /** Expected number for the next new tool loan (shown before save; the server assigns the real id). */
+  protected readonly upcomingLoanNumber = signal<number | null>(null);
   protected readonly formMinimized = signal(false);
   protected readonly editingCardKey = signal<string | null>(null);
   protected readonly deletingCardKey = signal<string | null>(null);
@@ -363,6 +365,7 @@ export class ToolsLendingComponent implements OnInit {
     this.wireCustomerRiskAlertLookup();
     this.refreshActiveLoans();
     this.refreshAccessoryLoans();
+    this.refreshUpcomingLoanNumber();
     this.ordersSync.orderChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshAccessoryLoans());
@@ -2357,7 +2360,7 @@ export class ToolsLendingComponent implements OnInit {
           });
         const finishSave = (): void => {
           this.toast.success(
-            editingId != null ? `השאלה #${saved.id} עודכנה` : 'ההשאלה נשמרה'
+            editingId != null ? `השאלה #${saved.id} עודכנה` : `השאלה #${saved.id} נשמרה`
           );
           if (editingId != null) {
             this.forms.update((list) => list.filter((f) => f.id !== form.id));
@@ -2375,9 +2378,26 @@ export class ToolsLendingComponent implements OnInit {
           this.ordersSync.notifyLoanChanged();
           this.refreshAvailability();
           this.refreshActiveLoans();
+          this.refreshUpcomingLoanNumber();
         };
         finishSave();
       });
+  }
+
+  /** Expected loan number for a new (non-editing) draft form; consecutive when several are open. */
+  protected upcomingLoanNumberFor(form: LendingDraftForm): number | null {
+    const next = this.upcomingLoanNumber();
+    if (next == null || form.editingLoanId != null) {
+      return null;
+    }
+    const index = this.forms()
+      .filter((f) => f.editingLoanId == null)
+      .findIndex((f) => f.id === form.id);
+    return index < 0 ? null : next + index;
+  }
+
+  private refreshUpcomingLoanNumber(): void {
+    this.data.getNextReferenceNumber('tool-loan').subscribe((next) => this.upcomingLoanNumber.set(next));
   }
 
   private applyClientNotesAlert(formId: string, notes: string | null | undefined): void {

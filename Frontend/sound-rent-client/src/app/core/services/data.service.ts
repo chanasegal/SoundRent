@@ -373,6 +373,15 @@ export class DataService {
     );
   }
 
+  /** Expected next order / loan number (preview only — the number is assigned on save). */
+  getNextReferenceNumber(kind: 'order' | 'tool-loan' | 'book-loan'): Observable<number | null> {
+    return this.http
+      .get<number>(`${environment.apiBaseUrl}/reference-numbers/next/${kind}`, {
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, true)
+      })
+      .pipe(catchError(() => of(null)));
+  }
+
   getUnreturnedItems(): Observable<UnreturnedItemDto[]> {
     return this.http
       .get<UnreturnedItemDto[]>(`${this.ordersBase}/unreturned`, {

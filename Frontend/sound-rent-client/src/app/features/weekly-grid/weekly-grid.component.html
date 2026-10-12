@@ -436,6 +436,7 @@
                                 }
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
+                              <span class="cell-order-id">#{{ o.id }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
                               }
@@ -556,6 +557,7 @@
                                 }
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
+                              <span class="cell-order-id">#{{ o.id }}</span>
                               @if (o.returnTimeType) {
                                 <span class="cell-return-time">{{ returnTimeLabelForCell(o, segment.cell.date) }}</span>
                               }
@@ -811,7 +813,7 @@
         (click)="$event.stopPropagation()"
       >
         <h3 id="urgent-note-dialog-title" class="waitlist-modal-title">הערה דחופה ללוח</h3>
-        <p class="waitlist-modal-sub">{{ dialog.customerName || dialog.phone }}</p>
+        <p class="waitlist-modal-sub">הזמנה #{{ dialog.orderId }} · {{ dialog.customerName || dialog.phone }}</p>
         <form (ngSubmit)="saveUrgentBoardNote()" class="waitlist-modal-form">
           <div>
             <label class="waitlist-field-label" for="urgent-board-note-input">הערה</label>

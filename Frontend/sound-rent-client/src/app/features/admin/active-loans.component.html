@@ -180,17 +180,18 @@
                 @if (card.address) {
                   <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
-                @if (card.orders.length === 1) {
+                @let orderRefs = cardOrderRefs(card);
+                @if (orderRefs.length === 1) {
                   <a
-                    [routerLink]="activeLoanOrderLink(card.orders[0])"
-                    [queryParams]="activeLoanOrderQueryParams(card.orders[0])"
+                    [routerLink]="activeLoanOrderLink(orderRefs[0])"
+                    [queryParams]="activeLoanOrderQueryParams(orderRefs[0])"
                     class="customer-breakdown-card__order-link"
                   >
-                    {{ activeLoanOrderLabelForId(card.orders[0]) }}
+                    {{ activeLoanOrderLabelForId(orderRefs[0]) }}
                   </a>
-                } @else if (card.orders.length > 1) {
+                } @else if (orderRefs.length > 1) {
                   <span class="customer-breakdown-card__order-link">
-                    @for (order of card.orders; track order.id; let last = $last) {
+                    @for (order of orderRefs; track order.id; let last = $last) {
                       <a
                         [routerLink]="activeLoanOrderLink(order)"
                         [queryParams]="activeLoanOrderQueryParams(order)"
@@ -378,6 +379,14 @@
         <p class="mt-1 text-sm text-slate-500">
           קוד שהוקש:
           <span class="ltr-field font-mono font-semibold text-sky-800">{{ session.scannedCode }}</span>
+          @if (session.orderRef; as orderRef) {
+            ·
+            <a
+              [routerLink]="activeLoanOrderLink(orderRef)"
+              [queryParams]="activeLoanOrderQueryParams(orderRef)"
+              class="font-semibold text-sky-700 hover:underline"
+            >{{ activeLoanOrderLabelForId(orderRef) }}</a>
+          }
         </p>
       </div>
 

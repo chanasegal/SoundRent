@@ -426,6 +426,7 @@
             <table class="history-orders-table w-full border-collapse text-right text-sm">
               <thead>
                 <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                  <th class="px-2 py-2 font-semibold">מס' השאלה</th>
                   <th class="px-2 py-2 font-semibold">תאריך השאלה</th>
                   <th class="px-2 py-2 font-semibold">תאריך עברי</th>
                   <th class="px-2 py-2 font-semibold">ספר</th>
@@ -437,6 +438,7 @@
               <tbody>
                 @for (row of libraryHistoryRows(); track row.loanId + '-' + row.itemId) {
                   <tr class="border-b border-slate-100">
+                    <td class="px-2 py-2 whitespace-nowrap font-semibold text-[#002244]">#{{ row.loanId }}</td>
                     <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ formatDisplayDate(row.loanDate) }}</td>
                     <td class="px-2 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
                     <td class="px-2 py-2">{{ row.itemName }}</td>
@@ -468,6 +470,7 @@
             <table class="history-orders-table w-full border-collapse text-right text-sm">
               <thead>
                 <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                  <th class="px-2 py-2 font-semibold">מס' השאלה</th>
                   <th class="px-2 py-2 font-semibold">תאריך השאלה</th>
                   <th class="px-2 py-2 font-semibold">תאריך עברי</th>
                   <th class="px-2 py-2 font-semibold">כלי/פריט</th>
@@ -479,6 +482,7 @@
               <tbody>
                 @for (row of toolsHistoryRows(); track row.loanId + '-' + row.itemId) {
                   <tr class="border-b border-slate-100">
+                    <td class="px-2 py-2 whitespace-nowrap font-semibold text-[#002244]">#{{ row.loanId }}</td>
                     <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ formatDisplayDate(row.loanDate) }}</td>
                     <td class="px-2 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
                     <td class="px-2 py-2">{{ row.itemName }}</td>
@@ -511,6 +515,7 @@
           <table class="history-orders-table w-full border-collapse text-right text-sm">
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
+                <th class="px-2 py-2 font-semibold">מס' הזמנה</th>
                 <th class="px-2 py-2 font-semibold">תאריך</th>
                 <th class="px-2 py-2 font-semibold">תאריך עברי</th>
                 <th class="px-2 py-2 font-semibold">שעת יצירה</th>
@@ -523,6 +528,9 @@
             <tbody>
               @for (o of historyOrders(); track o.id) {
                 <tr class="border-b border-slate-100">
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <a [routerLink]="['/orders', o.id]" class="font-semibold text-sky-700 hover:underline">#{{ o.id }}</a>
+                  </td>
                   <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ orderPrimaryDate(o) }}</td>
                   <td class="px-2 py-2 whitespace-nowrap">{{ orderHebrewDate(o) }}</td>
                   <td class="px-2 py-2 whitespace-nowrap history-created-at" dir="ltr">{{ orderCreatedTime(o) }}</td>

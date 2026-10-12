@@ -377,6 +377,8 @@ export class OrderFormComponent implements OnInit {
   protected readonly israeliPhoneInvalidMessage = ISRAELI_PHONE_INVALID_MESSAGE;
 
   protected readonly editingId = signal<number | null>(null);
+  /** Expected number for the next new order (shown before save; the server assigns the real id). */
+  protected readonly upcomingOrderNumber = signal<number | null>(null);
   protected readonly orderCancelled = signal(false);
   protected readonly loadedOrder = signal<OrderDto | null>(null);
   private readonly returnedSerialCodesByType = signal<Map<LoanedEquipmentType, Set<string>>>(new Map());
@@ -1356,6 +1358,8 @@ export class OrderFormComponent implements OnInit {
     this.wireInstitutionConflictCheck();
     this.wireInstitutionAutocomplete();
 
+    this.data.getNextReferenceNumber('order').subscribe((next) => this.upcomingOrderNumber.set(next));
+
     this.data.getBlockedDates().subscribe((blocks) => {
       this.blockedDatesSig.set(blocks);
       if (!this.isEdit()) {
@@ -1899,14 +1903,15 @@ export class OrderFormComponent implements OnInit {
           });
 
           const id = this.editingId();
+          const savedIdsLabel = saved.map((o) => `#${o.id}`).join(', ');
           if (id !== null) {
-            this.toast.success('ההזמנה עודכנה בהצלחה');
+            this.toast.success(`הזמנה #${id} עודכנה בהצלחה`);
           } else if (saved.length === 1) {
-            this.toast.success('ההזמנה נשמרה בהצלחה');
+            this.toast.success(`הזמנה #${saved[0]!.id} נשמרה בהצלחה`);
           } else if (saved.length === payloads.length) {
-            this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה`);
+            this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה (${savedIdsLabel})`);
           } else {
-            this.toast.warning(`נשמרו ${saved.length} מתוך ${payloads.length} הזמנות`);
+            this.toast.warning(`נשמרו ${saved.length} מתוך ${payloads.length} הזמנות (${savedIdsLabel})`);
           }
 
           for (const order of saved) {
@@ -2014,7 +2019,7 @@ export class OrderFormComponent implements OnInit {
   protected delete(): void {
     const id = this.editingId();
     if (id === null) return;
-    if (!confirm('למחוק את ההזמנה? לא ניתן לשחזר פעולה זו.')) return;
+    if (!confirm(`למחוק את הזמנה #${id}? לא ניתן לשחזר פעולה זו.`)) return;
 
     this.submitting.set(true);
     this.data
@@ -2025,7 +2030,7 @@ export class OrderFormComponent implements OnInit {
           if (!ok) {
             return;
           }
-          this.toast.success('ההזמנה נמחקה בהצלחה');
+          this.toast.success(`הזמנה #${id} נמחקה בהצלחה`);
           const iso = this.bookingGroup(0).controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }
@@ -2037,7 +2042,7 @@ export class OrderFormComponent implements OnInit {
     if (id === null || this.orderCancelled()) {
       return;
     }
-    if (!confirm('לבטל את ההזמנה? המשבצות בלוח השבועי יתפנו מיד.')) {
+    if (!confirm(`לבטל את הזמנה #${id}? המשבצות בלוח השבועי יתפנו מיד.`)) {
       return;
     }
 
@@ -2050,7 +2055,7 @@ export class OrderFormComponent implements OnInit {
           if (order === null) {
             return;
           }
-          this.toast.success('ההזמנה בוטלה בהצלחה');
+          this.toast.success(`הזמנה #${id} בוטלה בהצלחה`);
           const iso = this.bookingGroup(0).controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }

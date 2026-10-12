@@ -719,6 +719,22 @@
       pointer-events: none;
     }
 
+    .cell-order-id {
+      margin-top: 0.1rem;
+      padding: 0 0.3rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(0, 34, 68, 0.18);
+      color: #002244;
+      font-size: 0.62rem;
+      font-weight: 700;
+      line-height: 1.35;
+      direction: ltr;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
     .cell-return-time {
       max-width: 100%;
       overflow: visible;
