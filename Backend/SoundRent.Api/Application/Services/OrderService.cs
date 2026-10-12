@@ -12,6 +12,9 @@ namespace SoundRent.Api.Application.Services;
 
 public class OrderService : IOrderService
 {
+    private const int CustomerSearchMinLength = 2;
+    private const int CustomerSearchResultLimit = 100;
+
     private readonly IOrderRepository _orderRepository;
     private readonly IEquipmentDefinitionRepository _equipmentDefinitions;
     private readonly IInventoryDefinitionService _inventoryDefinitions;
@@ -56,6 +59,25 @@ public class OrderService : IOrderService
             startDate,
             endDate,
             systemType,
+            cancellationToken);
+        return orders.Select(OrderMapper.ToDto).ToList();
+    }
+
+    public async Task<List<OrderDto>> SearchOrdersByCustomerAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default)
+    {
+        var q = (query ?? string.Empty).Trim();
+        if (q.Length < CustomerSearchMinLength)
+        {
+            return [];
+        }
+
+        var orders = await _orderRepository.SearchByCustomerAsync(
+            q,
+            systemType,
+            CustomerSearchResultLimit,
             cancellationToken);
         return orders.Select(OrderMapper.ToDto).ToList();
     }

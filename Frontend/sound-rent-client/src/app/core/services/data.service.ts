@@ -148,6 +148,17 @@ export class DataService {
     );
   }
 
+  /** Active orders (any date) whose customer name or phone matches `query`. */
+  searchOrdersByCustomer(query: string): Observable<OrderDto[]> {
+    const params = this.withSystemType(new HttpParams().set('q', query));
+    return this.http.get<OrderDto[]>(`${this.ordersBase}/search`, { params }).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
   /** Every order in the database (any date) — used for full Excel backup. */
   getOrdersExportAll(): Observable<OrderDto[]> {
     return this.http.get<OrderDto[]>(`${this.ordersBase}/export-all`).pipe(

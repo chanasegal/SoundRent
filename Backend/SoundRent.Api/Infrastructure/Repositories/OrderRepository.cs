@@ -3,6 +3,7 @@ using SoundRent.Api.Application;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
+using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
@@ -54,6 +55,82 @@ public class OrderRepository : IOrderRepository
             .ThenBy(o => o.Id)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<Order>> SearchByCustomerAsync(
+        string query,
+        SystemType? systemType,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var q = (query ?? string.Empty).Trim();
+        if (q.Length == 0 || limit <= 0)
+        {
+            return [];
+        }
+
+        var filtered = _db.Orders.AsNoTracking().Where(o => !o.IsCancelled);
+
+        if (systemType.HasValue)
+        {
+            filtered = filtered.Where(o => o.SystemType == systemType.Value);
+        }
+
+        if (IsPhoneLikeQuery(q))
+        {
+            var digits = PhoneNumberNormalizer.DigitsOnly(q);
+            filtered = filtered.Where(o =>
+                o.Phone.Contains(digits) || (o.Phone2 != null && o.Phone2.Contains(digits)));
+        }
+        else
+        {
+            var needle = q.ToLower();
+            filtered = filtered.Where(o => o.CustomerName != null && o.CustomerName.ToLower().Contains(needle));
+        }
+
+        // Phase 1: ids only, so the limit is applied before loading the wide order graph.
+        var ids = await filtered
+            .OrderByDescending(o => o.Shifts.Max(s => (DateOnly?)s.OrderDate))
+            .ThenByDescending(o => o.Id)
+            .Select(o => o.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var loaded = await WithOrderGraph(_db.Orders)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Where(o => ids.Contains(o.Id))
+            .ToListAsync(cancellationToken);
+
+        var byId = loaded.ToDictionary(o => o.Id);
+        return ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+    }
+
+    private static bool IsPhoneLikeQuery(string q)
+    {
+        var hasDigit = false;
+        foreach (var c in q)
+        {
+            if (char.IsDigit(c))
+            {
+                hasDigit = true;
+                continue;
+            }
+
+            if (c is ' ' or '-' or '(' or ')' or '+')
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return hasDigit;
     }
 
     public Task<List<Order>> GetAllForExportAsync(CancellationToken cancellationToken = default)

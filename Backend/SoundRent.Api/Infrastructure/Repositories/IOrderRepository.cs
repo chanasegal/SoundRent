@@ -17,6 +17,16 @@ public interface IOrderRepository
         SystemType? systemType = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Non-cancelled orders (any date) whose customer name or phone matches <paramref name="query"/>.
+    /// Digit-only queries match <c>Phone</c>/<c>Phone2</c> substrings; anything else matches the customer name.
+    /// </summary>
+    Task<List<Order>> SearchByCustomerAsync(
+        string query,
+        SystemType? systemType,
+        int limit,
+        CancellationToken cancellationToken = default);
+
     /// <summary>All orders with loaned-equipment graph (backup / full export).</summary>
     Task<List<Order>> GetAllForExportAsync(CancellationToken cancellationToken = default);
 

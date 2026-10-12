@@ -34,6 +34,22 @@ public class OrdersController : ControllerBase
         return Ok(orders);
     }
 
+    /// <summary>
+    /// Weekly-board client search: active orders (any date) matching a customer name or phone.
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<ActionResult<List<OrderDto>>> SearchByCustomer(
+        [FromQuery] string? q,
+        [FromQuery] SystemType? systemType,
+        CancellationToken cancellationToken)
+    {
+        var orders = await _orderService.SearchOrdersByCustomerAsync(
+            q,
+            systemType ?? SystemType.Tools,
+            cancellationToken);
+        return Ok(orders);
+    }
+
     /// <summary>Full-database order list for Excel backup (past, today, and future).</summary>
     [HttpGet("export-all")]
     public async Task<ActionResult<List<OrderDto>>> ExportAll(CancellationToken cancellationToken)

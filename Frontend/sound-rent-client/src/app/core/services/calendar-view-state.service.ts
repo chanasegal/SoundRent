@@ -12,6 +12,9 @@ export class CalendarViewStateService {
 
   readonly selectedDateIso = this.selectedDateIsoSignal.asReadonly();
 
+  /** Client search on the board; kept here so returning from an order form restores it. */
+  readonly clientSearchTerm = signal('');
+
   setSelectedDate(iso: string | null | undefined): void {
     if (!iso || typeof iso !== 'string') {
       return;

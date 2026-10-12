@@ -13,6 +13,15 @@ public interface IOrderService
         SystemType? systemType = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Active orders (any date) for a client, matched by customer name or phone.
+    /// Queries shorter than 2 characters return an empty list.
+    /// </summary>
+    Task<List<OrderDto>> SearchOrdersByCustomerAsync(
+        string? query,
+        SystemType? systemType = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Every order in the database (any date), for full Excel backup.</summary>
     Task<List<OrderDto>> GetAllOrdersForExportAsync(CancellationToken cancellationToken = default);
 

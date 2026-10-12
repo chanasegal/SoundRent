@@ -118,12 +118,159 @@
           </button>
         </div>
       </div>
+
+      <div
+        class="client-search mt-3"
+        (appClickOutside)="closeClientSearchPanel()"
+        [appClickOutsideEnabled]="clientSearchPanelOpen()"
+      >
+        <div class="client-search__field">
+          <span class="client-search__icon" aria-hidden="true">🔎</span>
+          <input
+            type="search"
+            class="client-search__input"
+            placeholder="חיפוש הזמנות לפי שם לקוח או טלפון…"
+            autocomplete="off"
+            role="combobox"
+            aria-label="חיפוש הזמנות לפי שם לקוח או טלפון"
+            aria-controls="client-search-panel"
+            [attr.aria-expanded]="clientSearchPanelOpen()"
+            [value]="clientSearchTerm()"
+            (input)="onClientSearchInput($any($event.target).value)"
+            (focus)="onClientSearchFocus()"
+            (keydown)="onClientSearchKeydown($event)"
+          />
+          @if (clientSearchTerm()) {
+            <button
+              type="button"
+              class="client-search__clear"
+              (click)="clearClientSearch()"
+              aria-label="ניקוי החיפוש"
+              title="ניקוי החיפוש"
+            >
+              ×
+            </button>
+          }
+        </div>
+        @if (clientSearchActive() && !clientSearchPanelOpen() && clientSearchItems(); as items) {
+          <button type="button" class="client-search__summary" (click)="clientSearchPanelOpen.set(true)">
+            {{ items.length }} הזמנות תואמות · מסומנות בלוח · הצג רשימה
+          </button>
+        }
+
+        @if (clientSearchPanelOpen()) {
+          <div id="client-search-panel" class="client-search__panel" role="region" aria-label="תוצאות חיפוש הזמנות">
+            @if (clientSearchItems(); as items) {
+              <div class="client-search__panel-head">
+                <span>
+                  @if (items.length === 0) {
+                    לא נמצאו הזמנות עבור «{{ clientSearchTerm().trim() }}»
+                  } @else {
+                    נמצאו {{ items.length }} הזמנות עבור «{{ clientSearchTerm().trim() }}»
+                  }
+                </span>
+                @if (clientSearchLoading()) {
+                  <span class="client-search__loading">מעדכן…</span>
+                }
+              </div>
+              @if (items.length >= clientSearchResultLimit) {
+                <p class="client-search__limit-note">
+                  מוצגות {{ clientSearchResultLimit }} ההזמנות האחרונות בלבד — חדדו את החיפוש לתוצאות מדויקות יותר.
+                </p>
+              }
+              <ul class="client-search__list">
+                @for (item of items; track item.order.id) {
+                  <li class="client-search__item" [class.client-search__item--past]="item.isPast">
+                    <div class="client-search__item-main">
+                      <div class="client-search__item-title">
+                        <span class="client-search__name">{{ item.order.customerName?.trim() || 'ללא שם' }}</span>
+                        <span class="client-search__phone ltr-field">{{ item.order.phone }}</span>
+                        @if (item.order.phone2?.trim()) {
+                          <span class="client-search__phone ltr-field">{{ item.order.phone2 }}</span>
+                        }
+                        <span class="client-search__order-id">#{{ item.order.id }}</span>
+                      </div>
+                      <div class="client-search__item-meta">
+                        @if (item.gregorianRange) {
+                          <span class="client-search__date">📅 {{ item.gregorianRange }}</span>
+                        }
+                        @if (item.hebrewStart) {
+                          <span class="client-search__date-heb">{{ item.hebrewStart }}</span>
+                        }
+                        @if (item.shiftsLabel) {
+                          <span>{{ item.shiftsLabel }}</span>
+                        }
+                        @if (item.returnTimeLabel) {
+                          <span>החזרה {{ item.returnTimeLabel }}</span>
+                        }
+                      </div>
+                      @if (item.equipmentLabel) {
+                        <div class="client-search__equipment">🔊 {{ item.equipmentLabel }}</div>
+                      }
+                      @if (item.order.institutionName?.trim() || item.order.address?.trim()) {
+                        <div class="client-search__secondary">
+                          {{ item.order.institutionName?.trim() || item.order.address?.trim() }}
+                        </div>
+                      }
+                      <div class="client-search__badges">
+                        @if (item.isPast) {
+                          <span class="client-search__badge client-search__badge--past">הסתיימה</span>
+                        } @else {
+                          <span class="client-search__badge client-search__badge--upcoming">פעילה / עתידית</span>
+                        }
+                        @if (item.order.isUnpaid) {
+                          <span class="client-search__badge client-search__badge--unpaid">לא שולם</span>
+                        }
+                        @if (hasUrgentBoardNote(item.order)) {
+                          <span class="client-search__badge client-search__badge--urgent" [title]="urgentBoardNoteText(item.order)">
+                            הערה דחופה
+                          </span>
+                        }
+                        @if (hasOrderNotes(item.order)) {
+                          <span class="client-search__badge" [title]="orderNotesTooltip(item.order)">💡 הערות</span>
+                        }
+                      </div>
+                    </div>
+                    <div class="client-search__item-actions">
+                      <a
+                        class="client-search__open"
+                        [routerLink]="['/orders', item.order.id]"
+                        title="פתיחת טופס ההזמנה לצפייה ועריכה"
+                      >
+                        פתיחת הזמנה
+                      </a>
+                      @if (item.boardDate) {
+                        <button
+                          type="button"
+                          class="client-search__locate"
+                          (click)="showClientSearchResultOnBoard(item)"
+                          title="מעבר לשבוע של ההזמנה בלוח"
+                        >
+                          הצג בלוח
+                        </button>
+                      }
+                    </div>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <div class="client-search__panel-head">
+                <span class="client-search__loading">מחפש…</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
     </div>
   </div>
 
   <!-- Grid: the scroll wrapper owns both axes so sticky table headers have a scrollport. -->
   <div class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-    <div #gridScroll class="weekly-grid-scroll">
+    <div
+      #gridScroll
+      class="weekly-grid-scroll"
+      [class.client-search-filtering]="clientSearchMatchIds().size > 0"
+    >
       <table class="weekly-grid border-collapse text-sm">
         <thead>
           <tr #equipmentHeaderRow class="equipment-header-row bg-[#002244] text-white">
@@ -263,6 +410,7 @@
                               class="cell-order-block"
                               [ngStyle]="orderBlockStyle(o)"
                               [class.order-hovered]="isOrderHovered(o.id)"
+                              [class.order-search-match]="isClientSearchMatch(o.id)"
                               (mouseenter)="setHoveredOrder(o.id)"
                               (mouseleave)="setHoveredOrder(null)"
                               (focus)="setHoveredOrder(o.id)"
@@ -382,6 +530,7 @@
                               class="cell-order-block"
                               [ngStyle]="orderBlockStyle(o)"
                               [class.order-hovered]="isOrderHovered(o.id)"
+                              [class.order-search-match]="isClientSearchMatch(o.id)"
                               (mouseenter)="setHoveredOrder(o.id)"
                               (mouseleave)="setHoveredOrder(null)"
                               (focus)="setHoveredOrder(o.id)"

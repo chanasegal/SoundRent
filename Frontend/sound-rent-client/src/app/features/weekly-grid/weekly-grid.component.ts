@@ -13,12 +13,12 @@ import {
   viewChild,
   viewChildren
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, ActivatedRoute } from '@angular/router';
+import { Router, ActivatedRoute, RouterLink } from '@angular/router';
 import { HDate, months } from '@hebcal/core';
-import { forkJoin, finalize, Subscription, EMPTY, merge } from 'rxjs';
-import { debounceTime, map, switchMap } from 'rxjs/operators';
+import { forkJoin, finalize, Subscription, EMPTY, merge, of } from 'rxjs';
+import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -203,6 +203,22 @@ interface UrgentNoteDialogState {
   phone: string;
 }
 
+interface ClientSearchResultItem {
+  order: OrderDto;
+  isPast: boolean;
+  gregorianRange: string;
+  hebrewStart: string;
+  shiftsLabel: string;
+  equipmentLabel: string;
+  returnTimeLabel: string;
+  /** Date to jump to on the board; null for accessory-only orders that are not on the grid. */
+  boardDate: Date | null;
+}
+
+const CLIENT_SEARCH_MIN_LENGTH = 2;
+/** Must match the server-side cap in `OrderService.CustomerSearchResultLimit`. */
+const CLIENT_SEARCH_RESULT_LIMIT = 100;
+
 function toLocalIsoDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -237,9 +253,17 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
 @Component({
   selector: 'app-weekly-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, IntegerOnlyDirective, IsraeliPhoneInputDirective, ClickOutsideDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    RouterLink,
+    IntegerOnlyDirective,
+    IsraeliPhoneInputDirective,
+    ClickOutsideDirective
+  ],
   templateUrl: './weekly-grid.component.html',
-  styleUrl: './weekly-grid.component.scss'
+  styleUrls: ['./weekly-grid.component.scss', './weekly-grid-client-search.scss']
 })
 export class WeeklyGridComponent {
   private readonly initialDateState = createInitialDashboardDateState();
@@ -321,6 +345,49 @@ export class WeeklyGridComponent {
   protected readonly urgentNoteDialog = signal<UrgentNoteDialogState | null>(null);
   protected readonly urgentNoteDraft = signal('');
   protected readonly urgentNoteSaving = signal(false);
+
+  protected readonly clientSearchMinLength = CLIENT_SEARCH_MIN_LENGTH;
+  protected readonly clientSearchResultLimit = CLIENT_SEARCH_RESULT_LIMIT;
+  protected readonly clientSearchTerm = this.calendarView.clientSearchTerm;
+  protected readonly clientSearchPanelOpen = signal(this.clientSearchTerm().trim().length >= CLIENT_SEARCH_MIN_LENGTH);
+  protected readonly clientSearchLoading = signal(false);
+  /** Results plus the query they were fetched for, so stale results are never shown for a new term. */
+  private readonly clientSearchResponse = signal<{ query: string; orders: OrderDto[] } | null>(null);
+
+  protected readonly clientSearchActive = computed(
+    () => this.clientSearchTerm().trim().length >= CLIENT_SEARCH_MIN_LENGTH
+  );
+
+  private readonly clientSearchOrders = computed<OrderDto[] | null>(() => {
+    const response = this.clientSearchResponse();
+    if (!response || !this.clientSearchActive() || response.query !== this.clientSearchTerm().trim()) {
+      return null;
+    }
+    return response.orders;
+  });
+
+  protected readonly clientSearchMatchIds = computed<ReadonlySet<number>>(
+    () => new Set((this.clientSearchOrders() ?? []).map((o) => o.id))
+  );
+
+  /** Upcoming/current orders first (soonest first), then past orders (most recent first). */
+  protected readonly clientSearchItems = computed<ClientSearchResultItem[] | null>(() => {
+    const orders = this.clientSearchOrders();
+    if (!orders) {
+      return null;
+    }
+    const todayIso = this.toIsoDate(new Date());
+    const items = orders.map((o) => this.toClientSearchItem(o, todayIso));
+    return items.sort((a, b) => {
+      if (a.isPast !== b.isPast) {
+        return a.isPast ? 1 : -1;
+      }
+      const aFirst = this.orderFirstShift(a.order)?.orderDate ?? '';
+      const bFirst = this.orderFirstShift(b.order)?.orderDate ?? '';
+      const byDate = a.isPast ? bFirst.localeCompare(aFirst) : aFirst.localeCompare(bFirst);
+      return byDate !== 0 ? byDate : b.order.id - a.order.id;
+    });
+  });
 
   protected readonly waitlistModalForm = this.fb.group({
     bookingSlot: this.fb.nonNullable.control('', Validators.required),
@@ -427,6 +494,7 @@ export class WeeklyGridComponent {
     });
 
     this.wireWaitlistCustomerAutocomplete();
+    this.wireClientSearch();
 
     afterNextRender(() => {
       this.setupScrollObservers();
@@ -634,6 +702,119 @@ export class WeeklyGridComponent {
     this.router.navigate(['/orders', orderId]);
   }
 
+  protected onClientSearchInput(value: string): void {
+    this.clientSearchTerm.set(value);
+    this.clientSearchPanelOpen.set(value.trim().length >= CLIENT_SEARCH_MIN_LENGTH);
+  }
+
+  protected onClientSearchFocus(): void {
+    if (this.clientSearchActive()) {
+      this.clientSearchPanelOpen.set(true);
+    }
+  }
+
+  protected onClientSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (this.clientSearchPanelOpen()) {
+        this.closeClientSearchPanel();
+      } else {
+        this.clearClientSearch();
+      }
+    }
+  }
+
+  protected closeClientSearchPanel(): void {
+    this.clientSearchPanelOpen.set(false);
+  }
+
+  protected clearClientSearch(): void {
+    this.clientSearchTerm.set('');
+    this.clientSearchPanelOpen.set(false);
+    this.clientSearchResponse.set(null);
+  }
+
+  protected isClientSearchMatch(orderId: number): boolean {
+    return this.clientSearchMatchIds().has(orderId);
+  }
+
+  protected showClientSearchResultOnBoard(item: ClientSearchResultItem): void {
+    if (!item.boardDate) {
+      return;
+    }
+    this.closeClientSearchPanel();
+    this.navigateToDate(item.boardDate);
+  }
+
+  private wireClientSearch(): void {
+    const request = computed(() => ({
+      query: this.clientSearchTerm().trim(),
+      systemType: this.systemContext.currentSystemType()
+    }));
+    toObservable(request)
+      .pipe(
+        debounceTime(300),
+        distinctUntilChanged((a, b) => a.query === b.query && a.systemType === b.systemType),
+        switchMap(({ query }) => {
+          if (query.length < CLIENT_SEARCH_MIN_LENGTH) {
+            this.clientSearchLoading.set(false);
+            return of(null);
+          }
+          this.clientSearchLoading.set(true);
+          return this.data.searchOrdersByCustomer(query).pipe(
+            map((orders) => ({ query, orders })),
+            finalize(() => this.clientSearchLoading.set(false))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((response) => this.clientSearchResponse.set(response));
+  }
+
+  private toClientSearchItem(order: OrderDto, todayIso: string): ClientSearchResultItem {
+    const first = this.orderFirstShift(order);
+    const last = this.orderLastShift(order);
+    const firstDate = first ? this.hebrew.parseIso(first.orderDate) : null;
+    const lastDate = last ? this.hebrew.parseIso(last.orderDate) : null;
+
+    let gregorianRange = '';
+    if (firstDate && lastDate) {
+      gregorianRange =
+        this.toIsoDate(firstDate) === this.toIsoDate(lastDate)
+          ? this.formatDate(firstDate)
+          : `${this.formatDate(firstDate)} – ${this.formatDate(lastDate)}`;
+    }
+
+    const shiftCount = order.shifts?.length ?? 0;
+    let shiftsLabel = '';
+    if (shiftCount === 1 && first && firstDate) {
+      shiftsLabel = `יום ${this.hebrew.dayOfWeekHebrew(firstDate)}, ${this.timeSlotLabels[first.timeSlot]}`;
+    } else if (shiftCount > 1) {
+      shiftsLabel = `${shiftCount} משמרות`;
+    }
+
+    const upcomingShiftIso = (order.shifts ?? [])
+      .map((s) => s.orderDate)
+      .filter((iso) => iso >= todayIso)
+      .sort()[0];
+    const boardIso = upcomingShiftIso ?? first?.orderDate ?? null;
+    const boardDate =
+      boardIso !== null && order.equipmentDefinitionIds.length > 0 ? this.hebrew.parseIso(boardIso) : null;
+
+    return {
+      order,
+      isPast: !last || last.orderDate < todayIso,
+      gregorianRange,
+      hebrewStart: firstDate ? this.hebrew.toHebrew(firstDate) : '',
+      shiftsLabel,
+      equipmentLabel: order.equipmentDefinitionIds
+        .map((id) => this.equipmentSlots.displayLabel(id))
+        .join(', '),
+      returnTimeLabel: shiftCount > 0 ? this.finalReturnTimeLabel(order) : '',
+      boardDate
+    };
+  }
+
   protected onOrderContextMenu(event: MouseEvent, order: OrderDto): void {
     event.preventDefault();
     event.stopPropagation();
@@ -820,11 +1001,19 @@ export class WeeklyGridComponent {
   }
 
   private orderLastShift(order: OrderDto): OrderShiftDto | null {
-    const shifts = [...(order.shifts ?? [])].sort(
+    const shifts = this.sortedShifts(order);
+    return shifts.length > 0 ? shifts[shifts.length - 1]! : null;
+  }
+
+  private orderFirstShift(order: OrderDto): OrderShiftDto | null {
+    return this.sortedShifts(order)[0] ?? null;
+  }
+
+  private sortedShifts(order: OrderDto): OrderShiftDto[] {
+    return [...(order.shifts ?? [])].sort(
       (a, b) =>
         a.orderDate.localeCompare(b.orderDate) || this.shiftOrder(a.timeSlot) - this.shiftOrder(b.timeSlot)
     );
-    return shifts.length > 0 ? shifts[shifts.length - 1]! : null;
   }
 
   protected isVerticalContinuation(segment: GridSlotSegment): boolean {
