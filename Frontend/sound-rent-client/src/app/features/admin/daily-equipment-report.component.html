@@ -208,7 +208,7 @@
                                   [disabled]="isSavingSerialRow(item)"
                                   (click)="toggleSerialDropdown(item)"
                                 >
-                                  לחץ לבחירת פריטים
+                                  לקביעת קודים בהמשך
                                 </button>
                               }
                               @if (canEditAccessorySerials(item)) {
@@ -235,6 +235,20 @@
 
                             @if (isSerialDropdownOpen(item)) {
                               <div class="multi-select__panel accessory-serial-panel" (click)="onSerialPanelClick($event)">
+                                <label class="accessory-serial-panel__qty">
+                                  <span class="accessory-serial-panel__qty-label">כמות</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    inputmode="numeric"
+                                    class="accessory-serial-panel__qty-input"
+                                    [value]="getDraftQuantity(item)"
+                                    [disabled]="isSavingSerialRow(item)"
+                                    (change)="onDraftQuantityInput(item, $any($event.target).value); $any($event.target).value = getDraftQuantity(item)"
+                                  />
+                                  <span class="accessory-serial-panel__qty-hint">ניתן לשמור ללא קודים ולקבוע אותם בהמשך</span>
+                                </label>
                                 @if (serialPanelState(item) === 'loading') {
                                   <p class="accessory-serial-panel__empty">טוען קודי פריטים</p>
                                 } @else if (serialPanelState(item) === 'no-inventory' || serialPanelState(item) === 'all-booked') {
@@ -288,7 +302,7 @@
                                   <button
                                     type="button"
                                     class="accessory-serial-panel__btn accessory-serial-panel__btn--primary"
-                                    [disabled]="isSavingSerialRow(item) || isSerialAvailabilityLoading(item) || (!hasSerialDraftChanges(item) && serialPanelState(item) !== 'no-inventory' && serialPanelState(item) !== 'all-booked')"
+                                    [disabled]="isSavingSerialRow(item) || isSerialAvailabilityLoading(item) || !hasSerialDraftChanges(item)"
                                     (click)="confirmSerialDropdown(item, $event)"
                                   >
                                     {{ isSavingSerialRow(item) ? 'שומר…' : 'אישור' }}

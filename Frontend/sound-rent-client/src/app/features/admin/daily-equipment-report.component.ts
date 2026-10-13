@@ -127,6 +127,7 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly accessoryAvailabilityByRow = signal<Map<string, AccessorySerialOptionDto[]>>(new Map());
   private readonly serialAvailabilityLoadingKeys = signal<Set<string>>(new Set());
   private readonly serialDraftByRowKey = signal<Map<string, string[]>>(new Map());
+  private readonly quantityDraftByRowKey = signal<Map<string, number>>(new Map());
   protected readonly openSerialDropdownKey = signal<string | null>(null);
   protected readonly serialQuickEntry = signal('');
   protected readonly savingSerialRowKey = signal<string | null>(null);
@@ -281,12 +282,26 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   protected displayAccessoryQuantity(row: CustomerAccessoryLine): number {
     if (this.isSerialDropdownOpen(row)) {
-      return this.getDraftCodes(row).length;
+      return this.getDraftQuantity(row);
     }
     if (this.isPendingAccessoryRow(row)) {
-      return row.serialCodes.length;
+      return Math.max(row.serialCodes.length, 1);
     }
     return row.quantity;
+  }
+
+  protected getDraftQuantity(row: CustomerAccessoryLine): number {
+    const drafted = this.quantityDraftByRowKey().get(row.rowKey) ?? this.getSavedQuantity(row);
+    return Math.max(drafted, this.getDraftCodes(row).length, 1);
+  }
+
+  protected onDraftQuantityInput(row: CustomerAccessoryLine, raw: string): void {
+    if (this.isSavingSerialRow(row) || !this.canEditAccessorySerials(row)) {
+      return;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    const minimum = Math.max(this.getDraftCodes(row).length, 1);
+    this.setDraftQuantity(row.rowKey, Number.isFinite(parsed) ? Math.max(parsed, minimum) : minimum);
   }
 
   protected isPendingAccessoryRow(row: CustomerAccessoryLine): boolean {
@@ -533,7 +548,11 @@ export class DailyEquipmentReportComponent implements OnInit {
   }
 
   protected hasSerialDraftChanges(row: CustomerAccessoryLine): boolean {
-    return !this.serialCodesEqual(this.getDraftCodes(row), this.getSavedCodes(row));
+    return (
+      this.isPendingAccessoryRow(row) ||
+      this.getDraftQuantity(row) !== this.getSavedQuantity(row) ||
+      !this.serialCodesEqual(this.getDraftCodes(row), this.getSavedCodes(row))
+    );
   }
 
   protected serialOptionsForRow(row: CustomerAccessoryLine): AccessorySerialOptionDto[] {
@@ -576,7 +595,9 @@ export class DailyEquipmentReportComponent implements OnInit {
       next = next.filter((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0);
     }
 
+    const quantity = this.getDraftQuantity(row);
     this.setDraftCodes(row.rowKey, next);
+    this.setDraftQuantity(row.rowKey, Math.max(quantity, next.length, 1));
   }
 
   protected exportToExcel(): void {
@@ -911,16 +932,12 @@ export class DailyEquipmentReportComponent implements OnInit {
     }
 
     const draft = this.getDraftCodes(row);
-    const saved = this.getSavedCodes(row);
-    const hasChanges = !this.serialCodesEqual(draft, saved);
+    const quantity = this.getDraftQuantity(row);
+    const hasChanges = this.hasSerialDraftChanges(row);
 
     if (options.saveIfChanged && hasChanges) {
-      if (this.isPendingAccessoryRow(row) && draft.length === 0) {
-        this.removePendingRow(row);
-      } else {
-        this.saveSerialCodes({ ...row, serialCodes: draft }, draft);
-      }
-    } else if (!options.saveIfChanged && this.isPendingAccessoryRow(row) && saved.length === 0) {
+      this.saveSerialCodes({ ...row, serialCodes: draft }, draft, quantity);
+    } else if (!options.saveIfChanged && this.isPendingAccessoryRow(row)) {
       this.removePendingRow(row);
     }
 
@@ -931,6 +948,28 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   private initSerialDraft(row: CustomerAccessoryLine): void {
     this.setDraftCodes(row.rowKey, [...this.getSavedCodes(row)]);
+    this.setDraftQuantity(row.rowKey, Math.max(this.getSavedQuantity(row), 1));
+  }
+
+  private findSavedLine(row: CustomerAccessoryLine): OrderLoanedEquipmentDto | undefined {
+    const order = this.orders().find((o) => o.id === row.orderId);
+    return (order?.loanedEquipments ?? []).find((le) => this.lineMatchesRow(le, row));
+  }
+
+  private lineMatchesRow(le: OrderLoanedEquipmentDto, row: CustomerAccessoryLine): boolean {
+    if (row.isCustomItem) {
+      return (
+        !!le.isCustomItem &&
+        (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
+      );
+    }
+    if (le.isCustomItem) {
+      return false;
+    }
+    if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0 && le.inventoryDefinitionId != null) {
+      return le.inventoryDefinitionId === row.inventoryDefinitionId;
+    }
+    return row.loanedEquipmentType != null && le.loanedEquipmentType === row.loanedEquipmentType;
   }
 
   private getSavedCodes(row: CustomerAccessoryLine): string[] {
@@ -938,10 +977,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       return [...row.serialCodes];
     }
 
-    const order = this.orders().find((o) => o.id === row.orderId);
-    const line = (order?.loanedEquipments ?? []).find(
-      (le) => !le.isCustomItem && le.loanedEquipmentType === row.loanedEquipmentType
-    );
+    const line = this.findSavedLine(row);
     if (!line) {
       return [...row.serialCodes];
     }
@@ -951,6 +987,22 @@ export class DailyEquipmentReportComponent implements OnInit {
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((n) => (n.content ?? '').trim())
       .filter((c) => c.length > 0);
+  }
+
+  private getSavedQuantity(row: CustomerAccessoryLine): number {
+    if (this.isPendingAccessoryRow(row)) {
+      return Math.max(row.serialCodes.length, 1);
+    }
+    const line = this.findSavedLine(row);
+    return Math.max(line?.quantity ?? row.quantity, 0);
+  }
+
+  private setDraftQuantity(rowKey: string, quantity: number): void {
+    this.quantityDraftByRowKey.update((map) => {
+      const next = new Map(map);
+      next.set(rowKey, quantity);
+      return next;
+    });
   }
 
   private getDraftCodes(row: CustomerAccessoryLine): string[] {
@@ -974,6 +1026,14 @@ export class DailyEquipmentReportComponent implements OnInit {
 
   private clearSerialDraft(rowKey: string): void {
     this.serialDraftByRowKey.update((map) => {
+      if (!map.has(rowKey)) {
+        return map;
+      }
+      const next = new Map(map);
+      next.delete(rowKey);
+      return next;
+    });
+    this.quantityDraftByRowKey.update((map) => {
       if (!map.has(rowKey)) {
         return map;
       }
@@ -1034,13 +1094,9 @@ export class DailyEquipmentReportComponent implements OnInit {
     return left.every((code, index) => code.localeCompare(right[index] ?? '', undefined, { sensitivity: 'accent' }) === 0);
   }
 
-  private saveSerialCodes(row: CustomerAccessoryLine, codes: string[]): void {
+  private saveSerialCodes(row: CustomerAccessoryLine, codes: string[], quantity: number): void {
     const order = this.orders().find((o) => o.id === row.orderId);
     if (!order) {
-      return;
-    }
-
-    if (this.isPendingAccessoryRow(row) && codes.length === 0) {
       return;
     }
 
@@ -1053,18 +1109,10 @@ export class DailyEquipmentReportComponent implements OnInit {
       return;
     }
 
-    const def = this.inventoryStore.byId(this.resolveRowInventoryDefinitionId(row) ?? -1);
-    const hasRegisteredSerials =
-      (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
-    if (hasRegisteredSerials && codes.length === 0) {
-      this.savingSerialRowKey.set(null);
-      this.toast.warning(`יש לבחור קוד פריט עבור "${row.label}"`);
-      return;
-    }
-
+    const lineQuantity = Math.max(quantity, codes.length, 1);
     const loanedEquipments = this.isPendingAccessoryRow(row)
-      ? this.appendOrPatchAccessoryLine(order, row, codes)
-      : this.patchOrderLoanedSerials(order, row, codes);
+      ? this.appendOrPatchAccessoryLine(order, row, codes, lineQuantity)
+      : this.patchOrderLoanedSerials(order, row, codes, lineQuantity);
     const payload = this.orderToUpdatePayload(order, loanedEquipments);
     const wasPending = this.isPendingAccessoryRow(row);
 
@@ -1082,7 +1130,7 @@ export class DailyEquipmentReportComponent implements OnInit {
         }
         this.clearSerialDraft(row.rowKey);
         this.inventoryStore.load({ force: true }).subscribe();
-        this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'קודי פריט עודכנו');
+        this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'האביזר עודכן');
       });
   }
 
@@ -1139,20 +1187,22 @@ export class DailyEquipmentReportComponent implements OnInit {
   private appendOrPatchAccessoryLine(
     order: OrderDto,
     row: CustomerAccessoryLine,
-    codes: string[]
+    codes: string[],
+    quantity: number
   ): OrderLoanedEquipmentDto[] {
     const definitionId = this.resolveRowInventoryDefinitionId(row);
     if (definitionId != null && definitionId > 0 && !row.isCustomItem) {
-      return this.appendOrPatchCatalogAccessory(order, row, definitionId, codes);
+      return this.appendOrPatchCatalogAccessory(order, row, definitionId, codes, quantity);
     }
-    return this.appendOrPatchCustomAccessory(order, row.label, codes);
+    return this.appendOrPatchCustomAccessory(order, row.label, codes, quantity);
   }
 
   private appendOrPatchCatalogAccessory(
     order: OrderDto,
     row: CustomerAccessoryLine,
     definitionId: number,
-    codes: string[]
+    codes: string[],
+    quantity: number
   ): OrderLoanedEquipmentDto[] {
     const existing = order.loanedEquipments ?? [];
     const matchIndex = existing.findIndex(
@@ -1168,8 +1218,8 @@ export class DailyEquipmentReportComponent implements OnInit {
       isCustomItem: false,
       inventoryDefinitionId: definitionId,
       loanedEquipmentType: row.loanedEquipmentType,
-      quantity: codes.length,
-      expectedNoteCount: codes.length,
+      quantity,
+      expectedNoteCount: quantity,
       notes
     };
 
@@ -1183,7 +1233,8 @@ export class DailyEquipmentReportComponent implements OnInit {
   private appendOrPatchCustomAccessory(
     order: OrderDto,
     label: string,
-    codes: string[]
+    codes: string[],
+    quantity: number
   ): OrderLoanedEquipmentDto[] {
     const existing = order.loanedEquipments ?? [];
     const name = label.trim();
@@ -1194,7 +1245,6 @@ export class DailyEquipmentReportComponent implements OnInit {
     );
     const existingLine = matchIndex >= 0 ? existing[matchIndex] : undefined;
     const notes = this.buildAccessoryNotes(codes, existingLine?.notes);
-    const quantity = codes.length > 0 ? codes.length : Math.max(existingLine?.quantity ?? 1, 1);
     const nextLine: OrderLoanedEquipmentDto = {
       ...(matchIndex >= 0 && existing[matchIndex]?.id ? { id: existing[matchIndex].id } : {}),
       isCustomItem: true,
@@ -1232,17 +1282,12 @@ export class DailyEquipmentReportComponent implements OnInit {
   private patchOrderLoanedSerials(
     order: OrderDto,
     row: CustomerAccessoryLine,
-    codes: string[]
+    codes: string[],
+    quantity: number
   ): OrderLoanedEquipmentDto[] {
+    const target = this.findSavedLine(row);
     return (order.loanedEquipments ?? []).map((le) => {
-      const isMatch =
-        row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0
-          ? !le.isCustomItem && le.inventoryDefinitionId === row.inventoryDefinitionId
-          : row.isCustomItem
-            ? !!le.isCustomItem &&
-              (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
-            : !le.isCustomItem && le.loanedEquipmentType === row.loanedEquipmentType;
-      if (!isMatch) {
+      if (le !== target) {
         return le;
       }
 
@@ -1250,8 +1295,8 @@ export class DailyEquipmentReportComponent implements OnInit {
       return {
         ...le,
         inventoryDefinitionId: row.inventoryDefinitionId ?? le.inventoryDefinitionId,
-        quantity: codes.length > 0 ? codes.length : le.quantity,
-        expectedNoteCount: codes.length > 0 ? codes.length : le.expectedNoteCount,
+        quantity,
+        expectedNoteCount: quantity,
         notes
       };
     });
@@ -1548,7 +1593,9 @@ export class DailyEquipmentReportComponent implements OnInit {
             : null;
       const rowKey = le.isCustomItem
         ? `${order.id}|custom|${label}`
-        : `${order.id}|${loanedEquipmentType}`;
+        : loanedEquipmentType != null
+          ? `${order.id}|${loanedEquipmentType}`
+          : `${order.id}|inv-${inventoryDefinitionId}`;
 
       lines.push({
         orderId: order.id,

@@ -336,9 +336,10 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
             var selectedCodes = ExtractSelectedCodes(item);
 
-            if (allowedCodes.Count > 0 && selectedCodes.Count != item.Quantity)
+            // Codes may be assigned later ("לקביעת קודים בהמשך"), so fewer codes than units is valid.
+            if (selectedCodes.Count > item.Quantity)
             {
-                throw new ValidationException($"יש לבחור קוד לכל יחידה עבור \"{label}\"");
+                throw new ValidationException($"נבחרו יותר קודים מהכמות עבור \"{label}\"");
             }
 
             if (selectedCodes.Select(n => n.Code).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selectedCodes.Count)

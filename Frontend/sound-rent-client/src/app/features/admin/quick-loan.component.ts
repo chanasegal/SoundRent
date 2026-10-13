@@ -2822,14 +2822,7 @@ export class QuickLoanComponent implements OnInit {
         if (row.quantity <= 0) {
           continue;
         }
-        const def = this.inventoryStore.byId(row.inventoryDefinitionId);
-        const hasRegisteredSerials =
-          (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
         const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
-        if (hasRegisteredSerials && codes.length !== row.quantity) {
-          this.toast.warning(`יש לבחור קוד לכל יחידה עבור "${row.label}"`);
-          return;
-        }
         const options = this.serialOptionsForRow(row);
         for (const code of codes) {
           const match = options.find(
@@ -3083,14 +3076,7 @@ export class QuickLoanComponent implements OnInit {
       if (row.quantity <= 0) {
         continue;
       }
-      const def = this.inventoryStore.byId(row.inventoryDefinitionId);
-      const hasRegisteredSerials =
-        (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
       const codes = row.selectedCodes.map((c) => c.trim()).filter((c) => c.length > 0);
-      if (hasRegisteredSerials && codes.length !== row.quantity) {
-        this.toast.warning(`יש לבחור קוד לכל יחידה עבור "${row.label}"`);
-        return;
-      }
       const options = this.serialOptionsForRow(row);
       for (const code of codes) {
         const match = options.find(

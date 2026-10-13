@@ -1238,7 +1238,8 @@ export class OrderFormComponent implements OnInit {
     }
     ctrl.setValue(unique);
     ctrl.markAsDirty();
-    const quantity = unique.length > 0 ? unique.length : Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
+    const currentQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
+    const quantity = Math.max(currentQuantity, unique.length, 1);
     this.getRowGroup(rowIndex).patchValue({ quantity }, { emitEvent: false });
 
     if (checked) {
@@ -1600,16 +1601,9 @@ export class OrderFormComponent implements OnInit {
         continue;
       }
       const def = this.inventoryStore.byId(defId);
-      const hasRegisteredSerials =
-        (def?.serialUnits?.length ?? 0) > 0 || (def?.serialCodes?.length ?? 0) > 0;
       const selected = (group.get('selectedCodes')?.value as string[] | null) ?? [];
       const codes = selected.map((c) => String(c).trim()).filter((c) => c.length > 0);
-      const quantity = Number(group.get('quantity')?.value) || 0;
       const label = String(group.get('label')?.value ?? def?.displayName ?? 'פריט');
-
-      if (hasRegisteredSerials && quantity > 0 && codes.length !== quantity) {
-        return `יש לבחור קוד לכל יחידה עבור "${label}"`;
-      }
 
       const options = this.serialOptionsForRow(i);
       for (const code of codes) {
@@ -4234,12 +4228,10 @@ export class OrderFormComponent implements OnInit {
         ? (row['selectedCodes'] as string[]).map((c) => String(c).trim()).filter((c) => c.length > 0)
         : [];
       const quantityRaw = Number(row['quantity']);
-      const quantity =
-        selectedCodes.length > 0
-          ? selectedCodes.length
-          : Number.isFinite(quantityRaw) && quantityRaw > 0
-            ? Math.trunc(quantityRaw)
-            : 0;
+      const quantity = Math.max(
+        selectedCodes.length,
+        Number.isFinite(quantityRaw) && quantityRaw > 0 ? Math.trunc(quantityRaw) : 0
+      );
       if (quantity <= 0) {
         continue;
       }

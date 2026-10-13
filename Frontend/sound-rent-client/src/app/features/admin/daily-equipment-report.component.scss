@@ -450,6 +450,36 @@ $date-control-height: 2.5rem;
   }
 }
 
+.accessory-serial-panel__qty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.45rem;
+  padding: 0.4rem 0.65rem 0.45rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.accessory-serial-panel__qty-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.accessory-serial-panel__qty-input {
+  width: 4rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.3rem;
+}
+
+.accessory-serial-panel__qty-hint {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
 .accessory-serial-panel__actions {
   display: flex;
   justify-content: flex-end;
