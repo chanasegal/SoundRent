@@ -1257,7 +1257,8 @@ export class DataService {
   ): Observable<EquipmentDefaultAccessoryDto[]> {
     const params = new HttpParams()
       .set('parentEquipmentType', parentEquipmentType)
-      .set('parentSerialCode', parentSerialCode.trim());
+      .set('parentSerialCode', parentSerialCode.trim())
+      .set('_', String(Date.now()));
     return this.http
       .get<EquipmentDefaultAccessoryDto[]>(this.equipmentDefaultAccessoriesBase, { params })
       .pipe(

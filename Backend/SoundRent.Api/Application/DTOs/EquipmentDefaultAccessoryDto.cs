@@ -19,6 +19,12 @@ public class EquipmentDefaultAccessoryDto
     public string AccessoryLabel { get; set; } = string.Empty;
 
     public string AccessorySerialCode { get; set; } = string.Empty;
+
+    /// <summary>Current warehouse status of the accessory unit; null when the unit is not registered.</summary>
+    public AccessorySerialPhysicalStatus? PhysicalStatus { get; set; }
+
+    /// <summary>True only when the accessory unit is currently in the warehouse (not loaned / missing / in repair).</summary>
+    public bool IsAvailable { get; set; }
 }
 
 public class CreateEquipmentDefaultAccessoryDto

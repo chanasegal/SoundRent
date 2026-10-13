@@ -1,4 +1,5 @@
 import { LoanedEquipmentType } from './enums';
+import { InventorySerialPhysicalStatus } from './inventory-definition.model';
 
 export interface EquipmentDefaultAccessoryDto {
   id: number;
@@ -9,6 +10,10 @@ export interface EquipmentDefaultAccessoryDto {
   accessoryEquipmentType?: LoanedEquipmentType | null;
   accessoryLabel: string;
   accessorySerialCode: string;
+  /** Current warehouse status of the accessory unit; null when unregistered. */
+  physicalStatus?: InventorySerialPhysicalStatus | null;
+  /** True only when the accessory unit is currently in the warehouse. */
+  isAvailable?: boolean;
 }
 
 export interface CreateEquipmentDefaultAccessoryDto {

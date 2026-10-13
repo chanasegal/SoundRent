@@ -1142,11 +1142,17 @@ export class QuickLoanComponent implements OnInit {
     }
   }
 
+  /**
+   * Attaches the mixer's fixed accessories by their current status only (no date ranges):
+   * available units are added to the loan, busy ones (loaned separately / missing / in repair)
+   * are skipped. The permanent mixer-accessory assignment is never modified here.
+   */
   private mergeMixerDefaultAccessoriesIntoRows(
     defaults: Array<{
       inventoryDefinitionId?: number | null;
       accessoryEquipmentType?: LoanedEquipmentType | null;
       accessorySerialCode?: string | null;
+      isAvailable?: boolean;
     }>,
     targetOrderId: number
   ): boolean {
@@ -1162,7 +1168,7 @@ export class QuickLoanComponent implements OnInit {
 
     for (const row of defaults) {
       const code = (row.accessorySerialCode ?? '').trim();
-      if (!code) {
+      if (!code || row.isAvailable !== true) {
         continue;
       }
       if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
@@ -1420,27 +1426,21 @@ export class QuickLoanComponent implements OnInit {
     return { rows: next, changed: true };
   }
 
+  /** Kit codes not yet on the row. Availability is decided upstream by each accessory's current status. */
   private filterAvailableCodesForQuickLoan(
     row: QuickLoanAccessoryRow,
     codes: string[]
   ): string[] {
-    const options = this.serialOptionsForRow(row);
     const available: string[] = [];
     for (const code of codes) {
       const trimmed = code.trim();
       if (!trimmed) {
         continue;
       }
-      if (row.selectedCodes.some((c) => c.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0)) {
-        continue;
-      }
-      const match = options.find(
-        (opt) => opt.serialCode.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0
+      const isDuplicate = [...row.selectedCodes, ...available].some(
+        (c) => c.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0
       );
-      if (match && !match.isAvailable) {
-        continue;
-      }
-      if (!match && this.availabilityByDefinitionId().has(row.inventoryDefinitionId)) {
+      if (isDuplicate) {
         continue;
       }
       available.push(trimmed);

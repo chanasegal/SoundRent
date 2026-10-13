@@ -40,8 +40,47 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             .ThenBy(e => e.AccessorySerialCode)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(e => Map(e)).ToList();
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var definitionIds = rows
+            .Where(e => e.InventoryDefinitionId != null)
+            .Select(e => e.InventoryDefinitionId!.Value)
+            .Distinct()
+            .ToList();
+        var accessoryCodes = rows
+            .Select(e => NormalizeCode(e.AccessorySerialCode))
+            .Where(c => c.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var statusByKey = (await _db.InventorySerialCodes
+                .AsNoTracking()
+                .Where(s => definitionIds.Contains(s.InventoryDefinitionId)
+                            && accessoryCodes.Contains(s.SerialCode))
+                .Select(s => new { s.InventoryDefinitionId, s.SerialCode, s.PhysicalStatus })
+                .ToListAsync(cancellationToken))
+            .GroupBy(s => SerialKey(s.InventoryDefinitionId, s.SerialCode), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().PhysicalStatus, StringComparer.OrdinalIgnoreCase);
+
+        return rows.Select(e =>
+        {
+            var dto = Map(e);
+            if (e.InventoryDefinitionId is int defId
+                && statusByKey.TryGetValue(SerialKey(defId, e.AccessorySerialCode), out var status))
+            {
+                dto.PhysicalStatus = status;
+                dto.IsAvailable = status == AccessorySerialPhysicalStatus.InWarehouse;
+            }
+
+            return dto;
+        }).ToList();
     }
+
+    private static string SerialKey(int inventoryDefinitionId, string serialCode) =>
+        $"{inventoryDefinitionId}:{NormalizeCode(serialCode)}";
 
     public async Task<List<EquipmentDefaultAccessoryCountDto>> GetCountsByParentUnitAsync(
         LoanedEquipmentType? parentEquipmentType = null,

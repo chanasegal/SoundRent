@@ -447,10 +447,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     && serial.MixerId is int attachedMixerId
                     && !nextParentSerialIds.Contains(attachedMixerId))
                 {
-                    // Direct accessory rental (parent mixer not on this order) disconnects
-                    // the live attachment and removes the default-kit mapping so it will not
-                    // be auto-added back to that mixer later without an explicit relink.
-                    if (await DetachAccessoryFromMixerAsync(serial, cancellationToken))
+                    // Direct accessory rental (parent mixer not on this order) disconnects only
+                    // the live attachment; the permanent kit mapping to the mixer is preserved.
+                    if (DetachAccessoryFromMixer(serial))
                     {
                         changed = true;
                     }
@@ -606,7 +605,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                     && serial.MixerId is int attachedMixerId
                     && !markedParentIds.Contains(attachedMixerId))
                 {
-                    if (await DetachAccessoryFromMixerAsync(serial, cancellationToken))
+                    if (DetachAccessoryFromMixer(serial))
                     {
                         changed = true;
                     }
@@ -2094,6 +2093,20 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                         continue;
                     }
 
+                    var onCurrentOrder = keepAssignedOnOrder is not null
+                        && keepAssignedOnOrder.TryGetValue(accessory.InventoryDefinitionId, out var currentOrderCodes)
+                        && currentOrderCodes.Contains(accessory.SerialCode);
+
+                    // Kit rows survive a separate accessory loan. An unattached kit accessory that is
+                    // busy elsewhere (loaned / missing / in repair) is skipped — neither re-linked nor
+                    // re-statused — until it is returned to the warehouse.
+                    if (accessory.MixerId is null
+                        && !onCurrentOrder
+                        && accessory.PhysicalStatus != AccessorySerialPhysicalStatus.InWarehouse)
+                    {
+                        continue;
+                    }
+
                     // When cascading LoanedOut, only pull kit accessories that are actually on the
                     // order — otherwise ghosts appear as loaned without an equipment line.
                     if (status == AccessorySerialPhysicalStatus.LoanedOut
@@ -2164,44 +2177,20 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         return changed;
     }
 
-    private async Task<bool> DetachAccessoryFromMixerAsync(
-        InventorySerialCode serial,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Breaks only the live <see cref="InventorySerialCode.MixerId"/> attachment. The permanent
+    /// <see cref="EquipmentDefaultAccessory"/> kit row must never be touched here, so the accessory
+    /// auto-attaches again on future mixer loans once it is back in the warehouse.
+    /// </summary>
+    private static bool DetachAccessoryFromMixer(InventorySerialCode serial)
     {
-        if (serial.MixerId is not int mixerId)
+        if (serial.MixerId is null)
         {
             return false;
         }
 
         serial.MixerId = null;
-        var changed = true;
-
-        var parentSerialCode = await _db.InventorySerialCodes
-            .AsNoTracking()
-            .Where(s => s.Id == mixerId)
-            .Select(s => s.SerialCode)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var parentCode = (parentSerialCode ?? string.Empty).Trim();
-        var accessoryCode = (serial.SerialCode ?? string.Empty).Trim();
-        if (serial.InventoryDefinitionId <= 0 || parentCode.Length == 0 || accessoryCode.Length == 0)
-        {
-            return changed;
-        }
-
-        var defaultLinks = await _db.EquipmentDefaultAccessories
-            .Where(e => e.ParentEquipmentType == LoanedEquipmentType.Mixer
-                        && e.ParentSerialCode == parentCode
-                        && e.InventoryDefinitionId == serial.InventoryDefinitionId
-                        && e.AccessorySerialCode == accessoryCode)
-            .ToListAsync(cancellationToken);
-
-        if (defaultLinks.Count > 0)
-        {
-            _db.EquipmentDefaultAccessories.RemoveRange(defaultLinks);
-        }
-
-        return changed;
+        return true;
     }
 
     /// <summary>
