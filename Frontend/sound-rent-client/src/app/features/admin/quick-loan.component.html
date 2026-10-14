@@ -1030,13 +1030,14 @@
                   [class.accessory-row--removing]="isRemovingLine(row)"
                 >
                   <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
-                  <time
-                    class="active-loan-item__date"
-                    [attr.datetime]="row.loanDateIso"
-                    [title]="activeLoanHebrewDate(row.loanDateIso)"
-                  >
-                    {{ itemHebrewDate(row.loanDateIso) }}@if (row.loanTimeLabel) { · {{ row.loanTimeLabel }} }
-                  </time>
+                  <div class="active-loan-item__when">
+                    @if (row.orderId > 0) {
+                      <span class="active-loan-item__loan-id">#{{ row.orderId }}</span>
+                    }
+                    <time class="active-loan-item__date" [attr.datetime]="row.loanDateIso">
+                      {{ activeLoanHebrewDate(row.loanDateIso) }}@if (row.loanTimeLabel) { · {{ row.loanTimeLabel }} }
+                    </time>
+                  </div>
                   <span class="accessory-row__label">{{ row.accessoryName }}</span>
 
                   @if (row.assignedSerialCodes.length > 0) {

@@ -175,12 +175,7 @@ public class OrderService : IOrderService
         OrderMapper.ApplyTo(dto, existing);
         existing.SystemType = dto.SystemType;
 
-        // Replace child collections (simple, predictable strategy for an admin tool).
-        existing.Equipments.Clear();
-        foreach (var equipmentId in equipmentIds)
-        {
-            existing.Equipments.Add(OrderMapper.ToEntity(equipmentId));
-        }
+        OrderMapper.SyncEquipments(existing, equipmentIds);
 
         existing.Shifts.Clear();
         foreach (var shift in shifts)
@@ -511,11 +506,7 @@ public class OrderService : IOrderService
         existing.IsCancelled = true;
         existing.SystemType = dto.SystemType;
 
-        existing.Equipments.Clear();
-        foreach (var equipmentId in equipmentIds)
-        {
-            existing.Equipments.Add(OrderMapper.ToEntity(equipmentId));
-        }
+        OrderMapper.SyncEquipments(existing, equipmentIds);
 
         existing.Shifts.Clear();
         foreach (var shift in shifts)

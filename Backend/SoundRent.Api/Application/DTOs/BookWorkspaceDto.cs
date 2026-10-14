@@ -88,6 +88,7 @@ public class BookLoanItemDto
     public int BookId { get; set; }
     public string BookTitle { get; set; } = string.Empty;
     public string CopyNumber { get; set; } = string.Empty;
+    public DateTime AddedAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
     public string? HebrewReturnedDisplay { get; set; }
     public decimal? ChargeAmount { get; set; }

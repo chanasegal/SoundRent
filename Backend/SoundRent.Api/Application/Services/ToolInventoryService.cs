@@ -358,8 +358,8 @@ public class ToolInventoryService : IToolInventoryService
             Address = active.ToolLoan.Address,
             Deposit = active.ToolLoan.Deposit,
             Notes = active.ToolLoan.Notes,
-            HebrewLentDisplay = active.ToolLoan.HebrewLentDisplay,
-            LoanDate = DateOnly.FromDateTime(active.ToolLoan.LentAt)
+            HebrewLentDisplay = active.AddedAt == active.ToolLoan.LentAt ? active.ToolLoan.HebrewLentDisplay : null,
+            LoanDate = DateOnly.FromDateTime(active.AddedAt)
         };
     }
 

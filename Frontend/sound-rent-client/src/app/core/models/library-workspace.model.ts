@@ -70,6 +70,8 @@ export interface BookLoanItemDto {
   bookId: number;
   bookTitle: string;
   copyNumber: string;
+  /** When this copy was added to the loan; later than the loan's `lentAt` if added on edit. */
+  addedAt?: string | null;
   returnedAt?: string | null;
   hebrewReturnedDisplay?: string | null;
   chargeAmount?: number | null;

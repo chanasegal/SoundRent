@@ -75,6 +75,7 @@ public class ToolLoanItemDto
     public int ToolDefinitionId { get; set; }
     public string ToolName { get; set; } = string.Empty;
     public string SerialCode { get; set; } = string.Empty;
+    public DateTime AddedAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
     public string? HebrewReturnedDisplay { get; set; }
     public decimal? ChargeAmount { get; set; }

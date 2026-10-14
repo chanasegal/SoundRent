@@ -15,6 +15,9 @@ public static class OrderMapper
             .ThenBy(e => e.EquipmentDefinitionId)
             .Select(e => e.EquipmentDefinitionId)
             .ToList(),
+        EquipmentAddedAt = order.Equipments
+            .GroupBy(e => e.EquipmentDefinitionId)
+            .ToDictionary(g => g.Key, g => g.Min(e => e.AddedAt)),
         Shifts = order.Shifts
             .OrderBy(s => s.OrderDate)
             .ThenBy(s => s.TimeSlot)
@@ -105,6 +108,7 @@ public static class OrderMapper
         Quantity = le.Quantity,
         ReturnedQuantity = le.ReturnedQuantity,
         ExpectedNoteCount = le.ExpectedNoteCount,
+        AddedAt = le.AddedAt,
         Notes = le.Notes
             .OrderBy(n => n.Ordinal)
             .Select(n => new LoanedEquipmentNoteDto
@@ -117,7 +121,23 @@ public static class OrderMapper
             .ToList()
     };
 
-    public static Order ToEntity(OrderCreateUpdateDto dto) => new()
+    public static Order ToEntity(OrderCreateUpdateDto dto)
+    {
+        var order = ToEntityCore(dto);
+        foreach (var equipment in order.Equipments)
+        {
+            equipment.AddedAt = order.CreatedAt;
+        }
+
+        foreach (var line in order.LoanedEquipments)
+        {
+            line.AddedAt = order.CreatedAt;
+        }
+
+        return order;
+    }
+
+    private static Order ToEntityCore(OrderCreateUpdateDto dto) => new()
     {
         CustomerName = NullIfBlank(dto.CustomerName),
         Phone = PhoneNumberNormalizer.DigitsOnly(dto.Phone),
@@ -144,8 +164,32 @@ public static class OrderMapper
 
     public static OrderEquipment ToEntity(string equipmentDefinitionId) => new()
     {
-        EquipmentDefinitionId = equipmentDefinitionId
+        EquipmentDefinitionId = equipmentDefinitionId,
+        AddedAt = DateTime.UtcNow
     };
+
+    /// <summary>
+    /// Keeps rows for equipment that stays on the order (preserving their <see cref="OrderEquipment.AddedAt"/>),
+    /// removes dropped equipment, and stamps newly added equipment with the current time.
+    /// </summary>
+    public static void SyncEquipments(Order order, IEnumerable<string> equipmentDefinitionIds)
+    {
+        var desired = equipmentDefinitionIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var stale in order.Equipments.Where(e => !desired.Contains(e.EquipmentDefinitionId)).ToList())
+        {
+            order.Equipments.Remove(stale);
+        }
+
+        var kept = order.Equipments
+            .Select(e => e.EquipmentDefinitionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var equipmentId in desired.Where(id => !kept.Contains(id)))
+        {
+            order.Equipments.Add(ToEntity(equipmentId));
+        }
+    }
 
     public static OrderShift ToEntity(OrderShiftDto dto) => new()
     {
@@ -172,6 +216,7 @@ public static class OrderMapper
                 Quantity = Math.Max(0, dto.Quantity),
                 ReturnedQuantity = 0,
                 ExpectedNoteCount = customExpected,
+                AddedAt = DateTime.UtcNow,
                 Notes = new List<LoanedEquipmentNote>()
             };
 
@@ -189,6 +234,7 @@ public static class OrderMapper
             Quantity = dto.Quantity,
             ReturnedQuantity = 0,
             ExpectedNoteCount = expected,
+            AddedAt = DateTime.UtcNow,
             Notes = new List<LoanedEquipmentNote>()
         };
 

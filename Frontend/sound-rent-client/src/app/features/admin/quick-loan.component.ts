@@ -45,6 +45,7 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -2111,6 +2112,7 @@ export class QuickLoanComponent implements OnInit {
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0);
         const accessoryName = this.inventoryStore.displayLabelForLoanedLine(le);
+        const addedLaterAt = loanedLineAddedLaterAt(le, order);
         items.push({
           key: `${order.id}-${le.id}`,
           orderId: order.id,
@@ -2119,8 +2121,8 @@ export class QuickLoanComponent implements OnInit {
           quantity: le.quantity - returned,
           quantityLoaned: le.quantity,
           assignedSerialCodes: outstandingCodes,
-          loanDateIso,
-          loanTimeLabel: this.loanTimeFromCreatedAt(order.createdAt)
+          loanDateIso: addedLaterAt ? this.hebrew.toIso(addedLaterAt) : loanDateIso,
+          loanTimeLabel: this.loanTimeFromCreatedAt(addedLaterAt ? le.addedAt : order.createdAt)
         });
       }
       if (items.length === 0) {

@@ -227,6 +227,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("BookId")
                         .HasColumnType("integer");
 
@@ -1002,6 +1005,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("OrderId", "EquipmentDefinitionId");
 
                     b.HasIndex("EquipmentDefinitionId")
@@ -1017,6 +1023,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CustomItemName")
                         .HasMaxLength(200)
@@ -1216,6 +1225,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("ChargeAmount")
                         .HasPrecision(18, 2)

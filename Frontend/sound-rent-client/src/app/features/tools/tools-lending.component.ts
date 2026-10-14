@@ -868,12 +868,13 @@ export class ToolsLendingComponent implements OnInit {
   private buildQuickReturnToolLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
-      const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
+      const loanLentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
       const deadlineAt = this.parseLoanDate(loan.deadlineAt);
       for (const item of loan.items ?? []) {
         if (item.returnedAt) {
           continue;
         }
+        const lentAt = this.parseLoanDate(item.addedAt) ?? loanLentAt;
         const serial = (item.serialCode ?? '').trim();
         views.push({
           rowKey: `${loan.id}-${item.id}`,
@@ -896,7 +897,8 @@ export class ToolsLendingComponent implements OnInit {
           address: (loan.address ?? '').trim(),
           lentAt,
           hebrewLentDisplay:
-            (loan.hebrewLentDisplay ?? '').trim() || this.hebrew.formatHebrewDateTime(lentAt),
+            (lentAt.getTime() === loanLentAt.getTime() ? (loan.hebrewLentDisplay ?? '').trim() : '') ||
+            this.hebrew.formatHebrewDateTime(lentAt),
           deadlineAt,
           returning: this.returningItemId() === item.id,
           deposit: (loan.deposit ?? '').trim() || null,
@@ -970,7 +972,7 @@ export class ToolsLendingComponent implements OnInit {
         continue;
       }
       const loanDate = order.shifts?.[0]?.orderDate ?? '';
-      const lentAt =
+      const orderLentAt =
         this.parseLoanDate(order.createdAt) ??
         this.parseLoanDate(loanDate ? `${loanDate}T00:00:00` : null) ??
         new Date(0);
@@ -979,6 +981,7 @@ export class ToolsLendingComponent implements OnInit {
         if (quantity <= 0) {
           continue;
         }
+        const lentAt = this.parseLoanDate(line.addedAt) ?? orderLentAt;
         const serialCodes = (line.notes ?? [])
           .filter((note) => !note.isReturned)
           .map((note) => (note.content ?? '').trim())

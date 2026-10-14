@@ -32,5 +32,8 @@ public class OrderLoanedEquipment
     /// <summary>How many detail note inputs apply to this line (UI + persisted notes).</summary>
     public int ExpectedNoteCount { get; set; }
 
+    /// <summary>When this line was added to the order (later than <see cref="Order.CreatedAt"/> when added on edit).</summary>
+    public DateTime AddedAt { get; set; } = DateTime.UtcNow;
+
     public ICollection<LoanedEquipmentNote> Notes { get; set; } = new List<LoanedEquipmentNote>();
 }

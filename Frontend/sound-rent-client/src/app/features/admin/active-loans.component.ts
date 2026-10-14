@@ -32,6 +32,7 @@ import { CustomersStore } from '../../core/services/customers.store';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
 
 interface ActiveLoanRow {
   key: string;
@@ -47,6 +48,8 @@ interface ActiveLoanRow {
   quantityLoaned: number;
   codes: string[];
   loanDateIso: string;
+  /** HH:MM shown next to the date; set only for lines added by a later edit of the order. */
+  loanTimeLabel: string;
   isCustomItem: boolean;
   assignedSerialCodes: string[];
   /** True when the loan comes from a full order (grid equipment), not a standalone quick loan. */
@@ -303,6 +306,10 @@ export class ActiveLoansComponent implements OnInit {
     }
     const date = this.hebrew.parseIso(iso);
     return date ? this.hebrew.toHebrewWithDayOfWeek(date) : '';
+  }
+
+  private timeLabel(date: Date): string {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   }
 
   /** Compact Hebrew date for a loan row, e.g. "כ״א אייר תשפ״ה". */
@@ -1406,6 +1413,7 @@ export class ActiveLoansComponent implements OnInit {
             fromLine
           );
         })();
+        const addedLaterAt = loanedLineAddedLaterAt(le, order);
         rows.push({
           key: `${order.id}-${le.id}`,
           orderId: order.id,
@@ -1417,7 +1425,8 @@ export class ActiveLoansComponent implements OnInit {
           quantity: le.quantity - returned,
           quantityLoaned: le.quantity,
           codes,
-          loanDateIso,
+          loanDateIso: addedLaterAt ? this.hebrew.toIso(addedLaterAt) : loanDateIso,
+          loanTimeLabel: addedLaterAt ? this.timeLabel(addedLaterAt) : '',
           isCustomItem: !!le.isCustomItem,
           isOneTimeItem: this.isOneTimeAccessoryName(accessoryName, !!le.isCustomItem),
           assignedSerialCodes: codes,
@@ -1457,6 +1466,7 @@ export class ActiveLoansComponent implements OnInit {
           quantityLoaned: report.quantityLoaned > 0 ? report.quantityLoaned : 1,
           codes,
           loanDateIso: report.returnDate,
+          loanTimeLabel: '',
           isCustomItem: report.isCustomItem || !report.inventoryDefinitionId,
           isOneTimeItem: !report.inventoryDefinitionId,
           assignedSerialCodes: codes,

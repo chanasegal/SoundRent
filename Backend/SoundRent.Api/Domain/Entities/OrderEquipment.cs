@@ -10,4 +10,7 @@ public class OrderEquipment
 
     public string EquipmentDefinitionId { get; set; } = string.Empty;
     public EquipmentDefinition EquipmentDefinition { get; set; } = null!;
+
+    /// <summary>When this equipment was added to the order (later than <see cref="Order.CreatedAt"/> when added on edit).</summary>
+    public DateTime AddedAt { get; set; } = DateTime.UtcNow;
 }

@@ -393,6 +393,28 @@
   border-radius: 0.5rem;
   transition: opacity 0.28s ease;
 
+  &__when {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.45rem;
+    min-width: 0;
+  }
+
+  &__loan-id {
+    flex: 0 0 auto;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #002244;
+    font-size: 0.72rem;
+    font-weight: 700;
+    direction: ltr;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   &__date {
     flex: 0 0 auto;
     min-width: 5.5rem;
@@ -480,6 +502,14 @@
 }
 
 @media (max-width: 700px) {
+  .active-loan-item__when {
+    width: 100%;
+  }
+
+  .active-loan-item__date {
+    min-width: 0;
+  }
+
   .active-loan-item__meta {
     margin-inline-start: 0;
     width: 100%;

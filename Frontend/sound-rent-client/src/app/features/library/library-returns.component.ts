@@ -181,13 +181,14 @@ export class LibraryReturnsComponent implements OnInit {
     const views: CompletedLoanRowView[] = [];
 
     for (const loan of this.loans()) {
-      const lentAt = new Date(loan.lentAt);
+      const loanLentAt = new Date(loan.lentAt);
       const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
 
       for (const item of loan.items) {
         if (!item.returnedAt) {
           continue;
         }
+        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
         const returnedAt = new Date(item.returnedAt);
         views.push({
           rowKey: `${loan.id}-${item.id}`,
@@ -198,7 +199,10 @@ export class LibraryReturnsComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           lentAt,
-          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
+          hebrewLentDisplay:
+            lentAt.getTime() === loanLentAt.getTime()
+              ? this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt)
+              : this.formatHebrewDate(lentAt),
           deadlineAt,
           returnedAt,
           hebrewReturnedDisplay: this.dateOnlyDisplay(
@@ -1005,12 +1009,13 @@ export class LibraryReturnsComponent implements OnInit {
   private buildActiveLoanRowViews(loans: BookLoanDto[]): ActiveLoanRowView[] {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
-      const lentAt = new Date(loan.lentAt);
+      const loanLentAt = new Date(loan.lentAt);
       const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
       for (const item of loan.items) {
         if (item.returnedAt) {
           continue;
         }
+        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,
@@ -1021,7 +1026,10 @@ export class LibraryReturnsComponent implements OnInit {
           address: (loan.address ?? '').trim(),
           lentAt,
           deadlineAt,
-          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt)
+          hebrewLentDisplay:
+            lentAt.getTime() === loanLentAt.getTime()
+              ? this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt)
+              : this.formatHebrewDate(lentAt)
         });
       }
     }

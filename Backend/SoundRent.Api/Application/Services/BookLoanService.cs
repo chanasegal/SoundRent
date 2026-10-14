@@ -152,9 +152,10 @@ public class BookLoanService : IBookLoanService
 
         var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: null, cancellationToken);
 
+        var now = DateTime.UtcNow;
         var entity = new BookLoan
         {
-            LentAt = DateTime.UtcNow,
+            LentAt = now,
             HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
             ClientName = (dto.ClientName ?? string.Empty).Trim(),
             Phone = phone,
@@ -163,14 +164,15 @@ public class BookLoanService : IBookLoanService
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = now,
+            UpdatedAt = now,
             Items = normalizedItems
                 .Select(i => new BookLoanItem
                 {
                     BookId = i.BookId,
                     BookTitle = i.BookTitle,
-                    CopyNumber = i.CopyNumber
+                    CopyNumber = i.CopyNumber,
+                    AddedAt = now
                 })
                 .ToList()
         };
@@ -221,12 +223,20 @@ public class BookLoanService : IBookLoanService
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
+        var now = DateTime.UtcNow;
         entity.DeadlineAt = dto.DeadlineAt;
-        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedAt = now;
 
         var unreturned = entity.Items.Where(i => i.ReturnedAt == null).ToList();
+        var priorAddedAt = new Dictionary<(int BookId, string CopyNumber), DateTime>();
         foreach (var item in unreturned)
         {
+            var key = (item.BookId, item.CopyNumber.Trim().ToUpperInvariant());
+            if (!priorAddedAt.TryGetValue(key, out var seen) || item.AddedAt < seen)
+            {
+                priorAddedAt[key] = item.AddedAt;
+            }
+
             if (item.CustomerDebt != null)
             {
                 _db.CustomerDebts.Remove(item.CustomerDebt);
@@ -237,11 +247,13 @@ public class BookLoanService : IBookLoanService
 
         foreach (var item in normalizedItems)
         {
+            var key = (item.BookId, item.CopyNumber.Trim().ToUpperInvariant());
             entity.Items.Add(new BookLoanItem
             {
                 BookId = item.BookId,
                 BookTitle = item.BookTitle,
-                CopyNumber = item.CopyNumber
+                CopyNumber = item.CopyNumber,
+                AddedAt = priorAddedAt.TryGetValue(key, out var addedAt) ? addedAt : now
             });
         }
 
@@ -476,8 +488,8 @@ public class BookLoanService : IBookLoanService
                 CopyNumber = i.CopyNumber,
                 ClientName = i.BookLoan.ClientName,
                 Phone = i.BookLoan.Phone,
-                LentAt = i.BookLoan.LentAt,
-                HebrewLentDisplay = i.BookLoan.HebrewLentDisplay,
+                LentAt = i.AddedAt,
+                HebrewLentDisplay = i.AddedAt == i.BookLoan.LentAt ? i.BookLoan.HebrewLentDisplay : string.Empty,
                 DeadlineAt = i.BookLoan.DeadlineAt,
                 ReturnedAt = i.ReturnedAt!.Value,
                 HebrewReturnedDisplay = i.HebrewReturnedDisplay,
@@ -615,6 +627,7 @@ public class BookLoanService : IBookLoanService
                     BookId = i.BookId,
                     BookTitle = i.BookTitle,
                     CopyNumber = i.CopyNumber,
+                    AddedAt = i.AddedAt,
                     ReturnedAt = i.ReturnedAt,
                     HebrewReturnedDisplay = i.HebrewReturnedDisplay,
                     ChargeAmount = i.ChargeAmount,

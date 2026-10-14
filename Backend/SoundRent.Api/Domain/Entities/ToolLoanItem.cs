@@ -21,6 +21,9 @@ public class ToolLoanItem
     [MaxLength(100)]
     public string SerialCode { get; set; } = string.Empty;
 
+    /// <summary>When this unit was added to the loan (later than <see cref="ToolLoan.LentAt"/> when added on edit).</summary>
+    public DateTime AddedAt { get; set; } = DateTime.UtcNow;
+
     /// <summary>When set, this specific unit has been returned independently of sibling items.</summary>
     public DateTime? ReturnedAt { get; set; }
 

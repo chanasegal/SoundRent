@@ -216,12 +216,13 @@ export class LibraryLendingComponent implements OnInit {
     this.nowTick();
     const views: ActiveLoanRowView[] = [];
     for (const loan of this.activeLoans()) {
-      const lentAt = new Date(loan.lentAt);
+      const loanLentAt = new Date(loan.lentAt);
       const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
       for (const item of loan.items) {
         if (item.returnedAt) {
           continue;
         }
+        const lentAt = this.parseLoanDate(item.addedAt) ?? loanLentAt;
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,
@@ -233,7 +234,10 @@ export class LibraryLendingComponent implements OnInit {
           deposit: (loan.deposit ?? '').trim(),
           loanNotes: (loan.notes ?? '').trim(),
           lentAt,
-          hebrewLentDisplay: this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt),
+          hebrewLentDisplay:
+            lentAt.getTime() === loanLentAt.getTime()
+              ? this.dateOnlyDisplay(loan.hebrewLentDisplay, lentAt)
+              : this.formatHebrewDate(lentAt),
           deadlineAt,
           returning: this.returningItemId() === item.id
         });

@@ -156,9 +156,10 @@ public class ToolLoanService : IToolLoanService
         var normalizedItems = await NormalizeLoanItemsAsync(items, excludeLoanId: null, cancellationToken);
         var (institutionId, institutionName) = await ResolveInstitutionAsync(dto, cancellationToken);
 
+        var now = DateTime.UtcNow;
         var entity = new ToolLoan
         {
-            LentAt = DateTime.UtcNow,
+            LentAt = now,
             HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim(),
             ClientName = (dto.ClientName ?? string.Empty).Trim(),
             Phone = phone,
@@ -169,14 +170,15 @@ public class ToolLoanService : IToolLoanService
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = now,
+            UpdatedAt = now,
             Items = normalizedItems
                 .Select(i => new ToolLoanItem
                 {
                     ToolDefinitionId = i.ToolDefinitionId,
                     ToolName = i.ToolName,
-                    SerialCode = i.SerialCode
+                    SerialCode = i.SerialCode,
+                    AddedAt = now
                 })
                 .ToList()
         };
@@ -230,12 +232,23 @@ public class ToolLoanService : IToolLoanService
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
+        var now = DateTime.UtcNow;
         entity.DeadlineAt = dto.DeadlineAt;
-        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedAt = now;
 
         var unreturned = entity.Items.Where(i => i.ReturnedAt == null).ToList();
-        foreach (var item in unreturned)
+        var priorAddedAt = new Dictionary<(int ToolDefinitionId, string SerialCode, string ToolName), Queue<DateTime>>();
+        foreach (var item in unreturned.OrderBy(i => i.AddedAt))
         {
+            var key = ToolItemMatchKey(item.ToolDefinitionId, item.SerialCode, item.ToolName);
+            if (!priorAddedAt.TryGetValue(key, out var stamps))
+            {
+                stamps = new Queue<DateTime>();
+                priorAddedAt[key] = stamps;
+            }
+
+            stamps.Enqueue(item.AddedAt);
+
             if (item.CustomerDebt != null)
             {
                 _db.CustomerDebts.Remove(item.CustomerDebt);
@@ -246,17 +259,31 @@ public class ToolLoanService : IToolLoanService
 
         foreach (var item in normalizedItems)
         {
+            var key = ToolItemMatchKey(item.ToolDefinitionId, item.SerialCode, item.ToolName);
             entity.Items.Add(new ToolLoanItem
             {
                 ToolDefinitionId = item.ToolDefinitionId,
                 ToolName = item.ToolName,
-                SerialCode = item.SerialCode
+                SerialCode = item.SerialCode,
+                AddedAt = priorAddedAt.TryGetValue(key, out var stamps) && stamps.Count > 0
+                    ? stamps.Dequeue()
+                    : now
             });
         }
 
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
     }
+
+    private static (int ToolDefinitionId, string SerialCode, string ToolName) ToolItemMatchKey(
+        int toolDefinitionId,
+        string? serialCode,
+        string? toolName) =>
+        (
+            toolDefinitionId,
+            (serialCode ?? string.Empty).Trim().ToUpperInvariant(),
+            toolDefinitionId > 0 ? string.Empty : (toolName ?? string.Empty).Trim().ToUpperInvariant()
+        );
 
     private async Task<List<(int ToolDefinitionId, string SerialCode, string ToolName)>> NormalizeLoanItemsAsync(
         List<ToolLoanItemCreateDto> items,
@@ -606,8 +633,8 @@ public class ToolLoanService : IToolLoanService
                 ClientName = i.ToolLoan.ClientName,
                 Phone = i.ToolLoan.Phone,
                 Address = i.ToolLoan.Address,
-                LentAt = i.ToolLoan.LentAt,
-                HebrewLentDisplay = i.ToolLoan.HebrewLentDisplay,
+                LentAt = i.AddedAt,
+                HebrewLentDisplay = i.AddedAt == i.ToolLoan.LentAt ? i.ToolLoan.HebrewLentDisplay : string.Empty,
                 DeadlineAt = i.ToolLoan.DeadlineAt,
                 ReturnedAt = i.ReturnedAt!.Value,
                 HebrewReturnedDisplay = i.HebrewReturnedDisplay,
@@ -691,6 +718,7 @@ public class ToolLoanService : IToolLoanService
                     ToolDefinitionId = i.ToolDefinitionId,
                     ToolName = i.ToolName,
                     SerialCode = i.SerialCode,
+                    AddedAt = i.AddedAt,
                     ReturnedAt = i.ReturnedAt,
                     HebrewReturnedDisplay = i.HebrewReturnedDisplay,
                     ChargeAmount = i.ChargeAmount ?? i.CustomerDebt?.Amount,

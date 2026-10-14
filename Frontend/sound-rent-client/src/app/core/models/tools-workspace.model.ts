@@ -58,6 +58,8 @@ export interface ToolLoanItemDto {
   toolDefinitionId: number;
   toolName: string;
   serialCode: string;
+  /** When this unit was added to the loan; later than the loan's `lentAt` if added on edit. */
+  addedAt?: string | null;
   returnedAt?: string | null;
   hebrewReturnedDisplay?: string | null;
   chargeAmount?: number | null;

@@ -202,13 +202,14 @@ export class ToolsReturnsComponent implements OnInit {
     const views: CompletedLoanRowView[] = [];
 
     for (const loan of this.loans()) {
-      const lentAt = new Date(loan.lentAt);
+      const loanLentAt = new Date(loan.lentAt);
       const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
 
       for (const item of loan.items) {
         if (!item.returnedAt) {
           continue;
         }
+        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
         const returnedAt = new Date(item.returnedAt);
         views.push({
           rowKey: `${loan.id}-${item.id}`,
@@ -223,7 +224,9 @@ export class ToolsReturnsComponent implements OnInit {
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
           lentAt,
-          hebrewLentDisplay: loan.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
+          hebrewLentDisplay:
+            (lentAt.getTime() === loanLentAt.getTime() ? loan.hebrewLentDisplay : '') ||
+            this.formatHebrewDateTime(lentAt),
           deadlineAt,
           returnedAt,
           hebrewReturnedDisplay:
@@ -1097,12 +1100,13 @@ export class ToolsReturnsComponent implements OnInit {
   private buildActiveLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
-      const lentAt = new Date(loan.lentAt);
+      const loanLentAt = new Date(loan.lentAt);
       const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
       for (const item of loan.items) {
         if (item.returnedAt) {
           continue;
         }
+        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,

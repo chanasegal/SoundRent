@@ -26,5 +26,8 @@ public class OrderLoanedEquipmentDto
     [Range(0, int.MaxValue)]
     public int ExpectedNoteCount { get; set; }
 
+    /// <summary>Server-assigned; ignored on create/update requests.</summary>
+    public DateTime? AddedAt { get; set; }
+
     public List<LoanedEquipmentNoteDto> Notes { get; set; } = new();
 }

@@ -16,6 +16,25 @@ export function isLoanedLineActive(line: OrderLoanedEquipmentDto): boolean {
   );
 }
 
+/** Lines saved in the same request as the order share its timestamp; allow for rounding. */
+const SAME_SAVE_TOLERANCE_MS = 1000;
+
+/**
+ * The line's own timestamp when it was added by a later edit of the order;
+ * null when it belongs to the original order (or has no per-line timestamp).
+ */
+export function loanedLineAddedLaterAt(
+  line: Pick<OrderLoanedEquipmentDto, 'addedAt'>,
+  order: Pick<OrderDto, 'createdAt'>
+): Date | null {
+  const added = line.addedAt ? new Date(line.addedAt) : null;
+  const created = new Date(order.createdAt);
+  if (!added || Number.isNaN(added.getTime()) || Number.isNaN(created.getTime())) {
+    return null;
+  }
+  return added.getTime() - created.getTime() > SAME_SAVE_TOLERANCE_MS ? added : null;
+}
+
 export function orderHasActiveLoans(order: OrderDto | null | undefined): boolean {
   return (order?.loanedEquipments ?? []).some(isLoanedLineActive);
 }

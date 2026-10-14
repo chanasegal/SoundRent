@@ -405,8 +405,8 @@ public class BookInventoryService : IBookInventoryService
             Address = active.BookLoan.Address,
             Deposit = active.BookLoan.Deposit,
             Notes = active.BookLoan.Notes,
-            HebrewLentDisplay = active.BookLoan.HebrewLentDisplay,
-            LoanDate = DateOnly.FromDateTime(active.BookLoan.LentAt)
+            HebrewLentDisplay = active.AddedAt == active.BookLoan.LentAt ? active.BookLoan.HebrewLentDisplay : null,
+            LoanDate = DateOnly.FromDateTime(active.AddedAt)
         };
     }
 

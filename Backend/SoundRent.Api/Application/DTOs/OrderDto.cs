@@ -9,6 +9,9 @@ public class OrderDto
     /// <summary>Booking-slot ids, e.g. 715-A / 910NX-B.</summary>
     public List<string> EquipmentDefinitionIds { get; set; } = new();
 
+    /// <summary>When each booking-slot id was added to the order, keyed by equipment definition id.</summary>
+    public Dictionary<string, DateTime> EquipmentAddedAt { get; set; } = new();
+
     /// <summary>Requested date/shift slots reserved by this order.</summary>
     public List<OrderShiftDto> Shifts { get; set; } = new();
 

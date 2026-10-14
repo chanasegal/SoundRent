@@ -17,6 +17,8 @@ export interface OrderLoanedEquipmentDto {
   returnedQuantity?: number;
   expectedNoteCount: number;
   notes: LoanedEquipmentNoteDto[];
+  /** Server-assigned; later than the order's `createdAt` if the line was added on edit. */
+  addedAt?: string | null;
 }
 
 export interface OrderShiftDto {
@@ -28,6 +30,8 @@ export interface OrderDto {
   id: number;
   /** Booking slot ids (e.g. 715-A, 910NX-B). */
   equipmentDefinitionIds: string[];
+  /** When each booking slot id was added to the order. */
+  equipmentAddedAt?: Record<string, string>;
   shifts: OrderShiftDto[];
   customerName?: string | null;
   phone: string;
