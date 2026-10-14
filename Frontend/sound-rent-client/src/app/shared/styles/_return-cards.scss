@@ -1,0 +1,301 @@
+// Grouped return-history cards — same visual language as the lending pages'
+// active-loan customer cards (one card per customer + loan/order).
+
+.returns-cards-shell {
+  border-radius: 1rem;
+  background: #fff;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  outline: 1px solid #e2e8f0;
+}
+
+.returns-cards-empty {
+  padding: 2rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.customer-breakdown-list {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.customer-profile-note {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.45rem;
+  margin-block: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.82rem;
+  line-height: 1.35;
+
+  &__label {
+    flex: 0 0 auto;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  &__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+}
+
+.customer-breakdown-card {
+  border-radius: 0.85rem;
+  background: #e8eef5;
+  border: 2px solid #94a3b8;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  padding: 1rem 1.1rem;
+
+  &__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.55rem 0.85rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid #cbd5e1;
+  }
+
+  &__primary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  &__actions {
+    display: inline-flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  &__name {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #002244;
+  }
+
+  &__phone {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    color: #475569;
+  }
+
+  &__address {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
+  &__ref {
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #002244;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+
+  a.customer-breakdown-card__ref:hover {
+    text-decoration: underline;
+  }
+
+  &__total {
+    font-size: 0.85rem;
+    color: #334155;
+
+    strong {
+      font-weight: 800;
+      color: #002244;
+    }
+  }
+
+  &__qty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.65rem;
+    height: 1.65rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0c4a6e;
+    font-weight: 800;
+    font-size: 0.8rem;
+  }
+
+  &__items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+}
+
+.accessory-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.9rem;
+  color: #1e293b;
+
+  &__label {
+    font-weight: 600;
+  }
+
+  &__serial {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.35rem;
+    min-width: 0;
+  }
+
+  &__serial-sep {
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  &__serial-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.4rem;
+    padding: 0.12rem 0.4rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #0f766e;
+    line-height: 1.2;
+  }
+}
+
+.return-item {
+  justify-content: flex-start;
+  row-gap: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.55);
+
+  &--overdue {
+    background: #fff1f2;
+  }
+
+  &__when {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.45rem;
+    min-width: 0;
+  }
+
+  &__date {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    white-space: nowrap;
+
+    strong {
+      color: #002244;
+    }
+  }
+
+  &__duration {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #334155;
+    white-space: nowrap;
+  }
+
+  &__meta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+    margin-inline-start: auto;
+  }
+
+  .action-icon-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+
+    .pi {
+      font-size: 0.8rem;
+    }
+  }
+}
+
+.recent-loan-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  color: #334155;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background-color: #f1f5f9;
+    color: #002244;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.45;
+  }
+
+  svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &--delete {
+    color: #ef4444;
+
+    &:hover:not(:disabled) {
+      background-color: #fef2f2;
+      color: #dc2626;
+    }
+  }
+}
+
+@media (max-width: 700px) {
+  .return-item__when {
+    width: 100%;
+  }
+
+  .return-item__meta {
+    margin-inline-start: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+}

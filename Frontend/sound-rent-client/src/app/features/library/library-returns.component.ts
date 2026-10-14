@@ -25,6 +25,7 @@ import {
   BookLoanItemDto
 } from '../../core/models/library-workspace.model';
 import { BooksStore } from '../../core/services/books.store';
+import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
@@ -51,6 +52,9 @@ interface CompletedLoanRowView {
   item: Pick<BookLoanItemDto, 'bookTitle' | 'copyNumber'>;
   clientName: string;
   phone: string;
+  address: string;
+  deposit: string;
+  loanNotes: string;
   lentAt: Date;
   hebrewLentDisplay: string;
   deadlineAt: Date | null;
@@ -58,6 +62,21 @@ interface CompletedLoanRowView {
   hebrewReturnedDisplay: string;
   chargeAmount: number | null;
   chargeIsPaid: boolean | null;
+}
+
+/** One card per customer + loan, mirroring the lending page's customer cards. */
+interface ReturnedLoanCard {
+  key: string;
+  loanId: number;
+  customerName: string;
+  phone: string;
+  address: string;
+  hebrewLentDisplay: string;
+  latestReturnedAt: Date;
+  deposit: string;
+  loanNotes: string;
+  customerNotes: string | null;
+  items: CompletedLoanRowView[];
 }
 
 interface QuickReturnItem {
@@ -123,6 +142,7 @@ export class LibraryReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly booksStore = inject(BooksStore);
+  private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
@@ -198,6 +218,9 @@ export class LibraryReturnsComponent implements OnInit {
           item,
           clientName: loan.clientName,
           phone: loan.phone,
+          address: (loan.address ?? '').trim(),
+          deposit: (loan.deposit ?? '').trim(),
+          loanNotes: (loan.notes ?? '').trim(),
           lentAt,
           hebrewLentDisplay:
             lentAt.getTime() === loanLentAt.getTime()
@@ -248,8 +271,48 @@ export class LibraryReturnsComponent implements OnInit {
     });
   });
 
+  protected readonly returnedCards = computed(() => {
+    this.customers.customers();
+    const byLoan = new Map<string, ReturnedLoanCard>();
+
+    for (const row of this.filteredRows()) {
+      const key = `${row.loanId}|${(row.clientName ?? '').trim()}|${this.normalizePhone(row.phone)}`;
+      let card = byLoan.get(key);
+      if (!card) {
+        card = {
+          key,
+          loanId: row.loanId,
+          customerName: row.clientName,
+          phone: row.phone,
+          address: row.address,
+          hebrewLentDisplay: row.hebrewLentDisplay,
+          latestReturnedAt: row.returnedAt,
+          deposit: row.deposit,
+          loanNotes: row.loanNotes,
+          customerNotes: this.customers.notesForPhone(row.phone),
+          items: []
+        };
+        byLoan.set(key, card);
+      }
+      if (row.returnedAt.getTime() > card.latestReturnedAt.getTime()) {
+        card.latestReturnedAt = row.returnedAt;
+      }
+      card.items.push(row);
+    }
+
+    for (const card of byLoan.values()) {
+      const earliest = card.items.reduce((a, b) => (b.lentAt < a.lentAt ? b : a));
+      card.hebrewLentDisplay = earliest.hebrewLentDisplay;
+    }
+
+    return [...byLoan.values()].sort(
+      (a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime()
+    );
+  });
+
   ngOnInit(): void {
     this.booksStore.load().subscribe();
+    this.customers.load().subscribe();
     this.refresh();
     this.refreshActiveLoans();
 
@@ -790,6 +853,23 @@ export class LibraryReturnsComponent implements OnInit {
     return this.displayCharge(row) > 0;
   }
 
+  protected cardTotalCharge(card: ReturnedLoanCard): number {
+    return card.items.reduce((sum, row) => sum + this.displayCharge(row), 0);
+  }
+
+  protected formatChargeTotal(amount: number): string {
+    const rounded = Math.round(amount * 100) / 100;
+    return Number.isInteger(rounded) ? `₪${rounded}` : `₪${rounded.toFixed(2)}`;
+  }
+
+  protected isCardBusy(card: ReturnedLoanCard): boolean {
+    if (this.deletingLoanId() === card.loanId) {
+      return true;
+    }
+    const undoing = this.undoingRowKey();
+    return undoing != null && card.items.some((row) => row.rowKey === undoing);
+  }
+
   protected formatCharge(amount: number | null): string {
     if (amount == null || amount <= 0) {
       return '—';
@@ -977,6 +1057,7 @@ export class LibraryReturnsComponent implements OnInit {
   private toHistoryRow(h: BookItemBorrowHistoryDto): CompletedLoanRowView {
     const lentAt = new Date(h.lentAt);
     const returnedAt = new Date(h.returnedAt);
+    const loan = this.loans().find((l) => l.id === h.loanId);
     return {
       rowKey: `hist-${h.loanId}-${h.itemId}`,
       loanId: h.loanId,
@@ -985,6 +1066,9 @@ export class LibraryReturnsComponent implements OnInit {
       item: { bookTitle: h.bookTitle, copyNumber: h.copyNumber },
       clientName: h.clientName,
       phone: h.phone,
+      address: (loan?.address ?? '').trim(),
+      deposit: (loan?.deposit ?? '').trim(),
+      loanNotes: (loan?.notes ?? '').trim(),
       lentAt,
       hebrewLentDisplay: this.dateOnlyDisplay(h.hebrewLentDisplay, lentAt),
       deadlineAt: h.deadlineAt ? new Date(h.deadlineAt) : null,

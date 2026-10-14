@@ -1,4 +1,4 @@
-import { LoanedEquipmentType } from './enums';
+import { DepositType, LoanedEquipmentType } from './enums';
 
 export interface OrderReturnItemDto {
   loanedEquipmentId: number;
@@ -103,4 +103,8 @@ export interface ReturnedAccessoryHistoryDto {
   isCustomItem: boolean;
   /** True when the loan is tied to weekly-schedule main equipment. */
   isOrderBased: boolean;
+  depositType?: DepositType | null;
+  depositOnName?: string | null;
+  /** Order-level notes from the loan/order form. */
+  notes?: string | null;
 }

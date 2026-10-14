@@ -180,152 +180,186 @@
     </div>
   </section>
 
-  <div class="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+  <div class="returns-cards-shell">
     @if (loading() && !historyMode()) {
-      <p class="px-4 py-8 text-center text-sm text-slate-500">טוען החזרות…</p>
+      <p class="returns-cards-empty">טוען החזרות…</p>
     } @else if (historySearching()) {
-      <p class="px-4 py-8 text-center text-sm text-slate-500">טוען היסטוריית פריט…</p>
+      <p class="returns-cards-empty">טוען היסטוריית פריט…</p>
+    } @else if (returnedCards().length === 0) {
+      <p class="returns-cards-empty">
+        @if (returnSearchQuery().trim()) {
+          לא נמצאו תוצאות לחיפוש
+        } @else if (historyMode()) {
+          לא נמצאו החזרות לקוד זה
+        } @else {
+          אין החזרות להצגה
+        }
+      </p>
     } @else {
-      <table class="returns-table w-full min-w-[40rem] border-collapse text-right text-sm">
-        <thead>
-          <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-            <th class="px-3 py-3 font-semibold">מס' השאלה</th>
-            <th class="px-3 py-3 font-semibold">תאריך ושעה</th>
-            <th class="px-3 py-3 font-semibold">פריט</th>
-            <th class="px-3 py-3 font-semibold">קוד פריט</th>
-            <th class="px-3 py-3 font-semibold">פרטי לקוח</th>
-            <th class="px-3 py-3 font-semibold">מועד החזרה נדרש</th>
-            <th class="px-3 py-3 font-semibold">תאריך ושעת החזרה</th>
-            <th class="px-3 py-3 font-semibold">משך כולל</th>
-            <th class="px-3 py-3 font-semibold">חיוב</th>
-            <th class="px-3 py-3 font-semibold text-center">פעולות</th>
-          </tr>
-        </thead>
-        <tbody>
-          @if (filteredRows().length === 0) {
-            <tr><td colspan="10" class="px-4 py-8 text-center text-sm text-slate-500">
-              {{ returnSearchQuery().trim() ? 'לא נמצאו תוצאות לחיפוש' : 'אין החזרות' }}
-            </td></tr>
-          }
-          @for (row of filteredRows(); track row.rowKey) {
-            <tr class="border-b border-slate-100" [class.row-overdue]="isOverdue(row)">
-              <td class="px-3 py-3 whitespace-nowrap font-semibold text-[#002244]">
-                @if (row.loanId > 0) {
-                  #{{ row.loanId }}
-                } @else {
-                  <span class="text-slate-400">—</span>
+      <div class="customer-breakdown-list">
+        @for (card of returnedCards(); track card.key) {
+          <article class="customer-breakdown-card">
+            <header class="customer-breakdown-card__header">
+              <div class="customer-breakdown-card__primary">
+                <span class="customer-breakdown-card__name">{{ card.customerName || 'ללא שם' }}</span>
+                <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(card.phone) }}</span>
+                @if (card.address) {
+                  <span class="customer-breakdown-card__address">{{ card.address }}</span>
                 }
-              </td>
-              <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
-                {{ row.hebrewLentDisplay }}
-              </td>
-              <td class="px-3 py-3 font-semibold text-[#002244]">{{ row.item.toolName }}</td>
-              <td class="px-3 py-3">
-                <span class="ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
-              </td>
-              <td class="px-3 py-3">
-                <div class="client-cell">
-                  <span>{{ row.clientName || '—' }}</span>
-                  <span class="ltr-field phone" dir="ltr">{{ formatPhone(row.phone) }}</span>
-                  @if (row.address) {
-                    <span class="address">{{ row.address }}</span>
-                  }
-                </div>
-              </td>
-              <td class="px-3 py-3 whitespace-nowrap">{{ formatDeadline(row.deadlineAt) }}</td>
-              <td class="px-3 py-3 whitespace-nowrap font-medium text-[#002244]">
-                {{ row.hebrewReturnedDisplay }}
-              </td>
-              <td
-                class="px-3 py-3 whitespace-nowrap font-medium"
-                [class.duration-overdue]="isOverdue(row)"
-              >
-                {{ durationText(row) }}
-              </td>
-              <td class="px-3 py-3 whitespace-nowrap">
-                @if (hasCharge(row)) {
-                  <div class="charge-cell">
-                    <span class="charge-amount">{{ formatCharge(row.chargeAmount) }}</span>
-                    @if (row.chargeIsPaid === true) {
-                      <span class="charge-badge charge-badge--paid">שולם</span>
-                    } @else if (canQuickPay(row)) {
-                      <button
-                        type="button"
-                        class="charge-badge charge-badge--open charge-badge--clickable"
-                        [disabled]="markingDebtId() === row.customerDebtId"
-                        (click)="onOpenBadgeClick($event, row)"
-                        title="סמן כשולם"
-                      >
-                        {{ markingDebtId() === row.customerDebtId ? '…' : 'פתוח' }}
-                      </button>
-                    } @else {
-                      <span class="charge-badge charge-badge--open">פתוח</span>
-                    }
-                  </div>
-                } @else {
-                  <span class="charge-badge charge-badge--free">חינם</span>
+                @if (card.loanId > 0) {
+                  <span class="customer-breakdown-card__ref" dir="ltr">#{{ card.loanId }}</span>
                 }
-              </td>
-              <td class="px-3 py-3 text-center">
-                <div class="actions-cell">
+                <span class="customer-breakdown-card__address">הושאל: {{ card.hebrewLentDisplay }}</span>
+                <span class="customer-breakdown-card__total">
+                  סכום כולל:
+                  <strong dir="ltr">{{ formatChargeTotal(cardTotalCharge(card)) }}</strong>
+                </span>
+              </div>
+              @if (card.source === 'tools') {
+                <div class="customer-breakdown-card__actions">
                   <button
                     type="button"
-                    class="action-icon-btn action-icon-btn--calendar"
-                    (click)="loanRangeCal.open($event, row.lentAt, row.returnedAt)"
-                    title="תצוגת טווח השאלה"
-                    aria-label="תצוגת טווח השאלה"
-                  >
-                    <i class="pi pi-calendar" aria-hidden="true"></i>
-                  </button>
-                  <button
-                    type="button"
-                    class="action-icon-btn action-icon-btn--undo"
-                    [disabled]="undoingRowKey() === row.rowKey || deletingLoanId() === row.loanId"
-                    (click)="onUndoReturnClick($event, row)"
-                    title="ביטול החזרה"
-                    aria-label="ביטול החזרה"
+                    class="recent-loan-action recent-loan-action--delete"
+                    title="מחיקת ההשאלה לצמיתות"
+                    aria-label="מחיקת ההשאלה לצמיתות"
+                    [disabled]="isCardBusy(card)"
+                    (click)="onDeleteLoanClick($event, card.items[0])"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M9 14 4 9l5-5"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                      <path
-                        d="M20 20a8 8 0 0 0-8-8H4"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
+                      <path d="M4 7h16"></path>
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
                     </svg>
                   </button>
-                  <button
-                    type="button"
-                    class="action-icon-btn action-icon-btn--delete"
-                    [disabled]="undoingRowKey() === row.rowKey || deletingLoanId() === row.loanId"
-                    (click)="onDeleteLoanClick($event, row)"
-                    title="מחיקה לצמיתות"
-                    aria-label="מחיקה לצמיתות"
-                  >
-                    <i class="pi pi-trash" aria-hidden="true"></i>
-                  </button>
                 </div>
-              </td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="10" class="px-3 py-8 text-center text-slate-500">
-                {{ historyMode() ? 'לא נמצאו החזרות לקוד זה' : 'אין החזרות להצגה' }}
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
+              }
+            </header>
+
+            @if (card.deposit || card.loanNotes || card.customerNotes) {
+              <div class="mb-3 space-y-2">
+                @if (card.deposit) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">פיקדון:</span>
+                    <span class="customer-profile-note__text">{{ card.deposit }}</span>
+                  </div>
+                }
+                @if (card.loanNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערות:</span>
+                    <span class="customer-profile-note__text">{{ card.loanNotes }}</span>
+                  </div>
+                }
+                @if (card.customerNotes) {
+                  <div class="customer-profile-note" role="status">
+                    <span class="customer-profile-note__label">הערת לקוח:</span>
+                    <span class="customer-profile-note__text">{{ card.customerNotes }}</span>
+                  </div>
+                }
+              </div>
+            }
+
+            <ul class="customer-breakdown-card__items">
+              @for (row of card.items; track row.rowKey) {
+                <li class="accessory-row return-item" [class.return-item--overdue]="isOverdue(row)">
+                  <span class="customer-breakdown-card__qty">{{ row.accessoryQuantity }}</span>
+                  <span class="accessory-row__label">{{ row.item.toolName }}</span>
+                  @if (row.item.serialCode) {
+                    <span class="accessory-row__serial">
+                      <span class="accessory-row__serial-sep">:</span>
+                      <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                    </span>
+                  }
+                  <div class="return-item__when">
+                    <span class="return-item__date">הושאל <strong>{{ row.hebrewLentDisplay }}</strong></span>
+                    <span class="return-item__date">הוחזר <strong>{{ row.hebrewReturnedDisplay }}</strong></span>
+                    @if (row.deadlineAt) {
+                      <span class="return-item__date">יעד <strong>{{ formatDeadline(row.deadlineAt) }}</strong></span>
+                    }
+                    <span class="return-item__duration" [class.duration-overdue]="isOverdue(row)">
+                      {{ durationText(row) }}
+                    </span>
+                  </div>
+
+                  <div class="return-item__meta">
+                    @if (hasCharge(row)) {
+                      <div class="charge-cell">
+                        <span class="charge-amount">{{ formatCharge(row.chargeAmount) }}</span>
+                        @if (row.chargeIsPaid === true) {
+                          <span class="charge-badge charge-badge--paid">שולם</span>
+                        } @else if (canQuickPay(row)) {
+                          <button
+                            type="button"
+                            class="charge-badge charge-badge--open charge-badge--clickable"
+                            [disabled]="markingDebtId() === row.customerDebtId"
+                            (click)="onOpenBadgeClick($event, row)"
+                            title="סמן כשולם"
+                          >
+                            {{ markingDebtId() === row.customerDebtId ? '…' : 'פתוח' }}
+                          </button>
+                        } @else {
+                          <span class="charge-badge charge-badge--open">פתוח</span>
+                        }
+                      </div>
+                    } @else {
+                      <span class="charge-badge charge-badge--free">חינם</span>
+                    }
+                    <button
+                      type="button"
+                      class="action-icon-btn action-icon-btn--calendar"
+                      (click)="loanRangeCal.open($event, row.lentAt, row.returnedAt)"
+                      title="תצוגת טווח השאלה"
+                      aria-label="תצוגת טווח השאלה"
+                    >
+                      <i class="pi pi-calendar" aria-hidden="true"></i>
+                    </button>
+                    <button
+                      type="button"
+                      class="action-icon-btn action-icon-btn--undo"
+                      [disabled]="undoingRowKey() === row.rowKey || deletingLoanId() === row.loanId"
+                      (click)="onUndoReturnClick($event, row)"
+                      title="ביטול החזרה"
+                      aria-label="ביטול החזרה"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M9 14 4 9l5-5"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M20 20a8 8 0 0 0-8-8H4"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    @if (row.source === 'accessory') {
+                      <button
+                        type="button"
+                        class="action-icon-btn action-icon-btn--delete"
+                        [disabled]="undoingRowKey() === row.rowKey || deletingLoanId() === row.loanId"
+                        (click)="onDeleteLoanClick($event, row)"
+                        title="מחיקת רשומת ההחזרה לצמיתות"
+                        aria-label="מחיקת רשומת ההחזרה לצמיתות"
+                      >
+                        <i class="pi pi-trash" aria-hidden="true"></i>
+                      </button>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          </article>
+        }
+      </div>
     }
   </div>
 </div>

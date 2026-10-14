@@ -842,6 +842,9 @@ public class OrderRepository : IOrderRepository
                     Phone = o.Phone,
                     Address = o.Address,
                     HasEquipment = o.Equipments.Any(),
+                    o.DepositType,
+                    o.DepositOnName,
+                    OrderNotes = o.Notes,
                     LoanDate = o.Shifts.Min(s => (DateOnly?)s.OrderDate),
                     ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
                     LineId = le.Id,
@@ -921,7 +924,10 @@ public class OrderRepository : IOrderRepository
                         LoanDate = r.LoanDate,
                         ReturnDate = r.ReturnDate,
                         IsCustomItem = isOneTimeCustom,
-                        IsOrderBased = r.HasEquipment
+                        IsOrderBased = r.HasEquipment,
+                        DepositType = r.DepositType,
+                        DepositOnName = r.DepositOnName,
+                        Notes = r.OrderNotes
                     });
                 }
             }
@@ -940,7 +946,10 @@ public class OrderRepository : IOrderRepository
                     LoanDate = r.LoanDate,
                     ReturnDate = r.ReturnDate,
                     IsCustomItem = isOneTimeCustom,
-                    IsOrderBased = r.HasEquipment
+                    IsOrderBased = r.HasEquipment,
+                    DepositType = r.DepositType,
+                    DepositOnName = r.DepositOnName,
+                    Notes = r.OrderNotes
                 });
             }
         }
@@ -954,6 +963,7 @@ public class OrderRepository : IOrderRepository
 
         var resolvedManualRows = await _db.ManualUnreturnedItems
             .AsNoTracking()
+            .Include(m => m.Order)
             .Where(m => m.IsResolved && m.ResolvedAt != null)
             .OrderByDescending(m => m.ResolvedAt)
             .ThenByDescending(m => m.Id)
@@ -986,7 +996,10 @@ public class OrderRepository : IOrderRepository
                     LoanDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
                     ReturnDate = DateOnly.FromDateTime(m.ResolvedAt!.Value.ToUniversalTime()),
                     IsCustomItem = resolved.DefinitionId is null,
-                    IsOrderBased = m.OrderId is > 0
+                    IsOrderBased = m.OrderId is > 0,
+                    DepositType = m.Order?.DepositType,
+                    DepositOnName = m.Order?.DepositOnName,
+                    Notes = m.Order?.Notes
                 };
             })
             .Where(dto => needle.Length == 0 || MatchesReturnedAccessorySearch(dto, needle))

@@ -16,12 +16,14 @@ import { ConfirmPopup } from 'primeng/confirmpopup';
 import { forkJoin, interval } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
+import { DEPOSIT_TYPE_LABELS } from '../../core/models/enums';
 import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
 import {
   ToolItemBorrowHistoryDto,
   ToolLoanDto,
   ToolLoanItemDto
 } from '../../core/models/tools-workspace.model';
+import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
@@ -50,6 +52,8 @@ interface CompletedLoanRowView {
   clientName: string;
   phone: string;
   address: string;
+  deposit: string;
+  loanNotes: string;
   lentAt: Date;
   hebrewLentDisplay: string;
   deadlineAt: Date | null;
@@ -57,6 +61,22 @@ interface CompletedLoanRowView {
   hebrewReturnedDisplay: string;
   chargeAmount: number | null;
   chargeIsPaid: boolean | null;
+}
+
+/** One card per customer + loan, mirroring the lending page's customer cards. */
+interface ReturnedLoanCard {
+  key: string;
+  source: CompletedLoanRowView['source'];
+  loanId: number;
+  customerName: string;
+  phone: string;
+  address: string;
+  hebrewLentDisplay: string;
+  latestReturnedAt: Date;
+  deposit: string;
+  loanNotes: string;
+  customerNotes: string | null;
+  items: CompletedLoanRowView[];
 }
 
 interface QuickReturnItem {
@@ -121,6 +141,7 @@ export class ToolsReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly toolStore = inject(ToolDefinitionsStore);
+  private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly confirmation = inject(ConfirmationService);
@@ -223,6 +244,8 @@ export class ToolsReturnsComponent implements OnInit {
           clientName: loan.clientName,
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
+          deposit: (loan.deposit ?? '').trim(),
+          loanNotes: (loan.notes ?? '').trim(),
           lentAt,
           hebrewLentDisplay:
             (lentAt.getTime() === loanLentAt.getTime() ? loan.hebrewLentDisplay : '') ||
@@ -259,6 +282,8 @@ export class ToolsReturnsComponent implements OnInit {
         clientName: acc.customerName ?? '',
         phone: acc.phone,
         address: (acc.address ?? '').trim(),
+        deposit: this.formatAccessoryDeposit(acc),
+        loanNotes: (acc.notes ?? '').trim(),
         lentAt: lentAt ?? returnedAt,
         hebrewLentDisplay: lentAt ? this.formatHebrewDateTime(lentAt) : '—',
         deadlineAt: null,
@@ -302,8 +327,49 @@ export class ToolsReturnsComponent implements OnInit {
     });
   });
 
+  protected readonly returnedCards = computed(() => {
+    this.customers.customers();
+    const byLoan = new Map<string, ReturnedLoanCard>();
+
+    for (const row of this.filteredRows()) {
+      const key = `${row.source}|${row.loanId}|${(row.clientName ?? '').trim()}|${this.normalizePhone(row.phone)}`;
+      let card = byLoan.get(key);
+      if (!card) {
+        card = {
+          key,
+          source: row.source,
+          loanId: row.loanId,
+          customerName: row.clientName,
+          phone: row.phone,
+          address: row.address,
+          hebrewLentDisplay: row.hebrewLentDisplay,
+          latestReturnedAt: row.returnedAt,
+          deposit: row.deposit,
+          loanNotes: row.loanNotes,
+          customerNotes: this.customers.notesForPhone(row.phone),
+          items: []
+        };
+        byLoan.set(key, card);
+      }
+      if (row.returnedAt.getTime() > card.latestReturnedAt.getTime()) {
+        card.latestReturnedAt = row.returnedAt;
+      }
+      card.items.push(row);
+    }
+
+    for (const card of byLoan.values()) {
+      const earliest = card.items.reduce((a, b) => (b.lentAt < a.lentAt ? b : a));
+      card.hebrewLentDisplay = earliest.hebrewLentDisplay;
+    }
+
+    return [...byLoan.values()].sort(
+      (a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime()
+    );
+  });
+
   ngOnInit(): void {
     this.toolStore.load().subscribe();
+    this.customers.load().subscribe();
     this.refresh();
     this.refreshActiveLoans();
 
@@ -837,6 +903,35 @@ export class ToolsReturnsComponent implements OnInit {
     return row.chargeAmount != null && row.chargeAmount > 0;
   }
 
+  protected cardTotalCharge(card: ReturnedLoanCard): number {
+    return card.items.reduce(
+      (sum, row) => sum + (this.hasCharge(row) ? (row.chargeAmount as number) : 0),
+      0
+    );
+  }
+
+  protected formatChargeTotal(amount: number): string {
+    const rounded = Math.round(amount * 100) / 100;
+    return Number.isInteger(rounded) ? `₪${rounded}` : `₪${rounded.toFixed(2)}`;
+  }
+
+  protected isCardBusy(card: ReturnedLoanCard): boolean {
+    if (this.deletingLoanId() === card.loanId) {
+      return true;
+    }
+    const undoing = this.undoingRowKey();
+    return undoing != null && card.items.some((row) => row.rowKey === undoing);
+  }
+
+  private formatAccessoryDeposit(acc: ReturnedAccessoryHistoryDto): string {
+    const typeLabel = acc.depositType != null ? DEPOSIT_TYPE_LABELS[acc.depositType] ?? '' : '';
+    const onName = (acc.depositOnName ?? '').trim();
+    if (typeLabel && onName) {
+      return `${typeLabel} — ${onName}`;
+    }
+    return typeLabel || onName;
+  }
+
   protected canQuickPay(row: CompletedLoanRowView): boolean {
     return (
       this.hasCharge(row) &&
@@ -1074,6 +1169,7 @@ export class ToolsReturnsComponent implements OnInit {
   private toHistoryRow(h: ToolItemBorrowHistoryDto): CompletedLoanRowView {
     const lentAt = new Date(h.lentAt);
     const returnedAt = new Date(h.returnedAt);
+    const loan = this.loans().find((l) => l.id === h.loanId);
     return {
       rowKey: `hist-${h.loanId}-${h.itemId}`,
       source: 'tools',
@@ -1086,6 +1182,8 @@ export class ToolsReturnsComponent implements OnInit {
       clientName: h.clientName,
       phone: h.phone,
       address: (h.address ?? '').trim(),
+      deposit: (loan?.deposit ?? '').trim(),
+      loanNotes: (loan?.notes ?? '').trim(),
       lentAt,
       hebrewLentDisplay: h.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
       deadlineAt: h.deadlineAt ? new Date(h.deadlineAt) : null,

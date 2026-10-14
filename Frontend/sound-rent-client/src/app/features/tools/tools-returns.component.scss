@@ -1,3 +1,5 @@
+@use '../../shared/styles/return-cards';
+
 :host {
   display: block;
 }
@@ -161,44 +163,6 @@
 .quick-return-submit {
   flex: 0 0 auto;
   align-self: flex-end;
-}
-
-.returns-table th,
-.returns-table td {
-  vertical-align: middle;
-}
-
-@media (max-width: 768px) {
-  .returns-table {
-    font-size: 0.8rem;
-  }
-
-  .returns-table th,
-  .returns-table td {
-    padding: 0.45rem 0.5rem;
-    white-space: normal;
-  }
-}
-
-.row-overdue {
-  background: #fff1f2;
-}
-
-.client-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  line-height: 1.3;
-
-  .phone {
-    font-size: 0.8rem;
-    color: #64748b;
-  }
-
-  .address {
-    font-size: 0.75rem;
-    color: #94a3b8;
-  }
 }
 
 .duration-overdue {
@@ -493,13 +457,6 @@
     cursor: wait;
     opacity: 0.65;
   }
-}
-
-.actions-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
 }
 
 .action-icon-btn {

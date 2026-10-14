@@ -1,3 +1,5 @@
+using SoundRent.Api.Domain.Enums;
+
 namespace SoundRent.Api.Application.DTOs;
 
 /// <summary>
@@ -35,4 +37,13 @@ public class ReturnedAccessoryHistoryDto
 
     /// <summary>True when the loan is tied to weekly-schedule main equipment.</summary>
     public bool IsOrderBased { get; set; }
+
+    /// <summary>Order-level deposit type, when the source order recorded one.</summary>
+    public DepositType? DepositType { get; set; }
+
+    /// <summary>Order-level deposit holder name.</summary>
+    public string? DepositOnName { get; set; }
+
+    /// <summary>Order-level notes from the loan/order form.</summary>
+    public string? Notes { get; set; }
 }

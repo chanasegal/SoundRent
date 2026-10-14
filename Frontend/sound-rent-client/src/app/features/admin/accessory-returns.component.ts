@@ -13,7 +13,9 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, finalize, startWith, switchMap } from 'rxjs';
 
+import { DEPOSIT_TYPE_LABELS } from '../../core/models/enums';
 import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
+import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
@@ -25,6 +27,23 @@ interface ReturnedAccessoryRow extends ReturnedAccessoryHistoryDto {
   rowKey: string;
 }
 
+/** One card per customer + order, mirroring the active-loans page's customer cards. */
+interface ReturnedOrderCard {
+  key: string;
+  /** Representative row for order label/link helpers. */
+  head: ReturnedAccessoryRow;
+  customerName: string;
+  phone: string;
+  address: string;
+  loanDate: string | null;
+  returnDate: string | null;
+  deposit: string;
+  loanNotes: string;
+  customerNotes: string | null;
+  totalQuantity: number;
+  items: ReturnedAccessoryRow[];
+}
+
 @Component({
   selector: 'app-accessory-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -34,6 +53,7 @@ interface ReturnedAccessoryRow extends ReturnedAccessoryHistoryDto {
 })
 export class AccessoryReturnsComponent implements OnInit {
   private readonly data = inject(DataService);
+  private readonly customers = inject(CustomersStore);
   private readonly hebrew = inject(HebrewDateService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
@@ -54,7 +74,51 @@ export class AccessoryReturnsComponent implements OnInit {
     () => this.undoingRowKey() != null || this.deletingRowKey() != null
   );
 
+  protected readonly returnedCards = computed(() => {
+    this.customers.customers();
+    const byOrder = new Map<string, ReturnedOrderCard>();
+
+    for (const row of this.rows()) {
+      const phoneKey = (row.phone ?? '').replace(/\D/g, '');
+      const key = `${row.orderId}|${(row.customerName ?? '').trim()}|${phoneKey}`;
+      let card = byOrder.get(key);
+      if (!card) {
+        card = {
+          key,
+          head: row,
+          customerName: (row.customerName ?? '').trim(),
+          phone: row.phone,
+          address: (row.address ?? '').trim(),
+          loanDate: row.loanDate ?? null,
+          returnDate: row.returnDate ?? null,
+          deposit: this.formatDeposit(row),
+          loanNotes: (row.notes ?? '').trim(),
+          customerNotes: this.customers.notesForPhone(row.phone),
+          totalQuantity: 0,
+          items: []
+        };
+        byOrder.set(key, card);
+      }
+      if (row.loanDate && (!card.loanDate || row.loanDate < card.loanDate)) {
+        card.loanDate = row.loanDate;
+      }
+      if (row.returnDate && (!card.returnDate || row.returnDate > card.returnDate)) {
+        card.returnDate = row.returnDate;
+      }
+      if (!card.address && row.address) {
+        card.address = row.address.trim();
+      }
+      card.totalQuantity += row.quantity;
+      card.items.push(row);
+    }
+
+    return [...byOrder.values()].sort((a, b) =>
+      (b.returnDate ?? '').localeCompare(a.returnDate ?? '') || b.head.orderId - a.head.orderId
+    );
+  });
+
   ngOnInit(): void {
+    this.customers.load().subscribe();
     this.searchControl.valueChanges
       .pipe(
         startWith(this.searchControl.value),
@@ -231,6 +295,15 @@ export class AccessoryReturnsComponent implements OnInit {
 
   protected hasOrderLink(row: ReturnedAccessoryRow): boolean {
     return row.orderId > 0;
+  }
+
+  private formatDeposit(row: ReturnedAccessoryHistoryDto): string {
+    const typeLabel = row.depositType != null ? DEPOSIT_TYPE_LABELS[row.depositType] ?? '' : '';
+    const onName = (row.depositOnName ?? '').trim();
+    if (typeLabel && onName) {
+      return `${typeLabel} — ${onName}`;
+    }
+    return typeLabel || onName;
   }
 
   private mapRows(items: ReturnedAccessoryHistoryDto[]): ReturnedAccessoryRow[] {
