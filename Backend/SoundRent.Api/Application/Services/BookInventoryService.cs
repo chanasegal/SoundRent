@@ -293,31 +293,39 @@ public class BookInventoryService : IBookInventoryService
         BookBatchUpdateDto dto,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<BookDto>();
-        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            foreach (var item in dto.Items ?? [])
+            // Clear any leftover tracking if a prior attempt was retried.
+            _db.ChangeTracker.Clear();
+
+            var results = new List<BookDto>();
+            await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
             {
-                var entity = await _db.Books
-                    .Include(t => t.Copies)
-                    .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
+                foreach (var item in dto.Items ?? [])
+                {
+                    var entity = await _db.Books
+                        .Include(t => t.Copies)
+                        .FirstOrDefaultAsync(t => t.Id == item.Id, cancellationToken)
                     ?? throw new NotFoundException($"���� #{item.Id} �� ����");
 
-                ReplaceSerialCollection(entity, NormalizeCodes(item.Copies));
-                entity.UpdatedAt = DateTime.UtcNow;
-                results.Add(ToDto(entity));
-            }
+                    ReplaceSerialCollection(entity, NormalizeCodes(item.Copies));
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    results.Add(ToDto(entity));
+                }
 
-            await _db.SaveChangesAsync(cancellationToken);
-            await tx.CommitAsync(cancellationToken);
-            return results;
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return results;
+            }
+            catch
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
     public async Task<BookCopyLocationDto> LocateSerialAsync(

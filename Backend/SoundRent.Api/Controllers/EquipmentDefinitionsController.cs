@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
@@ -193,32 +194,42 @@ public class EquipmentDefinitionsController : ControllerBase
         var nextOrder = allRows.Count == 0 ? 0 : allRows.Max(r => r.SortOrder) + 1;
 
         var created = new List<EquipmentDefinition>(codes.Count);
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            for (var i = 0; i < codes.Count; i++)
-            {
-                var entity = new EquipmentDefinition
-                {
-                    Id = codes[i],
-                    DisplayName = displayName,
-                    Category = category,
-                    SortOrder = nextOrder + i,
-                    SystemType = dto.SystemType,
-                    IsMaintenanceMode = false
-                };
-                await _repository.AddAsync(entity, cancellationToken);
-                created.Add(entity);
-            }
 
-            await _repository.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
+        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+            // Clear any leftover tracking if a prior attempt was retried.
+            _db.ChangeTracker.Clear();
+            created.Clear();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                for (var i = 0; i < codes.Count; i++)
+                {
+                    var entity = new EquipmentDefinition
+                    {
+                        Id = codes[i],
+                        DisplayName = displayName,
+                        Category = category,
+                        SortOrder = nextOrder + i,
+                        SystemType = dto.SystemType,
+                        IsMaintenanceMode = false
+                    };
+                    await _repository.AddAsync(entity, cancellationToken);
+                    created.Add(entity);
+                }
+
+                await _repository.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
 
         return StatusCode(StatusCodes.Status201Created, created.Select(ToDto).ToList());
     }
@@ -287,22 +298,30 @@ public class EquipmentDefinitionsController : ControllerBase
             });
         }
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await _orderRepository.DeleteOrdersForEquipmentTypeBeforeDateAsync(
-                entity.Id,
-                todayIsrael,
-                cancellationToken);
-            _repository.Remove(entity);
-            await _repository.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+            // Clear any leftover tracking if a prior attempt was retried.
+            _db.ChangeTracker.Clear();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await _orderRepository.DeleteOrdersForEquipmentTypeBeforeDateAsync(
+                    entity.Id,
+                    todayIsrael,
+                    cancellationToken);
+                _repository.Remove(entity);
+                await _repository.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
 
         return NoContent();
     }

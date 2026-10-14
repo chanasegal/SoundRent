@@ -220,54 +220,62 @@ public class CustomerRepository : ICustomerRepository
         Customer updated,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await _db.Orders
-                .Where(o => o.Phone == oldPhone1)
-                .ExecuteUpdateAsync(
-                    s => s.SetProperty(o => o.Phone, updated.Phone1),
-                    cancellationToken);
+            // Clear any leftover tracking if a prior attempt was retried.
+            _db.ChangeTracker.Clear();
 
-            await _db.WaitlistEntries
-                .Where(w => w.Phone == oldPhone1)
-                .ExecuteUpdateAsync(
-                    s => s.SetProperty(w => w.Phone, updated.Phone1),
-                    cancellationToken);
-
-            var existingLinks = await _db.CustomerSystems
-                .Where(cs => cs.CustomerPhone1 == oldPhone1)
-                .ToListAsync(cancellationToken);
-
-            var existing = await _db.Customers
-                .FirstOrDefaultAsync(c => c.Phone1 == oldPhone1, cancellationToken)
-                ?? throw new InvalidOperationException($"Customer {oldPhone1} was not found for phone change.");
-
-            _db.CustomerSystems.RemoveRange(existingLinks);
-            _db.Customers.Remove(existing);
-            await _db.SaveChangesAsync(cancellationToken);
-
-            await _db.Customers.AddAsync(updated, cancellationToken);
-            foreach (var link in existingLinks)
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
             {
-                await _db.CustomerSystems.AddAsync(
-                    new CustomerSystem
-                    {
-                        CustomerPhone1 = updated.Phone1,
-                        SystemType = link.SystemType,
-                        LinkedAt = link.LinkedAt
-                    },
-                    cancellationToken);
-            }
+                await _db.Orders
+                    .Where(o => o.Phone == oldPhone1)
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(o => o.Phone, updated.Phone1),
+                        cancellationToken);
 
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+                await _db.WaitlistEntries
+                    .Where(w => w.Phone == oldPhone1)
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(w => w.Phone, updated.Phone1),
+                        cancellationToken);
+
+                var existingLinks = await _db.CustomerSystems
+                    .Where(cs => cs.CustomerPhone1 == oldPhone1)
+                    .ToListAsync(cancellationToken);
+
+                var existing = await _db.Customers
+                    .FirstOrDefaultAsync(c => c.Phone1 == oldPhone1, cancellationToken)
+                    ?? throw new InvalidOperationException($"Customer {oldPhone1} was not found for phone change.");
+
+                _db.CustomerSystems.RemoveRange(existingLinks);
+                _db.Customers.Remove(existing);
+                await _db.SaveChangesAsync(cancellationToken);
+
+                await _db.Customers.AddAsync(updated, cancellationToken);
+                foreach (var link in existingLinks)
+                {
+                    await _db.CustomerSystems.AddAsync(
+                        new CustomerSystem
+                        {
+                            CustomerPhone1 = updated.Phone1,
+                            SystemType = link.SystemType,
+                            LinkedAt = link.LinkedAt
+                        },
+                        cancellationToken);
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
     public void Remove(Customer customer)
