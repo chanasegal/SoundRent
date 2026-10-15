@@ -60,6 +60,8 @@ export interface QuickLoanDraftPayload {
     orderDateIso: string;
     timeSlot: TimeSlot;
     deposit: string;
+    /** Absent in drafts saved before cash deposits were tracked. */
+    cashDepositAmount?: number | null;
     notes: string;
   }>;
 }

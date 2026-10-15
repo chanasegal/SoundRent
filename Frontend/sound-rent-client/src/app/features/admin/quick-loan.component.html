@@ -219,7 +219,7 @@
         </div>
       </div>
 
-      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div>
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-deposit"
             >פיקדון</label
@@ -229,6 +229,23 @@
             type="text"
             formControlName="deposit"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            autocomplete="off"
+          />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-cash-deposit"
+            >פיקדון במזומן (₪)</label
+          >
+          <input
+            id="quick-loan-cash-deposit"
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            appIntegerOnly
+            formControlName="cashDepositAmount"
+            class="ltr-field w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="ללא"
             autocomplete="off"
           />
         </div>
@@ -1240,6 +1257,7 @@
       </div>
 
       <div class="app-modal-body px-5 py-4">
+        <app-cash-deposit-alert [phone]="returnPhone()" />
         <table class="return-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">

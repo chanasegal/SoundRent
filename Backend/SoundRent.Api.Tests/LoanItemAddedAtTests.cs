@@ -28,7 +28,7 @@ public class LoanItemAddedAtTests
         });
         await db.SaveChangesAsync();
 
-        var service = new BookLoanService(db);
+        var service = new BookLoanService(db, new CashDepositService(db));
         var created = await service.CreateAsync(BookLoanRequest("1"));
 
         var originalAddedAt = DateTime.UtcNow.AddHours(-3);

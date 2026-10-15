@@ -330,7 +330,7 @@
             </div>
           }
 
-          <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון</label>
               <input
@@ -339,6 +339,21 @@
                 placeholder="פרטי פיקדון"
                 [value]="form.deposit"
                 (input)="patchForm(form.id, { deposit: $any($event.target).value })"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">פיקדון במזומן (₪)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+                dir="ltr"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="ללא"
+                [value]="form.cashDepositAmount"
+                (input)="patchForm(form.id, { cashDepositAmount: $any($event.target).value })"
               />
             </div>
 
@@ -865,6 +880,21 @@
                 placeholder="פרטי פיקדון"
                 [value]="form.deposit"
                 (input)="patchForm(form.id, { deposit: $any($event.target).value })"
+              />
+            </div>
+
+            <div class="field-block">
+              <label class="field-label">פיקדון במזומן (₪)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+                dir="ltr"
+                class="field-input"
+                placeholder="ללא"
+                [value]="form.cashDepositAmount"
+                (input)="patchForm(form.id, { cashDepositAmount: $any($event.target).value })"
               />
             </div>
 

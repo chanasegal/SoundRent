@@ -106,6 +106,7 @@ public class BookLoanDto
     public string? Phone2 { get; set; }
     public string? Address { get; set; }
     public string? Deposit { get; set; }
+    public decimal? CashDepositAmount { get; set; }
     public string? Notes { get; set; }
     public DateTime? DeadlineAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
@@ -126,6 +127,10 @@ public class BookLoanCreateDto : IValidatableObject
     public string? Phone2 { get; set; }
     public string? Address { get; set; }
     public string? Deposit { get; set; }
+
+    /// <summary>Cash held as deposit. When set, a phone number is mandatory (already required).</summary>
+    public decimal? CashDepositAmount { get; set; }
+
     public string? Notes { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public DateTime? DeadlineAt { get; set; }
@@ -145,6 +150,13 @@ public class BookLoanCreateDto : IValidatableObject
             yield return new ValidationResult(
                 IsraeliPhoneValidator.InvalidPhoneMessage,
                 new[] { nameof(Phone2) });
+        }
+
+        if (CashDepositAmount is < 0)
+        {
+            yield return new ValidationResult(
+                Services.CashDepositService.AmountInvalidMessage,
+                new[] { nameof(CashDepositAmount) });
         }
     }
 }

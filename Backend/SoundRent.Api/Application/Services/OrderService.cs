@@ -21,6 +21,7 @@ public class OrderService : IOrderService
     private readonly ICustomerService _customerService;
     private readonly IBlockedDateRepository _blockedDates;
     private readonly IInstitutionRepository _institutions;
+    private readonly ICashDepositService _cashDeposits;
 
     public OrderService(
         IOrderRepository orderRepository,
@@ -28,7 +29,8 @@ public class OrderService : IOrderService
         IInventoryDefinitionService inventoryDefinitions,
         ICustomerService customerService,
         IBlockedDateRepository blockedDates,
-        IInstitutionRepository institutions)
+        IInstitutionRepository institutions,
+        ICashDepositService cashDeposits)
     {
         _orderRepository = orderRepository;
         _equipmentDefinitions = equipmentDefinitions;
@@ -36,6 +38,7 @@ public class OrderService : IOrderService
         _customerService = customerService;
         _blockedDates = blockedDates;
         _institutions = institutions;
+        _cashDeposits = cashDeposits;
     }
 
     public async Task<OrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -90,6 +93,7 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto> CreateOrderAsync(OrderCreateUpdateDto dto, CancellationToken cancellationToken = default)
     {
+        CashDepositService.EnsureOrderCashDepositAmount(dto, existing: null);
         NormalizeAndValidateOrderPhones(dto);
         await ResolveInstitutionAsync(dto, cancellationToken);
         var accessoryOnly = IsAccessoryOnlyOrder(dto);
@@ -126,6 +130,7 @@ public class OrderService : IOrderService
             dto.LoanedEquipments,
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForOrderAsync(entity, cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
 
         return OrderMapper.ToDto(entity);
@@ -136,6 +141,7 @@ public class OrderService : IOrderService
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
+        CashDepositService.EnsureOrderCashDepositAmount(dto, existing);
         NormalizeAndValidateOrderPhones(dto);
         await ResolveInstitutionAsync(dto, cancellationToken);
         var accessoryOnly = IsAccessoryOnlyOrder(dto);
@@ -193,6 +199,7 @@ public class OrderService : IOrderService
             dto.LoanedEquipments,
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForOrderAsync(existing, cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
         return OrderMapper.ToDto(existing);
     }

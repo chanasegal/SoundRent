@@ -40,6 +40,7 @@ import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { isShabbatOrChag, logBillableDays } from '../../core/utils/tools-billable-duration';
 import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
 import { BarcodeWedgeScanner } from '../../shared/utils/barcode-wedge-scanner';
@@ -132,7 +133,8 @@ interface ActiveLoanRowView {
     BookTitleSelectComponent,
     LoanRangeCalendarHostComponent,
     ConfirmPopup,
-    AutoFocusDirective
+    AutoFocusDirective,
+    CashDepositAlertComponent
   ],
   providers: [ConfirmationService],
   templateUrl: './library-returns.component.html',

@@ -99,6 +99,8 @@
               </div>
             </header>
 
+            <app-cash-deposit-alert [phone]="card.phone" />
+
             @if (card.deposit || card.loanNotes || card.customerNotes) {
               <div class="mb-3 space-y-2">
                 @if (card.deposit) {

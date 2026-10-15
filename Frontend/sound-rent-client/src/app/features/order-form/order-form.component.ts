@@ -1802,6 +1802,9 @@ export class OrderFormComponent implements OnInit {
     if (phoneCtrl.errors?.['israeliPhone'] || phone2Ctrl.errors?.['israeliPhone']) {
       return ISRAELI_PHONE_INVALID_MESSAGE;
     }
+    if (this.form.errors?.['cashDepositAmountRequired']) {
+      return 'יש להזין סכום פיקדון במזומן';
+    }
     return 'אנא מלאו את כל השדות הנדרשים';
   }
 
@@ -2001,6 +2004,7 @@ export class OrderFormComponent implements OnInit {
       institutionId: null,
       depositType: null,
       depositOnName: '',
+      cashDepositAmount: null,
       paymentAmount: null,
       paymentStatus: 'none',
       notes: ''
@@ -2324,23 +2328,39 @@ export class OrderFormComponent implements OnInit {
   // -----------------------------------------------------------------
 
   private buildForm(): FormGroup {
-    return this.fb.group({
-      bookings: this.fb.array([this.buildBookingGroup()]),
+    return this.fb.group(
+      {
+        bookings: this.fb.array([this.buildBookingGroup()]),
 
-      customerName: ['', Validators.maxLength(100)],
-      phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
-      phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
-      address: ['', Validators.maxLength(200)],
-      institutionName: ['', Validators.maxLength(200)],
-      institutionId: [null as number | null],
-      depositType: [null as DepositType | null],
-      depositOnName: ['', Validators.maxLength(100)],
-      paymentAmount: [null as number | null, [Validators.min(0)]],
-      paymentStatus: ['none' as PaymentStatus],
-      notes: ['', Validators.maxLength(1000)],
+        customerName: ['', Validators.maxLength(100)],
+        phone: ['', [Validators.required, Validators.maxLength(20), israeliPhoneValidator()]],
+        phone2: ['', [Validators.maxLength(20), optionalIsraeliPhoneValidator()]],
+        address: ['', Validators.maxLength(200)],
+        institutionName: ['', Validators.maxLength(200)],
+        institutionId: [null as number | null],
+        depositType: [null as DepositType | null],
+        depositOnName: ['', Validators.maxLength(100)],
+        cashDepositAmount: [null as number | null, [Validators.min(0)]],
+        paymentAmount: [null as number | null, [Validators.min(0)]],
+        paymentStatus: ['none' as PaymentStatus],
+        notes: ['', Validators.maxLength(1000)],
 
-      loanedEquipments: this.fb.array<FormGroup>([])
-    });
+        loanedEquipments: this.fb.array<FormGroup>([])
+      },
+      { validators: OrderFormComponent.cashDepositAmountValidator }
+    );
+  }
+
+  private static cashDepositAmountValidator(group: AbstractControl): ValidationErrors | null {
+    if (group.get('depositType')?.value !== DepositType.Cash) {
+      return null;
+    }
+    const amount = Number(group.get('cashDepositAmount')?.value);
+    return Number.isFinite(amount) && amount > 0 ? null : { cashDepositAmountRequired: true };
+  }
+
+  protected isCashDeposit(): boolean {
+    return this.form.controls['depositType'].value === DepositType.Cash;
   }
 
   private buildBookingGroup(): FormGroup {
@@ -3914,6 +3934,8 @@ export class OrderFormComponent implements OnInit {
         institutionId: typeof raw['institutionId'] === 'number' ? raw['institutionId'] : null,
         depositType: (raw['depositType'] as DepositType | null) ?? null,
         depositOnName: typeof raw['depositOnName'] === 'string' ? raw['depositOnName'] : '',
+        cashDepositAmount:
+          typeof raw['cashDepositAmount'] === 'number' ? raw['cashDepositAmount'] : null,
         paymentAmount: typeof raw['paymentAmount'] === 'number' ? raw['paymentAmount'] : null,
         paymentStatus: OrderFormComponent.draftPaymentStatus(raw),
         notes: typeof raw['notes'] === 'string' ? raw['notes'] : ''
@@ -4083,6 +4105,7 @@ export class OrderFormComponent implements OnInit {
           institutionId: order.institutionId ?? null,
           depositType: order.depositType ?? null,
           depositOnName: order.depositOnName ?? '',
+          cashDepositAmount: order.cashDepositAmount ?? null,
           paymentAmount: order.paymentAmount ?? null,
           paymentStatus: mode === 'renew' ? 'unpaid' : OrderFormComponent.orderPaymentStatus(order),
           notes: order.notes ?? ''
@@ -4177,10 +4200,16 @@ export class OrderFormComponent implements OnInit {
 
     for (let i = 0; i < count; i++) {
       const booking = this.bookingGroup(i).getRawValue() as Record<string, unknown>;
+      // One physical cash deposit: only the first order holds it, or the ledger would count it per booking.
+      const cashDepositOverride =
+        i > 0 && shared.depositType === DepositType.Cash
+          ? { depositType: null, cashDepositAmount: null }
+          : {};
       payloads.push({
         equipmentDefinitionIds: this.equipmentIdsControl(i).value,
         shifts: this.shiftsArray(i).getRawValue() as OrderShiftDto[],
         ...shared,
+        ...cashDepositOverride,
         returnTimeType: (booking['returnTimeType'] as ReturnTimeType | null) ?? ReturnTimeType.LateNight,
         customReturnTime: (booking['returnTimeType'] as ReturnTimeType | null) === ReturnTimeType.SpecificTime
           ? this.optionalText(booking['customReturnTime'])
@@ -4204,6 +4233,7 @@ export class OrderFormComponent implements OnInit {
     | 'institutionId'
     | 'depositType'
     | 'depositOnName'
+    | 'cashDepositAmount'
     | 'paymentAmount'
     | 'isPaid'
     | 'isUnpaid'
@@ -4211,6 +4241,8 @@ export class OrderFormComponent implements OnInit {
   > {
     const v = this.form.getRawValue() as Record<string, unknown>;
     const paymentStatus = v['paymentStatus'] as PaymentStatus;
+    const depositType = (v['depositType'] as DepositType | null) ?? null;
+    const cashAmount = Number(v['cashDepositAmount']);
     return {
       customerName: this.optionalText(v['customerName']),
       phone: (v['phone'] as string).trim(),
@@ -4218,8 +4250,12 @@ export class OrderFormComponent implements OnInit {
       address: this.optionalText(v['address']),
       institutionName: this.optionalText(v['institutionName']),
       institutionId: (v['institutionId'] as number | null) ?? null,
-      depositType: (v['depositType'] as DepositType | null) ?? null,
+      depositType,
       depositOnName: this.optionalText(v['depositOnName']),
+      cashDepositAmount:
+        depositType === DepositType.Cash && Number.isFinite(cashAmount) && cashAmount > 0
+          ? cashAmount
+          : null,
       paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
         ? null
         : Math.max(0, Math.trunc(Number(v['paymentAmount']))),

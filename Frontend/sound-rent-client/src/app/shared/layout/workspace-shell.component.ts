@@ -142,6 +142,11 @@ import { ClickOutsideDirective } from '../directives/click-outside.directive';
                 routerLinkActive="bg-white/10 text-white"
                 class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
               >לקוחות</a>
+              <a
+                [routerLink]="depositsPath()"
+                routerLinkActive="bg-white/10 text-white"
+                class="rounded-lg px-3.5 py-2 text-sm font-medium text-sky-100 transition hover:bg-white/10 hover:text-white"
+              >פקדונות</a>
             </nav>
           </div>
           <app-header-clock />
@@ -188,6 +193,9 @@ export class WorkspaceShellComponent {
   protected readonly systemLabels = SYSTEM_TYPE_LABELS;
   protected readonly currentSystemType = this.systemContext.currentSystemType;
   protected readonly customersPath = computed(() => this.systemContext.workspaceCustomersPath());
+  protected readonly depositsPath = computed(() =>
+    this.currentSystemType() === SystemType.Library ? '/library/deposits' : '/tools/deposits'
+  );
   protected readonly isToolsWorkspace = computed(
     () => this.currentSystemType() === SystemType.Tools
   );

@@ -31,6 +31,7 @@ public static class OrderMapper
         InstitutionId = order.InstitutionId,
         DepositType = order.DepositType,
         DepositOnName = order.DepositOnName,
+        CashDepositAmount = order.CashDepositAmount,
         PaymentAmount = order.PaymentAmount,
         IsPaid = order.IsPaid,
         IsUnpaid = order.IsUnpaid,
@@ -148,6 +149,7 @@ public static class OrderMapper
         InstitutionName = NullIfBlank(dto.InstitutionName),
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
+        CashDepositAmount = NormalizeCashDepositAmount(dto.DepositType, dto.CashDepositAmount),
         PaymentAmount = dto.PaymentAmount,
         IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid),
         IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid),
@@ -254,6 +256,7 @@ public static class OrderMapper
         entity.InstitutionName = NullIfBlank(dto.InstitutionName);
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
+        entity.CashDepositAmount = NormalizeCashDepositAmount(dto.DepositType, dto.CashDepositAmount);
         entity.PaymentAmount = dto.PaymentAmount;
         entity.IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid);
         entity.IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid);
@@ -261,6 +264,9 @@ public static class OrderMapper
         entity.CustomReturnTime = NormalizeCustomReturnTime(dto);
         entity.Notes = NullIfBlank(dto.Notes);
     }
+
+    public static decimal? NormalizeCashDepositAmount(DepositType? depositType, decimal? amount) =>
+        depositType == DepositType.Cash && amount is > 0 ? amount : null;
 
     /// <summary>
     /// An order is tracked as unpaid debt only when it has a positive payment amount.

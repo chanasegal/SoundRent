@@ -35,6 +35,9 @@ public class OrderCreateUpdateDto : IValidatableObject
     [MaxLength(100, ErrorMessage = "שם הפיקדון לא יכול לחרוג מ-100 תווים")]
     public string? DepositOnName { get; set; }
 
+    /// <summary>Required (&gt; 0) when <see cref="DepositType"/> is Cash; ignored otherwise.</summary>
+    public decimal? CashDepositAmount { get; set; }
+
     public decimal? PaymentAmount { get; set; }
 
     /// <summary>Paid in advance. Ignored when <see cref="IsUnpaid"/> is set.</summary>
@@ -82,6 +85,15 @@ public class OrderCreateUpdateDto : IValidatableObject
             yield return new ValidationResult(
                 IsraeliPhoneValidator.InvalidPhoneMessage,
                 new[] { nameof(Phone2) });
+        }
+
+        // "Cash requires an amount" needs the stored order (legacy cash orders have none), so
+        // OrderService enforces it via CashDepositService.EnsureOrderCashDepositAmount.
+        if (CashDepositAmount is < 0)
+        {
+            yield return new ValidationResult(
+                Services.CashDepositService.AmountInvalidMessage,
+                new[] { nameof(CashDepositAmount) });
         }
 
         // Accessory-only loans are not bound to shift return-time rules.

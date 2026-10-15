@@ -42,10 +42,12 @@ public class BookLoanService : IBookLoanService
     public const int DefaultLoanDays = 7;
 
     private readonly AppDbContext _db;
+    private readonly ICashDepositService _cashDeposits;
 
-    public BookLoanService(AppDbContext db)
+    public BookLoanService(AppDbContext db, ICashDepositService cashDeposits)
     {
         _db = db;
+        _cashDeposits = cashDeposits;
     }
 
     public Task<List<BookLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default)
@@ -162,6 +164,7 @@ public class BookLoanService : IBookLoanService
             Phone2 = phone2,
             Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
+            CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null,
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
             CreatedAt = now,
@@ -179,6 +182,7 @@ public class BookLoanService : IBookLoanService
 
         _db.BookLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForBookLoanAsync(entity, cancellationToken);
         return ToDto(entity);
     }
 
@@ -221,6 +225,7 @@ public class BookLoanService : IBookLoanService
         entity.Phone2 = phone2;
         entity.Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim();
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
+        entity.CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null;
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
         var now = DateTime.UtcNow;
@@ -258,6 +263,7 @@ public class BookLoanService : IBookLoanService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForBookLoanAsync(entity, cancellationToken);
         return ToDto(entity);
     }
 
@@ -615,6 +621,7 @@ public class BookLoanService : IBookLoanService
             Phone2 = entity.Phone2,
             Address = entity.Address,
             Deposit = entity.Deposit,
+            CashDepositAmount = entity.CashDepositAmount,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,
             ReturnedAt = entity.ReturnedAt,

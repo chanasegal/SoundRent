@@ -40,6 +40,10 @@ import {
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import {
+  CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE,
+  parseCashDepositAmount
+} from '../../core/utils/cash-deposit';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
@@ -76,6 +80,8 @@ interface LendingDraftForm {
   phone2: string;
   address: string;
   deposit: string;
+  /** Raw input text; parsed on submit. */
+  cashDepositAmount: string;
   notes: string;
   clientAlertNotes: string | null;
   deadlineAt: Date | null;
@@ -373,6 +379,7 @@ export class LibraryLendingComponent implements OnInit {
         phone2: String(raw['phone2'] ?? ''),
         address: String(raw['address'] ?? ''),
         deposit: String(raw['deposit'] ?? ''),
+        cashDepositAmount: String(raw['cashDepositAmount'] ?? ''),
         notes: String(raw['notes'] ?? ''),
         clientAlertNotes:
           typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
@@ -1200,7 +1207,14 @@ export class LibraryLendingComponent implements OnInit {
     patch: Partial<
       Pick<
         LendingDraftForm,
-        'clientName' | 'phone' | 'phone2' | 'address' | 'deposit' | 'notes' | 'clientAlertNotes'
+        | 'clientName'
+        | 'phone'
+        | 'phone2'
+        | 'address'
+        | 'deposit'
+        | 'cashDepositAmount'
+        | 'notes'
+        | 'clientAlertNotes'
       >
     >
   ): void {
@@ -1275,6 +1289,11 @@ export class LibraryLendingComponent implements OnInit {
       this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
       return;
     }
+    const cashDepositAmount = parseCashDepositAmount(form.cashDepositAmount);
+    if (cashDepositAmount === undefined) {
+      this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
+      return;
+    }
 
     const payload: BookLoanCreateDto = {
       clientName: form.clientName.trim(),
@@ -1282,6 +1301,7 @@ export class LibraryLendingComponent implements OnInit {
       phone2: form.phone2.trim() || null,
       address: form.address.trim() || null,
       deposit: form.deposit.trim() || null,
+      cashDepositAmount,
       notes: form.notes.trim() || null,
       hebrewLentDisplay: form.hebrewDateTime,
       deadlineAt: this.timeLimitEnabled() && form.deadlineAt ? form.deadlineAt.toISOString() : null,
@@ -1638,6 +1658,7 @@ export class LibraryLendingComponent implements OnInit {
       phone2: '',
       address: '',
       deposit: '',
+      cashDepositAmount: '',
       notes: '',
       clientAlertNotes: null,
       deadlineAt: timeLimitOn ? this.computeDeadline(createdAt, days) : null
@@ -1684,6 +1705,7 @@ export class LibraryLendingComponent implements OnInit {
       phone2: loan.phone2 ?? '',
       address: loan.address ?? '',
       deposit: loan.deposit ?? '',
+      cashDepositAmount: loan.cashDepositAmount != null ? String(loan.cashDepositAmount) : '',
       notes: loan.notes ?? '',
       clientAlertNotes: null,
       deadlineAt: this.parseLoanDate(loan.deadlineAt)

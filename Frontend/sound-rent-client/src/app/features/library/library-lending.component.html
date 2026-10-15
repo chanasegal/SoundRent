@@ -387,6 +387,21 @@
             </div>
 
             <div class="field-block">
+              <label class="field-label">פיקדון במזומן (₪)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+                dir="ltr"
+                class="field-input"
+                placeholder="ללא"
+                [value]="form.cashDepositAmount"
+                (input)="patchForm(form.id, { cashDepositAmount: $any($event.target).value })"
+              />
+            </div>
+
+            <div class="field-block">
               <label class="field-label">הערות</label>
               <input
                 type="text"

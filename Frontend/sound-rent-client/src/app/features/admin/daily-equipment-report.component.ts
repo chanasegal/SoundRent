@@ -1334,6 +1334,7 @@ export class DailyEquipmentReportComponent implements OnInit {
       address: order.address,
       depositType: order.depositType,
       depositOnName: order.depositOnName,
+      cashDepositAmount: order.cashDepositAmount,
       paymentAmount: order.paymentAmount,
       isPaid: order.isPaid ?? false,
       isUnpaid: order.isUnpaid,

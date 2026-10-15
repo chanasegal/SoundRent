@@ -130,6 +130,11 @@ import { HeaderClockComponent } from './header-clock.component';
                 routerLinkActive="bg-white/10 text-white"
                 class="layout-nav__link"
               >דוחות</a>
+              <a
+                routerLink="/deposits"
+                routerLinkActive="bg-white/10 text-white"
+                class="layout-nav__link"
+              >פקדונות</a>
           </nav>
           <div class="flex shrink-0 items-center gap-3">
             <app-header-clock />

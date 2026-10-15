@@ -94,6 +94,7 @@ import {
   BookLoanReturnDto,
   BookUpdateDto
 } from '../models/library-workspace.model';
+import { CashDepositDto, CashDepositStatus } from '../models/cash-deposit.model';
 import { ToastService } from './toast.service';
 import { SystemContextService } from './system-context.service';
 
@@ -123,6 +124,7 @@ export class DataService {
   private readonly toolsLoansBase = `${environment.apiBaseUrl}/tools-loans`;
   private readonly booksInventoryBase = `${environment.apiBaseUrl}/books-inventory`;
   private readonly bookLoansBase = `${environment.apiBaseUrl}/book-loans`;
+  private readonly cashDepositsBase = `${environment.apiBaseUrl}/cash-deposits`;
 
   private activeSystemType(): SystemType {
     return this.systemContext.currentSystemType();
@@ -583,6 +585,30 @@ export class DataService {
       catchError((err) => {
         this.notifyHttpError(err);
         return of(false);
+      })
+    );
+  }
+
+  /** Cross-workspace cash deposits (not scoped to the active system). See {@link getWeeklyOrders} for `background`. */
+  getCashDeposits(
+    status: CashDepositStatus | null,
+    options?: { background?: boolean }
+  ): Observable<CashDepositDto[]> {
+    const params = status ? new HttpParams().set('status', status) : new HttpParams();
+    const background = options?.background === true;
+    return this.http
+      .get<CashDepositDto[]>(this.cashDepositsBase, {
+        params,
+        context: new HttpContext().set(SKIP_GLOBAL_LOADING, background)
+      })
+      .pipe(catchError((err) => this.handleListError<CashDepositDto>(err, background)));
+  }
+
+  markCashDepositReturned(id: number): Observable<CashDepositDto | null> {
+    return this.http.post<CashDepositDto>(`${this.cashDepositsBase}/${id}/mark-returned`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
       })
     );
   }

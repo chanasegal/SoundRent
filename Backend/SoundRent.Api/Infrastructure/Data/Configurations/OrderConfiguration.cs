@@ -40,6 +40,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.DepositOnName)
             .HasMaxLength(100);
 
+        builder.Property(o => o.CashDepositAmount)
+            .HasColumnType("decimal(18,2)");
+
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 

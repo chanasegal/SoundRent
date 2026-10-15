@@ -78,6 +78,7 @@ export interface ToolLoanDto {
   institutionName?: string | null;
   institutionId?: number | null;
   deposit?: string | null;
+  cashDepositAmount?: number | null;
   notes?: string | null;
   deadlineAt?: string | null;
   returnedAt?: string | null;
@@ -100,6 +101,8 @@ export interface ToolLoanCreateDto {
   institutionName?: string | null;
   institutionId?: number | null;
   deposit?: string | null;
+  /** Cash held as deposit; creates an open entry in the central deposits ledger. */
+  cashDepositAmount?: number | null;
   notes?: string | null;
   hebrewLentDisplay: string;
   deadlineAt?: string | null;

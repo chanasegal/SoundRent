@@ -22,6 +22,7 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 
 interface ReturnedAccessoryRow extends ReturnedAccessoryHistoryDto {
   rowKey: string;
@@ -47,7 +48,7 @@ interface ReturnedOrderCard {
 @Component({
   selector: 'app-accessory-returns',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, CashDepositAlertComponent],
   templateUrl: './accessory-returns.component.html',
   styleUrl: './accessory-returns.component.scss'
 })

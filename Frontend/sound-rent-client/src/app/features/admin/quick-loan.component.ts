@@ -22,6 +22,7 @@ import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.
 import { CustomerSuggestDto } from '../../core/models/customer.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
+  DepositType,
   LOANED_EQUIPMENT_LABELS,
   LOANED_EQUIPMENT_ORDER,
   LoanedEquipmentType,
@@ -46,6 +47,7 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -76,6 +78,8 @@ interface AccessoryOrderGroupDraft {
   timeSlot: TimeSlot;
   /** depositOnName text (not formatted). */
   deposit: string;
+  /** Re-sent unchanged on save so a grouped edit never drops the order's cash deposit. */
+  cashDepositAmount: number | null;
   notes: string;
 }
 
@@ -162,7 +166,8 @@ interface DeleteConfirmOrder {
     HebrewCalendarPickerComponent,
     IntegerOnlyDirective,
     IsraeliPhoneInputDirective,
-    ClickOutsideDirective
+    ClickOutsideDirective,
+    CashDepositAlertComponent
   ],
   templateUrl: './quick-loan.component.html',
   styleUrl: './quick-loan.component.scss'
@@ -231,6 +236,7 @@ export class QuickLoanComponent implements OnInit {
   protected readonly returnModalOpen = signal(false);
   protected readonly returnSaving = signal(false);
   protected readonly returnOrderId = signal<number | null>(null);
+  protected readonly returnPhone = signal<string | null>(null);
   protected readonly returnRows = signal<ReturnModalRow[]>([]);
   protected readonly returnSerialDropdownRowId = signal<string | null>(null);
 
@@ -247,6 +253,7 @@ export class QuickLoanComponent implements OnInit {
     hebrewMonth: [this.initialHebrew.month, Validators.required],
     hebrewDay: [this.initialHebrew.day, Validators.required],
     deposit: ['', Validators.maxLength(100)],
+    cashDepositAmount: [null as number | null, Validators.min(0)],
     notes: ['', Validators.maxLength(1000)]
   });
 
@@ -2369,6 +2376,7 @@ export class QuickLoanComponent implements OnInit {
           orderDateIso: shift?.orderDate ?? '',
           timeSlot: shift?.timeSlot ?? this.defaultTimeSlot,
           deposit: o.depositOnName ?? '',
+          cashDepositAmount: o.cashDepositAmount ?? null,
           notes: o.notes ?? ''
         };
       })
@@ -2404,6 +2412,7 @@ export class QuickLoanComponent implements OnInit {
       phone: order.phone ?? '',
       address: order.address ?? '',
       deposit: order.depositOnName ?? '',
+      cashDepositAmount: order.cashDepositAmount ?? null,
       notes: order.notes ?? ''
     });
 
@@ -2642,6 +2651,7 @@ export class QuickLoanComponent implements OnInit {
     }
 
     this.returnOrderId.set(order.id);
+    this.returnPhone.set(order.phone);
     this.returnRows.set(rows);
     this.returnSerialDropdownRowId.set(null);
     this.returnModalOpen.set(true);
@@ -2902,6 +2912,7 @@ export class QuickLoanComponent implements OnInit {
     const monthCtrl = this.form.controls.hebrewMonth;
     const dayCtrl = this.form.controls.hebrewDay;
     const depositCtrl = this.form.controls.deposit;
+    const cashCtrl = this.form.controls.cashDepositAmount;
     const notesCtrl = this.form.controls.notes;
 
     if (multi) {
@@ -2909,6 +2920,7 @@ export class QuickLoanComponent implements OnInit {
       monthCtrl.disable({ emitEvent: false });
       dayCtrl.disable({ emitEvent: false });
       depositCtrl.disable({ emitEvent: false });
+      cashCtrl.disable({ emitEvent: false });
       notesCtrl.disable({ emitEvent: false });
       return;
     }
@@ -2917,6 +2929,7 @@ export class QuickLoanComponent implements OnInit {
     monthCtrl.enable({ emitEvent: false });
     dayCtrl.enable({ emitEvent: false });
     depositCtrl.enable({ emitEvent: false });
+    cashCtrl.enable({ emitEvent: false });
     notesCtrl.enable({ emitEvent: false });
   }
 
@@ -2926,6 +2939,10 @@ export class QuickLoanComponent implements OnInit {
     }
 
     this.form.markAllAsTouched();
+    if (this.form.controls.cashDepositAmount.invalid) {
+      this.toast.warning('סכום הפיקדון במזומן חייב להיות גדול מאפס');
+      return;
+    }
     if (this.form.invalid) {
       this.toast.warning('יש למלא טלפון תקין ותאריך לפני השמירה');
       return;
@@ -3076,7 +3093,7 @@ export class QuickLoanComponent implements OnInit {
           phone,
           phone2: null,
           address,
-          depositType: null,
+          ...QuickLoanComponent.cashDepositFields(group.cashDepositAmount),
           depositOnName: group.deposit.trim() || null,
           paymentAmount: null,
           isUnpaid: false,
@@ -3236,7 +3253,7 @@ export class QuickLoanComponent implements OnInit {
       phone: (this.form.controls.phone.value ?? '').trim(),
       phone2: null,
       address: (this.form.controls.address.value ?? '').trim() || null,
-      depositType: null,
+      ...QuickLoanComponent.cashDepositFields(this.form.controls.cashDepositAmount.value),
       depositOnName: (this.form.controls.deposit.value ?? '').trim() || null,
       paymentAmount: null,
       isUnpaid: false,
@@ -3287,6 +3304,15 @@ export class QuickLoanComponent implements OnInit {
     });
   }
 
+  private static cashDepositFields(
+    amount: number | string | null | undefined
+  ): Pick<OrderCreateUpdateDto, 'depositType' | 'cashDepositAmount'> {
+    const n = Number(amount);
+    return Number.isFinite(n) && n > 0
+      ? { depositType: DepositType.Cash, cashDepositAmount: n }
+      : { depositType: null, cashDepositAmount: null };
+  }
+
   private resetFormFully(): void {
     this.clearEditState();
     this.syncFormControlsForEditingGroups();
@@ -3297,6 +3323,7 @@ export class QuickLoanComponent implements OnInit {
       phone: '',
       address: '',
       deposit: '',
+      cashDepositAmount: null,
       notes: ''
     });
     this.form.markAsUntouched();
@@ -3322,6 +3349,8 @@ export class QuickLoanComponent implements OnInit {
       phone: String(raw['phone'] ?? ''),
       address: String(raw['address'] ?? ''),
       deposit: String(raw['deposit'] ?? ''),
+      cashDepositAmount:
+        typeof raw['cashDepositAmount'] === 'number' ? raw['cashDepositAmount'] : null,
       notes: String(raw['notes'] ?? ''),
       ...(Number.isFinite(year) && year > 0 ? { hebrewYear: year } : {}),
       ...(Number.isFinite(month) && month > 0 ? { hebrewMonth: month } : {}),
@@ -3345,7 +3374,9 @@ export class QuickLoanComponent implements OnInit {
     this.nextOneTimeAccessoryId = Number.isFinite(draft.nextOneTimeAccessoryId)
       ? draft.nextOneTimeAccessoryId
       : -1;
-    this.editingOrderGroups.set((draft.editingOrderGroups ?? []).map((g) => ({ ...g })));
+    this.editingOrderGroups.set(
+      (draft.editingOrderGroups ?? []).map((g) => ({ ...g, cashDepositAmount: g.cashDepositAmount ?? null }))
+    );
     this.syncFormControlsForEditingGroups();
     this.editingPreservedReturnedLines.set(
       (draft.preservedReturnedLines ?? []).map(({ orderId, line }) => ({

@@ -86,6 +86,7 @@ builder.Services.AddScoped<IToolLoanService, ToolLoanService>();
 builder.Services.AddScoped<IBookInventoryService, BookInventoryService>();
 builder.Services.AddScoped<IBookLoanService, BookLoanService>();
 builder.Services.AddScoped<IOpenDebtService, OpenDebtService>();
+builder.Services.AddScoped<ICashDepositService, CashDepositService>();
 builder.Services.AddScoped<IReferenceNumberService, ReferenceNumberService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 

@@ -28,6 +28,8 @@ public class BookLoan
     [MaxLength(500)]
     public string? Deposit { get; set; }
 
+    public decimal? CashDepositAmount { get; set; }
+
     [MaxLength(2000)]
     public string? Notes { get; set; }
 

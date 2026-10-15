@@ -659,6 +659,32 @@
       @if (form.controls['paymentStatus'].value === 'unpaid' && !((form.controls['paymentAmount'].value ?? 0) > 0)) {
         <p class="mt-2 text-sm text-amber-700">יש להזין סכום כדי שההזמנה תופיע בדוח החובות הפתוחים.</p>
       }
+      @if (isCashDeposit()) {
+        @let cashMissing = form.errors?.['cashDepositAmountRequired'] && (form.controls['cashDepositAmount'].touched || form.controls['depositType'].touched);
+        <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div>
+            <label class="form-label" for="order-cash-deposit-amount">סכום פיקדון במזומן (₪) *</label>
+            <input
+              id="order-cash-deposit-amount"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              formControlName="cashDepositAmount"
+              class="form-input ltr-field"
+              [class.border-rose-400]="cashMissing"
+              [attr.aria-invalid]="cashMissing ? true : null"
+            />
+          </div>
+          <p class="self-end text-sm md:col-span-3" [class.text-rose-700]="cashMissing" [class.text-slate-500]="!cashMissing">
+            @if (cashMissing) {
+              יש להזין סכום פיקדון במזומן.
+            } @else {
+              הפיקדון יירשם במסך הפקדונות וייסגר כשיסומן כהוחזר ללקוח.
+            }
+          </p>
+        </div>
+      }
     </section>
 
     <!-- Loaned Equipment (dynamic rows) -->

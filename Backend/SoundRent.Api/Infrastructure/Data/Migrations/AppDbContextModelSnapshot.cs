@@ -155,6 +155,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<decimal?>("CashDepositAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("ClientName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -272,6 +276,82 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_BookLoanItems_ReturnedAt");
 
                     b.ToTable("BookLoanItems", (string)null);
+                });
+
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CashDeposit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("BookLoanId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("OrderId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SourceModule")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ToolLoanId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookLoanId")
+                        .HasDatabaseName("IX_CashDeposits_BookLoanId");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("IX_CashDeposits_OrderId");
+
+                    b.HasIndex("Phone")
+                        .HasDatabaseName("IX_CashDeposits_Phone");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_CashDeposits_Status");
+
+                    b.HasIndex("ToolLoanId")
+                        .HasDatabaseName("IX_CashDeposits_ToolLoanId");
+
+                    b.ToTable("CashDeposits", (string)null);
                 });
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Customer", b =>
@@ -876,6 +956,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<decimal?>("CashDepositAmount")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1156,6 +1239,10 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<string>("Address")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<decimal?>("CashDepositAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("ClientName")
                         .IsRequired()

@@ -30,6 +30,7 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { CustomersStore } from '../../core/services/customers.store';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
@@ -128,7 +129,7 @@ interface DeleteConfirmOrder {
 @Component({
   selector: 'app-active-loans',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ClickOutsideDirective],
+  imports: [CommonModule, RouterLink, ClickOutsideDirective, CashDepositAlertComponent],
   templateUrl: './active-loans.component.html',
   styleUrl: './active-loans.component.scss'
 })

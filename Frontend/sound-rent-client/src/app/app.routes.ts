@@ -7,6 +7,13 @@ import { SystemContextService } from './core/services/system-context.service';
 import { LayoutComponent } from './shared/layout/layout.component';
 import { WorkspaceShellComponent } from './shared/layout/workspace-shell.component';
 
+/** Cross-workspace cash deposits ledger, reachable from every workspace header. */
+const depositsRoute: Routes[number] = {
+  path: 'deposits',
+  loadComponent: () =>
+    import('./features/deposits/cash-deposits.component').then((m) => m.CashDepositsComponent)
+};
+
 const libraryChildren: Routes = [
   {
     path: '',
@@ -37,7 +44,8 @@ const libraryChildren: Routes = [
     path: 'reports',
     loadComponent: () =>
       import('./features/library/library-reports.component').then((m) => m.LibraryReportsComponent)
-  }
+  },
+  depositsRoute
 ];
 
 const toolsChildren: Routes = [
@@ -75,7 +83,8 @@ const toolsChildren: Routes = [
     path: 'reports',
     loadComponent: () =>
       import('./features/tools/tools-reports.component').then((m) => m.ToolsReportsComponent)
-  }
+  },
+  depositsRoute
 ];
 
 export const routes: Routes = [
@@ -188,7 +197,8 @@ export const routes: Routes = [
         path: 'reports',
         loadComponent: () =>
           import('./features/reports/reports-view.component').then((m) => m.ReportsViewComponent)
-      }
+      },
+      depositsRoute
     ]
   },
   { path: '**', redirectTo: 'dashboard' }

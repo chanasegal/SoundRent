@@ -44,11 +44,16 @@ public class ToolLoanService : IToolLoanService
 
     private readonly AppDbContext _db;
     private readonly IInstitutionRepository _institutions;
+    private readonly ICashDepositService _cashDeposits;
 
-    public ToolLoanService(AppDbContext db, IInstitutionRepository institutions)
+    public ToolLoanService(
+        AppDbContext db,
+        IInstitutionRepository institutions,
+        ICashDepositService cashDeposits)
     {
         _db = db;
         _institutions = institutions;
+        _cashDeposits = cashDeposits;
     }
 
     public Task<List<ToolLoanDto>> GetActiveAsync(CancellationToken cancellationToken = default)
@@ -168,6 +173,7 @@ public class ToolLoanService : IToolLoanService
             InstitutionId = institutionId,
             InstitutionName = institutionName,
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
+            CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null,
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
             CreatedAt = now,
@@ -185,6 +191,7 @@ public class ToolLoanService : IToolLoanService
 
         _db.ToolLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForToolLoanAsync(entity, cancellationToken);
         return ToDto(entity);
     }
 
@@ -230,6 +237,7 @@ public class ToolLoanService : IToolLoanService
         entity.InstitutionId = institutionId;
         entity.InstitutionName = institutionName;
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
+        entity.CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null;
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
         var now = DateTime.UtcNow;
@@ -272,6 +280,7 @@ public class ToolLoanService : IToolLoanService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await _cashDeposits.SyncForToolLoanAsync(entity, cancellationToken);
         return ToDto(entity);
     }
 
@@ -706,6 +715,7 @@ public class ToolLoanService : IToolLoanService
             InstitutionName = entity.InstitutionName,
             InstitutionId = entity.InstitutionId,
             Deposit = entity.Deposit,
+            CashDepositAmount = entity.CashDepositAmount,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,
             ReturnedAt = entity.ReturnedAt,

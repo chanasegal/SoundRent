@@ -36,6 +36,7 @@ import {
   formatCalendarDuration,
   isNonBillableDay
 } from '../../core/utils/tools-billable-duration';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ToolTypeSelectComponent } from '../../shared/components/tool-type-select.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -131,7 +132,8 @@ interface ActiveLoanRowView {
     ToolTypeSelectComponent,
     LoanRangeCalendarHostComponent,
     ClickOutsideDirective,
-    ConfirmPopup
+    ConfirmPopup,
+    CashDepositAlertComponent
   ],
   providers: [ConfirmationService],
   templateUrl: './tools-returns.component.html',

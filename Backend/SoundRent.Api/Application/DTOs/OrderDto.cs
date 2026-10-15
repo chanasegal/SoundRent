@@ -23,6 +23,7 @@ public class OrderDto
     public int? InstitutionId { get; set; }
     public DepositType? DepositType { get; set; }
     public string? DepositOnName { get; set; }
+    public decimal? CashDepositAmount { get; set; }
     public decimal? PaymentAmount { get; set; }
     public bool IsPaid { get; set; }
     public bool IsUnpaid { get; set; }

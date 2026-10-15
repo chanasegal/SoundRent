@@ -39,6 +39,7 @@ public class AppDbContext : DbContext
     public DbSet<BookLoan> BookLoans => Set<BookLoan>();
     public DbSet<BookLoanItem> BookLoanItems => Set<BookLoanItem>();
     public DbSet<CustomerDebt> CustomerDebts => Set<CustomerDebt>();
+    public DbSet<CashDeposit> CashDeposits => Set<CashDeposit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

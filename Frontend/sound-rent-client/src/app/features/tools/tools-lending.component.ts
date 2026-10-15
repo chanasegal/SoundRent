@@ -56,6 +56,10 @@ import {
   parseHammerDrillBitShortcutInput,
   shouldAutoCompleteHammerDrillBitName
 } from '../../core/utils/hammer-drill-bit-shortcut';
+import {
+  CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE,
+  parseCashDepositAmount
+} from '../../core/utils/cash-deposit';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -85,6 +89,8 @@ interface LendingDraftForm {
   institutionName: string;
   institutionId: number | null;
   deposit: string;
+  /** Raw input text; parsed on submit. */
+  cashDepositAmount: string;
   notes: string;
   clientAlertNotes: string | null;
   clientRiskAlerts: CustomerRiskAlertSnapshot;
@@ -479,6 +485,7 @@ export class ToolsLendingComponent implements OnInit {
         institutionName: String(raw['institutionName'] ?? ''),
         institutionId: typeof raw['institutionId'] === 'number' ? raw['institutionId'] : null,
         deposit: String(raw['deposit'] ?? ''),
+        cashDepositAmount: String(raw['cashDepositAmount'] ?? ''),
         notes: String(raw['notes'] ?? ''),
         clientAlertNotes:
           typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
@@ -2014,6 +2021,7 @@ export class ToolsLendingComponent implements OnInit {
         | 'institutionName'
         | 'institutionId'
         | 'deposit'
+        | 'cashDepositAmount'
         | 'notes'
         | 'clientAlertNotes'
         | 'clientRiskAlerts'
@@ -2312,6 +2320,11 @@ export class ToolsLendingComponent implements OnInit {
       this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
       return;
     }
+    const cashDepositAmount = parseCashDepositAmount(form.cashDepositAmount);
+    if (cashDepositAmount === undefined) {
+      this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
+      return;
+    }
 
     const payload: ToolLoanCreateDto = {
       clientName: form.clientName.trim(),
@@ -2321,6 +2334,7 @@ export class ToolsLendingComponent implements OnInit {
       institutionName: form.institutionName.trim() || null,
       institutionId: form.institutionId,
       deposit: form.deposit.trim() || null,
+      cashDepositAmount,
       notes: form.notes.trim() || null,
       hebrewLentDisplay: form.hebrewDateTime,
       deadlineAt: this.timeLimitEnabled() && form.deadlineAt ? form.deadlineAt.toISOString() : null,
@@ -3215,6 +3229,7 @@ export class ToolsLendingComponent implements OnInit {
       institutionName: '',
       institutionId: null,
       deposit: '',
+      cashDepositAmount: '',
       notes: '',
       clientAlertNotes: null,
       clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,
@@ -3280,6 +3295,7 @@ export class ToolsLendingComponent implements OnInit {
       institutionName: loan.institutionName ?? '',
       institutionId: loan.institutionId ?? null,
       deposit: loan.deposit ?? '',
+      cashDepositAmount: loan.cashDepositAmount != null ? String(loan.cashDepositAmount) : '',
       notes: loan.notes ?? '',
       clientAlertNotes: null,
       clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,

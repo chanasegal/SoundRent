@@ -237,6 +237,8 @@
               }
             </header>
 
+            <app-cash-deposit-alert [phone]="card.phone" />
+
             @if (card.deposit || card.loanNotes || card.customerNotes) {
               <div class="mb-3 space-y-2">
                 @if (card.deposit) {
@@ -388,6 +390,7 @@
       </div>
 
       <div class="app-modal-body space-y-5 px-5 py-4">
+        <app-cash-deposit-alert [phone]="session.phone" />
         <div class="quick-return-customer">
           <h3 class="mb-2 text-sm font-bold text-[#002244]">פרטי לקוח</h3>
           <dl class="quick-return-customer__grid">

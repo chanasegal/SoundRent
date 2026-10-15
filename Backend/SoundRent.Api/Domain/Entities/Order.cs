@@ -34,6 +34,9 @@ public class Order
     [MaxLength(100)]
     public string? DepositOnName { get; set; }
 
+    /// <summary>Cash held as deposit; only meaningful when <see cref="DepositType"/> is Cash.</summary>
+    public decimal? CashDepositAmount { get; set; }
+
     public decimal? PaymentAmount { get; set; }
 
     /// <summary>True when the customer paid in advance. Mutually exclusive with <see cref="IsUnpaid"/>.</summary>

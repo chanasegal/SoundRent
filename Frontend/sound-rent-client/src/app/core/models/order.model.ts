@@ -41,6 +41,7 @@ export interface OrderDto {
   institutionId?: number | null;
   depositType?: DepositType | null;
   depositOnName?: string | null;
+  cashDepositAmount?: number | null;
   paymentAmount?: number | null;
   /** Paid in advance. Mutually exclusive with `isUnpaid`. */
   isPaid?: boolean;
@@ -70,6 +71,8 @@ export interface OrderCreateUpdateDto {
   institutionId?: number | null;
   depositType?: DepositType | null;
   depositOnName?: string | null;
+  /** Required (> 0) when `depositType` is Cash; ignored by the server otherwise. */
+  cashDepositAmount?: number | null;
   paymentAmount?: number | null;
   isPaid?: boolean;
   isUnpaid: boolean;
