@@ -43,6 +43,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(o => o.IsPaid)
+            .HasDefaultValue(false);
+
         builder.Property(o => o.IsUnpaid)
             .HasDefaultValue(false);
 

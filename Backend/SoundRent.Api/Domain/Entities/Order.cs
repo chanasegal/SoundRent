@@ -36,7 +36,13 @@ public class Order
 
     public decimal? PaymentAmount { get; set; }
 
-    /// <summary>True when the customer still owes payment for this order.</summary>
+    /// <summary>True when the customer paid in advance. Mutually exclusive with <see cref="IsUnpaid"/>.</summary>
+    public bool IsPaid { get; set; }
+
+    /// <summary>
+    /// True when the order is recorded as an open debt (shown in the debts report).
+    /// When both flags are false the payment is still pending on an active loan and is not a debt.
+    /// </summary>
     public bool IsUnpaid { get; set; }
 
     public bool IsCancelled { get; set; }

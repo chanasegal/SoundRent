@@ -32,6 +32,7 @@ public static class OrderMapper
         DepositType = order.DepositType,
         DepositOnName = order.DepositOnName,
         PaymentAmount = order.PaymentAmount,
+        IsPaid = order.IsPaid,
         IsUnpaid = order.IsUnpaid,
         IsCancelled = order.IsCancelled,
         IsReturnProcessed = order.IsReturnProcessed,
@@ -148,6 +149,7 @@ public static class OrderMapper
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
         PaymentAmount = dto.PaymentAmount,
+        IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid),
         IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid),
         ReturnTimeType = dto.ReturnTimeType,
         CustomReturnTime = NormalizeCustomReturnTime(dto),
@@ -253,6 +255,7 @@ public static class OrderMapper
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.PaymentAmount = dto.PaymentAmount;
+        entity.IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid);
         entity.IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid);
         entity.ReturnTimeType = dto.ReturnTimeType;
         entity.CustomReturnTime = NormalizeCustomReturnTime(dto);
@@ -264,6 +267,12 @@ public static class OrderMapper
     /// </summary>
     public static bool NormalizeIsUnpaid(decimal? paymentAmount, bool isUnpaid) =>
         isUnpaid && paymentAmount is > 0;
+
+    /// <summary>
+    /// "Paid" and "debt" are mutually exclusive; the debt flag wins when a client sends both.
+    /// </summary>
+    public static bool NormalizeIsPaid(bool isPaid, bool isUnpaid) =>
+        isPaid && !isUnpaid;
 
     public static IReadOnlyList<string> NormalizeEquipmentDefinitionIds(IEnumerable<string>? ids)
     {

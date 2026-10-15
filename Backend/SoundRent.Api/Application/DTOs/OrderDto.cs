@@ -24,6 +24,7 @@ public class OrderDto
     public DepositType? DepositType { get; set; }
     public string? DepositOnName { get; set; }
     public decimal? PaymentAmount { get; set; }
+    public bool IsPaid { get; set; }
     public bool IsUnpaid { get; set; }
 
     public bool IsCancelled { get; set; }

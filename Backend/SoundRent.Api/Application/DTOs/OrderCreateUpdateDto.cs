@@ -37,6 +37,10 @@ public class OrderCreateUpdateDto : IValidatableObject
 
     public decimal? PaymentAmount { get; set; }
 
+    /// <summary>Paid in advance. Ignored when <see cref="IsUnpaid"/> is set.</summary>
+    public bool IsPaid { get; set; }
+
+    /// <summary>Recorded as an open debt (appears in the debts report).</summary>
     public bool IsUnpaid { get; set; }
 
     public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;

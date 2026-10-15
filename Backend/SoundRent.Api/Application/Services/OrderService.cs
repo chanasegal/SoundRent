@@ -538,6 +538,7 @@ public class OrderService : IOrderService
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
         existing.IsUnpaid = false;
+        existing.IsPaid = true;
         await _orderRepository.SaveChangesAsync(cancellationToken);
         return OrderMapper.ToDto(existing);
     }

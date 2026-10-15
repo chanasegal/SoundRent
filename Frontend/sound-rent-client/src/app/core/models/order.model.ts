@@ -42,6 +42,9 @@ export interface OrderDto {
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
+  /** Paid in advance. Mutually exclusive with `isUnpaid`. */
+  isPaid?: boolean;
+  /** Recorded as an open debt (shown in the debts report). */
   isUnpaid: boolean;
   isCancelled: boolean;
   isReturnProcessed: boolean;
@@ -68,6 +71,7 @@ export interface OrderCreateUpdateDto {
   depositType?: DepositType | null;
   depositOnName?: string | null;
   paymentAmount?: number | null;
+  isPaid?: boolean;
   isUnpaid: boolean;
   returnTimeType: ReturnTimeType;
   customReturnTime?: string | null;

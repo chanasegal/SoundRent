@@ -90,6 +90,9 @@ import {
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 
+/** Form-only payment state; maps to the `isPaid` / `isUnpaid` flags on the order DTO. */
+type PaymentStatus = 'none' | 'paid' | 'unpaid';
+
 interface ReturnModalRow {
   rowId: string;
   loanedEquipmentId: number;
@@ -343,6 +346,11 @@ export class OrderFormComponent implements OnInit {
     DepositType.Cash
   ];
   protected readonly depositTypeLabels = DEPOSIT_TYPE_LABELS;
+  protected readonly paymentStatusOptions: { value: PaymentStatus; label: string }[] = [
+    { value: 'none', label: 'ללא' },
+    { value: 'paid', label: 'שילם' },
+    { value: 'unpaid', label: 'לא שילם (חוב)' }
+  ];
   protected readonly returnTimeTypes: ReturnTimeType[] = [
     ReturnTimeType.SpecificTime,
     ReturnTimeType.LateNight,
@@ -1994,7 +2002,7 @@ export class OrderFormComponent implements OnInit {
       depositType: null,
       depositOnName: '',
       paymentAmount: null,
-      isUnpaid: false,
+      paymentStatus: 'none',
       notes: ''
     });
 
@@ -2328,7 +2336,7 @@ export class OrderFormComponent implements OnInit {
       depositType: [null as DepositType | null],
       depositOnName: ['', Validators.maxLength(100)],
       paymentAmount: [null as number | null, [Validators.min(0)]],
-      isUnpaid: [false],
+      paymentStatus: ['none' as PaymentStatus],
       notes: ['', Validators.maxLength(1000)],
 
       loanedEquipments: this.fb.array<FormGroup>([])
@@ -3907,7 +3915,7 @@ export class OrderFormComponent implements OnInit {
         depositType: (raw['depositType'] as DepositType | null) ?? null,
         depositOnName: typeof raw['depositOnName'] === 'string' ? raw['depositOnName'] : '',
         paymentAmount: typeof raw['paymentAmount'] === 'number' ? raw['paymentAmount'] : null,
-        isUnpaid: raw['isUnpaid'] === true,
+        paymentStatus: OrderFormComponent.draftPaymentStatus(raw),
         notes: typeof raw['notes'] === 'string' ? raw['notes'] : ''
       },
       { emitEvent: false }
@@ -4076,7 +4084,7 @@ export class OrderFormComponent implements OnInit {
           depositType: order.depositType ?? null,
           depositOnName: order.depositOnName ?? '',
           paymentAmount: order.paymentAmount ?? null,
-          isUnpaid: mode === 'renew' ? true : order.isUnpaid,
+          paymentStatus: mode === 'renew' ? 'unpaid' : OrderFormComponent.orderPaymentStatus(order),
           notes: order.notes ?? ''
         },
         { emitEvent: false }
@@ -4197,10 +4205,12 @@ export class OrderFormComponent implements OnInit {
     | 'depositType'
     | 'depositOnName'
     | 'paymentAmount'
+    | 'isPaid'
     | 'isUnpaid'
     | 'notes'
   > {
     const v = this.form.getRawValue() as Record<string, unknown>;
+    const paymentStatus = v['paymentStatus'] as PaymentStatus;
     return {
       customerName: this.optionalText(v['customerName']),
       phone: (v['phone'] as string).trim(),
@@ -4213,9 +4223,23 @@ export class OrderFormComponent implements OnInit {
       paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
         ? null
         : Math.max(0, Math.trunc(Number(v['paymentAmount']))),
-      isUnpaid: !!v['isUnpaid'],
+      isPaid: paymentStatus === 'paid',
+      isUnpaid: paymentStatus === 'unpaid',
       notes: this.optionalText(v['notes'])
     };
+  }
+
+  private static orderPaymentStatus(order: Pick<OrderDto, 'isPaid' | 'isUnpaid'>): PaymentStatus {
+    if (order.isUnpaid) return 'unpaid';
+    if (order.isPaid) return 'paid';
+    return 'none';
+  }
+
+  /** Drafts saved before the 3-way payment control only carry the legacy `isUnpaid` flag. */
+  private static draftPaymentStatus(raw: Record<string, unknown>): PaymentStatus {
+    const status = raw['paymentStatus'];
+    if (status === 'none' || status === 'paid' || status === 'unpaid') return status;
+    return raw['isUnpaid'] === true ? 'unpaid' : 'none';
   }
 
   private toLoanedEquipmentsPayload(): OrderLoanedEquipmentDto[] {

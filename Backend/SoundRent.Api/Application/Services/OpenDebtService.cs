@@ -333,6 +333,7 @@ public class OpenDebtService : IOpenDebtService
         order.Address = address.Length == 0 ? null : address;
         order.PaymentAmount = dto.Amount;
         order.IsUnpaid = true;
+        order.IsPaid = false;
         order.DepositOnName = deposit.Length == 0 ? null : deposit;
         order.Notes = notes.Length == 0 ? null : notes;
         order.SystemType = ToSystemType(dto.Category);

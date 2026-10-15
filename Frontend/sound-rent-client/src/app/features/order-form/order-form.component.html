@@ -630,13 +630,35 @@
             class="form-input ltr-field"
           />
         </div>
-        <div class="flex items-end">
-          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-sky-400">
-            <input type="checkbox" formControlName="isUnpaid" class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
-            <span>לא שולם (חוב)</span>
-          </label>
+        <div>
+          <span class="form-label" id="payment-status-label">סטטוס תשלום</span>
+          <div
+            class="inline-flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white text-sm font-medium"
+            role="radiogroup"
+            aria-labelledby="payment-status-label"
+          >
+            @for (opt of paymentStatusOptions; track opt.value; let first = $first) {
+              @let selected = form.controls['paymentStatus'].value === opt.value;
+              <label
+                class="flex flex-1 cursor-pointer items-center justify-center whitespace-nowrap px-3 py-2.5 transition-colors"
+                [class.border-s]="!first"
+                [class.border-slate-300]="!first"
+                [class.text-slate-700]="!selected"
+                [class.bg-slate-600]="selected && opt.value === 'none'"
+                [class.bg-emerald-600]="selected && opt.value === 'paid'"
+                [class.bg-amber-600]="selected && opt.value === 'unpaid'"
+                [class.text-white]="selected"
+              >
+                <input type="radio" formControlName="paymentStatus" [value]="opt.value" class="sr-only" />
+                <span>{{ opt.label }}</span>
+              </label>
+            }
+          </div>
         </div>
       </div>
+      @if (form.controls['paymentStatus'].value === 'unpaid' && !((form.controls['paymentAmount'].value ?? 0) > 0)) {
+        <p class="mt-2 text-sm text-amber-700">יש להזין סכום כדי שההזמנה תופיע בדוח החובות הפתוחים.</p>
+      }
     </section>
 
     <!-- Loaned Equipment (dynamic rows) -->

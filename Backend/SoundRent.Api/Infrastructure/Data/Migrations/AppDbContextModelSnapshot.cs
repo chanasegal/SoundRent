@@ -908,6 +908,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsPaid")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsReturnProcessed")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
