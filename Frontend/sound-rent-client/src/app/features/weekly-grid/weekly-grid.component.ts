@@ -344,7 +344,8 @@ export class WeeklyGridComponent {
   protected readonly waitlistEntries = signal<WaitlistEntryDto[]>([]);
   protected readonly blockedDates = signal<BlockedDateDto[]>([]);
   protected readonly waitlistSaving = signal(false);
-  protected readonly waitlistModalContext = signal<{ date: Date } | null>(null);
+  /** `entry` is set when editing an existing waitlist row; absent when adding a new one. */
+  protected readonly waitlistModalContext = signal<{ date: Date; entry?: WaitlistEntryDto } | null>(null);
   protected readonly exportBackupInProgress = signal(false);
   protected readonly dashboardRefreshing = signal(false);
   protected readonly loadingMoreWeeks = signal(false);
@@ -1076,6 +1077,56 @@ export class WeeklyGridComponent {
     applyDefaults();
   }
 
+  protected openEditWaitlistModal(entry: WaitlistEntryDto, date: Date, event: Event): void {
+    event.stopPropagation();
+    this.waitlistModalContext.set({ date, entry });
+    this.closeWaitlistCustomerSuggestions();
+    const applyValues = (): void => {
+      const slot =
+        this.waitlistSpeakerOptions().find((o) => bookingSlotToBaseEquipment(o.id) === entry.equipmentType)?.id ??
+        defaultBookingSlotForEquipmentType(entry.equipmentType);
+      this.waitlistModalForm.reset(
+        {
+          bookingSlot: slot,
+          customerName: entry.customerName ?? '',
+          phone: entry.phone,
+          address: '',
+          notes: entry.notes ?? ''
+        },
+        { emitEvent: false }
+      );
+      this.prefillWaitlistAddress(entry);
+    };
+    if (this.waitlistSpeakerOptions().length === 0) {
+      this.equipmentSlots.load({ force: true }).subscribe({
+        next: () => applyValues(),
+        error: () => applyValues()
+      });
+      return;
+    }
+    applyValues();
+  }
+
+  /** Address lives on the customer profile, not the waitlist row — look it up by phone. */
+  private prefillWaitlistAddress(entry: WaitlistEntryDto): void {
+    const phone = WeeklyGridComponent.digitsOnly(entry.phone);
+    if (!phone) {
+      return;
+    }
+    this.customers.searchSuggest(phone).subscribe({
+      next: (list) => {
+        if (this.waitlistModalContext()?.entry?.id !== entry.id) {
+          return;
+        }
+        const address = list.find((c) => WeeklyGridComponent.digitsOnly(c.phone1) === phone)?.address?.trim();
+        const addressCtrl = this.waitlistModalForm.controls.address;
+        if (address && !String(addressCtrl.value ?? '').trim()) {
+          addressCtrl.setValue(address, { emitEvent: false });
+        }
+      }
+    });
+  }
+
   protected closeWaitlistModal(): void {
     this.closeWaitlistCustomerSuggestions();
     this.waitlistModalContext.set(null);
@@ -1229,20 +1280,24 @@ export class WeeklyGridComponent {
     const customerName = ((v.customerName as string) || '').trim() || null;
     const address = ((v.address as string) || '').trim() || null;
 
+    const payload = {
+      customerName,
+      phone,
+      equipmentType,
+      date: ctx.entry?.date ?? this.toIsoDate(ctx.date),
+      notes: ((v.notes as string) || '').trim() || null,
+      address
+    };
+    const request$ = ctx.entry
+      ? this.data.updateWaitlistEntry(ctx.entry.id, payload)
+      : this.data.createWaitlistEntry(payload);
+
     this.waitlistSaving.set(true);
-    this.data
-      .createWaitlistEntry({
-        customerName,
-        phone,
-        equipmentType,
-        date: this.toIsoDate(ctx.date),
-        notes: ((v.notes as string) || '').trim() || null,
-        address
-      })
+    request$
       .pipe(finalize(() => this.waitlistSaving.set(false)))
       .subscribe({
-        next: (created) => {
-          if (created === null) {
+        next: (saved) => {
+          if (saved === null) {
             return;
           }
           this.customers.upsertFromPayload({
@@ -1250,7 +1305,7 @@ export class WeeklyGridComponent {
             fullName: customerName,
             address
           });
-          this.toast.success('נוסף לרשימת ההמתנה');
+          this.toast.success(ctx.entry ? 'רשומת ההמתנה עודכנה' : 'נוסף לרשימת ההמתנה');
           this.closeWaitlistModal();
           this.reloadCurrentWeek();
         }

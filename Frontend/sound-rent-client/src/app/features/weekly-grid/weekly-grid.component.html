@@ -610,6 +610,15 @@
                         <span class="waitlist-badge-actions">
                           <button
                             type="button"
+                            class="waitlist-action waitlist-edit"
+                            (click)="openEditWaitlistModal(w, row.date, $event)"
+                            title="עריכה"
+                            aria-label="עריכת רשומת המתנה"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
                             class="waitlist-action waitlist-convert"
                             (click)="convertWaitlistEntry(w)"
                             title="המרה להזמנה"
@@ -654,7 +663,7 @@
   @if (waitlistModalContext(); as wm) {
     <div class="waitlist-modal-backdrop" (click)="closeWaitlistModal()">
       <div class="waitlist-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
-        <h3 class="waitlist-modal-title">הוספה לרשימת המתנה</h3>
+        <h3 class="waitlist-modal-title">{{ wm.entry ? 'עריכת רשומת המתנה' : 'הוספה לרשימת המתנה' }}</h3>
         <p class="waitlist-modal-sub">{{ formatDate(wm.date) }}</p>
         <form [formGroup]="waitlistModalForm" (ngSubmit)="submitWaitlistModal()" class="waitlist-modal-form">
           <div>

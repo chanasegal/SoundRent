@@ -231,6 +231,15 @@ export class DataService {
   }
 
   /** `true` when the delete succeeded; `false` after a handled HTTP error (toast already shown). */
+  updateWaitlistEntry(id: number, payload: WaitlistEntryCreateDto): Observable<WaitlistEntryDto | null> {
+    return this.http.put<WaitlistEntryDto>(`${this.waitlistBase}/${id}`, payload).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
   deleteWaitlistEntry(id: number): Observable<boolean> {
     return this.http.delete<void>(`${this.waitlistBase}/${id}`).pipe(
       map(() => true),

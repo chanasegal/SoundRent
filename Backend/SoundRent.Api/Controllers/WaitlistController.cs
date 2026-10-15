@@ -52,6 +52,16 @@ public class WaitlistController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, created);
     }
 
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<WaitlistEntryDto>> Update(
+        int id,
+        [FromBody] WaitlistEntryCreateDto dto,
+        CancellationToken cancellationToken)
+    {
+        var updated = await _waitlistService.UpdateAsync(id, dto, cancellationToken);
+        return Ok(updated);
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {

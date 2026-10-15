@@ -68,6 +68,33 @@ public class WaitlistService : IWaitlistService
         return ToDto(entity);
     }
 
+    public async Task<WaitlistEntryDto> UpdateAsync(int id, WaitlistEntryCreateDto dto, CancellationToken cancellationToken = default)
+    {
+        if (!IsraeliPhoneValidator.TryNormalizeRequired(dto.Phone, out var phone))
+        {
+            throw new ValidationException(IsraeliPhoneValidator.InvalidPhoneMessage);
+        }
+
+        var entity = await _repository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("רשומת ההמתנה לא נמצאה");
+
+        entity.CustomerName = string.IsNullOrWhiteSpace(dto.CustomerName) ? null : dto.CustomerName.Trim();
+        entity.Phone = phone;
+        entity.EquipmentType = dto.EquipmentType;
+        entity.WaitlistDate = dto.Date;
+        entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+
+        await _repository.SaveChangesAsync(cancellationToken);
+        await _customerService.SyncFromWaitlistAsync(
+            phone,
+            dto.CustomerName,
+            dto.Address,
+            entity.SystemType,
+            cancellationToken);
+
+        return ToDto(entity);
+    }
+
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _repository.GetByIdAsync(id, cancellationToken)

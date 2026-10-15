@@ -16,5 +16,8 @@ public interface IWaitlistService
 
     Task<WaitlistEntryDto> CreateAsync(WaitlistEntryCreateDto dto, CancellationToken cancellationToken = default);
 
+    /// <summary>Edits an existing entry in place; the entry's system is never changed.</summary>
+    Task<WaitlistEntryDto> UpdateAsync(int id, WaitlistEntryCreateDto dto, CancellationToken cancellationToken = default);
+
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 }
