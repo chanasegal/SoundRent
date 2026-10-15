@@ -2160,7 +2160,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected deleteRow(row: EquipmentDefinitionDto): void {
     if (
       !confirm(
-        'שימי לב: מחיקת התא תמחק לצמיתות את כל היסטוריית ההזמנות הישנות המשויכות אליו. האם להמשיך?'
+        'התא יוסתר מהלוח השבועי ומטבלת הניהול. היסטוריית ההזמנות וההשאלות הקשורות אליו תישמר. האם להמשיך?'
       )
     ) {
       return;
@@ -2169,7 +2169,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.data.deleteEquipmentDefinition(row.id).subscribe({
       next: () => {
         this.deletingId.set(null);
-        this.toast.success('התא נמחק');
+        this.toast.success('התא הוסר מהתצוגה');
         this.store.removeDefinition(row.id);
       },
       error: (err: unknown) => {

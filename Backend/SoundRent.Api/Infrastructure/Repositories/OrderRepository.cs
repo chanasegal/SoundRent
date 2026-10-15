@@ -359,19 +359,6 @@ public class OrderRepository : IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
-    public Task<int> DeleteOrdersForEquipmentTypeBeforeDateAsync(
-        string equipmentType,
-        DateOnly beforeExclusive,
-        CancellationToken cancellationToken = default)
-    {
-        var trimmed = equipmentType.Trim();
-        return _db.Orders
-            .Where(o =>
-                o.Equipments.Any(e => e.EquipmentDefinitionId == trimmed) &&
-                o.Shifts.All(s => s.OrderDate < beforeExclusive))
-            .ExecuteDeleteAsync(cancellationToken);
-    }
-
     public async Task AddAsync(Order order, CancellationToken cancellationToken = default)
     {
         await _db.Orders.AddAsync(order, cancellationToken);

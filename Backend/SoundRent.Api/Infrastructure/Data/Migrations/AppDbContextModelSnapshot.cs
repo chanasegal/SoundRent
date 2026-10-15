@@ -504,6 +504,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<bool>("IsMaintenanceMode")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -518,6 +523,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_EquipmentDefinitions_IsActive");
 
                     b.HasIndex("SortOrder")
                         .HasDatabaseName("IX_EquipmentDefinitions_SortOrder");

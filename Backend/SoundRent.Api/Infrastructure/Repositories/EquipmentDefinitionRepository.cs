@@ -18,7 +18,9 @@ public class EquipmentDefinitionRepository : IEquipmentDefinitionRepository
         SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _db.EquipmentDefinitions.AsNoTracking();
+        var query = _db.EquipmentDefinitions
+            .AsNoTracking()
+            .Where(e => e.IsActive);
 
         if (systemType.HasValue)
         {
@@ -73,11 +75,6 @@ public class EquipmentDefinitionRepository : IEquipmentDefinitionRepository
     public async Task AddAsync(EquipmentDefinition entity, CancellationToken cancellationToken = default)
     {
         await _db.EquipmentDefinitions.AddAsync(entity, cancellationToken);
-    }
-
-    public void Remove(EquipmentDefinition entity)
-    {
-        _db.EquipmentDefinitions.Remove(entity);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

@@ -77,8 +77,7 @@ public class EquipmentDefinitionsController : ControllerBase
         [FromBody] EquipmentMaintenanceUpdateDto dto,
         CancellationToken cancellationToken)
     {
-        var entity = await _repository.GetByIdAsync(id, cancellationToken)
-            ?? throw new NotFoundException("הגדרת הציוד לא נמצאה");
+        var entity = await GetActiveOrThrowAsync(id, cancellationToken);
 
         entity.IsMaintenanceMode = dto.IsMaintenanceMode;
         await _repository.SaveChangesAsync(cancellationToken);
@@ -92,8 +91,7 @@ public class EquipmentDefinitionsController : ControllerBase
         [FromBody] EquipmentDefinitionUpdateDto dto,
         CancellationToken cancellationToken)
     {
-        var entity = await _repository.GetByIdAsync(id, cancellationToken)
-            ?? throw new NotFoundException("הגדרת הציוד לא נמצאה");
+        var entity = await GetActiveOrThrowAsync(id, cancellationToken);
 
         var displayName = dto.DisplayName.Trim();
         if (string.IsNullOrEmpty(displayName))
@@ -124,7 +122,8 @@ public class EquipmentDefinitionsController : ControllerBase
             throw new ValidationException("קוד פריט לא תקין: אותיות באנגלית, מספרים, מקף ונקודה בלבד");
         }
 
-        if (await _repository.ExistsAsync(trimmedId, cancellationToken))
+        var existing = await _repository.GetByIdAsync(trimmedId, cancellationToken);
+        if (existing is { IsActive: true })
         {
             throw new ValidationException("מזהה זה כבר קיים במערכת");
         }
@@ -133,6 +132,13 @@ public class EquipmentDefinitionsController : ControllerBase
         if (!IsBoardColumnCategory(category))
         {
             throw new ValidationException("קטגוריה לתא הזמנה חייבת להיות רמקולים או מקרנים בלבד");
+        }
+
+        if (existing is not null)
+        {
+            Reactivate(existing, dto.DisplayName.Trim(), category, dto.SortOrder, dto.SystemType);
+            await _repository.SaveChangesAsync(cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, ToDto(existing));
         }
 
         var entity = new EquipmentDefinition
@@ -152,7 +158,8 @@ public class EquipmentDefinitionsController : ControllerBase
     }
 
     /// <summary>
-    /// Creates one definition per item code. Does not modify existing definitions or orders.
+    /// Creates one definition per item code. Soft-deleted codes are reactivated; active
+    /// definitions and orders are never modified.
     /// </summary>
     [HttpPost("batch")]
     public async Task<ActionResult<List<EquipmentDefinitionDto>>> CreateBatch(
@@ -184,11 +191,16 @@ public class EquipmentDefinitionsController : ControllerBase
         }
 
         var existing = await _repository.GetByIdsAsync(codes, cancellationToken);
-        if (existing.Count > 0)
+        var activeConflicts = existing.Where(e => e.IsActive).ToList();
+        if (activeConflicts.Count > 0)
         {
-            var conflict = string.Join(", ", existing.Select(e => e.Id).OrderBy(id => id));
+            var conflict = string.Join(", ", activeConflicts.Select(e => e.Id).OrderBy(id => id));
             throw new ValidationException($"קוד פריט כבר קיים במערכת: {conflict}");
         }
+
+        var inactiveIds = existing
+            .Select(e => e.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var allRows = await _repository.GetAllOrderedAsync(dto.SystemType, cancellationToken);
         var nextOrder = allRows.Count == 0 ? 0 : allRows.Max(r => r.SortOrder) + 1;
@@ -208,6 +220,15 @@ public class EquipmentDefinitionsController : ControllerBase
             {
                 for (var i = 0; i < codes.Count; i++)
                 {
+                    if (inactiveIds.Contains(codes[i]))
+                    {
+                        var hidden = await _repository.GetByIdAsync(codes[i], cancellationToken)
+                            ?? throw new NotFoundException("הגדרת הציוד לא נמצאה");
+                        Reactivate(hidden, displayName, category, nextOrder + i, dto.SystemType);
+                        created.Add(hidden);
+                        continue;
+                    }
+
                     var entity = new EquipmentDefinition
                     {
                         Id = codes[i],
@@ -276,11 +297,14 @@ public class EquipmentDefinitionsController : ControllerBase
     private static bool IsBoardColumnCategory(string category) =>
         category is "Speakers" or "Projectors";
 
+    /// <summary>
+    /// Soft delete: hides the slot from the board and admin views while keeping the row
+    /// (and every historical order that references it) in the database.
+    /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
     {
-        var entity = await _repository.GetByIdAsync(id, cancellationToken)
-            ?? throw new NotFoundException("הגדרת הציוד לא נמצאה");
+        var entity = await GetActiveOrThrowAsync(id, cancellationToken);
 
         var todayIsrael = IsraelDateHelper.TodayInIsrael();
         var futureOrders = await _orderRepository.GetFutureOrdersForEquipmentTypeAsync(
@@ -298,32 +322,36 @@ public class EquipmentDefinitionsController : ControllerBase
             });
         }
 
-        // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
-        var strategy = _db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            // Clear any leftover tracking if a prior attempt was retried.
-            _db.ChangeTracker.Clear();
-
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-            try
-            {
-                await _orderRepository.DeleteOrdersForEquipmentTypeBeforeDateAsync(
-                    entity.Id,
-                    todayIsrael,
-                    cancellationToken);
-                _repository.Remove(entity);
-                await _repository.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-            }
-            catch
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                throw;
-            }
-        });
+        entity.IsActive = false;
+        await _repository.SaveChangesAsync(cancellationToken);
 
         return NoContent();
+    }
+
+    private async Task<EquipmentDefinition> GetActiveOrThrowAsync(string id, CancellationToken cancellationToken)
+    {
+        var entity = await _repository.GetByIdAsync(id, cancellationToken);
+        if (entity is null || !entity.IsActive)
+        {
+            throw new NotFoundException("הגדרת הציוד לא נמצאה");
+        }
+
+        return entity;
+    }
+
+    private static void Reactivate(
+        EquipmentDefinition entity,
+        string displayName,
+        string category,
+        int sortOrder,
+        SystemType systemType)
+    {
+        entity.IsActive = true;
+        entity.IsMaintenanceMode = false;
+        entity.DisplayName = displayName;
+        entity.Category = category;
+        entity.SortOrder = sortOrder;
+        entity.SystemType = systemType;
     }
 
     private static EquipmentDefinitionDto ToDto(EquipmentDefinition r) => new()

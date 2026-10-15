@@ -1594,6 +1594,11 @@ public class OrderService : IOrderService
                 continue;
             }
 
+            if (!def.IsActive)
+            {
+                throw new ValidationException("הציוד הוסר מהמלאי - לא ניתן להוסיף הזמנה חדשה");
+            }
+
             if (def.IsMaintenanceMode)
             {
                 throw new ValidationException("הציוד בתיקון - לא ניתן להוסיף הזמנה חדשה");

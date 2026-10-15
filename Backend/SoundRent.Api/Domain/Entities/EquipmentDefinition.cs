@@ -28,5 +28,11 @@ public class EquipmentDefinition
     /// <summary>Which product system this booking slot belongs to.</summary>
     public SystemType SystemType { get; set; } = SystemType.Sound;
 
+    /// <summary>
+    /// Soft-delete flag. Inactive slots are hidden from the weekly board and admin views,
+    /// but the row is kept so historical orders still reference it.
+    /// </summary>
+    public bool IsActive { get; set; } = true;
+
     public ICollection<OrderEquipment> Orders { get; set; } = new List<OrderEquipment>();
 }

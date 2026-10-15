@@ -70,11 +70,6 @@ public interface IOrderRepository
         DateOnly todayInclusive,
         CancellationToken cancellationToken = default);
 
-    Task<int> DeleteOrdersForEquipmentTypeBeforeDateAsync(
-        string equipmentType,
-        DateOnly beforeExclusive,
-        CancellationToken cancellationToken = default);
-
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
     void Remove(Order order);

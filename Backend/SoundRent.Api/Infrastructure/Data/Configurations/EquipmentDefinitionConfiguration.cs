@@ -30,6 +30,12 @@ public class EquipmentDefinitionConfiguration : IEntityTypeConfiguration<Equipme
         builder.Property(e => e.IsMaintenanceMode)
             .HasDefaultValue(false);
 
+        builder.Property(e => e.IsActive)
+            .HasDefaultValue(true);
+
+        builder.HasIndex(e => e.IsActive)
+            .HasDatabaseName("IX_EquipmentDefinitions_IsActive");
+
         builder.HasMany(e => e.Orders)
             .WithOne(oe => oe.EquipmentDefinition)
             .HasForeignKey(oe => oe.EquipmentDefinitionId)
