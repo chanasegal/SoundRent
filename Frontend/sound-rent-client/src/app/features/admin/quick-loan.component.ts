@@ -85,6 +85,8 @@ interface AccessoryDraftLine {
   query: string;
   inventoryDefinitionId: number | null;
   selectedCodes: string[];
+  /** Text typed into the codes multi-select (not yet added to selectedCodes). */
+  codesQuery: string;
   suggestOpen: boolean;
   codesOpen: boolean;
 }
@@ -453,6 +455,7 @@ export class QuickLoanComponent implements OnInit {
               query: value,
               inventoryDefinitionId: null,
               selectedCodes: [],
+              codesQuery: '',
               suggestOpen: true,
               codesOpen: false
             }
@@ -507,6 +510,7 @@ export class QuickLoanComponent implements OnInit {
       inventoryDefinitionId: def.id,
       query: def.displayName,
       selectedCodes: [],
+      codesQuery: '',
       suggestOpen: false,
       codesOpen: false
     });
@@ -525,14 +529,63 @@ export class QuickLoanComponent implements OnInit {
     this.patchDraftLine(lineId, { codesOpen: false });
   }
 
-  protected toggleDraftCodesDropdown(lineId: string, event: Event): void {
-    event.stopPropagation();
+  protected openDraftCodesDropdown(lineId: string): void {
     this.accessoryDraftLines.update((lines) =>
       lines.map((l) => ({
         ...l,
-        codesOpen: l.id === lineId ? !l.codesOpen : false,
+        codesOpen: l.id === lineId,
         suggestOpen: false
       }))
+    );
+  }
+
+  /** Codes can be typed for catalog items and for one-time (custom) accessories. */
+  protected isDraftCodesInputEnabled(line: AccessoryDraftLine): boolean {
+    return line.inventoryDefinitionId != null || this.showCustomAccessoryOptionForDraft(line);
+  }
+
+  protected focusDraftCodesInput(lineId: string): void {
+    this.document
+      .querySelector<HTMLInputElement>(`[data-accessory-draft-codes-input][data-line-id="${lineId}"]`)
+      ?.focus();
+  }
+
+  protected onDraftCodesQueryInput(lineId: string, value: string): void {
+    this.patchDraftLine(lineId, { codesQuery: value, codesOpen: true, suggestOpen: false });
+  }
+
+  protected onDraftCodesInputEnter(lineId: string, event: Event): void {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line || !line.codesQuery.trim()) {
+      this.onDraftCodesEnter(lineId, event);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.addTypedDraftCodes(lineId);
+  }
+
+  protected onDraftCodesInputBackspace(lineId: string, event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.value) {
+      return;
+    }
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line || line.selectedCodes.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    this.patchDraftLine(lineId, { selectedCodes: line.selectedCodes.slice(0, -1) });
+  }
+
+  protected removeDraftCode(lineId: string, code: string, event: Event): void {
+    event.stopPropagation();
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) =>
+        l.id === lineId
+          ? { ...l, selectedCodes: l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code)) }
+          : l
+      )
     );
   }
 
@@ -543,16 +596,80 @@ export class QuickLoanComponent implements OnInit {
         if (l.id !== lineId) {
           return l;
         }
-        const selected = l.selectedCodes.includes(code)
-          ? l.selectedCodes.filter((c) => c !== code)
+        const selected = this.isDraftCodeSelected(l, code)
+          ? l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code))
           : [...l.selectedCodes, code];
-        return { ...l, selectedCodes: selected };
+        return { ...l, selectedCodes: selected, codesQuery: '' };
       })
     );
+    queueMicrotask(() => this.focusDraftCodesInput(lineId));
   }
 
   protected isDraftCodeSelected(line: AccessoryDraftLine, code: string): boolean {
-    return line.selectedCodes.includes(code);
+    return line.selectedCodes.some((c) => this.isSameSerialCode(c, code));
+  }
+
+  /** Checkbox options narrowed by the last token typed into the codes input. */
+  protected filteredSerialOptionsForDraftLine(line: AccessoryDraftLine): AccessorySerialOptionDto[] {
+    const options = this.serialOptionsForDraftLine(line);
+    const tokens = this.splitTypedCodes(line.codesQuery);
+    const needle = tokens[tokens.length - 1]?.toLowerCase();
+    if (!needle) {
+      return options;
+    }
+    return options.filter((opt) => opt.serialCode.toLowerCase().includes(needle));
+  }
+
+  /**
+   * Moves typed codes into selectedCodes. When the item has known serials, only existing
+   * available codes are accepted; otherwise any typed code is accepted.
+   * @returns false when at least one typed code was rejected (toast already shown).
+   */
+  private addTypedDraftCodes(lineId: string): boolean {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return true;
+    }
+    const tokens = this.splitTypedCodes(line.codesQuery);
+    const options = this.serialOptionsForDraftLine(line);
+    const selected = [...line.selectedCodes];
+    const rejected: string[] = [];
+
+    for (const token of tokens) {
+      let code = token;
+      if (options.length > 0) {
+        const match = options.find((opt) => this.isSameSerialCode(opt.serialCode, token));
+        if (!match) {
+          this.toast.warning(`קוד "${token}" לא קיים במלאי לפריט זה`);
+          rejected.push(token);
+          continue;
+        }
+        const alreadySelected = selected.some((c) => this.isSameSerialCode(c, match.serialCode));
+        if (!match.isAvailable && !alreadySelected) {
+          this.toast.warning(`קוד "${match.serialCode}" כרגע תפוס ואינו זמין`);
+          rejected.push(token);
+          continue;
+        }
+        code = match.serialCode;
+      }
+      if (!selected.some((c) => this.isSameSerialCode(c, code))) {
+        selected.push(code);
+      }
+    }
+
+    this.patchDraftLine(lineId, { selectedCodes: selected, codesQuery: rejected.join(' ') });
+    return rejected.length === 0;
+  }
+
+  private splitTypedCodes(raw: string): string[] {
+    return raw
+      .split(/[\s,;|]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+  }
+
+  private isSameSerialCode(a: string, b: string): boolean {
+    return a.trim().localeCompare(b.trim(), undefined, { sensitivity: 'accent' }) === 0;
   }
 
   protected serialOptionsForDraftLine(line: AccessoryDraftLine): AccessorySerialOptionDto[] {
@@ -675,6 +792,7 @@ export class QuickLoanComponent implements OnInit {
       (line) =>
         line.query.trim().length > 0 ||
         line.selectedCodes.length > 0 ||
+        line.codesQuery.trim().length > 0 ||
         line.inventoryDefinitionId != null
     );
     for (const line of pending) {
@@ -693,10 +811,19 @@ export class QuickLoanComponent implements OnInit {
     lineId: string,
     options: { addNext: boolean } = { addNext: true }
   ): 'committed' | 'skipped' | 'failed' {
-    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
-    if (!line) {
+    const pendingLine = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!pendingLine) {
       return 'skipped';
     }
+    if (
+      pendingLine.codesQuery.trim() &&
+      this.isDraftCodesInputEnabled(pendingLine) &&
+      !this.addTypedDraftCodes(lineId)
+    ) {
+      this.scheduleFocusDraftCodesDropdown(lineId);
+      return 'failed';
+    }
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId) ?? pendingLine;
 
     const trimmed = line.query.trim();
     if (!trimmed) {
@@ -735,6 +862,7 @@ export class QuickLoanComponent implements OnInit {
             inventoryDefinitionId: parsed.def.id,
             query: parsed.def.displayName,
             selectedCodes: [],
+            codesQuery: '',
             suggestOpen: false,
             codesOpen: false
           });
@@ -836,6 +964,7 @@ export class QuickLoanComponent implements OnInit {
         query: '',
         inventoryDefinitionId: null,
         selectedCodes: [],
+        codesQuery: '',
         suggestOpen: false,
         codesOpen: false
       };
@@ -1039,6 +1168,7 @@ export class QuickLoanComponent implements OnInit {
       query: '',
       inventoryDefinitionId: null,
       selectedCodes: [],
+      codesQuery: '',
       suggestOpen: false,
       codesOpen: false
     };
@@ -1093,14 +1223,14 @@ export class QuickLoanComponent implements OnInit {
     afterNextRender(
       () => {
         this.patchDraftLine(lineId, { codesOpen: true });
-        const button = this.document.querySelector<HTMLButtonElement>(
-          `[data-accessory-draft-codes] button[data-line-id="${lineId}"]`
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-accessory-draft-codes-input][data-line-id="${lineId}"]`
         );
-        if (!button) {
+        if (!input) {
           return;
         }
-        button.scrollIntoView({ block: 'nearest' });
-        button.focus({ preventScroll: true });
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
       },
       { injector: this.injector }
     );

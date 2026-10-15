@@ -515,28 +515,54 @@
                         (appClickOutside)="closeDraftCodesDropdown(line.id)"
                         [appClickOutsideEnabled]="line.codesOpen"
                       >
-                        <button
-                          type="button"
-                          class="accessory-draft-line__codes-btn"
-                          [attr.data-line-id]="line.id"
-                          [disabled]="line.inventoryDefinitionId == null"
-                          (click)="toggleDraftCodesDropdown(line.id, $event)"
-                          (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                        <div
+                          class="accessory-draft-line__codes-field"
+                          [class.accessory-draft-line__codes-field--disabled]="!isDraftCodesInputEnabled(line)"
+                          (click)="focusDraftCodesInput(line.id)"
                         >
-                          @if (line.selectedCodes.length === 0) {
-                            <span class="placeholder">בחרו קודים…</span>
-                          } @else {
-                            <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                          @for (code of line.selectedCodes; track code) {
+                            <span class="accessory-draft-line__codes-chip">
+                              <span class="ltr-field" dir="ltr">{{ code }}</span>
+                              <button
+                                type="button"
+                                class="accessory-draft-line__codes-chip-remove"
+                                [attr.aria-label]="'הסרת קוד ' + code"
+                                (click)="removeDraftCode(line.id, code, $event)"
+                                (keydown.enter)="$event.stopPropagation()"
+                              >
+                                ×
+                              </button>
+                            </span>
                           }
-                        </button>
+                          <input
+                            type="text"
+                            class="accessory-draft-line__codes-input"
+                            data-accessory-draft-codes-input
+                            [attr.data-line-id]="line.id"
+                            [placeholder]="line.selectedCodes.length === 0 ? 'בחרו או הקלידו קודים…' : ''"
+                            [disabled]="!isDraftCodesInputEnabled(line)"
+                            [value]="line.codesQuery"
+                            (input)="onDraftCodesQueryInput(line.id, $any($event.target).value)"
+                            (focus)="openDraftCodesDropdown(line.id)"
+                            (keydown.enter)="onDraftCodesInputEnter(line.id, $event)"
+                            (keydown.backspace)="onDraftCodesInputBackspace(line.id, $event)"
+                            (keydown.escape)="closeDraftCodesDropdown(line.id)"
+                            autocomplete="off"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            [attr.aria-expanded]="line.codesOpen"
+                          />
+                        </div>
                         @if (line.codesOpen) {
                           <div class="accessory-draft-line__codes-panel" (click)="$event.stopPropagation()">
                             @if (draftCodesPanelState(line) === 'loading') {
                               <p class="accessory-draft-line__codes-empty">טוען קודי פריטים…</p>
-                            } @else if (draftCodesPanelState(line) === 'no-inventory' || draftCodesPanelState(line) === 'all-booked') {
+                            } @else if (draftCodesPanelState(line) === 'no-inventory') {
+                              <p class="accessory-draft-line__codes-empty">אין קודים במלאי — הקלידו קוד ולחצו Enter</p>
+                            } @else if (draftCodesPanelState(line) === 'all-booked') {
                               <p class="accessory-draft-line__codes-empty">אין קודים זמינים לפריט זה</p>
                             } @else {
-                              @for (opt of serialOptionsForDraftLine(line); track opt.serialCode) {
+                              @for (opt of filteredSerialOptionsForDraftLine(line); track opt.serialCode) {
                                 <label
                                   class="accessory-draft-line__codes-option"
                                   [class.accessory-draft-line__codes-option--disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
@@ -549,6 +575,8 @@
                                   />
                                   <span class="ltr-field" dir="ltr">{{ opt.serialCode }}</span>
                                 </label>
+                              } @empty {
+                                <p class="accessory-draft-line__codes-empty">לא נמצאו קודים תואמים</p>
                               }
                             }
                           </div>
@@ -772,28 +800,54 @@
                 (appClickOutside)="closeDraftCodesDropdown(line.id)"
                 [appClickOutsideEnabled]="line.codesOpen"
               >
-                <button
-                  type="button"
-                  class="accessory-draft-line__codes-btn"
-                  [attr.data-line-id]="line.id"
-                  [disabled]="line.inventoryDefinitionId == null"
-                  (click)="toggleDraftCodesDropdown(line.id, $event)"
-                  (keydown.enter)="onDraftCodesEnter(line.id, $event)"
+                <div
+                  class="accessory-draft-line__codes-field"
+                  [class.accessory-draft-line__codes-field--disabled]="!isDraftCodesInputEnabled(line)"
+                  (click)="focusDraftCodesInput(line.id)"
                 >
-                  @if (line.selectedCodes.length === 0) {
-                    <span class="placeholder">בחרו קודים…</span>
-                  } @else {
-                    <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
+                  @for (code of line.selectedCodes; track code) {
+                    <span class="accessory-draft-line__codes-chip">
+                      <span class="ltr-field" dir="ltr">{{ code }}</span>
+                      <button
+                        type="button"
+                        class="accessory-draft-line__codes-chip-remove"
+                        [attr.aria-label]="'הסרת קוד ' + code"
+                        (click)="removeDraftCode(line.id, code, $event)"
+                        (keydown.enter)="$event.stopPropagation()"
+                      >
+                        ×
+                      </button>
+                    </span>
                   }
-                </button>
+                  <input
+                    type="text"
+                    class="accessory-draft-line__codes-input"
+                    data-accessory-draft-codes-input
+                    [attr.data-line-id]="line.id"
+                    [placeholder]="line.selectedCodes.length === 0 ? 'בחרו או הקלידו קודים…' : ''"
+                    [disabled]="!isDraftCodesInputEnabled(line)"
+                    [value]="line.codesQuery"
+                    (input)="onDraftCodesQueryInput(line.id, $any($event.target).value)"
+                    (focus)="openDraftCodesDropdown(line.id)"
+                    (keydown.enter)="onDraftCodesInputEnter(line.id, $event)"
+                    (keydown.backspace)="onDraftCodesInputBackspace(line.id, $event)"
+                    (keydown.escape)="closeDraftCodesDropdown(line.id)"
+                    autocomplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    [attr.aria-expanded]="line.codesOpen"
+                  />
+                </div>
                 @if (line.codesOpen) {
                   <div class="accessory-draft-line__codes-panel" (click)="$event.stopPropagation()">
                     @if (draftCodesPanelState(line) === 'loading') {
                       <p class="accessory-draft-line__codes-empty">טוען קודי פריטים…</p>
-                    } @else if (draftCodesPanelState(line) === 'no-inventory' || draftCodesPanelState(line) === 'all-booked') {
+                    } @else if (draftCodesPanelState(line) === 'no-inventory') {
+                      <p class="accessory-draft-line__codes-empty">אין קודים במלאי — הקלידו קוד ולחצו Enter</p>
+                    } @else if (draftCodesPanelState(line) === 'all-booked') {
                       <p class="accessory-draft-line__codes-empty">אין קודים זמינים לפריט זה</p>
                     } @else {
-                      @for (opt of serialOptionsForDraftLine(line); track opt.serialCode) {
+                      @for (opt of filteredSerialOptionsForDraftLine(line); track opt.serialCode) {
                         <label
                           class="accessory-draft-line__codes-option"
                           [class.accessory-draft-line__codes-option--disabled]="!opt.isAvailable && !isDraftCodeSelected(line, opt.serialCode)"
@@ -806,6 +860,8 @@
                           />
                           <span class="ltr-field" dir="ltr">{{ opt.serialCode }}</span>
                         </label>
+                      } @empty {
+                        <p class="accessory-draft-line__codes-empty">לא נמצאו קודים תואמים</p>
                       }
                     }
                   </div>
