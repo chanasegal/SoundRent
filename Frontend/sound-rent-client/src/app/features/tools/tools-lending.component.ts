@@ -979,15 +979,17 @@ export class ToolsLendingComponent implements OnInit {
         continue;
       }
       const loanDate = order.shifts?.[0]?.orderDate ?? '';
+      // Prefer real timestamps (createdAt / addedAt) — never invent midnight from shift dates.
       const orderLentAt =
         this.parseLoanDate(order.createdAt) ??
-        this.parseLoanDate(loanDate ? `${loanDate}T00:00:00` : null) ??
+        this.parseLoanDate(loanDate ? `${loanDate}T12:00:00` : null) ??
         new Date(0);
       for (const line of order.loanedEquipments ?? []) {
         const quantity = line.quantity - (line.returnedQuantity ?? 0);
         if (quantity <= 0) {
           continue;
         }
+        const hasLineTime = !!this.parseLoanDate(line.addedAt);
         const lentAt = this.parseLoanDate(line.addedAt) ?? orderLentAt;
         const serialCodes = (line.notes ?? [])
           .filter((note) => !note.isReturned)
@@ -1015,7 +1017,12 @@ export class ToolsLendingComponent implements OnInit {
           phone: order.phone ?? '',
           address: order.address ?? '',
           lentAt,
-          hebrewLentDisplay: loanDate ? this.hebrew.toHebrewWithDayOfWeek(lentAt) : '—',
+          hebrewLentDisplay:
+            hasLineTime || this.parseLoanDate(order.createdAt)
+              ? this.hebrew.formatHebrewDateTime(lentAt)
+              : loanDate
+                ? this.hebrew.toHebrewWithDayOfWeek(lentAt)
+                : '—',
           deadlineAt: null,
           returning: false,
           deposit: this.formatOrderDeposit(order),

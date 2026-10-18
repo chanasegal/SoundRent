@@ -65,6 +65,24 @@ interface CompletedLoanRowView {
   chargeIsPaid: boolean | null;
 }
 
+/** Same book title + borrow date within a return card. */
+interface GroupedCompletedLoanRowView {
+  rowKey: string;
+  loanId: number;
+  bookTitle: string;
+  quantity: number;
+  copyNumbers: string[];
+  members: CompletedLoanRowView[];
+  lentAt: Date;
+  hebrewLentDisplay: string;
+  deadlineAt: Date | null;
+  returnedAt: Date;
+  hebrewReturnedDisplay: string;
+  chargeAmount: number | null;
+  chargeIsPaid: boolean | null;
+  customerDebtId: number | null;
+}
+
 /** One card per customer + loan, mirroring the lending page's customer cards. */
 interface ReturnedLoanCard {
   key: string;
@@ -77,7 +95,7 @@ interface ReturnedLoanCard {
   deposit: string;
   loanNotes: string;
   customerNotes: string | null;
-  items: CompletedLoanRowView[];
+  items: GroupedCompletedLoanRowView[];
 }
 
 interface QuickReturnItem {
@@ -275,7 +293,10 @@ export class LibraryReturnsComponent implements OnInit {
 
   protected readonly returnedCards = computed(() => {
     this.customers.customers();
-    const byLoan = new Map<string, ReturnedLoanCard>();
+    const byLoan = new Map<
+      string,
+      Omit<ReturnedLoanCard, 'items'> & { rawItems: CompletedLoanRowView[] }
+    >();
 
     for (const row of this.filteredRows()) {
       const key = `${row.loanId}|${(row.clientName ?? '').trim()}|${this.normalizePhone(row.phone)}`;
@@ -292,24 +313,30 @@ export class LibraryReturnsComponent implements OnInit {
           deposit: row.deposit,
           loanNotes: row.loanNotes,
           customerNotes: this.customers.notesForPhone(row.phone),
-          items: []
+          rawItems: []
         };
         byLoan.set(key, card);
       }
       if (row.returnedAt.getTime() > card.latestReturnedAt.getTime()) {
         card.latestReturnedAt = row.returnedAt;
       }
-      card.items.push(row);
+      card.rawItems.push(row);
     }
 
-    for (const card of byLoan.values()) {
-      const earliest = card.items.reduce((a, b) => (b.lentAt < a.lentAt ? b : a));
-      card.hebrewLentDisplay = earliest.hebrewLentDisplay;
-    }
-
-    return [...byLoan.values()].sort(
-      (a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime()
-    );
+    return [...byLoan.values()]
+      .map(({ rawItems, ...rest }): ReturnedLoanCard => {
+        const items = this.groupCompletedLoanRows(rawItems);
+        const earliest = items.reduce(
+          (a, b) => (b.lentAt < a.lentAt ? b : a),
+          items[0]
+        );
+        return {
+          ...rest,
+          hebrewLentDisplay: earliest?.hebrewLentDisplay ?? rest.hebrewLentDisplay,
+          items
+        };
+      })
+      .sort((a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime());
   });
 
   ngOnInit(): void {
@@ -791,7 +818,9 @@ export class LibraryReturnsComponent implements OnInit {
     return this.formatHebrewDate(deadline);
   }
 
-  protected durationText(row: CompletedLoanRowView): string {
+  protected durationText(
+    row: Pick<GroupedCompletedLoanRowView, 'lentAt' | 'returnedAt' | 'deadlineAt'>
+  ): string {
     const days = libraryBillableDays(row.lentAt, row.returnedAt);
     return formatLibraryDuration(days, this.isOverdue(row));
   }
@@ -837,21 +866,28 @@ export class LibraryReturnsComponent implements OnInit {
     return days > 1 ? days * 5 : 0;
   }
 
-  protected isOverdue(row: CompletedLoanRowView): boolean {
+  protected isOverdue(
+    row: Pick<GroupedCompletedLoanRowView, 'deadlineAt' | 'returnedAt'>
+  ): boolean {
     if (!row.deadlineAt) {
       return false;
     }
     return row.returnedAt.getTime() > endOfLocalDay(row.deadlineAt).getTime();
   }
 
-  protected displayCharge(row: CompletedLoanRowView): number {
+  protected displayCharge(row: GroupedCompletedLoanRowView): number {
     if (row.chargeAmount != null && row.chargeAmount > 0) {
       return row.chargeAmount;
     }
-    return this.calculateCharge(row.lentAt, row.returnedAt);
+    return row.members.reduce((sum, m) => {
+      if (m.chargeAmount != null && m.chargeAmount > 0) {
+        return sum + m.chargeAmount;
+      }
+      return sum + this.calculateCharge(m.lentAt, m.returnedAt);
+    }, 0);
   }
 
-  protected hasDisplayCharge(row: CompletedLoanRowView): boolean {
+  protected hasDisplayCharge(row: GroupedCompletedLoanRowView): boolean {
     return this.displayCharge(row) > 0;
   }
 
@@ -879,11 +915,11 @@ export class LibraryReturnsComponent implements OnInit {
     return `${amount} ₪`;
   }
 
-  protected hasCharge(row: CompletedLoanRowView): boolean {
+  protected hasCharge(row: Pick<GroupedCompletedLoanRowView, 'chargeAmount'>): boolean {
     return row.chargeAmount != null && row.chargeAmount > 0;
   }
 
-  protected canQuickPay(row: CompletedLoanRowView): boolean {
+  protected canQuickPay(row: GroupedCompletedLoanRowView): boolean {
     return (
       this.hasCharge(row) &&
       row.chargeIsPaid !== true &&
@@ -892,7 +928,7 @@ export class LibraryReturnsComponent implements OnInit {
     );
   }
 
-  protected onOpenBadgeClick(event: Event, row: CompletedLoanRowView): void {
+  protected onOpenBadgeClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (!this.canQuickPay(row) || this.markingDebtId() != null) {
@@ -906,11 +942,11 @@ export class LibraryReturnsComponent implements OnInit {
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.markDebtPaid(row)
+      accept: () => this.markGroupedDebtsPaid(row)
     });
   }
 
-  protected onUndoReturnClick(event: Event, row: CompletedLoanRowView): void {
+  protected onUndoReturnClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (this.undoingRowKey() != null || this.deletingLoanId() != null) {
@@ -924,11 +960,11 @@ export class LibraryReturnsComponent implements OnInit {
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm p-button-danger',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.undoReturn(row)
+      accept: () => this.undoGroupedReturn(row)
     });
   }
 
-  protected onDeleteLoanClick(event: Event, row: CompletedLoanRowView): void {
+  protected onDeleteLoanClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (this.undoingRowKey() != null || this.deletingLoanId() != null) {
@@ -943,36 +979,42 @@ export class LibraryReturnsComponent implements OnInit {
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm p-button-danger',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.deleteLoan(row)
+      accept: () => this.deleteGroupedLoan(row)
     });
   }
 
-  private undoReturn(row: CompletedLoanRowView): void {
-    this.undoingRowKey.set(row.rowKey);
-    this.data
-      .undoBookLoanItemReturn(row.loanId, row.itemId)
+  private undoGroupedReturn(group: GroupedCompletedLoanRowView): void {
+    if (group.members.length === 0) {
+      return;
+    }
+    this.undoingRowKey.set(group.rowKey);
+    forkJoin(
+      group.members.map((row) => this.data.undoBookLoanItemReturn(row.loanId, row.itemId))
+    )
       .pipe(finalize(() => this.undoingRowKey.set(null)))
-      .subscribe((updated) => {
-        if (!updated) {
+      .subscribe((results) => {
+        if (!results.some((r) => !!r)) {
           return;
         }
-        this.removeReturnedRowLocally(row);
+        for (const row of group.members) {
+          this.removeReturnedRowLocally(row);
+        }
         this.ordersSync.notifyLoanChanged();
         this.ordersSync.notifyDebtChanged();
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });
   }
 
-  private deleteLoan(row: CompletedLoanRowView): void {
-    this.deletingLoanId.set(row.loanId);
+  private deleteGroupedLoan(group: GroupedCompletedLoanRowView): void {
+    this.deletingLoanId.set(group.loanId);
     this.data
-      .deleteBookLoan(row.loanId)
+      .deleteBookLoan(group.loanId)
       .pipe(finalize(() => this.deletingLoanId.set(null)))
       .subscribe((ok) => {
         if (!ok) {
           return;
         }
-        this.removeLoanLocally(row.loanId);
+        this.removeLoanLocally(group.loanId);
         this.ordersSync.notifyLoanChanged();
         this.ordersSync.notifyDebtChanged();
         this.toast.success('רשומת ההשאלה נמחקה');
@@ -1019,23 +1061,123 @@ export class LibraryReturnsComponent implements OnInit {
     }
   }
 
-  private markDebtPaid(row: CompletedLoanRowView): void {
-    const debtId = row.customerDebtId;
-    if (debtId == null) {
+  private markGroupedDebtsPaid(group: GroupedCompletedLoanRowView): void {
+    const unpaid = group.members.filter(
+      (m) =>
+        m.chargeAmount != null &&
+        m.chargeAmount > 0 &&
+        m.chargeIsPaid !== true &&
+        m.customerDebtId != null &&
+        m.customerDebtId > 0
+    );
+    if (unpaid.length === 0) {
       return;
     }
-    this.markingDebtId.set(debtId);
-    this.data
-      .markCustomerDebtPaid(debtId)
+
+    const primaryDebtId = unpaid[0].customerDebtId!;
+    this.markingDebtId.set(primaryDebtId);
+    forkJoin(unpaid.map((row) => this.data.markCustomerDebtPaid(row.customerDebtId!)))
       .pipe(finalize(() => this.markingDebtId.set(null)))
-      .subscribe((ok) => {
-        if (!ok) {
+      .subscribe((results) => {
+        if (!results.some((r) => !!r)) {
           return;
         }
-        this.applyPaidLocally(row);
+        for (const row of unpaid) {
+          this.applyPaidLocally(row);
+        }
         this.ordersSync.notifyDebtChanged();
         this.toast.success('החוב סומן כשולם');
       });
+  }
+
+  /**
+   * Collapse flat returned copies into Active Loans–style rows:
+   * same book title + borrow date within the loan card → one row + all copy badges.
+   * Different borrow dates stay as separate rows (each with its own duration).
+   */
+  private groupCompletedLoanRows(rows: CompletedLoanRowView[]): GroupedCompletedLoanRowView[] {
+    const groups = new Map<string, GroupedCompletedLoanRowView>();
+
+    for (const row of rows) {
+      const nameKey = (row.item.bookTitle ?? '').trim().toLowerCase();
+      const borrowDay = this.toIsoDay(row.lentAt);
+      const groupKey = `book:${nameKey}|day:${borrowDay}`;
+
+      const existing = groups.get(groupKey);
+      if (!existing) {
+        const copy = (row.item.copyNumber ?? '').trim();
+        groups.set(groupKey, {
+          rowKey: `group:${groupKey}:${row.loanId}`,
+          loanId: row.loanId,
+          bookTitle: row.item.bookTitle,
+          quantity: 1,
+          copyNumbers: copy ? [copy] : [],
+          members: [row],
+          lentAt: row.lentAt,
+          hebrewLentDisplay: row.hebrewLentDisplay,
+          deadlineAt: row.deadlineAt,
+          returnedAt: row.returnedAt,
+          hebrewReturnedDisplay: row.hebrewReturnedDisplay,
+          chargeAmount: row.chargeAmount,
+          chargeIsPaid: row.chargeIsPaid,
+          customerDebtId: row.customerDebtId
+        });
+        continue;
+      }
+
+      existing.quantity += 1;
+      existing.members.push(row);
+      // Same calendar borrow day — keep earliest lend / latest return for duration display.
+      if (row.lentAt.getTime() < existing.lentAt.getTime()) {
+        existing.lentAt = row.lentAt;
+        existing.hebrewLentDisplay = row.hebrewLentDisplay;
+      }
+      if (row.returnedAt.getTime() > existing.returnedAt.getTime()) {
+        existing.returnedAt = row.returnedAt;
+        existing.hebrewReturnedDisplay = row.hebrewReturnedDisplay;
+      }
+      if (
+        row.deadlineAt &&
+        (!existing.deadlineAt || row.deadlineAt.getTime() < existing.deadlineAt.getTime())
+      ) {
+        existing.deadlineAt = row.deadlineAt;
+      }
+      const copy = (row.item.copyNumber ?? '').trim();
+      if (copy && !existing.copyNumbers.some((c) => c.toLowerCase() === copy.toLowerCase())) {
+        existing.copyNumbers.push(copy);
+      }
+
+      const chargeSum = existing.members.reduce((sum, m) => {
+        if (m.chargeAmount != null && m.chargeAmount > 0) {
+          return sum + m.chargeAmount;
+        }
+        return sum + this.calculateCharge(m.lentAt, m.returnedAt);
+      }, 0);
+      existing.chargeAmount = chargeSum > 0 ? chargeSum : null;
+      const unpaid = existing.members.filter((m) => {
+        const amt =
+          m.chargeAmount != null && m.chargeAmount > 0
+            ? m.chargeAmount
+            : this.calculateCharge(m.lentAt, m.returnedAt);
+        return amt > 0 && m.chargeIsPaid !== true;
+      });
+      existing.chargeIsPaid =
+        existing.chargeAmount == null ? null : unpaid.length === 0 ? true : false;
+      existing.customerDebtId =
+        unpaid.find((m) => m.customerDebtId != null && m.customerDebtId > 0)?.customerDebtId ??
+        null;
+    }
+
+    return [...groups.values()]
+      .map((g) => ({
+        ...g,
+        copyNumbers: sortNumericCodes(g.copyNumbers)
+      }))
+      .sort(
+        (a, b) =>
+          b.lentAt.getTime() - a.lentAt.getTime() ||
+          a.bookTitle.localeCompare(b.bookTitle, 'he')
+      );
   }
 
   /** Patch local state only — no full list reload. */

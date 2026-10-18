@@ -180,7 +180,11 @@ export function formatCalendarDuration(start: Date, end: Date): string {
   if (hours > 0) {
     return `${hours} שעות`;
   }
-  return `${minutes} דקות`;
+  if (minutes > 0) {
+    return `${minutes} דקות`;
+  }
+  // Same instant / sub-minute / historical unknown return time — never show "0 דקות".
+  return '—';
 }
 
 /* -------------------------------------------------------------------------- */

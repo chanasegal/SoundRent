@@ -134,11 +134,28 @@
                       <span class="custom-badge">חד־פעמי</span>
                     }
                   </span>
-                  @if (row.serialCode) {
+                  @if (row.serialCodes.length > 0) {
                     <span class="accessory-row__serial">
                       <span class="accessory-row__serial-sep">:</span>
-                      <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ row.serialCode }}</span>
+                      <span class="accessory-row__serial-chip-list">
+                        @for (code of row.serialCodes; track $index + ':' + code) {
+                          <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ code }}</span>
+                        }
+                      </span>
                     </span>
+                  }
+                  @if (row.loanDate) {
+                    <div class="return-item__when">
+                      <span class="return-item__date">
+                        הושאל
+                        <strong>
+                          {{ dateLabel(row.loanDate) }}
+                          @if (hebrewDateLabel(row.loanDate); as heb) {
+                            · {{ heb }}
+                          }
+                        </strong>
+                      </span>
+                    </div>
                   }
 
                   <div class="return-item__meta">

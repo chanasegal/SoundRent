@@ -834,6 +834,7 @@ public class OrderRepository : IOrderRepository
                     OrderNotes = o.Notes,
                     LoanDate = o.Shifts.Min(s => (DateOnly?)s.OrderDate),
                     ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
+                    OrderCreatedAt = o.CreatedAt,
                     LineId = le.Id,
                     le.IsCustomItem,
                     le.CustomItemName,
@@ -843,8 +844,10 @@ public class OrderRepository : IOrderRepository
                         : null,
                     le.LoanedEquipmentType,
                     le.ReturnedQuantity,
+                    LineAddedAt = le.AddedAt,
+                    LineReturnedAt = le.ReturnedAt,
                     Notes = le.Notes
-                        .Select(n => new { n.Content, n.IsReturned, n.Ordinal })
+                        .Select(n => new { n.Content, n.IsReturned, n.Ordinal, n.ReturnedAt })
                         .ToList()
                 }))
             .ToListAsync(cancellationToken);
@@ -881,12 +884,15 @@ public class OrderRepository : IOrderRepository
             // even when stored with IsCustomItem=true because they lack a linked enum type.
             var isOneTimeCustom = r.IsCustomItem && !catalogNames.Contains(itemName);
 
+            var lentAt = r.LineAddedAt != default ? r.LineAddedAt : r.OrderCreatedAt;
+
             var returnedNotes = r.Notes
                 .Where(n => n.IsReturned)
                 .Select(n => new
                 {
                     Code = (n.Content ?? string.Empty).Trim(),
-                    n.Ordinal
+                    n.Ordinal,
+                    n.ReturnedAt
                 })
                 .Where(n => n.Code.Length > 0)
                 .GroupBy(n => n.Code, StringComparer.OrdinalIgnoreCase)
@@ -898,6 +904,8 @@ public class OrderRepository : IOrderRepository
             {
                 foreach (var note in returnedNotes)
                 {
+                    var returnedAt = note.ReturnedAt
+                        ?? ResolveAccessoryReturnStamp(r.ReturnDate, lentAt);
                     results.Add(new ReturnedAccessoryHistoryDto
                     {
                         OrderId = r.OrderId,
@@ -908,8 +916,13 @@ public class OrderRepository : IOrderRepository
                         CustomerName = r.CustomerName,
                         Phone = r.Phone,
                         Address = r.Address,
-                        LoanDate = r.LoanDate,
-                        ReturnDate = r.ReturnDate,
+                        LoanDate = r.LoanDate ?? DateOnly.FromDateTime(lentAt.ToUniversalTime()),
+                        ReturnDate = r.ReturnDate
+                            ?? (returnedAt is { } ra
+                                ? DateOnly.FromDateTime(ra.ToUniversalTime())
+                                : null),
+                        LentAt = lentAt,
+                        ReturnedAt = returnedAt,
                         IsCustomItem = isOneTimeCustom,
                         IsOrderBased = r.HasEquipment,
                         DepositType = r.DepositType,
@@ -920,6 +933,8 @@ public class OrderRepository : IOrderRepository
             }
             else if (r.ReturnedQuantity > 0)
             {
+                var returnedAt = r.LineReturnedAt
+                    ?? ResolveAccessoryReturnStamp(r.ReturnDate, lentAt);
                 results.Add(new ReturnedAccessoryHistoryDto
                 {
                     OrderId = r.OrderId,
@@ -930,8 +945,13 @@ public class OrderRepository : IOrderRepository
                     CustomerName = r.CustomerName,
                     Phone = r.Phone,
                     Address = r.Address,
-                    LoanDate = r.LoanDate,
-                    ReturnDate = r.ReturnDate,
+                    LoanDate = r.LoanDate ?? DateOnly.FromDateTime(lentAt.ToUniversalTime()),
+                    ReturnDate = r.ReturnDate
+                        ?? (returnedAt is { } ra
+                            ? DateOnly.FromDateTime(ra.ToUniversalTime())
+                            : null),
+                    LentAt = lentAt,
+                    ReturnedAt = returnedAt,
                     IsCustomItem = isOneTimeCustom,
                     IsOrderBased = r.HasEquipment,
                     DepositType = r.DepositType,
@@ -969,6 +989,8 @@ public class OrderRepository : IOrderRepository
                     serialCodes,
                     catalogById,
                     uniqueSerialToDefinitionId);
+                var lentAt = m.CreatedAt;
+                var returnedAt = m.ResolvedAt!.Value;
                 return new ReturnedAccessoryHistoryDto
                 {
                     ManualItemId = m.Id,
@@ -980,8 +1002,10 @@ public class OrderRepository : IOrderRepository
                     CustomerName = m.CustomerName,
                     Phone = m.Phone ?? string.Empty,
                     Address = m.Address,
-                    LoanDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
-                    ReturnDate = DateOnly.FromDateTime(m.ResolvedAt!.Value.ToUniversalTime()),
+                    LoanDate = DateOnly.FromDateTime(lentAt.ToUniversalTime()),
+                    ReturnDate = DateOnly.FromDateTime(returnedAt.ToUniversalTime()),
+                    LentAt = lentAt,
+                    ReturnedAt = returnedAt,
                     IsCustomItem = resolved.DefinitionId is null,
                     IsOrderBased = m.OrderId is > 0,
                     DepositType = m.Order?.DepositType,
@@ -1013,6 +1037,32 @@ public class OrderRepository : IOrderRepository
             || Contains(dto.Phone, needle)
             || Contains(dto.Address, needle)
             || dto.OrderId.ToString().Contains(needle, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Historical accessory rows predate per-return timestamps. Multi-day spans can use the
+    /// calendar return day; same-day unknowns reuse the lend stamp (UI avoids "0 דקות" from
+    /// invented midnight) instead of forcing <c>T00:00:00</c> on the loan day.
+    /// </summary>
+    private static DateTime? ResolveAccessoryReturnStamp(DateOnly? returnDate, DateTime lentAt)
+    {
+        var loanUtc = lentAt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(lentAt, DateTimeKind.Utc)
+            : lentAt.ToUniversalTime();
+        if (returnDate is null)
+        {
+            return loanUtc;
+        }
+
+        var loanDay = DateOnly.FromDateTime(loanUtc);
+        if (returnDate.Value <= loanDay)
+        {
+            return loanUtc;
+        }
+
+        return DateTime.SpecifyKind(
+            returnDate.Value.ToDateTime(TimeOnly.MinValue),
+            DateTimeKind.Utc);
     }
 
     public Task<ManualUnreturnedItem?> GetManualUnreturnedItemByIdAsync(

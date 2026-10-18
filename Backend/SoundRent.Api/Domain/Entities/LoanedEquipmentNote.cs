@@ -17,4 +17,7 @@ public class LoanedEquipmentNote
 
     /// <summary>When true, this assigned serial is checked back in and no longer blocks availability.</summary>
     public bool IsReturned { get; set; }
+
+    /// <summary>UTC instant when this serial was marked returned; null while still out.</summary>
+    public DateTime? ReturnedAt { get; set; }
 }

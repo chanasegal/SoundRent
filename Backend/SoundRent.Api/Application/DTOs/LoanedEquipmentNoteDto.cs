@@ -13,4 +13,7 @@ public class LoanedEquipmentNoteDto
     public string? Content { get; set; }
 
     public bool IsReturned { get; set; }
+
+    /// <summary>UTC instant when this serial was marked returned; null while still out.</summary>
+    public DateTime? ReturnedAt { get; set; }
 }

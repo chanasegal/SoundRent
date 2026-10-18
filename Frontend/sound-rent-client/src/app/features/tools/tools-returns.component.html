@@ -265,12 +265,16 @@
             <ul class="customer-breakdown-card__items">
               @for (row of card.items; track row.rowKey) {
                 <li class="accessory-row return-item" [class.return-item--overdue]="isOverdue(row)">
-                  <span class="customer-breakdown-card__qty">{{ row.accessoryQuantity }}</span>
-                  <span class="accessory-row__label">{{ row.item.toolName }}</span>
-                  @if (row.item.serialCode) {
+                  <span class="customer-breakdown-card__qty">{{ row.quantity }}</span>
+                  <span class="accessory-row__label">{{ row.toolName }}</span>
+                  @if (row.serialCodes.length > 0) {
                     <span class="accessory-row__serial">
                       <span class="accessory-row__serial-sep">:</span>
-                      <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ row.item.serialCode }}</span>
+                      <span class="accessory-row__serial-chip-list">
+                        @for (code of row.serialCodes; track $index + ':' + code) {
+                          <span class="accessory-row__serial-chip ltr-field" dir="ltr">{{ code }}</span>
+                        }
+                      </span>
                     </span>
                   }
                   <div class="return-item__when">

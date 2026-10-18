@@ -5,6 +5,8 @@ export interface LoanedEquipmentNoteDto {
   ordinal: number;
   content?: string | null;
   isReturned?: boolean;
+  /** Server-assigned UTC return stamp when this serial was checked in. */
+  returnedAt?: string | null;
 }
 
 export interface OrderLoanedEquipmentDto {
@@ -19,6 +21,8 @@ export interface OrderLoanedEquipmentDto {
   notes: LoanedEquipmentNoteDto[];
   /** Server-assigned; later than the order's `createdAt` if the line was added on edit. */
   addedAt?: string | null;
+  /** Server-assigned latest quantity-only return stamp. */
+  returnedAt?: string | null;
 }
 
 export interface OrderShiftDto {

@@ -100,6 +100,10 @@ export interface ReturnedAccessoryHistoryDto {
   loanDate?: string | null;
   /** yyyy-MM-dd — best-available return/event date. */
   returnDate?: string | null;
+  /** Full ISO borrow timestamp when known (preserves hours/minutes). */
+  lentAt?: string | null;
+  /** Full ISO return timestamp when known (preserves hours/minutes). */
+  returnedAt?: string | null;
   isCustomItem: boolean;
   /** True when the loan is tied to weekly-schedule main equipment. */
   isOrderBased: boolean;

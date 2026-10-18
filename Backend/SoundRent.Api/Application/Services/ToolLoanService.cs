@@ -769,25 +769,21 @@ public class ToolLoanService : IToolLoanService
 
     /// <summary>
     /// Maps a standalone accessory-only order into the shared tools customer-history shape.
+    /// Prefer per-line <see cref="OrderLoanedEquipment.AddedAt"/> / return stamps so hours and
+    /// minutes are preserved — never invent midnight from shift <see cref="DateOnly"/> days.
     /// </summary>
     private static ToolLoanDto ToAccessoryLoanDto(Order order)
     {
-        var loanDate = order.Shifts
-            .OrderBy(s => s.OrderDate)
-            .Select(s => (DateOnly?)s.OrderDate)
-            .FirstOrDefault();
-        var lentAt = loanDate is { } day
-            ? day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified)
-            : order.CreatedAt;
-        var returnStamp = order.Shifts
-            .OrderByDescending(s => s.OrderDate)
-            .Select(s => (DateOnly?)s.OrderDate)
-            .FirstOrDefault() is { } returnDay
-            ? returnDay.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified)
-            : lentAt;
-
-        var items = MapAccessoryItems(order, returnStamp);
+        var items = MapAccessoryItems(order);
+        var lentAt = items
+            .Select(i => i.AddedAt)
+            .Where(t => t != default)
+            .DefaultIfEmpty(order.CreatedAt)
+            .Min();
         var allReturned = items.Count > 0 && items.All(i => i.ReturnedAt != null);
+        var returnStamp = allReturned
+            ? items.Where(i => i.ReturnedAt != null).Max(i => i.ReturnedAt!.Value)
+            : (DateTime?)null;
 
         return new ToolLoanDto
         {
@@ -805,20 +801,25 @@ public class ToolLoanService : IToolLoanService
             CashDepositAmount = order.CashDepositAmount,
             Notes = order.Notes,
             DeadlineAt = null,
-            ReturnedAt = allReturned ? returnStamp : null,
+            ReturnedAt = returnStamp,
             HebrewReturnedDisplay = null,
             Items = items
         };
     }
 
-    private static List<ToolLoanItemDto> MapAccessoryItems(Order order, DateTime returnStamp)
+    private static List<ToolLoanItemDto> MapAccessoryItems(Order order)
     {
         var items = new List<ToolLoanItemDto>();
+        var returnDay = order.Shifts
+            .OrderByDescending(s => s.OrderDate)
+            .Select(s => (DateOnly?)s.OrderDate)
+            .FirstOrDefault();
 
         foreach (var le in order.LoanedEquipments.OrderBy(x => x.Id))
         {
             var name = OrderMapper.GetLoanedEquipmentDisplayName(le);
             var defId = le.InventoryDefinitionId ?? 0;
+            var addedAt = le.AddedAt != default ? le.AddedAt : order.CreatedAt;
             var notesWithCode = le.Notes
                 .Where(n => !string.IsNullOrWhiteSpace(n.Content))
                 .OrderBy(n => n.Ordinal)
@@ -835,8 +836,10 @@ public class ToolLoanService : IToolLoanService
                         ToolDefinitionId = defId,
                         ToolName = name,
                         SerialCode = note.Content!.Trim(),
-                        AddedAt = le.AddedAt,
-                        ReturnedAt = note.IsReturned ? returnStamp : null,
+                        AddedAt = addedAt,
+                        ReturnedAt = note.IsReturned
+                            ? note.ReturnedAt ?? ResolveAccessoryHistoryReturnStamp(returnDay, addedAt)
+                            : null,
                         HebrewReturnedDisplay = null
                     });
                 }
@@ -852,13 +855,41 @@ public class ToolLoanService : IToolLoanService
                 ToolDefinitionId = defId,
                 ToolName = name,
                 SerialCode = serial,
-                AddedAt = le.AddedAt,
-                ReturnedAt = fullyReturned ? returnStamp : null,
+                AddedAt = addedAt,
+                ReturnedAt = fullyReturned
+                    ? le.ReturnedAt ?? ResolveAccessoryHistoryReturnStamp(returnDay, addedAt)
+                    : null,
                 HebrewReturnedDisplay = null
             });
         }
 
         return items;
+    }
+
+    /// <summary>
+    /// Historical accessory rows may lack a stored return stamp. Prefer the real lend
+    /// timestamp for same-day unknowns (UI shows a short/unknown duration) and the
+    /// calendar return day for multi-day spans — never invent midnight on the loan day.
+    /// </summary>
+    private static DateTime? ResolveAccessoryHistoryReturnStamp(DateOnly? returnDate, DateTime lentAt)
+    {
+        var loanUtc = lentAt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(lentAt, DateTimeKind.Utc)
+            : lentAt.ToUniversalTime();
+        if (returnDate is null)
+        {
+            return loanUtc;
+        }
+
+        var loanDay = DateOnly.FromDateTime(loanUtc);
+        if (returnDate.Value <= loanDay)
+        {
+            return loanUtc;
+        }
+
+        return DateTime.SpecifyKind(
+            returnDate.Value.ToDateTime(TimeOnly.MinValue),
+            DateTimeKind.Utc);
     }
 
     private static string? FormatOrderDeposit(DepositType? depositType, string? depositOnName)

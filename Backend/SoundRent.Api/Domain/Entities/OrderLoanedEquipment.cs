@@ -35,5 +35,11 @@ public class OrderLoanedEquipment
     /// <summary>When this line was added to the order (later than <see cref="Order.CreatedAt"/> when added on edit).</summary>
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// UTC instant of the latest quantity-only return on this line.
+    /// Serial-backed returns store the stamp on each <see cref="LoanedEquipmentNote.ReturnedAt"/>.
+    /// </summary>
+    public DateTime? ReturnedAt { get; set; }
+
     public ICollection<LoanedEquipmentNote> Notes { get; set; } = new List<LoanedEquipmentNote>();
 }

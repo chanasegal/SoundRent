@@ -11,7 +11,15 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { debounceTime, distinctUntilChanged, finalize, startWith, switchMap } from 'rxjs';
+import {
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  forkJoin,
+  of,
+  startWith,
+  switchMap
+} from 'rxjs';
 
 import { DEPOSIT_TYPE_LABELS } from '../../core/models/enums';
 import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
@@ -22,10 +30,23 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 
 interface ReturnedAccessoryRow extends ReturnedAccessoryHistoryDto {
   rowKey: string;
+}
+
+/** Same item name + borrow date within a return card — mirrors active-loans grouped rows. */
+interface GroupedReturnedAccessoryRow {
+  rowKey: string;
+  itemName: string;
+  quantity: number;
+  serialCodes: string[];
+  isCustomItem: boolean;
+  /** yyyy-MM-dd borrow date for this grouped row. */
+  loanDate: string | null;
+  members: ReturnedAccessoryRow[];
 }
 
 /** One card per customer + order, mirroring the active-loans page's customer cards. */
@@ -42,7 +63,7 @@ interface ReturnedOrderCard {
   loanNotes: string;
   customerNotes: string | null;
   totalQuantity: number;
-  items: ReturnedAccessoryRow[];
+  items: GroupedReturnedAccessoryRow[];
 }
 
 @Component({
@@ -77,7 +98,10 @@ export class AccessoryReturnsComponent implements OnInit {
 
   protected readonly returnedCards = computed(() => {
     this.customers.customers();
-    const byOrder = new Map<string, ReturnedOrderCard>();
+    const byOrder = new Map<
+      string,
+      Omit<ReturnedOrderCard, 'items'> & { rawItems: ReturnedAccessoryRow[] }
+    >();
 
     for (const row of this.rows()) {
       const phoneKey = (row.phone ?? '').replace(/\D/g, '');
@@ -96,7 +120,7 @@ export class AccessoryReturnsComponent implements OnInit {
           loanNotes: (row.notes ?? '').trim(),
           customerNotes: this.customers.notesForPhone(row.phone),
           totalQuantity: 0,
-          items: []
+          rawItems: []
         };
         byOrder.set(key, card);
       }
@@ -110,12 +134,20 @@ export class AccessoryReturnsComponent implements OnInit {
         card.address = row.address.trim();
       }
       card.totalQuantity += row.quantity;
-      card.items.push(row);
+      card.rawItems.push(row);
     }
 
-    return [...byOrder.values()].sort((a, b) =>
-      (b.returnDate ?? '').localeCompare(a.returnDate ?? '') || b.head.orderId - a.head.orderId
-    );
+    return [...byOrder.values()]
+      .map(
+        ({ rawItems, ...rest }): ReturnedOrderCard => ({
+          ...rest,
+          items: this.groupReturnedAccessoryRows(rawItems)
+        })
+      )
+      .sort(
+        (a, b) =>
+          (b.returnDate ?? '').localeCompare(a.returnDate ?? '') || b.head.orderId - a.head.orderId
+      );
   });
 
   ngOnInit(): void {
@@ -171,55 +203,62 @@ export class AccessoryReturnsComponent implements OnInit {
     this.searchControl.setValue('');
   }
 
-  protected undoReturn(row: ReturnedAccessoryRow): void {
-    if (this.actionsBusy()) {
+  protected undoReturn(group: GroupedReturnedAccessoryRow): void {
+    if (this.actionsBusy() || group.members.length === 0) {
       return;
     }
 
-    const codePart = row.serialCode ? ` (קוד ${row.serialCode})` : '';
+    const codesLabel =
+      group.serialCodes.length > 0 ? ` (קודים: ${group.serialCodes.join(', ')})` : '';
+    const qtyLabel = group.quantity > 1 ? ` ×${group.quantity}` : '';
     const ok = window.confirm(
-      `האם לבטל את ההחזרה של "${row.itemName}"${codePart} ולהחזיר את הפריט להשאלות פעילות?`
+      `האם לבטל את ההחזרה של "${group.itemName}"${qtyLabel}${codesLabel} ולהחזיר את הפריט להשאלות פעילות?`
     );
     if (!ok) {
       return;
     }
 
-    this.undoingRowKey.set(row.rowKey);
-    if (row.manualItemId != null && row.manualItemId > 0) {
-      this.data
-        .undoResolvedManualUnreturnedItem(row.manualItemId)
-        .pipe(finalize(() => this.undoingRowKey.set(null)))
-        .subscribe((okResult) => {
-          if (!okResult) {
-            return;
-          }
-          this.ordersSync.notifyUnreturnedChanged(null);
-          this.ordersSync.notifyLoanChanged();
-          this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
-          this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
-        });
-      return;
-    }
+    this.undoingRowKey.set(group.rowKey);
+    const memberKeys = new Set(group.members.map((m) => m.rowKey));
 
-    this.data
-      .undoOrderReturn(row.orderId, {
+    const requests = group.members.map((row) => {
+      if (row.manualItemId != null && row.manualItemId > 0) {
+        return this.data.undoResolvedManualUnreturnedItem(row.manualItemId);
+      }
+      return this.data.undoOrderReturn(row.orderId, {
         loanedEquipmentId: row.loanedEquipmentId,
         serialCode: row.serialCode ?? null,
         quantity: row.serialCode ? null : row.quantity
-      })
+      });
+    });
+
+    forkJoin(requests.length > 0 ? requests : [of(null)])
       .pipe(finalize(() => this.undoingRowKey.set(null)))
-      .subscribe((updated) => {
-        if (!updated) {
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
           return;
         }
-        this.ordersSync.notifyOrderUpdated(updated);
-        this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
+        const hasManual = group.members.some((m) => m.manualItemId != null && m.manualItemId > 0);
+        const orderUpdate = results.find(
+          (r) => r != null && typeof r === 'object' && 'id' in (r as object)
+        );
+        if (hasManual) {
+          this.ordersSync.notifyUnreturnedChanged(null);
+          this.ordersSync.notifyLoanChanged();
+        }
+        if (orderUpdate && typeof orderUpdate === 'object' && 'id' in orderUpdate) {
+          this.ordersSync.notifyOrderUpdated(orderUpdate as never);
+        } else if (!hasManual) {
+          this.ordersSync.notifyLoanChanged();
+        }
+        this.rows.update((list) => list.filter((r) => !memberKeys.has(r.rowKey)));
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });
   }
 
-  protected deleteReturnRecord(row: ReturnedAccessoryRow): void {
-    if (this.actionsBusy()) {
+  protected deleteReturnRecord(group: GroupedReturnedAccessoryRow): void {
+    if (this.actionsBusy() || group.members.length === 0) {
       return;
     }
 
@@ -228,34 +267,31 @@ export class AccessoryReturnsComponent implements OnInit {
       return;
     }
 
-    this.deletingRowKey.set(row.rowKey);
-    if (row.manualItemId != null && row.manualItemId > 0) {
-      this.data
-        .deleteResolvedManualUnreturnedItem(row.manualItemId)
-        .pipe(finalize(() => this.deletingRowKey.set(null)))
-        .subscribe((okResult) => {
-          if (!okResult) {
-            return;
-          }
-          this.ordersSync.notifyLoanChanged();
-          this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
-          this.toast.success('רשומת ההחזרה נמחקה לצמיתות');
-        });
-      return;
-    }
+    this.deletingRowKey.set(group.rowKey);
+    const memberKeys = new Set(group.members.map((m) => m.rowKey));
 
-    this.data
-      .deleteReturnedAccessory(row.orderId, {
+    const requests = group.members.map((row) => {
+      if (row.manualItemId != null && row.manualItemId > 0) {
+        return this.data.deleteResolvedManualUnreturnedItem(row.manualItemId);
+      }
+      return this.data.deleteReturnedAccessory(row.orderId, {
         loanedEquipmentId: row.loanedEquipmentId,
         serialCode: row.serialCode ?? null,
         quantity: row.serialCode ? null : row.quantity
-      })
+      });
+    });
+
+    forkJoin(requests.length > 0 ? requests : [of(false)])
       .pipe(finalize(() => this.deletingRowKey.set(null)))
-      .subscribe((okResult) => {
-        if (!okResult) {
+      .subscribe((results) => {
+        const okCount = results.filter((r) => !!r).length;
+        if (okCount === 0) {
           return;
         }
-        this.rows.update((list) => list.filter((r) => r.rowKey !== row.rowKey));
+        if (group.members.some((m) => m.manualItemId != null && m.manualItemId > 0)) {
+          this.ordersSync.notifyLoanChanged();
+        }
+        this.rows.update((list) => list.filter((r) => !memberKeys.has(r.rowKey)));
         this.toast.success('רשומת ההחזרה נמחקה לצמיתות');
       });
   }
@@ -312,5 +348,58 @@ export class AccessoryReturnsComponent implements OnInit {
       ...item,
       rowKey: `${item.manualItemId ?? 'order'}-${item.orderId}-${item.loanedEquipmentId}-${item.serialCode ?? 'qty'}-${index}`
     }));
+  }
+
+  /**
+   * Collapse flat API rows (one per serial) into Active Loans–style rows:
+   * same item name + borrow date within the order card → one row + all code badges.
+   * Different borrow dates stay as separate rows.
+   */
+  private groupReturnedAccessoryRows(rows: ReturnedAccessoryRow[]): GroupedReturnedAccessoryRow[] {
+    const groups = new Map<string, GroupedReturnedAccessoryRow>();
+
+    for (const row of rows) {
+      const nameKey = (row.itemName ?? '').trim().toLowerCase();
+      const loanDay = (row.loanDate ?? '').trim();
+      // Manual entries stay atomic (each has its own undo id).
+      const groupKey =
+        row.manualItemId != null && row.manualItemId > 0
+          ? `manual:${row.manualItemId}`
+          : `name:${nameKey}|day:${loanDay}`;
+
+      const existing = groups.get(groupKey);
+      if (!existing) {
+        const code = (row.serialCode ?? '').trim();
+        groups.set(groupKey, {
+          rowKey: `group:${groupKey}`,
+          itemName: row.itemName,
+          quantity: row.quantity || 1,
+          serialCodes: code ? [code] : [],
+          isCustomItem: row.isCustomItem,
+          loanDate: loanDay || null,
+          members: [row]
+        });
+        continue;
+      }
+
+      existing.quantity += row.quantity || 1;
+      existing.members.push(row);
+      existing.isCustomItem = existing.isCustomItem || row.isCustomItem;
+      const code = (row.serialCode ?? '').trim();
+      if (code && !existing.serialCodes.some((c) => c.toLowerCase() === code.toLowerCase())) {
+        existing.serialCodes.push(code);
+      }
+    }
+
+    return [...groups.values()]
+      .map((g) => ({
+        ...g,
+        serialCodes: sortNumericCodes(g.serialCodes)
+      }))
+      .sort(
+        (a, b) =>
+          (b.loanDate ?? '').localeCompare(a.loanDate ?? '') ||
+          a.itemName.localeCompare(b.itemName, 'he')
+      );
   }
 }

@@ -111,6 +111,7 @@ public static class OrderMapper
         ReturnedQuantity = le.ReturnedQuantity,
         ExpectedNoteCount = le.ExpectedNoteCount,
         AddedAt = le.AddedAt,
+        ReturnedAt = le.ReturnedAt,
         Notes = le.Notes
             .OrderBy(n => n.Ordinal)
             .Select(n => new LoanedEquipmentNoteDto
@@ -118,7 +119,8 @@ public static class OrderMapper
                 Id = n.Id,
                 Ordinal = n.Ordinal,
                 Content = n.Content,
-                IsReturned = n.IsReturned
+                IsReturned = n.IsReturned,
+                ReturnedAt = n.ReturnedAt
             })
             .ToList()
     };
@@ -342,7 +344,8 @@ public static class OrderMapper
             {
                 Ordinal = i,
                 Content = NullIfBlank(noteDto?.Content),
-                IsReturned = noteDto?.IsReturned ?? false
+                IsReturned = noteDto?.IsReturned ?? false,
+                ReturnedAt = noteDto?.IsReturned == true ? noteDto.ReturnedAt : null
             });
         }
     }

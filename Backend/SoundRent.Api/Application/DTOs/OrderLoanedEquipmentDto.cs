@@ -29,5 +29,8 @@ public class OrderLoanedEquipmentDto
     /// <summary>Server-assigned; ignored on create/update requests.</summary>
     public DateTime? AddedAt { get; set; }
 
+    /// <summary>Server-assigned latest quantity-only return stamp; ignored on create/update requests.</summary>
+    public DateTime? ReturnedAt { get; set; }
+
     public List<LoanedEquipmentNoteDto> Notes { get; set; } = new();
 }

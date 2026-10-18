@@ -809,6 +809,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OrderLoanedEquipmentId", "Ordinal")
@@ -1146,6 +1149,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ReturnedQuantity")
                         .ValueGeneratedOnAdd()

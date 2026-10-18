@@ -27,11 +27,17 @@ public class ReturnedAccessoryHistoryDto
 
     public string? Address { get; set; }
 
-    /// <summary>Earliest order shift date.</summary>
+    /// <summary>Earliest order shift date (calendar day for grouping).</summary>
     public DateOnly? LoanDate { get; set; }
 
-    /// <summary>Best-available return/event date (latest shift day).</summary>
+    /// <summary>Best-available return/event calendar day (latest shift day or resolved day).</summary>
     public DateOnly? ReturnDate { get; set; }
+
+    /// <summary>Full UTC borrow timestamp when known (preserves hours/minutes).</summary>
+    public DateTime? LentAt { get; set; }
+
+    /// <summary>Full UTC return timestamp when known (preserves hours/minutes).</summary>
+    public DateTime? ReturnedAt { get; set; }
 
     public bool IsCustomItem { get; set; }
 

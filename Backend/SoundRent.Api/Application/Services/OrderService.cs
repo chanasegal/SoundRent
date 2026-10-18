@@ -585,6 +585,7 @@ public class OrderService : IOrderService
 
         var byLineId = existing.LoanedEquipments.ToDictionary(le => le.Id);
         var returnedInventorySerials = new List<(int InventoryDefinitionId, string SerialCode)>();
+        var stamp = DateTime.UtcNow;
 
         foreach (var item in items)
         {
@@ -620,7 +621,7 @@ public class OrderService : IOrderService
                         $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
                 }
 
-                ApplyReturnedSerialCodes(line, assignedCodes, mergedReturned);
+                ApplyReturnedSerialCodes(line, assignedCodes, mergedReturned, stamp);
                 line.ReturnedQuantity = mergedReturned.Count;
                 if (line.InventoryDefinitionId is int definitionId and > 0)
                 {
@@ -642,7 +643,16 @@ public class OrderService : IOrderService
                     $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
             }
 
+            var previousReturnedQty = line.ReturnedQuantity;
             line.ReturnedQuantity = item.QuantityReturned;
+            if (item.QuantityReturned > previousReturnedQty)
+            {
+                line.ReturnedAt = stamp;
+            }
+            else if (item.QuantityReturned <= 0)
+            {
+                line.ReturnedAt = null;
+            }
         }
 
         existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
@@ -848,6 +858,7 @@ public class OrderService : IOrderService
             }
 
             note.IsReturned = false;
+            note.ReturnedAt = null;
             line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - 1);
 
             if (line.InventoryDefinitionId is int definitionId and > 0)
@@ -866,6 +877,10 @@ public class OrderService : IOrderService
                 ? Math.Min(request.Quantity.Value, line.ReturnedQuantity)
                 : line.ReturnedQuantity;
             line.ReturnedQuantity = Math.Max(0, line.ReturnedQuantity - undoQty);
+            if (line.ReturnedQuantity <= 0)
+            {
+                line.ReturnedAt = null;
+            }
         }
 
         existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
@@ -1149,10 +1164,19 @@ public class OrderService : IOrderService
 
             foreach (var code in returnedOnLine)
             {
+                var priorStamp = existingLine.Notes
+                    .FirstOrDefault(n =>
+                        string.Equals(
+                            (n.Content ?? string.Empty).Trim(),
+                            code,
+                            StringComparison.OrdinalIgnoreCase))
+                    ?.ReturnedAt;
+
                 if (notesByCode.TryGetValue(code, out var note))
                 {
                     note.IsReturned = true;
                     note.Content = code;
+                    note.ReturnedAt ??= priorStamp;
                     continue;
                 }
 
@@ -1161,7 +1185,8 @@ public class OrderService : IOrderService
                 {
                     Ordinal = ordinal,
                     Content = code,
-                    IsReturned = true
+                    IsReturned = true,
+                    ReturnedAt = priorStamp
                 };
                 notesList.Add(restored);
                 notesByCode[code] = restored;
@@ -1252,15 +1277,30 @@ public class OrderService : IOrderService
     private static void ApplyReturnedSerialCodes(
         OrderLoanedEquipment line,
         HashSet<string> assignedCodes,
-        IReadOnlyCollection<string> returnedCodes)
+        IReadOnlyCollection<string> returnedCodes,
+        DateTime stamp)
     {
         var returned = returnedCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var note in line.Notes)
         {
             var code = (note.Content ?? string.Empty).Trim();
-            note.IsReturned = code.Length > 0
+            var shouldBeReturned = code.Length > 0
                 && assignedCodes.Contains(code)
                 && returned.Contains(code);
+            if (shouldBeReturned)
+            {
+                if (!note.IsReturned || note.ReturnedAt == null)
+                {
+                    note.ReturnedAt = stamp;
+                }
+
+                note.IsReturned = true;
+            }
+            else
+            {
+                note.IsReturned = false;
+                note.ReturnedAt = null;
+            }
         }
     }
 
@@ -1410,6 +1450,7 @@ public class OrderService : IOrderService
             if (line is not null)
             {
                 var returned = line.ReturnedQuantity;
+                var priorLineReturnedAt = line.ReturnedAt;
                 ApplyLoanedEquipmentScalars(line, dto);
                 ApplyLoanedEquipmentNotesToLine(line, dto);
 
@@ -1419,6 +1460,8 @@ public class OrderService : IOrderService
                 }
 
                 line.ReturnedQuantity = Math.Min(returned, line.Quantity);
+                // Keep the quantity-only return stamp across edits (DTO does not own it).
+                line.ReturnedAt = line.ReturnedQuantity > 0 ? priorLineReturnedAt : null;
                 matched.Add(line);
                 continue;
             }
@@ -1490,7 +1533,8 @@ public class OrderService : IOrderService
             {
                 Ordinal = i,
                 Content = string.IsNullOrWhiteSpace(noteDto?.Content) ? null : noteDto.Content.Trim(),
-                IsReturned = noteDto?.IsReturned ?? false
+                IsReturned = noteDto?.IsReturned ?? false,
+                ReturnedAt = noteDto?.IsReturned == true ? noteDto.ReturnedAt : null
             });
         }
 

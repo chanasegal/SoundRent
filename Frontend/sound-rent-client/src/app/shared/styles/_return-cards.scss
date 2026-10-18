@@ -177,6 +177,13 @@
     font-weight: 700;
   }
 
+  &__serial-chip-list {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: center;
+  }
+
   &__serial-chip {
     display: inline-flex;
     align-items: center;

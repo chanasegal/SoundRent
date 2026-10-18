@@ -13,7 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
-import { forkJoin, interval } from 'rxjs';
+import { forkJoin, interval, of } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 
 import { DEPOSIT_TYPE_LABELS } from '../../core/models/enums';
@@ -64,6 +64,26 @@ interface CompletedLoanRowView {
   chargeIsPaid: boolean | null;
 }
 
+/** Same tool/accessory name + borrow date within a return card. */
+interface GroupedCompletedLoanRowView {
+  rowKey: string;
+  source: CompletedLoanRowView['source'];
+  loanId: number;
+  toolName: string;
+  quantity: number;
+  serialCodes: string[];
+  members: CompletedLoanRowView[];
+  lentAt: Date;
+  hebrewLentDisplay: string;
+  deadlineAt: Date | null;
+  returnedAt: Date;
+  hebrewReturnedDisplay: string;
+  chargeAmount: number | null;
+  chargeIsPaid: boolean | null;
+  /** First unpaid debt id, if any member can be quick-paid. */
+  customerDebtId: number | null;
+}
+
 /** One card per customer + loan, mirroring the lending page's customer cards. */
 interface ReturnedLoanCard {
   key: string;
@@ -77,7 +97,7 @@ interface ReturnedLoanCard {
   deposit: string;
   loanNotes: string;
   customerNotes: string | null;
-  items: CompletedLoanRowView[];
+  items: GroupedCompletedLoanRowView[];
 }
 
 interface QuickReturnItem {
@@ -266,9 +286,17 @@ export class ToolsReturnsComponent implements OnInit {
       if (acc.isOrderBased) {
         continue;
       }
-      const lentAt = this.parseIsoDay(acc.loanDate);
-      const returnedAt = this.parseIsoDay(acc.returnDate) ?? lentAt ?? new Date(0);
+      // Prefer full timestamps (hours/minutes) from the API; fall back to calendar days only.
+      const lentAt =
+        this.parseTimestamp(acc.lentAt) ?? this.parseIsoDay(acc.loanDate);
+      const returnedAt =
+        this.parseTimestamp(acc.returnedAt) ??
+        this.parseIsoDay(acc.returnDate) ??
+        lentAt ??
+        new Date(0);
       const serial = (acc.serialCode ?? '').trim();
+      const hasLentTime = !!this.parseTimestamp(acc.lentAt);
+      const hasReturnTime = !!this.parseTimestamp(acc.returnedAt);
       views.push({
         rowKey: `accessory-${acc.orderId}-${acc.loanedEquipmentId}-${serial || 'qty'}`,
         source: 'accessory',
@@ -287,10 +315,16 @@ export class ToolsReturnsComponent implements OnInit {
         deposit: this.formatAccessoryDeposit(acc),
         loanNotes: (acc.notes ?? '').trim(),
         lentAt: lentAt ?? returnedAt,
-        hebrewLentDisplay: lentAt ? this.formatHebrewDateTime(lentAt) : '—',
+        hebrewLentDisplay: lentAt
+          ? hasLentTime
+            ? this.formatHebrewDateTime(lentAt)
+            : this.hebrew.toHebrew(lentAt)
+          : '—',
         deadlineAt: null,
         returnedAt,
-        hebrewReturnedDisplay: this.formatHebrewDateTime(returnedAt),
+        hebrewReturnedDisplay: hasReturnTime
+          ? this.formatHebrewDateTime(returnedAt)
+          : this.hebrew.toHebrew(returnedAt),
         chargeAmount: null,
         chargeIsPaid: null
       });
@@ -331,7 +365,10 @@ export class ToolsReturnsComponent implements OnInit {
 
   protected readonly returnedCards = computed(() => {
     this.customers.customers();
-    const byLoan = new Map<string, ReturnedLoanCard>();
+    const byLoan = new Map<
+      string,
+      Omit<ReturnedLoanCard, 'items'> & { rawItems: CompletedLoanRowView[] }
+    >();
 
     for (const row of this.filteredRows()) {
       const key = `${row.source}|${row.loanId}|${(row.clientName ?? '').trim()}|${this.normalizePhone(row.phone)}`;
@@ -349,24 +386,30 @@ export class ToolsReturnsComponent implements OnInit {
           deposit: row.deposit,
           loanNotes: row.loanNotes,
           customerNotes: this.customers.notesForPhone(row.phone),
-          items: []
+          rawItems: []
         };
         byLoan.set(key, card);
       }
       if (row.returnedAt.getTime() > card.latestReturnedAt.getTime()) {
         card.latestReturnedAt = row.returnedAt;
       }
-      card.items.push(row);
+      card.rawItems.push(row);
     }
 
-    for (const card of byLoan.values()) {
-      const earliest = card.items.reduce((a, b) => (b.lentAt < a.lentAt ? b : a));
-      card.hebrewLentDisplay = earliest.hebrewLentDisplay;
-    }
-
-    return [...byLoan.values()].sort(
-      (a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime()
-    );
+    return [...byLoan.values()]
+      .map(({ rawItems, ...rest }): ReturnedLoanCard => {
+        const items = this.groupCompletedLoanRows(rawItems);
+        const earliest = items.reduce(
+          (a, b) => (b.lentAt < a.lentAt ? b : a),
+          items[0]
+        );
+        return {
+          ...rest,
+          hebrewLentDisplay: earliest?.hebrewLentDisplay ?? rest.hebrewLentDisplay,
+          items
+        };
+      })
+      .sort((a, b) => b.latestReturnedAt.getTime() - a.latestReturnedAt.getTime());
   });
 
   ngOnInit(): void {
@@ -789,8 +832,19 @@ export class ToolsReturnsComponent implements OnInit {
     return `${this.hebrew.toHebrew(deadline)} ${hh}:${mm}`;
   }
 
-  protected durationText(row: CompletedLoanRowView): string {
+  protected durationText(row: Pick<GroupedCompletedLoanRowView, 'lentAt' | 'returnedAt'>): string {
     return formatCalendarDuration(row.lentAt, row.returnedAt);
+  }
+
+  /** Parse a full ISO timestamp, preserving hours/minutes. */
+  private parseTimestamp(iso: string | null | undefined): Date | null {
+    const raw = (iso ?? '').trim();
+    if (!raw || /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      // Date-only strings are handled by parseIsoDay — do not invent midnight here.
+      return null;
+    }
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   private parseIsoDay(iso: string | null | undefined): Date | null {
@@ -798,7 +852,13 @@ export class ToolsReturnsComponent implements OnInit {
     if (!raw) {
       return null;
     }
-    const date = new Date(`${raw}T00:00:00`);
+    // Accept either yyyy-MM-dd or a full ISO — use local Y/M/D so TZ does not shift the day.
+    const dayPart = raw.length >= 10 ? raw.slice(0, 10) : raw;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayPart)) {
+      return null;
+    }
+    const [y, m, d] = dayPart.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
@@ -886,7 +946,7 @@ export class ToolsReturnsComponent implements OnInit {
     return days > 1 ? days * 5 : 0;
   }
 
-  protected isOverdue(row: CompletedLoanRowView): boolean {
+  protected isOverdue(row: Pick<GroupedCompletedLoanRowView, 'deadlineAt' | 'returnedAt'>): boolean {
     if (!row.deadlineAt) {
       return false;
     }
@@ -901,7 +961,7 @@ export class ToolsReturnsComponent implements OnInit {
     return Number.isInteger(rounded) ? `₪ ${rounded}` : `₪ ${rounded.toFixed(2)}`;
   }
 
-  protected hasCharge(row: CompletedLoanRowView): boolean {
+  protected hasCharge(row: Pick<GroupedCompletedLoanRowView, 'chargeAmount'>): boolean {
     return row.chargeAmount != null && row.chargeAmount > 0;
   }
 
@@ -934,7 +994,7 @@ export class ToolsReturnsComponent implements OnInit {
     return typeLabel || onName;
   }
 
-  protected canQuickPay(row: CompletedLoanRowView): boolean {
+  protected canQuickPay(row: GroupedCompletedLoanRowView): boolean {
     return (
       this.hasCharge(row) &&
       row.chargeIsPaid !== true &&
@@ -943,7 +1003,7 @@ export class ToolsReturnsComponent implements OnInit {
     );
   }
 
-  protected onOpenBadgeClick(event: Event, row: CompletedLoanRowView): void {
+  protected onOpenBadgeClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (!this.canQuickPay(row) || this.markingDebtId() != null) {
@@ -957,11 +1017,11 @@ export class ToolsReturnsComponent implements OnInit {
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.markDebtPaid(row)
+      accept: () => this.markGroupedDebtsPaid(row)
     });
   }
 
-  protected onUndoReturnClick(event: Event, row: CompletedLoanRowView): void {
+  protected onUndoReturnClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (this.undoingRowKey() != null || this.deletingLoanId() != null) {
@@ -975,11 +1035,11 @@ export class ToolsReturnsComponent implements OnInit {
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm p-button-danger',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.undoReturn(row)
+      accept: () => this.undoGroupedReturn(row)
     });
   }
 
-  protected onDeleteLoanClick(event: Event, row: CompletedLoanRowView): void {
+  protected onDeleteLoanClick(event: Event, row: GroupedCompletedLoanRowView): void {
     event.preventDefault();
     event.stopPropagation();
     if (this.undoingRowKey() != null || this.deletingLoanId() != null) {
@@ -989,75 +1049,86 @@ export class ToolsReturnsComponent implements OnInit {
     this.confirmation.confirm({
       target: event.currentTarget as EventTarget,
       message:
-        'האם למחוק לחלוטין את רשומת ההשאלה הזו מהמערכת? (פעולה זו בלתי הפיכה ותמחק גם חובות קשורים)',
+        row.source === 'tools'
+          ? 'האם למחוק לחלוטין את רשומת ההשאלה הזו מהמערכת? (פעולה זו בלתי הפיכה ותמחק גם חובות קשורים)'
+          : 'האם למחוק את רשומת ההחזרה לצמיתות?',
       acceptLabel: 'מחק',
       rejectLabel: 'ביטול',
       acceptButtonStyleClass: 'p-button-sm p-button-danger',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
-      accept: () => this.deleteLoan(row)
+      accept: () => this.deleteGroupedLoan(row)
     });
   }
 
-  private undoReturn(row: CompletedLoanRowView): void {
-    this.undoingRowKey.set(row.rowKey);
-    if (row.source === 'accessory') {
-      if (row.loanedEquipmentId == null) {
-        this.undoingRowKey.set(null);
-        return;
-      }
-      const serial = row.item.serialCode.trim();
-      this.data
-        .undoOrderReturn(row.loanId, {
+  private undoGroupedReturn(group: GroupedCompletedLoanRowView): void {
+    if (group.members.length === 0) {
+      return;
+    }
+    this.undoingRowKey.set(group.rowKey);
+
+    if (group.source === 'accessory') {
+      const requests = group.members.map((row) => {
+        if (row.loanedEquipmentId == null) {
+          return of(null);
+        }
+        const serial = row.item.serialCode.trim();
+        return this.data.undoOrderReturn(row.loanId, {
           loanedEquipmentId: row.loanedEquipmentId,
           serialCode: serial || null,
           quantity: serial ? null : row.accessoryQuantity
-        })
+        });
+      });
+      forkJoin(requests)
         .pipe(finalize(() => this.undoingRowKey.set(null)))
-        .subscribe((updated) => {
+        .subscribe((results) => {
+          const updated = results.find((r) => !!r) ?? null;
           if (!updated) {
             return;
           }
-          this.removeReturnedRowLocally(row);
+          this.removeGroupedReturnedLocally(group);
           this.ordersSync.notifyOrderUpdated(updated);
           this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
         });
       return;
     }
 
-    this.data
-      .undoToolLoanItemReturn(row.loanId, row.itemId)
+    const requests = group.members.map((row) =>
+      this.data.undoToolLoanItemReturn(row.loanId, row.itemId)
+    );
+    forkJoin(requests)
       .pipe(finalize(() => this.undoingRowKey.set(null)))
-      .subscribe((updated) => {
-        if (!updated) {
+      .subscribe((results) => {
+        if (!results.some((r) => !!r)) {
           return;
         }
-        this.removeReturnedRowLocally(row);
+        this.removeGroupedReturnedLocally(group);
         this.ordersSync.notifyLoanChanged();
         this.ordersSync.notifyDebtChanged();
         this.toast.success('ההחזרה בוטלה — הפריט חזר להשאלות פעילות');
       });
   }
 
-  private deleteLoan(row: CompletedLoanRowView): void {
-    this.deletingLoanId.set(row.loanId);
-    if (row.source === 'accessory') {
-      if (row.loanedEquipmentId == null) {
-        this.deletingLoanId.set(null);
-        return;
-      }
-      const serial = row.item.serialCode.trim();
-      this.data
-        .deleteReturnedAccessory(row.loanId, {
+  private deleteGroupedLoan(group: GroupedCompletedLoanRowView): void {
+    this.deletingLoanId.set(group.loanId);
+    if (group.source === 'accessory') {
+      const requests = group.members.map((row) => {
+        if (row.loanedEquipmentId == null) {
+          return of(false);
+        }
+        const serial = row.item.serialCode.trim();
+        return this.data.deleteReturnedAccessory(row.loanId, {
           loanedEquipmentId: row.loanedEquipmentId,
           serialCode: serial || null,
           quantity: serial ? null : row.accessoryQuantity
-        })
+        });
+      });
+      forkJoin(requests)
         .pipe(finalize(() => this.deletingLoanId.set(null)))
-        .subscribe((ok) => {
-          if (!ok) {
+        .subscribe((results) => {
+          if (!results.some((r) => !!r)) {
             return;
           }
-          this.removeReturnedRowLocally(row);
+          this.removeGroupedReturnedLocally(group);
           this.ordersSync.notifyLoanChanged();
           this.toast.success('רשומת ההחזרה נמחקה');
         });
@@ -1065,17 +1136,24 @@ export class ToolsReturnsComponent implements OnInit {
     }
 
     this.data
-      .deleteToolLoan(row.loanId)
+      .deleteToolLoan(group.loanId)
       .pipe(finalize(() => this.deletingLoanId.set(null)))
       .subscribe((ok) => {
         if (!ok) {
           return;
         }
-        this.removeLoanLocally(row.loanId);
+        this.removeLoanLocally(group.loanId);
         this.ordersSync.notifyLoanChanged();
         this.ordersSync.notifyDebtChanged();
         this.toast.success('רשומת ההשאלה נמחקה');
       });
+  }
+
+  /** Drop every member of a grouped return from local lists without a full reload. */
+  private removeGroupedReturnedLocally(group: GroupedCompletedLoanRowView): void {
+    for (const row of group.members) {
+      this.removeReturnedRowLocally(row);
+    }
   }
 
   /** Drop the undone item from local lists without a full reload. */
@@ -1131,20 +1209,30 @@ export class ToolsReturnsComponent implements OnInit {
     }
   }
 
-  private markDebtPaid(row: CompletedLoanRowView): void {
-    const debtId = row.customerDebtId;
-    if (debtId == null) {
+  private markGroupedDebtsPaid(group: GroupedCompletedLoanRowView): void {
+    const unpaid = group.members.filter(
+      (m) =>
+        m.chargeAmount != null &&
+        m.chargeAmount > 0 &&
+        m.chargeIsPaid !== true &&
+        m.customerDebtId != null &&
+        m.customerDebtId > 0
+    );
+    if (unpaid.length === 0) {
       return;
     }
-    this.markingDebtId.set(debtId);
-    this.data
-      .markCustomerDebtPaid(debtId)
+
+    const primaryDebtId = unpaid[0].customerDebtId!;
+    this.markingDebtId.set(primaryDebtId);
+    forkJoin(unpaid.map((row) => this.data.markCustomerDebtPaid(row.customerDebtId!)))
       .pipe(finalize(() => this.markingDebtId.set(null)))
-      .subscribe((ok) => {
-        if (!ok) {
+      .subscribe((results) => {
+        if (!results.some((r) => !!r)) {
           return;
         }
-        this.applyPaidLocally(row);
+        for (const row of unpaid) {
+          this.applyPaidLocally(row);
+        }
         this.ordersSync.notifyDebtChanged();
         this.toast.success('החוב סומן כשולם');
       });
@@ -1166,6 +1254,95 @@ export class ToolsReturnsComponent implements OnInit {
         list.map((r) => (r.rowKey === row.rowKey ? { ...r, chargeIsPaid: true } : r))
       );
     }
+  }
+
+  /**
+   * Collapse flat returned units into Active Loans–style rows:
+   * same tool/accessory name + borrow date within the loan card → one row + all code badges.
+   * Different borrow dates stay as separate rows (each with its own duration).
+   */
+  private groupCompletedLoanRows(rows: CompletedLoanRowView[]): GroupedCompletedLoanRowView[] {
+    const groups = new Map<string, GroupedCompletedLoanRowView>();
+
+    for (const row of rows) {
+      const nameKey = (row.item.toolName ?? '').trim().toLowerCase();
+      const borrowDay = this.toIsoDay(row.lentAt);
+      const groupKey =
+        row.source === 'accessory' && row.loanedEquipmentId != null && row.loanedEquipmentId > 0
+          ? `accessory:${row.loanedEquipmentId}|day:${borrowDay}`
+          : `tool:${nameKey}|day:${borrowDay}`;
+
+      const existing = groups.get(groupKey);
+      if (!existing) {
+        const code = (row.item.serialCode ?? '').trim();
+        groups.set(groupKey, {
+          rowKey: `group:${groupKey}:${row.loanId}`,
+          source: row.source,
+          loanId: row.loanId,
+          toolName: row.item.toolName,
+          quantity: row.accessoryQuantity || 1,
+          serialCodes: code ? [code] : [],
+          members: [row],
+          lentAt: row.lentAt,
+          hebrewLentDisplay: row.hebrewLentDisplay,
+          deadlineAt: row.deadlineAt,
+          returnedAt: row.returnedAt,
+          hebrewReturnedDisplay: row.hebrewReturnedDisplay,
+          chargeAmount: row.chargeAmount,
+          chargeIsPaid: row.chargeIsPaid,
+          customerDebtId: row.customerDebtId
+        });
+        continue;
+      }
+
+      existing.quantity += row.accessoryQuantity || 1;
+      existing.members.push(row);
+      // Same calendar borrow day — keep earliest lend / latest return for duration display.
+      if (row.lentAt.getTime() < existing.lentAt.getTime()) {
+        existing.lentAt = row.lentAt;
+        existing.hebrewLentDisplay = row.hebrewLentDisplay;
+      }
+      if (row.returnedAt.getTime() > existing.returnedAt.getTime()) {
+        existing.returnedAt = row.returnedAt;
+        existing.hebrewReturnedDisplay = row.hebrewReturnedDisplay;
+      }
+      if (
+        row.deadlineAt &&
+        (!existing.deadlineAt || row.deadlineAt.getTime() < existing.deadlineAt.getTime())
+      ) {
+        existing.deadlineAt = row.deadlineAt;
+      }
+      const code = (row.item.serialCode ?? '').trim();
+      if (code && !existing.serialCodes.some((c) => c.toLowerCase() === code.toLowerCase())) {
+        existing.serialCodes.push(code);
+      }
+
+      const chargeSum = existing.members.reduce((sum, m) => sum + (m.chargeAmount ?? 0), 0);
+      existing.chargeAmount = chargeSum > 0 ? chargeSum : null;
+      const unpaid = existing.members.filter(
+        (m) => (m.chargeAmount ?? 0) > 0 && m.chargeIsPaid !== true
+      );
+      existing.chargeIsPaid =
+        existing.chargeAmount == null
+          ? null
+          : unpaid.length === 0
+            ? true
+            : false;
+      existing.customerDebtId =
+        unpaid.find((m) => m.customerDebtId != null && m.customerDebtId > 0)?.customerDebtId ??
+        null;
+    }
+
+    return [...groups.values()]
+      .map((g) => ({
+        ...g,
+        serialCodes: sortNumericCodes(g.serialCodes)
+      }))
+      .sort(
+        (a, b) =>
+          b.lentAt.getTime() - a.lentAt.getTime() ||
+          a.toolName.localeCompare(b.toolName, 'he')
+      );
   }
 
   private toHistoryRow(h: ToolItemBorrowHistoryDto): CompletedLoanRowView {
