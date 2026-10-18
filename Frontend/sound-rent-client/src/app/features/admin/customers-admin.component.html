@@ -480,12 +480,14 @@
                 </tr>
               </thead>
               <tbody>
-                @for (row of toolsHistoryRows(); track row.loanId + '-' + row.itemId) {
+                @for (row of toolsHistoryRows(); track (row.source ?? 'tools') + '-' + row.loanId + '-' + row.itemId) {
                   <tr class="border-b border-slate-100">
                     <td class="px-2 py-2 whitespace-nowrap font-semibold text-[#002244]">#{{ row.loanId }}</td>
                     <td class="px-2 py-2 whitespace-nowrap" dir="ltr">{{ formatDisplayDate(row.loanDate) }}</td>
                     <td class="px-2 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
-                    <td class="px-2 py-2">{{ row.itemName }}</td>
+                    <td class="px-2 py-2">
+                      <span [class.text-sky-800]="row.source === 'accessory'">{{ row.itemName }}</span>
+                    </td>
                     <td class="px-2 py-2 font-mono text-xs" dir="ltr">{{ row.itemCode }}</td>
                     <td class="px-2 py-2 whitespace-nowrap">{{ row.returnDateOrStatus }}</td>
                     <td class="px-2 py-2 text-left whitespace-nowrap">

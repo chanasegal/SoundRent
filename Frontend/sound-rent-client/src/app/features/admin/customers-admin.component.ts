@@ -40,6 +40,8 @@ type LoanHistoryRow = {
   address: string;
   returnDateOrStatus: string;
   canRenew: boolean;
+  /** Present on Tools history rows: work tools vs standalone accessory loans. */
+  source?: 'tools' | 'accessory';
 };
 
 @Component({
@@ -112,27 +114,51 @@ export class CustomersAdminComponent implements OnInit {
       }))
     )
   );
-  protected readonly toolsHistoryRows = computed<LoanHistoryRow[]>(() =>
-    this.historyToolLoans().flatMap((loan) =>
-      (loan.items ?? []).map((item) => ({
-        loanId: loan.id,
-        itemId: item.id,
-        itemDefId: item.toolDefinitionId,
-        loanDate: loan.lentAt || '—',
-        hebrewDate: loan.hebrewLentDisplay || '—',
-        itemName: item.toolName || '—',
-        itemCode: item.serialCode || '—',
-        clientName: loan.clientName || '',
-        phone: loan.phone || '',
-        phone2: loan.phone2 || '',
-        address: loan.address || '',
-        returnDateOrStatus: item.returnedAt
-          ? item.hebrewReturnedDisplay || this.formatDisplayDate(item.returnedAt)
-          : 'טרם הוחזר',
-        canRenew: !!item.returnedAt
-      }))
-    )
-  );
+  protected readonly toolsHistoryRows = computed<LoanHistoryRow[]>(() => {
+    const rows = this.historyToolLoans().flatMap((loan) => {
+      const source: 'tools' | 'accessory' =
+        (loan.loanSource ?? '').toLowerCase() === 'accessory' ? 'accessory' : 'tools';
+      const hebrewFromLoan = (loan.hebrewLentDisplay || '').trim();
+      const hebrewFallback =
+        !hebrewFromLoan && loan.lentAt
+          ? this.hebrewDateForLoan(loan.lentAt)
+          : hebrewFromLoan || '—';
+
+      return (loan.items ?? []).map((item) => {
+        const baseName = (item.toolName || '').trim() || '—';
+        return {
+          loanId: loan.id,
+          itemId: item.id,
+          itemDefId: item.toolDefinitionId,
+          loanDate: loan.lentAt || '—',
+          hebrewDate: hebrewFallback,
+          itemName: source === 'accessory' ? `אביזר · ${baseName}` : baseName,
+          itemCode: item.serialCode || '—',
+          clientName: loan.clientName || '',
+          phone: loan.phone || '',
+          phone2: loan.phone2 || '',
+          address: loan.address || '',
+          returnDateOrStatus: item.returnedAt
+            ? item.hebrewReturnedDisplay || this.formatDisplayDate(item.returnedAt)
+            : 'טרם הוחזר',
+          canRenew: !!item.returnedAt,
+          source
+        };
+      });
+    });
+
+    return rows.sort((a, b) => {
+      const ta = Date.parse(a.loanDate) || 0;
+      const tb = Date.parse(b.loanDate) || 0;
+      if (tb !== ta) {
+        return tb - ta;
+      }
+      if (b.loanId !== a.loanId) {
+        return b.loanId - a.loanId;
+      }
+      return b.itemId - a.itemId;
+    });
+  });
   protected readonly searchInput = this.fb.nonNullable.control('');
 
   protected readonly editForm = this.fb.group({
@@ -421,6 +447,18 @@ export class CustomersAdminComponent implements OnInit {
       return;
     }
 
+    if (row.source === 'accessory') {
+      void this.router.navigate(['/tools/accessory-lending'], {
+        queryParams: {
+          renewFrom: row.loanId,
+          renewPhone: row.phone,
+          renewName: row.clientName,
+          renewAddress: row.address
+        }
+      });
+      return;
+    }
+
     void this.router.navigate(['/tools/lending'], {
       queryParams: {
         renewPhone: row.phone,
@@ -431,6 +469,16 @@ export class CustomersAdminComponent implements OnInit {
         serialCode: row.itemCode
       }
     });
+  }
+
+  private hebrewDateForLoan(lentAt: string): string {
+    const date = new Date(lentAt);
+    if (Number.isNaN(date.getTime())) {
+      const isoDay = lentAt.length >= 10 ? lentAt.slice(0, 10) : lentAt;
+      const parsed = this.hebrew.parseIso(isoDay);
+      return parsed ? this.hebrew.toHebrew(parsed) : '—';
+    }
+    return this.hebrew.toHebrew(date);
   }
 
   protected deleteCustomer(row: CustomerDto): void {

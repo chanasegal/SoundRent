@@ -86,6 +86,13 @@ public class ToolLoanItemDto
 public class ToolLoanDto
 {
     public int Id { get; set; }
+
+    /// <summary>
+    /// <c>tools</c> for ToolLoan rows; <c>accessory</c> for standalone השאלת אביזרים orders
+    /// included in customer loan history.
+    /// </summary>
+    public string LoanSource { get; set; } = "tools";
+
     public DateTime LentAt { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;
     public string ClientName { get; set; } = string.Empty;

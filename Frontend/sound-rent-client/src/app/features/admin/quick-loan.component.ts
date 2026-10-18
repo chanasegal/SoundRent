@@ -299,6 +299,7 @@ export class QuickLoanComponent implements OnInit {
     }
     this.tryRestoreMinimizedDraft();
     this.readEditQueryParam();
+    this.readRenewQueryParam();
   }
 
   private refreshUpcomingLoanNumber(): void {
@@ -334,6 +335,218 @@ export class QuickLoanComponent implements OnInit {
         this.formMinimized.set(false);
         this.startEdit(order);
       });
+  }
+
+  /**
+   * Prefill a new accessory loan from a past standalone order (customer history "חידוש השאלה").
+   * Keeps today's date; copies customer fields and all accessory lines/codes from the source order.
+   */
+  private readRenewQueryParam(): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const renewFrom = Number(qp.get('renewFrom'));
+    const hasRenewFrom = Number.isFinite(renewFrom) && renewFrom > 0;
+    const renewPhone = (qp.get('renewPhone') ?? '').trim();
+
+    if (!hasRenewFrom && !renewPhone) {
+      return;
+    }
+
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        renewFrom: null,
+        renewPhone: null,
+        renewName: null,
+        renewAddress: null,
+        renewPhone2: null
+      },
+      replaceUrl: true
+    });
+
+    if (!hasRenewFrom) {
+      this.applyRenewCustomerOnly({
+        customerName: (qp.get('renewName') ?? '').trim(),
+        phone: renewPhone,
+        address: (qp.get('renewAddress') ?? '').trim()
+      });
+      return;
+    }
+
+    this.inventoryStore
+      .load({ force: true })
+      .pipe(switchMap(() => this.data.getOrderById(renewFrom)))
+      .subscribe((order) => {
+        if (!order) {
+          this.toast.error('ההשאלה לא נמצאה');
+          this.applyRenewCustomerOnly({
+            customerName: (qp.get('renewName') ?? '').trim(),
+            phone: renewPhone || (qp.get('renewPhone') ?? '').trim(),
+            address: (qp.get('renewAddress') ?? '').trim()
+          });
+          return;
+        }
+        if ((order.equipmentDefinitionIds?.length ?? 0) > 0) {
+          this.toast.error('לא ניתן לחדש השאלת אביזרים מהזמנה שבועית');
+          return;
+        }
+        this.orderDraft.clearIfKind('quick-loan');
+        this.formMinimized.set(false);
+        this.applyRenewFromOrder(order);
+      });
+  }
+
+  private applyRenewCustomerOnly(fields: {
+    customerName: string;
+    phone: string;
+    address: string;
+  }): void {
+    if (!fields.phone && !fields.customerName) {
+      return;
+    }
+    this.clearEditState();
+    this.syncFormControlsForEditingGroups();
+    this.formMinimized.set(false);
+    this.form.patchValue({
+      customerName: fields.customerName,
+      phone: fields.phone,
+      address: fields.address
+    });
+    queueMicrotask(() => {
+      this.document.getElementById('quick-loan-name')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  /** Start a brand-new loan pre-filled from a returned accessory order (not edit mode). */
+  private applyRenewFromOrder(order: OrderDto): void {
+    this.clearEditState();
+    this.syncFormControlsForEditingGroups();
+    this.formMinimized.set(false);
+    this.openSerialDropdownId.set(null);
+    this.serialQuickEntry.set('');
+    this.deleteConfirmOrder.set(null);
+
+    this.form.patchValue({
+      customerName: order.customerName ?? '',
+      phone: order.phone ?? '',
+      address: order.address ?? '',
+      deposit: order.depositOnName ?? '',
+      cashDepositAmount: null,
+      notes: order.notes ?? ''
+    });
+
+    const rows = this.buildRenewRowsFromOrder(order);
+    this.accessoryRows.set(rows);
+    this.ensureMixerDefaultAccessoriesForRows(rows);
+    this.accessoryDraftLines.set([this.createAccessoryDraftLine(0)]);
+    this.refreshAvailability();
+
+    if (rows.length === 0) {
+      this.toast.warning('לא נמצאו אביזרים להעתקה מההשאלה המקורית');
+    }
+
+    queueMicrotask(() => {
+      this.document.getElementById('quick-loan-name')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  /**
+   * Maps every line on a past accessory order into fresh draft rows (includes returned lines/codes).
+   */
+  private buildRenewRowsFromOrder(order: OrderDto): QuickLoanAccessoryRow[] {
+    const catalog = this.inventoryStore.definitions();
+    const rows: QuickLoanAccessoryRow[] = [];
+
+    for (const le of order.loanedEquipments ?? []) {
+      if (le.quantity <= 0) {
+        continue;
+      }
+
+      const codes = sortNumericCodes(
+        (le.notes ?? [])
+          .map((n) => (n.content ?? '').trim())
+          .filter((c) => c.length > 0)
+      );
+      const quantity = codes.length > 0 ? Math.max(codes.length, 1) : Math.max(le.quantity, 1);
+
+      if (le.isCustomItem) {
+        const name = (le.customItemName ?? '').trim() || 'פריט נוסף';
+        const catalogMatch = catalog.find(
+          (d) => d.displayName.trim().localeCompare(name, 'he', { sensitivity: 'accent' }) === 0
+        );
+        if (catalogMatch) {
+          const linkedType =
+            LOANED_EQUIPMENT_ORDER.find(
+              (type) =>
+                catalogMatch.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+                  sensitivity: 'accent'
+                }) === 0
+            ) ?? null;
+          rows.push({
+            orderId: 0,
+            inventoryDefinitionId: catalogMatch.id,
+            type: linkedType,
+            label: catalogMatch.displayName,
+            quantity,
+            selectedCodes: [...codes]
+          });
+          continue;
+        }
+        rows.push({
+          orderId: 0,
+          inventoryDefinitionId: this.nextOneTimeAccessoryId--,
+          type: null,
+          label: name,
+          quantity,
+          selectedCodes: [...codes]
+        });
+        continue;
+      }
+
+      const definitionId =
+        le.inventoryDefinitionId != null && le.inventoryDefinitionId > 0
+          ? le.inventoryDefinitionId
+          : le.loanedEquipmentType != null
+            ? this.inventoryStore.definitionIdForType(le.loanedEquipmentType)
+            : null;
+      const def = definitionId != null ? this.inventoryStore.byId(definitionId) ?? null : null;
+      const type = le.loanedEquipmentType ?? null;
+      if (!def && definitionId == null && type != null) {
+        rows.push({
+          orderId: 0,
+          inventoryDefinitionId: -LOANED_EQUIPMENT_ORDER.indexOf(type) - 1,
+          type,
+          label: LOANED_EQUIPMENT_LABELS[type] ?? String(type),
+          quantity,
+          selectedCodes: [...codes]
+        });
+        continue;
+      }
+      if (definitionId == null && !def) {
+        const fallbackName = (le.customItemName ?? '').trim();
+        if (!fallbackName) {
+          continue;
+        }
+        rows.push({
+          orderId: 0,
+          inventoryDefinitionId: this.nextOneTimeAccessoryId--,
+          type: null,
+          label: fallbackName,
+          quantity,
+          selectedCodes: [...codes]
+        });
+        continue;
+      }
+      rows.push({
+        orderId: 0,
+        inventoryDefinitionId: def?.id ?? definitionId ?? this.nextOneTimeAccessoryId--,
+        type,
+        label: def?.displayName ?? (type ? LOANED_EQUIPMENT_LABELS[type] : String(type)),
+        quantity,
+        selectedCodes: [...codes]
+      });
+    }
+
+    return rows;
   }
 
   /** Keep the standalone accessory loan available while using another area of the app. */

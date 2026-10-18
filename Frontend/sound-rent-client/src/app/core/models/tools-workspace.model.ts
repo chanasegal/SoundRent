@@ -67,8 +67,13 @@ export interface ToolLoanItemDto {
   customerDebtId?: number | null;
 }
 
+/** Origin of a row returned by tools customer loan history. */
+export type ToolLoanSource = 'tools' | 'accessory';
+
 export interface ToolLoanDto {
   id: number;
+  /** `tools` for ToolLoan rows; `accessory` for standalone השאלת אביזרים orders. */
+  loanSource?: ToolLoanSource | string | null;
   lentAt: string;
   hebrewLentDisplay: string;
   clientName: string;

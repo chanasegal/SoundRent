@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
+using SoundRent.Api.Application.Mapping;
+using SoundRent.Api.Application.PhoneNumbers;
 using SoundRent.Api.Application.Validation;
 using SoundRent.Api.Domain.Entities;
 using SoundRent.Api.Domain.Enums;
@@ -94,22 +96,47 @@ public class ToolLoanService : IToolLoanService
         string phone,
         CancellationToken cancellationToken = default)
     {
-        var normalizedPhone = (phone ?? string.Empty).Trim();
+        var raw = Uri.UnescapeDataString(phone ?? string.Empty);
+        var normalizedPhone = PhoneNumberNormalizer.DigitsOnly(raw);
         if (string.IsNullOrWhiteSpace(normalizedPhone))
         {
             return [];
         }
 
-        var rows = await _db.ToolLoans
+        var toolRows = await _db.ToolLoans
             .AsNoTracking()
             .Include(l => l.Items)
                 .ThenInclude(i => i.CustomerDebt)
             .Where(l => l.Phone == normalizedPhone)
-            .OrderByDescending(l => l.LentAt)
-            .ThenByDescending(l => l.Id)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(ToDto).ToList();
+        // Standalone השאלת אביזרים orders (Tools system, no weekly-board equipment).
+        var accessoryOrders = await _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Shifts)
+            .Include(o => o.Equipments)
+            .Include(o => o.LoanedEquipments)
+                .ThenInclude(le => le.Notes)
+            .Include(o => o.LoanedEquipments)
+                .ThenInclude(le => le.InventoryDefinition)
+            .Where(o =>
+                !o.IsCancelled
+                && o.SystemType == SystemType.Tools
+                && !o.Equipments.Any()
+                && o.LoanedEquipments.Any()
+                && (o.Phone == normalizedPhone
+                    || (o.Phone2 != null && o.Phone2 == normalizedPhone)))
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        var combined = toolRows
+            .Select(ToDto)
+            .Concat(accessoryOrders.Select(ToAccessoryLoanDto))
+            .OrderByDescending(l => l.LentAt)
+            .ThenByDescending(l => l.Id)
+            .ToList();
+
+        return combined;
     }
 
     public async Task<ToolLoanDto> RenewAsync(int id, CancellationToken cancellationToken = default)
@@ -706,6 +733,7 @@ public class ToolLoanService : IToolLoanService
         return new ToolLoanDto
         {
             Id = entity.Id,
+            LoanSource = "tools",
             LentAt = entity.LentAt,
             HebrewLentDisplay = entity.HebrewLentDisplay,
             ClientName = entity.ClientName,
@@ -737,5 +765,122 @@ public class ToolLoanService : IToolLoanService
                 })
                 .ToList()
         };
+    }
+
+    /// <summary>
+    /// Maps a standalone accessory-only order into the shared tools customer-history shape.
+    /// </summary>
+    private static ToolLoanDto ToAccessoryLoanDto(Order order)
+    {
+        var loanDate = order.Shifts
+            .OrderBy(s => s.OrderDate)
+            .Select(s => (DateOnly?)s.OrderDate)
+            .FirstOrDefault();
+        var lentAt = loanDate is { } day
+            ? day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified)
+            : order.CreatedAt;
+        var returnStamp = order.Shifts
+            .OrderByDescending(s => s.OrderDate)
+            .Select(s => (DateOnly?)s.OrderDate)
+            .FirstOrDefault() is { } returnDay
+            ? returnDay.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified)
+            : lentAt;
+
+        var items = MapAccessoryItems(order, returnStamp);
+        var allReturned = items.Count > 0 && items.All(i => i.ReturnedAt != null);
+
+        return new ToolLoanDto
+        {
+            Id = order.Id,
+            LoanSource = "accessory",
+            LentAt = lentAt,
+            HebrewLentDisplay = string.Empty,
+            ClientName = order.CustomerName ?? string.Empty,
+            Phone = order.Phone,
+            Phone2 = order.Phone2,
+            Address = order.Address,
+            InstitutionName = order.InstitutionName,
+            InstitutionId = order.InstitutionId,
+            Deposit = FormatOrderDeposit(order.DepositType, order.DepositOnName),
+            CashDepositAmount = order.CashDepositAmount,
+            Notes = order.Notes,
+            DeadlineAt = null,
+            ReturnedAt = allReturned ? returnStamp : null,
+            HebrewReturnedDisplay = null,
+            Items = items
+        };
+    }
+
+    private static List<ToolLoanItemDto> MapAccessoryItems(Order order, DateTime returnStamp)
+    {
+        var items = new List<ToolLoanItemDto>();
+
+        foreach (var le in order.LoanedEquipments.OrderBy(x => x.Id))
+        {
+            var name = OrderMapper.GetLoanedEquipmentDisplayName(le);
+            var defId = le.InventoryDefinitionId ?? 0;
+            var notesWithCode = le.Notes
+                .Where(n => !string.IsNullOrWhiteSpace(n.Content))
+                .OrderBy(n => n.Ordinal)
+                .ThenBy(n => n.Id)
+                .ToList();
+
+            if (notesWithCode.Count > 0)
+            {
+                foreach (var note in notesWithCode)
+                {
+                    items.Add(new ToolLoanItemDto
+                    {
+                        Id = note.Id,
+                        ToolDefinitionId = defId,
+                        ToolName = name,
+                        SerialCode = note.Content!.Trim(),
+                        AddedAt = le.AddedAt,
+                        ReturnedAt = note.IsReturned ? returnStamp : null,
+                        HebrewReturnedDisplay = null
+                    });
+                }
+
+                continue;
+            }
+
+            var fullyReturned = le.Quantity > 0 && le.ReturnedQuantity >= le.Quantity;
+            var serial = le.Quantity > 1 ? $"×{le.Quantity}" : string.Empty;
+            items.Add(new ToolLoanItemDto
+            {
+                Id = le.Id,
+                ToolDefinitionId = defId,
+                ToolName = name,
+                SerialCode = serial,
+                AddedAt = le.AddedAt,
+                ReturnedAt = fullyReturned ? returnStamp : null,
+                HebrewReturnedDisplay = null
+            });
+        }
+
+        return items;
+    }
+
+    private static string? FormatOrderDeposit(DepositType? depositType, string? depositOnName)
+    {
+        var typeLabel = depositType switch
+        {
+            DepositType.Check => "צ׳ק",
+            DepositType.CreditCard => "אשראי",
+            DepositType.Cash => "מזומן",
+            _ => null
+        };
+        var onName = (depositOnName ?? string.Empty).Trim();
+        if (typeLabel is null && onName.Length == 0)
+        {
+            return null;
+        }
+
+        if (typeLabel is null)
+        {
+            return onName;
+        }
+
+        return onName.Length > 0 ? $"{typeLabel} — {onName}" : typeLabel;
     }
 }
