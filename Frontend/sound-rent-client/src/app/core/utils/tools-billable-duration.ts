@@ -154,6 +154,9 @@ export function billableCalendarDaySpan(start: Date, end: Date): number {
  * - same calendar day  → elapsed hours & minutes (e.g. "9 שעות ו-30 דקות")
  * - spans 2+ calendar days → the *billable* calendar-day count (e.g. "2 ימים")
  */
+/** Reject spans that only appear when epoch / DateTime.MinValue leaked into the UI. */
+const MAX_PLAUSIBLE_DURATION_DAYS = 3660; // ~10 years
+
 export function formatCalendarDuration(start: Date, end: Date): string {
   if (
     !(start instanceof Date) ||
@@ -164,8 +167,18 @@ export function formatCalendarDuration(start: Date, end: Date): string {
     return '—';
   }
 
+  // Return-before-borrow (or corrupted epoch fallbacks) must not swap into huge day counts.
+  if (end.getTime() < start.getTime()) {
+    return '—';
+  }
+
+  const spanDays = calendarDaySpan(start, end);
+  if (spanDays === 0 || spanDays > MAX_PLAUSIBLE_DURATION_DAYS) {
+    return '—';
+  }
+
   // Whether the loan physically crosses midnight decides the display mode…
-  if (calendarDaySpan(start, end) > 1) {
+  if (spanDays > 1) {
     // …but the number shown excludes non-billable days.
     const billableDays = billableCalendarDaySpan(start, end);
     return billableDays === 1 ? 'יום אחד' : `${billableDays} ימים`;

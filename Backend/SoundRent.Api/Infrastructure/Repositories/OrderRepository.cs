@@ -632,7 +632,7 @@ public class OrderRepository : IOrderRepository
                     CustomerName = m.CustomerName,
                     Phone = m.Phone ?? string.Empty,
                     Address = m.Address,
-                    LoanDate = DateOnly.FromDateTime(m.CreatedAt.ToUniversalTime()),
+                    LoanDate = IsraelDateHelper.ToIsraelDateOnly(m.CreatedAt),
                     SerialCodes = code.Length > 0 ? [code] : []
                 };
             })
@@ -916,13 +916,15 @@ public class OrderRepository : IOrderRepository
                         CustomerName = r.CustomerName,
                         Phone = r.Phone,
                         Address = r.Address,
-                        LoanDate = r.LoanDate ?? DateOnly.FromDateTime(lentAt.ToUniversalTime()),
+                        LoanDate = r.LoanDate ?? IsraelDateHelper.ToIsraelDateOnly(lentAt),
                         ReturnDate = r.ReturnDate
                             ?? (returnedAt is { } ra
-                                ? DateOnly.FromDateTime(ra.ToUniversalTime())
+                                ? IsraelDateHelper.ToIsraelDateOnly(ra)
                                 : null),
-                        LentAt = lentAt,
-                        ReturnedAt = returnedAt,
+                        LentAt = IsraelDateHelper.ToUtc(lentAt),
+                        ReturnedAt = returnedAt is { } stamp
+                            ? IsraelDateHelper.ToUtc(stamp)
+                            : null,
                         IsCustomItem = isOneTimeCustom,
                         IsOrderBased = r.HasEquipment,
                         DepositType = r.DepositType,
@@ -945,13 +947,15 @@ public class OrderRepository : IOrderRepository
                     CustomerName = r.CustomerName,
                     Phone = r.Phone,
                     Address = r.Address,
-                    LoanDate = r.LoanDate ?? DateOnly.FromDateTime(lentAt.ToUniversalTime()),
+                    LoanDate = r.LoanDate ?? IsraelDateHelper.ToIsraelDateOnly(lentAt),
                     ReturnDate = r.ReturnDate
                         ?? (returnedAt is { } ra
-                            ? DateOnly.FromDateTime(ra.ToUniversalTime())
+                            ? IsraelDateHelper.ToIsraelDateOnly(ra)
                             : null),
-                    LentAt = lentAt,
-                    ReturnedAt = returnedAt,
+                    LentAt = IsraelDateHelper.ToUtc(lentAt),
+                    ReturnedAt = returnedAt is { } stamp
+                        ? IsraelDateHelper.ToUtc(stamp)
+                        : null,
                     IsCustomItem = isOneTimeCustom,
                     IsOrderBased = r.HasEquipment,
                     DepositType = r.DepositType,
@@ -989,8 +993,8 @@ public class OrderRepository : IOrderRepository
                     serialCodes,
                     catalogById,
                     uniqueSerialToDefinitionId);
-                var lentAt = m.CreatedAt;
-                var returnedAt = m.ResolvedAt!.Value;
+                var lentAt = IsraelDateHelper.ToUtc(m.CreatedAt);
+                var returnedAt = IsraelDateHelper.ToUtc(m.ResolvedAt!.Value);
                 return new ReturnedAccessoryHistoryDto
                 {
                     ManualItemId = m.Id,
@@ -1002,8 +1006,8 @@ public class OrderRepository : IOrderRepository
                     CustomerName = m.CustomerName,
                     Phone = m.Phone ?? string.Empty,
                     Address = m.Address,
-                    LoanDate = DateOnly.FromDateTime(lentAt.ToUniversalTime()),
-                    ReturnDate = DateOnly.FromDateTime(returnedAt.ToUniversalTime()),
+                    LoanDate = IsraelDateHelper.ToIsraelDateOnly(lentAt),
+                    ReturnDate = IsraelDateHelper.ToIsraelDateOnly(returnedAt),
                     LentAt = lentAt,
                     ReturnedAt = returnedAt,
                     IsCustomItem = resolved.DefinitionId is null,
@@ -1041,28 +1045,25 @@ public class OrderRepository : IOrderRepository
 
     /// <summary>
     /// Historical accessory rows predate per-return timestamps. Multi-day spans can use the
-    /// calendar return day; same-day unknowns reuse the lend stamp (UI avoids "0 דקות" from
-    /// invented midnight) instead of forcing <c>T00:00:00</c> on the loan day.
+    /// Israel calendar return day; same-day unknowns reuse the lend stamp (UI avoids "0 דקות"
+    /// from invented midnight) instead of forcing <c>T00:00:00</c> on the loan day.
+    /// Day comparisons use Asia/Jerusalem so late-night local borrows are not shifted by UTC.
     /// </summary>
     private static DateTime? ResolveAccessoryReturnStamp(DateOnly? returnDate, DateTime lentAt)
     {
-        var loanUtc = lentAt.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(lentAt, DateTimeKind.Utc)
-            : lentAt.ToUniversalTime();
+        var loanUtc = IsraelDateHelper.ToUtc(lentAt);
         if (returnDate is null)
         {
             return loanUtc;
         }
 
-        var loanDay = DateOnly.FromDateTime(loanUtc);
+        var loanDay = IsraelDateHelper.ToIsraelDateOnly(loanUtc);
         if (returnDate.Value <= loanDay)
         {
             return loanUtc;
         }
 
-        return DateTime.SpecifyKind(
-            returnDate.Value.ToDateTime(TimeOnly.MinValue),
-            DateTimeKind.Utc);
+        return IsraelDateHelper.IsraelCalendarDayStartUtc(returnDate.Value);
     }
 
     public Task<ManualUnreturnedItem?> GetManualUnreturnedItemByIdAsync(

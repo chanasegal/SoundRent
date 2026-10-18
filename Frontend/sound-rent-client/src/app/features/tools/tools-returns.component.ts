@@ -31,6 +31,11 @@ import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import {
+  parseLoanTimestamp,
+  resolveLoanInstant,
+  toLocalIsoDay
+} from '../../core/utils/loan-datetime';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
   formatCalendarDuration,
@@ -245,15 +250,19 @@ export class ToolsReturnsComponent implements OnInit {
     const views: CompletedLoanRowView[] = [];
 
     for (const loan of this.loans()) {
-      const loanLentAt = new Date(loan.lentAt);
-      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
+      // Parent loan creation stamp — safe fallback when a line lacks addedAt.
+      const loanLentAt = resolveLoanInstant(loan.lentAt);
+      const deadlineAt = resolveLoanInstant(loan.deadlineAt);
 
       for (const item of loan.items) {
         if (!item.returnedAt) {
           continue;
         }
-        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
-        const returnedAt = new Date(item.returnedAt);
+        const lentAt = resolveLoanInstant(item.addedAt, loanLentAt, loan.lentAt);
+        const returnedAt = resolveLoanInstant(item.returnedAt, lentAt);
+        if (!lentAt || !returnedAt) {
+          continue;
+        }
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           source: 'tools',
@@ -270,8 +279,9 @@ export class ToolsReturnsComponent implements OnInit {
           loanNotes: (loan.notes ?? '').trim(),
           lentAt,
           hebrewLentDisplay:
-            (lentAt.getTime() === loanLentAt.getTime() ? loan.hebrewLentDisplay : '') ||
-            this.formatHebrewDateTime(lentAt),
+            (loanLentAt && lentAt.getTime() === loanLentAt.getTime()
+              ? loan.hebrewLentDisplay
+              : '') || this.formatHebrewDateTime(lentAt),
           deadlineAt,
           returnedAt,
           hebrewReturnedDisplay:
@@ -286,17 +296,16 @@ export class ToolsReturnsComponent implements OnInit {
       if (acc.isOrderBased) {
         continue;
       }
-      // Prefer full timestamps (hours/minutes) from the API; fall back to calendar days only.
-      const lentAt =
-        this.parseTimestamp(acc.lentAt) ?? this.parseIsoDay(acc.loanDate);
-      const returnedAt =
-        this.parseTimestamp(acc.returnedAt) ??
-        this.parseIsoDay(acc.returnDate) ??
-        lentAt ??
-        new Date(0);
+      // Prefer full timestamps (hours/minutes); fall back to calendar days, then skip
+      // the row rather than inventing epoch/zero dates that corrupt Hebrew + duration.
+      const hasLentTime = !!parseLoanTimestamp(acc.lentAt);
+      const hasReturnTime = !!parseLoanTimestamp(acc.returnedAt);
+      const lentAt = resolveLoanInstant(acc.lentAt, acc.loanDate);
+      const returnedAt = resolveLoanInstant(acc.returnedAt, acc.returnDate, lentAt);
+      if (!lentAt || !returnedAt) {
+        continue;
+      }
       const serial = (acc.serialCode ?? '').trim();
-      const hasLentTime = !!this.parseTimestamp(acc.lentAt);
-      const hasReturnTime = !!this.parseTimestamp(acc.returnedAt);
       views.push({
         rowKey: `accessory-${acc.orderId}-${acc.loanedEquipmentId}-${serial || 'qty'}`,
         source: 'accessory',
@@ -314,12 +323,10 @@ export class ToolsReturnsComponent implements OnInit {
         address: (acc.address ?? '').trim(),
         deposit: this.formatAccessoryDeposit(acc),
         loanNotes: (acc.notes ?? '').trim(),
-        lentAt: lentAt ?? returnedAt,
-        hebrewLentDisplay: lentAt
-          ? hasLentTime
-            ? this.formatHebrewDateTime(lentAt)
-            : this.hebrew.toHebrew(lentAt)
-          : '—',
+        lentAt,
+        hebrewLentDisplay: hasLentTime
+          ? this.formatHebrewDateTime(lentAt)
+          : this.hebrew.toHebrew(lentAt),
         deadlineAt: null,
         returnedAt,
         hebrewReturnedDisplay: hasReturnTime
@@ -589,7 +596,9 @@ export class ToolsReturnsComponent implements OnInit {
       .getToolItemBorrowHistory(toolId, serial)
       .pipe(finalize(() => this.historySearching.set(false)))
       .subscribe((list) => {
-        this.historyRows.set(list.map((h) => this.toHistoryRow(h)));
+        this.historyRows.set(
+          list.map((h) => this.toHistoryRow(h)).filter((row): row is CompletedLoanRowView => row != null)
+        );
         this.historyMode.set(true);
       });
   }
@@ -836,38 +845,9 @@ export class ToolsReturnsComponent implements OnInit {
     return formatCalendarDuration(row.lentAt, row.returnedAt);
   }
 
-  /** Parse a full ISO timestamp, preserving hours/minutes. */
-  private parseTimestamp(iso: string | null | undefined): Date | null {
-    const raw = (iso ?? '').trim();
-    if (!raw || /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      // Date-only strings are handled by parseIsoDay — do not invent midnight here.
-      return null;
-    }
-    const date = new Date(raw);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  private parseIsoDay(iso: string | null | undefined): Date | null {
-    const raw = (iso ?? '').trim();
-    if (!raw) {
-      return null;
-    }
-    // Accept either yyyy-MM-dd or a full ISO — use local Y/M/D so TZ does not shift the day.
-    const dayPart = raw.length >= 10 ? raw.slice(0, 10) : raw;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayPart)) {
-      return null;
-    }
-    const [y, m, d] = dayPart.split('-').map(Number);
-    const date = new Date(y, m - 1, d);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
   /** Local `YYYY-MM-DD` — built from local Y/M/D so no UTC/TZ day-shift occurs. */
   private toIsoDay(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return toLocalIsoDay(date);
   }
 
   /**
@@ -1345,10 +1325,13 @@ export class ToolsReturnsComponent implements OnInit {
       );
   }
 
-  private toHistoryRow(h: ToolItemBorrowHistoryDto): CompletedLoanRowView {
-    const lentAt = new Date(h.lentAt);
-    const returnedAt = new Date(h.returnedAt);
+  private toHistoryRow(h: ToolItemBorrowHistoryDto): CompletedLoanRowView | null {
     const loan = this.loans().find((l) => l.id === h.loanId);
+    const lentAt = resolveLoanInstant(h.lentAt, loan?.lentAt);
+    const returnedAt = resolveLoanInstant(h.returnedAt, lentAt);
+    if (!lentAt || !returnedAt) {
+      return null;
+    }
     return {
       rowKey: `hist-${h.loanId}-${h.itemId}`,
       source: 'tools',
@@ -1365,7 +1348,7 @@ export class ToolsReturnsComponent implements OnInit {
       loanNotes: (loan?.notes ?? '').trim(),
       lentAt,
       hebrewLentDisplay: h.hebrewLentDisplay || this.formatHebrewDateTime(lentAt),
-      deadlineAt: h.deadlineAt ? new Date(h.deadlineAt) : null,
+      deadlineAt: resolveLoanInstant(h.deadlineAt),
       returnedAt,
       hebrewReturnedDisplay:
         h.hebrewReturnedDisplay?.trim() || this.formatHebrewDateTime(returnedAt, true),
@@ -1377,13 +1360,16 @@ export class ToolsReturnsComponent implements OnInit {
   private buildActiveLoanRowViews(loans: ToolLoanDto[]): ActiveLoanRowView[] {
     const views: ActiveLoanRowView[] = [];
     for (const loan of loans) {
-      const loanLentAt = new Date(loan.lentAt);
-      const deadlineAt = loan.deadlineAt ? new Date(loan.deadlineAt) : null;
+      const loanLentAt = resolveLoanInstant(loan.lentAt);
+      const deadlineAt = resolveLoanInstant(loan.deadlineAt);
       for (const item of loan.items) {
         if (item.returnedAt) {
           continue;
         }
-        const lentAt = item.addedAt ? new Date(item.addedAt) : loanLentAt;
+        const lentAt = resolveLoanInstant(item.addedAt, loanLentAt, loan.lentAt);
+        if (!lentAt) {
+          continue;
+        }
         views.push({
           rowKey: `${loan.id}-${item.id}`,
           loanId: loan.id,

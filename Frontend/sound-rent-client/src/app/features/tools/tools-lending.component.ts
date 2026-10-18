@@ -982,8 +982,7 @@ export class ToolsLendingComponent implements OnInit {
       // Prefer real timestamps (createdAt / addedAt) — never invent midnight from shift dates.
       const orderLentAt =
         this.parseLoanDate(order.createdAt) ??
-        this.parseLoanDate(loanDate ? `${loanDate}T12:00:00` : null) ??
-        new Date(0);
+        this.parseLoanDate(loanDate ? `${loanDate}T12:00:00` : null);
       for (const line of order.loanedEquipments ?? []) {
         const quantity = line.quantity - (line.returnedQuantity ?? 0);
         if (quantity <= 0) {
@@ -991,6 +990,9 @@ export class ToolsLendingComponent implements OnInit {
         }
         const hasLineTime = !!this.parseLoanDate(line.addedAt);
         const lentAt = this.parseLoanDate(line.addedAt) ?? orderLentAt;
+        if (!lentAt) {
+          continue;
+        }
         const serialCodes = (line.notes ?? [])
           .filter((note) => !note.isReturned)
           .map((note) => (note.content ?? '').trim())
@@ -1100,8 +1102,22 @@ export class ToolsLendingComponent implements OnInit {
     if (value == null || value === '') {
       return null;
     }
+    // Date-only: local civil day — avoid UTC midnight shifting the calendar day.
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+      const [y, m, d] = value.trim().split('-').map(Number);
+      const local = new Date(y, m - 1, d);
+      return this.isPlausibleLoanDate(local) ? local : null;
+    }
     const date = value instanceof Date ? value : new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
+    return this.isPlausibleLoanDate(date) ? date : null;
+  }
+
+  private isPlausibleLoanDate(date: Date): boolean {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return false;
+    }
+    const year = date.getFullYear();
+    return year >= 2000 && year <= 2100;
   }
 
   private focusQuickReturnCodeInput(): void {

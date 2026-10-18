@@ -46,14 +46,9 @@ public static class ExcelExportFormatting
     /// <summary>Formats a UTC/local instant as <c>yyyy-MM-dd HH:mm</c> in Israel time.</summary>
     public static string FormatDateTime(DateTime value)
     {
-        var utc = value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
-
-        var israel = TimeZoneInfo.ConvertTimeFromUtc(utc, IsraelDateHelper.IsraelTimeZone);
+        var israel = TimeZoneInfo.ConvertTimeFromUtc(
+            IsraelDateHelper.ToUtc(value),
+            IsraelDateHelper.IsraelTimeZone);
         return israel.ToString("yyyy-MM-dd HH:mm");
     }
 }

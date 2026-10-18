@@ -311,7 +311,8 @@ export class AccessoryReturnsComponent implements OnInit {
     if (!iso) {
       return '—';
     }
-    const date = this.hebrew.parseIso(iso);
+    // Prefer date-only local parse; fall back to full timestamp without UTC day-shift.
+    const date = this.parseReturnDisplayDate(iso);
     return date ? this.hebrew.formatGregorianWithDayName(date) : iso;
   }
 
@@ -319,8 +320,33 @@ export class AccessoryReturnsComponent implements OnInit {
     if (!iso) {
       return '';
     }
-    const date = this.hebrew.parseIso(iso);
+    const date = this.parseReturnDisplayDate(iso);
     return date ? this.hebrew.toHebrew(date) : '';
+  }
+
+  /** Local civil day / timestamp for return cards — rejects epoch and year-1 corruption. */
+  private parseReturnDisplayDate(iso: string): Date | null {
+    const raw = (iso ?? '').trim();
+    if (!raw) {
+      return null;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const day = this.hebrew.parseIso(raw);
+      if (!day) {
+        return null;
+      }
+      const year = day.getFullYear();
+      return year >= 2000 && year <= 2100 ? day : null;
+    }
+    const date = new Date(raw);
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const year = date.getFullYear();
+    if (year < 2000 || year > 2100) {
+      return null;
+    }
+    return date;
   }
 
   protected orderLabel(row: ReturnedAccessoryRow): string {

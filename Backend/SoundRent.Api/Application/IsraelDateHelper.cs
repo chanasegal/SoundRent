@@ -1,8 +1,9 @@
 namespace SoundRent.Api.Application;
 
 /// <summary>
-/// "Today" for order-date comparisons uses the calendar date in Israel (Asia/Jerusalem),
-/// not UTC midnight, so slot deletion aligns with local business days.
+/// Calendar helpers for Israel (Asia/Jerusalem). Business "days" follow the Israel
+/// civil date, not UTC midnight — late-night local stamps must not shift to the
+/// previous/next UTC calendar day.
 /// </summary>
 public static class IsraelDateHelper
 {
@@ -10,23 +11,55 @@ public static class IsraelDateHelper
 
     public static DateOnly TodayInIsrael()
     {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, IsraelTimeZone);
-        return DateOnly.FromDateTime(local.Date);
+        return ToIsraelDateOnly(DateTime.UtcNow);
+    }
+
+    /// <summary>Normalizes a stored instant to UTC (Unspecified is treated as UTC).</summary>
+    public static DateTime ToUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+    }
+
+    /// <summary>Israel civil calendar day for a UTC/local/unspecified instant.</summary>
+    public static DateOnly ToIsraelDateOnly(DateTime value)
+    {
+        var israel = TimeZoneInfo.ConvertTimeFromUtc(ToUtc(value), IsraelTimeZone);
+        return DateOnly.FromDateTime(israel);
+    }
+
+    /// <summary>
+    /// UTC instant for midnight at the start of an Israel civil calendar day.
+    /// Used when inventing a return stamp from a date-only return day.
+    /// </summary>
+    public static DateTime IsraelCalendarDayStartUtc(DateOnly day)
+    {
+        var localMidnight = DateTime.SpecifyKind(
+            day.ToDateTime(TimeOnly.MinValue),
+            DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(localMidnight, IsraelTimeZone);
     }
 
     private static TimeZoneInfo ResolveIsraelTimeZone()
     {
-        try
+        foreach (var id in new[] { "Asia/Jerusalem", "Israel Standard Time" })
         {
-            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Jerusalem");
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(id);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
         }
-        catch (TimeZoneNotFoundException)
-        {
-            return TimeZoneInfo.Utc;
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return TimeZoneInfo.Utc;
-        }
+
+        return TimeZoneInfo.Utc;
     }
 }

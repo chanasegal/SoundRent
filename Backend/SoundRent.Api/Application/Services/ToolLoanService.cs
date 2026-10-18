@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SoundRent.Api.Application;
 using SoundRent.Api.Application.DTOs;
 using SoundRent.Api.Application.Exceptions;
 using SoundRent.Api.Application.Mapping;
@@ -869,27 +870,25 @@ public class ToolLoanService : IToolLoanService
     /// <summary>
     /// Historical accessory rows may lack a stored return stamp. Prefer the real lend
     /// timestamp for same-day unknowns (UI shows a short/unknown duration) and the
-    /// calendar return day for multi-day spans — never invent midnight on the loan day.
+    /// Israel calendar return day for multi-day spans — never invent midnight on the
+    /// loan day. Day comparisons use Asia/Jerusalem so late-night local borrows are
+    /// not shifted by UTC.
     /// </summary>
     private static DateTime? ResolveAccessoryHistoryReturnStamp(DateOnly? returnDate, DateTime lentAt)
     {
-        var loanUtc = lentAt.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(lentAt, DateTimeKind.Utc)
-            : lentAt.ToUniversalTime();
+        var loanUtc = IsraelDateHelper.ToUtc(lentAt);
         if (returnDate is null)
         {
             return loanUtc;
         }
 
-        var loanDay = DateOnly.FromDateTime(loanUtc);
+        var loanDay = IsraelDateHelper.ToIsraelDateOnly(loanUtc);
         if (returnDate.Value <= loanDay)
         {
             return loanUtc;
         }
 
-        return DateTime.SpecifyKind(
-            returnDate.Value.ToDateTime(TimeOnly.MinValue),
-            DateTimeKind.Utc);
+        return IsraelDateHelper.IsraelCalendarDayStartUtc(returnDate.Value);
     }
 
     private static string? FormatOrderDeposit(DepositType? depositType, string? depositOnName)
