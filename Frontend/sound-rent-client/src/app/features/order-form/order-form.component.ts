@@ -1,5 +1,18 @@
-import { CommonModule, DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, afterNextRender, computed, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
+import { CommonModule, DOCUMENT, Location } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  afterNextRender,
+  computed,
+  DestroyRef,
+  effect,
+  HostListener,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  untracked
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
@@ -31,6 +44,15 @@ import {
   tap,
   toArray
 } from 'rxjs';
+
+/** Subtle footer/header feedback for background order persistence. */
+type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
+
+interface SaveOptions {
+  /** `auto` skips navigation/toasts and handles booking conflicts without a blocking confirm. */
+  mode: 'auto' | 'manual';
+  allowDoubleBooking?: boolean;
+}
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -136,7 +158,7 @@ interface BookingUiState {
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
 })
-export class OrderFormComponent implements OnInit {
+export class OrderFormComponent implements OnInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
   private readonly data = inject(DataService);
   private readonly toast = inject(ToastService);
@@ -153,6 +175,7 @@ export class OrderFormComponent implements OnInit {
   private readonly calendarView = inject(CalendarViewStateService);
   private readonly systemContext = inject(SystemContextService);
   private readonly orderDraft = inject(OrderDraftService);
+  private readonly location = inject(Location);
 
   /** Preserves the board week when using "חזרה ללוח". */
   protected readonly boardQueryParams = computed(() => {
@@ -473,6 +496,33 @@ export class OrderFormComponent implements OnInit {
     )
   );
   protected readonly submitting = signal(false);
+
+  /** Tiny corner badge only — never drives form disable/reset. */
+  protected readonly autoSaveStatus = signal<AutoSaveStatus>('idle');
+  protected readonly autoSaveLabel = computed(() => {
+    switch (this.autoSaveStatus()) {
+      case 'saving':
+        return 'שומר';
+      case 'saved':
+        return 'נשמר';
+      case 'error':
+        return 'שגיאה';
+      case 'conflict':
+        return 'ציוד תפוס';
+      default:
+        return '';
+    }
+  });
+  /** In-flight auto-save flag (not a UI signal — avoids disabling controls / CD thrash). */
+  private autoSaveBusy = false;
+  private suppressAutoSave = false;
+  private lastSavedPayloadKey: string | null = null;
+  private autoSaveBadgeClearTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * True while a pointer gesture started inside the form. Prevents false exit-saves when
+   * clicking checkboxes / equipment options (blur → body before the new control focuses).
+   */
+  private formPointerDownInside = false;
 
   protected readonly addAccessoryOpen = signal(false);
   protected readonly accessoryTypeQuery = signal('');
@@ -1414,8 +1464,63 @@ export class OrderFormComponent implements OnInit {
     this.applyCreateModeFromQueryParams();
   }
 
+  ngOnDestroy(): void {
+    this.tryAutoSave();
+    if (this.autoSaveBadgeClearTimer !== null) {
+      clearTimeout(this.autoSaveBadgeClearTimer);
+      this.autoSaveBadgeClearTimer = null;
+    }
+  }
+
+  /** Persist when the tab/window is closing or the page is being hidden. */
+  @HostListener('window:pagehide')
+  @HostListener('window:beforeunload')
+  protected onWindowExit(): void {
+    this.tryAutoSave();
+  }
+
+  /** Mark in-form pointer gestures so focusout does not treat them as leaving the form. */
+  protected onFormPointerDown(): void {
+    this.formPointerDownInside = true;
+  }
+
+  /**
+   * Exit-only save: runs solely when focus leaves the form container entirely.
+   * Intra-form typing, tabbing between fields, and equipment/checkbox clicks stay local.
+   */
+  protected onFormFocusOut(event: FocusEvent): void {
+    const formEl = event.currentTarget as HTMLElement | null;
+    if (!formEl) {
+      return;
+    }
+
+    const related = event.relatedTarget as Node | null;
+    if (related && formEl.contains(related)) {
+      return;
+    }
+
+    // Click/tap inside the form (incl. non-focusable labels / equipment rows): stay local.
+    if (this.formPointerDownInside) {
+      queueMicrotask(() => {
+        this.formPointerDownInside = false;
+      });
+      return;
+    }
+
+    queueMicrotask(() => {
+      this.formPointerDownInside = false;
+      const active = this.document.activeElement;
+      if (active && formEl.contains(active)) {
+        return;
+      }
+      this.tryAutoSave();
+    });
+  }
+
   /** Backup form state and return to the board without discarding the draft. */
   protected minimizeDraft(): void {
+    this.tryAutoSave();
+
     const customerName = String(this.form.controls['customerName'].value ?? '').trim();
     const editingId = this.editingId();
     const boardDate =
@@ -1584,6 +1689,10 @@ export class OrderFormComponent implements OnInit {
     return null;
   }
 
+  /**
+   * Enter-key / legacy submit path — same persistence as auto-save, stays on the form.
+   * Validation toasts remain for explicit submit attempts.
+   */
   protected submit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -1597,7 +1706,91 @@ export class OrderFormComponent implements OnInit {
       return;
     }
 
-    this.sendSaveWithConflictOverride();
+    this.performSave({ mode: 'manual' });
+  }
+
+  /** Force-save when auto-save paused due to a double-booking conflict. */
+  protected forceSaveDespiteConflict(): void {
+    if (this.autoSaveBusy || this.submitting() || this.form.invalid) {
+      return;
+    }
+    const serialError = this.validateSelectedSerialAvailability();
+    if (serialError) {
+      this.toast.error(serialError);
+      return;
+    }
+    this.performSave({ mode: 'auto', allowDoubleBooking: true });
+  }
+
+  /**
+   * Persists the order. Call only from exit paths (form focusout leaving the container,
+   * navigate away / destroy, window pagehide). Never from valueChanges or selection handlers.
+   */
+  private tryAutoSave(): void {
+    if (
+      this.suppressAutoSave ||
+      this.autoSaveBusy ||
+      this.submitting() ||
+      this.returnSaving() ||
+      this.returnModalOpen()
+    ) {
+      return;
+    }
+
+    if (this.form.invalid) {
+      if (this.autoSaveStatus() === 'conflict' || this.autoSaveStatus() === 'error') {
+        this.setAutoSaveStatus('idle');
+      }
+      return;
+    }
+
+    if (this.validateSelectedSerialAvailability()) {
+      return;
+    }
+
+    const payloads = this.toPayloads();
+    if (payloads.length === 0) {
+      return;
+    }
+
+    const key = this.payloadKey(payloads);
+    if (key === this.lastSavedPayloadKey) {
+      return;
+    }
+
+    this.performSave({ mode: 'auto' });
+  }
+
+  private payloadKey(payloads: OrderCreateUpdateDto[]): string {
+    return JSON.stringify(payloads);
+  }
+
+  private setAutoSaveStatus(status: AutoSaveStatus): void {
+    if (this.autoSaveBadgeClearTimer !== null) {
+      clearTimeout(this.autoSaveBadgeClearTimer);
+      this.autoSaveBadgeClearTimer = null;
+    }
+    this.autoSaveStatus.set(status);
+    if (status === 'saved') {
+      this.autoSaveBadgeClearTimer = setTimeout(() => {
+        if (this.autoSaveStatus() === 'saved') {
+          this.autoSaveStatus.set('idle');
+        }
+        this.autoSaveBadgeClearTimer = null;
+      }, 2500);
+    }
+  }
+
+  private withAutoSaveSuppressed(fn: () => void): void {
+    this.suppressAutoSave = true;
+    try {
+      fn();
+    } finally {
+      queueMicrotask(() => {
+        this.suppressAutoSave = false;
+        this.lastSavedPayloadKey = this.form.valid ? this.payloadKey(this.toPayloads()) : this.lastSavedPayloadKey;
+      });
+    }
   }
 
   private validateSelectedSerialAvailability(): string | null {
@@ -1856,48 +2049,82 @@ export class OrderFormComponent implements OnInit {
     return trimmed;
   }
 
-  private sendSaveWithConflictOverride(): void {
+  private performSave(options: SaveOptions): void {
     const payloads = this.toPayloads();
     if (payloads.length === 0) {
-      this.toast.error('אין הזמנות לשמירה');
+      if (options.mode === 'manual') {
+        this.toast.error('אין הזמנות לשמירה');
+      }
       return;
     }
 
-    this.submitting.set(true);
+    const forceDoubleBooking = options.allowDoubleBooking === true;
+    const conflictChecks$ = forceDoubleBooking
+      ? of(payloads.map(() => false))
+      : forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p)));
+
+    conflictChecks$.subscribe((conflictFlags) => {
+      const hasConflict = conflictFlags.some((c) => c);
+      if (hasConflict && !forceDoubleBooking) {
+        if (options.mode === 'auto') {
+          this.setAutoSaveStatus('conflict');
+          return;
+        }
+        const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
+        if (!confirmed) {
+          return;
+        }
+        this.executeSaveRequests(
+          payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
+          options
+        );
+        return;
+      }
+
+      this.executeSaveRequests(
+        forceDoubleBooking
+          ? payloads.map((p) => ({ ...p, allowDoubleBooking: true }))
+          : payloads,
+        options
+      );
+    });
+  }
+
+  private executeSaveRequests(payloads: OrderCreateUpdateDto[], options: SaveOptions): void {
+    const isAuto = options.mode === 'auto';
+    if (isAuto) {
+      this.autoSaveBusy = true;
+      // Skip "saving" badge flicker — only show result states.
+    } else {
+      this.submitting.set(true);
+    }
+
+    const wasCreate = this.editingId() === null;
 
     from(payloads)
       .pipe(
-        concatMap((basePayload) =>
-          this.hasAnyBookingConflict(basePayload).pipe(
-            switchMap((hasConflict) => {
-              if (!hasConflict) {
-                return this.sendSaveRequest(basePayload);
-              }
-
-              const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
-              if (!confirmed) {
-                return of(null);
-              }
-
-              return this.sendSaveRequest({
-                ...basePayload,
-                allowDoubleBooking: true
-              });
-            })
-          )
-        ),
+        concatMap((payload) => this.sendSaveRequest(payload)),
         toArray(),
-        finalize(() => this.submitting.set(false))
+        finalize(() => {
+          if (isAuto) {
+            this.autoSaveBusy = false;
+          } else {
+            this.submitting.set(false);
+          }
+          // Exit-only: do not re-save from finalize — next persist waits for leave/navigate.
+        })
       )
       .subscribe({
         next: (results) => {
           const saved = results.filter((r): r is OrderDto => r !== null);
           if (saved.length === 0) {
+            if (isAuto) {
+              this.setAutoSaveStatus('error');
+            }
             return;
           }
 
           const firstPayload = payloads[0]!;
-          this.existingCustomerMatch.set(null);
           this.customers.upsertFromPayload({
             phone1: OrderFormComponent.digitsOnly(String(firstPayload.phone ?? '')),
             phone2:
@@ -1908,31 +2135,118 @@ export class OrderFormComponent implements OnInit {
             address: firstPayload.address ?? null
           });
 
-          const id = this.editingId();
-          const savedIdsLabel = saved.map((o) => `#${o.id}`).join(', ');
-          if (id !== null) {
-            this.toast.success(`הזמנה #${id} עודכנה בהצלחה`);
-          } else if (saved.length === 1) {
-            this.toast.success(`הזמנה #${saved[0]!.id} נשמרה בהצלחה`);
-          } else if (saved.length === payloads.length) {
-            this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה (${savedIdsLabel})`);
-          } else {
-            this.toast.warning(`נשמרו ${saved.length} מתוך ${payloads.length} הזמנות (${savedIdsLabel})`);
-          }
-
-          for (const order of saved) {
-            this.ordersSync.notifyOrderUpdated(order);
-          }
-
-          this.inventoryStore.load({ force: true }).subscribe();
-
           this.orderDraft.clearIfKind('sound-order');
+          this.adoptSavedOrdersSilently(saved, isAuto);
 
-          const navigateDate =
-            saved[0]?.shifts?.[0]?.orderDate ?? firstPayload.shifts?.[0]?.orderDate ?? null;
-          this.navigateAfterOrderFlow(navigateDate);
+          // Key of what the server accepted — not the live form (user may have typed more).
+          this.lastSavedPayloadKey = this.payloadKey(payloads);
+          this.setAutoSaveStatus('saved');
+
+          if (!isAuto) {
+            this.existingCustomerMatch.set(null);
+            for (const order of saved) {
+              this.ordersSync.notifyOrderUpdated(order);
+            }
+            this.inventoryStore.load({ force: true }).subscribe();
+
+            if (wasCreate) {
+              if (saved.length === 1) {
+                this.toast.success(`הזמנה #${saved[0]!.id} נשמרה בהצלחה`);
+              } else {
+                this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה`);
+              }
+            }
+          }
+          // Auto-save intentionally skips inventory reload + orderChanged$ notify so
+          // equipment/serial dropdowns and alert banners stay untouched while typing.
+        },
+        error: () => {
+          if (isAuto) {
+            this.setAutoSaveStatus('error');
+          }
         }
       });
+  }
+
+  /**
+   * After create/update: adopt server ids without rebuilding form controls, closing
+   * dropdowns, or syncing return/occupancy UI that would steal focus.
+   */
+  private adoptSavedOrdersSilently(saved: OrderDto[], isAuto: boolean): void {
+    const primary = saved[0];
+    if (!primary) {
+      return;
+    }
+
+    const wasCreate = this.editingId() === null;
+    if (wasCreate) {
+      this.editingId.set(primary.id);
+      this.location.replaceState(`/orders/${primary.id}`);
+    }
+
+    // Avoid rewriting loadedOrder on every auto-update (keeps return/readonly computeds stable).
+    if (!isAuto || wasCreate || this.loadedOrder() === null) {
+      this.loadedOrder.set(primary);
+      this.orderCancelled.set(!!primary.isCancelled);
+    }
+
+    // Silent line-id merge only (emitEvent: false) — no form reset, no booking collapse.
+    this.mergeLoanedLineIdsFromOrder(primary);
+
+    if (!isAuto) {
+      this.syncReturnedSerialState(primary);
+    }
+  }
+
+  /** Assign server line ids onto matching form rows without resetting user input. */
+  private mergeLoanedLineIdsFromOrder(order: OrderDto): void {
+    const serverLines = [...(order.loanedEquipments ?? [])];
+    const used = new Set<number>();
+
+    for (let i = 0; i < this.equipmentList.length; i++) {
+      const group = this.getRowGroup(i);
+      const existingId = group.get('lineId')?.value as number | null;
+      if (typeof existingId === 'number' && existingId > 0) {
+        used.add(existingId);
+        continue;
+      }
+
+      const isCustom = !!group.get('isCustomItem')?.value;
+      const label = String(group.get('label')?.value ?? '').trim();
+      const defId = Number(group.get('inventoryDefinitionId')?.value);
+      const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+
+      const matchIdx = serverLines.findIndex((line, idx) => {
+        if (used.has(line.id ?? -1) || used.has(-(idx + 1))) {
+          return false;
+        }
+        if (isCustom) {
+          return (
+            line.isCustomItem === true &&
+            this.inventoryStore.displayLabelForLoanedLine(line).trim() === label
+          );
+        }
+        if (line.isCustomItem) {
+          return false;
+        }
+        if (Number.isFinite(defId) && defId > 0 && line.inventoryDefinitionId === defId) {
+          return true;
+        }
+        return type != null && line.loanedEquipmentType === type;
+      });
+
+      if (matchIdx < 0) {
+        continue;
+      }
+
+      const match = serverLines[matchIdx]!;
+      if (typeof match.id === 'number' && match.id > 0) {
+        used.add(match.id);
+        group.patchValue({ lineId: match.id }, { emitEvent: false });
+      } else {
+        used.add(-(matchIdx + 1));
+      }
+    }
   }
 
   private sendSaveRequest(payload: OrderCreateUpdateDto) {
@@ -1959,6 +2273,7 @@ export class OrderFormComponent implements OnInit {
   }
 
   protected clearForm(): void {
+    this.suppressAutoSave = true;
     const today = new Date();
     const todayIso = this.toIso(today);
     const todayParts = this.hebrew.toHebrewParts(today);
@@ -2020,6 +2335,11 @@ export class OrderFormComponent implements OnInit {
     this.existingCustomerMatch.set(null);
     this.closeCustomerSuggestions();
     this.institutionConflict.set(null);
+    this.setAutoSaveStatus('idle');
+    this.lastSavedPayloadKey = null;
+    queueMicrotask(() => {
+      this.suppressAutoSave = false;
+    });
     this.toast.show('הטופס נוקה', 'info');
   }
 
@@ -3163,6 +3483,9 @@ export class OrderFormComponent implements OnInit {
     )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
+        if (this.autoSaveBusy || this.submitting() || this.returnSaving()) {
+          return;
+        }
         this.refreshLostEquipmentAlert();
         this.refreshCustomerRiskAlerts();
       });
@@ -3174,7 +3497,7 @@ export class OrderFormComponent implements OnInit {
         this.refreshCustomerRiskAlerts();
       },
       {
-        skipWhen: () => this.submitting() || this.returnSaving()
+        skipWhen: () => this.autoSaveBusy || this.submitting() || this.returnSaving()
       }
     );
   }
@@ -3829,6 +4152,7 @@ export class OrderFormComponent implements OnInit {
 
   /** Rebuild the reactive form from a minimized draft snapshot. */
   private applySoundOrderDraft(draft: SoundOrderDraftPayload): void {
+    this.suppressAutoSave = true;
     this.editingId.set(draft.editingId);
     this.orderCancelled.set(draft.orderCancelled);
     this.phone1DigitsSig.set(draft.phone1Digits ?? '');
@@ -3973,7 +4297,12 @@ export class OrderFormComponent implements OnInit {
     this.refreshLostEquipmentAlert();
     this.refreshCustomerRiskAlerts();
     this.institutionConflictTrigger$.next();
-    queueMicrotask(() => this.resetScrollForOrderForm());
+    this.setAutoSaveStatus('idle');
+    this.lastSavedPayloadKey = null;
+    queueMicrotask(() => {
+      this.suppressAutoSave = false;
+      this.resetScrollForOrderForm();
+    });
 
     // Soft-load server order metadata for return UI without overwriting the draft form.
     if (draft.editingId !== null) {
@@ -3998,7 +4327,10 @@ export class OrderFormComponent implements OnInit {
           }
           this.orderCancelled.set(!!order.isCancelled);
           this.loadedOrder.set(order);
-          this.populateFormFromOrder(order, 'edit');
+          this.withAutoSaveSuppressed(() => {
+            this.populateFormFromOrder(order, 'edit');
+          });
+          this.setAutoSaveStatus('idle');
           queueMicrotask(() => this.resetScrollForOrderForm());
         }
       });
@@ -4018,7 +4350,11 @@ export class OrderFormComponent implements OnInit {
           }
           this.orderCancelled.set(false);
           this.existingCustomerMatch.set(null);
-          this.populateFormFromOrder(order, 'renew');
+          this.withAutoSaveSuppressed(() => {
+            this.populateFormFromOrder(order, 'renew');
+          });
+          this.setAutoSaveStatus('idle');
+          this.lastSavedPayloadKey = null;
           this.toast.show('הטופס מולא מהזמנה קודמת — התאריך עודכן להיום', 'info');
           queueMicrotask(() => this.resetScrollForOrderForm());
         }

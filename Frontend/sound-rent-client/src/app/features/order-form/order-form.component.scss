@@ -1,4 +1,56 @@
 :host {
+  position: relative;
+
+  .auto-save-badge {
+    position: fixed;
+    z-index: 40;
+    bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    pointer-events: none;
+    max-width: min(12rem, calc(100vw - 1.5rem));
+  }
+
+  .auto-save-badge__text {
+    display: inline-block;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 0.2rem 0.55rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #64748b;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
+  .auto-save-badge__text--saved {
+    border-color: #a7f3d0;
+    color: #047857;
+    background: rgba(236, 253, 245, 0.95);
+  }
+
+  .auto-save-badge__text--error,
+  .auto-save-badge__text--conflict {
+    border-color: #fde68a;
+    color: #92400e;
+    background: rgba(255, 251, 235, 0.95);
+  }
+
+  .auto-save-badge__force {
+    pointer-events: auto;
+    border-radius: 999px;
+    border: 1px solid #f59e0b;
+    background: #fffbeb;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #92400e;
+    cursor: pointer;
+  }
+
   .form-label {
     display: block;
     margin-bottom: 0.25rem;
