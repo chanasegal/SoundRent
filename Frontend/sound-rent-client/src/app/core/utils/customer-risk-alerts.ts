@@ -1,4 +1,8 @@
 import { UnreturnedItemDto } from '../models/equipment-return.model';
+import {
+  LOST_EQUIPMENT_ACTIVE_STATUSES,
+  LostEquipmentDto
+} from '../models/lost-equipment.model';
 import { OpenDebtGroupDto } from '../models/open-debt.model';
 import { OrderDto } from '../models/order.model';
 
@@ -153,3 +157,117 @@ export const EMPTY_CUSTOMER_RISK_ALERTS: CustomerRiskAlertSnapshot = {
   openDebtMessage: '',
   unreturnedMessage: ''
 };
+
+export const CANCELLED_ORDER_STATUS_TOOLTIP = 'ישנה הזמנה מבוטלת';
+
+/** True when the customer has any cancelled order (with or without debt). */
+export function customerHasCancelledOrder(
+  cancelledOrders: OrderDto[],
+  phoneDigits: string,
+  customerName: string
+): boolean {
+  return cancelledOrders.some(
+    (o) =>
+      o.isCancelled && matchesCustomerIdentity(o.phone, o.customerName, phoneDigits, customerName)
+  );
+}
+
+export function filterActiveLostForCustomer(
+  items: LostEquipmentDto[],
+  phoneDigits: string,
+  customerName: string
+): LostEquipmentDto[] {
+  return items.filter(
+    (row) =>
+      LOST_EQUIPMENT_ACTIVE_STATUSES.has(row.status) &&
+      matchesCustomerIdentity(row.phone, row.customerName, phoneDigits, customerName)
+  );
+}
+
+export function formatLostEquipmentItemLabel(row: LostEquipmentDto): string {
+  const desc = (row.itemDescription ?? '').trim() || 'פריט';
+  const parts = [desc];
+  const date = (row.hebrewDate ?? '').trim();
+  if (date) {
+    parts.push(date);
+  }
+  const notes = (row.notes ?? '').trim();
+  if (notes) {
+    parts.push(notes);
+  }
+  return parts.join(' · ');
+}
+
+/** Hover copy for forgotten-equipment badges on search cards. */
+export function buildForgottenEquipmentTooltip(items: LostEquipmentDto[]): string {
+  if (items.length === 0) {
+    return '';
+  }
+  return `ציוד שנשכח: ${items.map(formatLostEquipmentItemLabel).join(' | ')}`;
+}
+
+export interface ClientSearchStatusTooltips {
+  /** Red debt badge hover text; null when no outstanding debt. */
+  openDebtTooltip: string | null;
+  /** Yellow missing-equipment badge hover text; null when nothing is missing. */
+  missingEquipmentTooltip: string | null;
+  /** Forgotten-equipment badge hover text; null when none apply. */
+  forgottenEquipmentTooltip: string | null;
+  /** Cancelled-order badge hover text; null when none apply. */
+  cancelledTooltip: string | null;
+}
+
+/**
+ * Status indicators for a weekly-board client-search card.
+ * Combines order-level flags with customer-level debt / unreturned / cancelled data.
+ */
+export function buildClientSearchStatusTooltips(
+  cancelledOrders: OrderDto[],
+  openDebts: OpenDebtGroupDto[],
+  unreturned: UnreturnedItemDto[],
+  order: OrderDto,
+  lostEquipment: LostEquipmentDto[] = []
+): ClientSearchStatusTooltips {
+  const phoneDigits = digitsOnlyPhone(order.phone);
+  const customerName = (order.customerName ?? '').trim();
+  const snapshot = buildCustomerRiskAlertSnapshot(
+    cancelledOrders,
+    openDebts,
+    unreturned,
+    phoneDigits,
+    customerName
+  );
+
+  const debtParts: string[] = [];
+  if (snapshot.openDebtAmount > 0 && snapshot.openDebtMessage) {
+    debtParts.push(snapshot.openDebtMessage);
+  }
+  if (snapshot.cancelledDebtAmount > 0 && snapshot.cancelledDebtMessage) {
+    debtParts.push(snapshot.cancelledDebtMessage);
+  }
+  if (debtParts.length === 0 && order.isUnpaid) {
+    const amount = Number(order.paymentAmount ?? 0);
+    debtParts.push(
+      amount > 0
+        ? buildOpenDebtAlertMessage(amount)
+        : 'שים לב ללקוח זה יש חוב פתוח להזמנה זו'
+    );
+  }
+
+  const orderUnreturned = unreturned.filter((row) => row.orderId === order.id);
+  const missingItems =
+    orderUnreturned.length > 0 ? orderUnreturned : snapshot.unreturnedItems;
+  const forgottenItems = filterActiveLostForCustomer(lostEquipment, phoneDigits, customerName);
+
+  const hasCancelled =
+    order.isCancelled || customerHasCancelledOrder(cancelledOrders, phoneDigits, customerName);
+
+  return {
+    openDebtTooltip: debtParts.length > 0 ? debtParts.join(' · ') : null,
+    missingEquipmentTooltip:
+      missingItems.length > 0 ? buildUnreturnedItemsAlertMessage(missingItems) : null,
+    forgottenEquipmentTooltip:
+      forgottenItems.length > 0 ? buildForgottenEquipmentTooltip(forgottenItems) : null,
+    cancelledTooltip: hasCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null
+  };
+}

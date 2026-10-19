@@ -207,7 +207,8 @@
 }
 
 .client-search__equipment,
-.client-search__secondary {
+.client-search__secondary,
+.client-search__deposit {
   font-size: 0.74rem;
   color: #475569;
   overflow: hidden;
@@ -215,11 +216,23 @@
   white-space: nowrap;
 }
 
+.client-search__deposit {
+  color: #334155;
+}
+
+.client-search__deposit-label {
+  font-weight: 700;
+  color: #0f172a;
+}
+
 .client-search__badges {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.3rem;
   margin-top: 0.15rem;
+  /* Native title tooltips render outside the panel; keep icons from stretching the card. */
+  overflow: visible;
 }
 
 .client-search__badge {
@@ -240,14 +253,45 @@
     color: #64748b;
   }
 
-  &--unpaid {
-    background: #fee2e2;
-    color: #b91c1c;
+  &--paid {
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 800;
   }
 
   &--urgent {
     background: #fef3c7;
     color: #92400e;
+  }
+}
+
+.client-search__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+
+  &--debt {
+    background: #fee2e2;
+  }
+
+  &--missing {
+    background: #fef3c7;
+  }
+
+  &--forgotten {
+    background: #e0e7ff;
+  }
+
+  &--cancelled {
+    background: #f1f5f9;
   }
 }
 

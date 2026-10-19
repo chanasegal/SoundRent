@@ -22,6 +22,7 @@ import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operato
 
 import {
   DEPOSIT_TYPE_LABELS,
+  DepositType,
   EQUIPMENT_TYPE_LABELS,
   EquipmentType,
   LOANED_EQUIPMENT_LABELS,
@@ -31,6 +32,9 @@ import {
   workspacePageTitle
 } from '../../core/models/enums';
 import { OrderDto, OrderShiftDto } from '../../core/models/order.model';
+import { LostEquipmentDto } from '../../core/models/lost-equipment.model';
+import { OpenDebtGroupDto } from '../../core/models/open-debt.model';
+import { UnreturnedItemDto } from '../../core/models/equipment-return.model';
 import {
   bookingSlotToBaseEquipment,
   defaultBookingSlotForEquipmentType
@@ -50,10 +54,17 @@ import { EquipmentDefinitionsStore } from '../../core/services/equipment-definit
 import { EquipmentMaintenanceSyncService } from '../../core/services/equipment-maintenance-sync.service';
 import { ExportService } from '../../core/services/export.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { InventoryDefinitionsStore } from '../../core/services/inventory-definitions.store';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ScheduleHubService } from '../../core/services/schedule-hub.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
+import { formatCashAmount } from '../../core/utils/cash-deposit';
 import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
+import {
+  buildClientSearchStatusTooltips,
+  type ClientSearchStatusTooltips
+} from '../../core/utils/customer-risk-alerts';
 import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   israeliPhoneValidator
@@ -204,6 +215,13 @@ interface UrgentNoteDialogState {
   phone: string;
 }
 
+interface ClientSearchRiskData {
+  cancelled: OrderDto[];
+  openDebts: OpenDebtGroupDto[];
+  unreturned: UnreturnedItemDto[];
+  lostEquipment: LostEquipmentDto[];
+}
+
 interface ClientSearchResultItem {
   order: OrderDto;
   isPast: boolean;
@@ -212,13 +230,46 @@ interface ClientSearchResultItem {
   shiftsLabel: string;
   equipmentLabel: string;
   returnTimeLabel: string;
+  /** Full deposit line (type, cash amount, check/credit/cash notes); empty when none. */
+  depositLabel: string;
+  /** True only when the order is fully paid (`isPaid`). */
+  isPaid: boolean;
   /** Date to jump to on the board; null for accessory-only orders that are not on the grid. */
   boardDate: Date | null;
+  /** Enriched customer/order status badge tooltips (debt, missing gear, cancelled). */
+  status: ClientSearchStatusTooltips;
 }
 
 const CLIENT_SEARCH_MIN_LENGTH = 2;
 /** Must match the server-side cap in `OrderService.CustomerSearchResultLimit`. */
 const CLIENT_SEARCH_RESULT_LIMIT = 100;
+
+/** Deposit type + cash amount + on-name / check / credit notes for search cards. */
+function formatClientSearchDepositLabel(order: OrderDto): string {
+  const typeLabel =
+    order.depositType != null ? (DEPOSIT_TYPE_LABELS[order.depositType as DepositType] ?? null) : null;
+  const notes = (order.depositOnName ?? '').trim();
+  const cashAmount =
+    order.depositType === DepositType.Cash &&
+    order.cashDepositAmount != null &&
+    Number(order.cashDepositAmount) > 0
+      ? formatCashAmount(Number(order.cashDepositAmount))
+      : null;
+
+  if (!typeLabel && !notes && !cashAmount) {
+    return '';
+  }
+
+  const head = typeLabel
+    ? cashAmount
+      ? `${typeLabel} ${cashAmount}`
+      : typeLabel
+    : (cashAmount ?? '');
+  if (head && notes) {
+    return `${head} — ${notes}`;
+  }
+  return head || notes;
+}
 
 function toLocalIsoDate(date: Date): string {
   const y = date.getFullYear();
@@ -272,6 +323,8 @@ export class WeeklyGridComponent {
   private readonly customers = inject(CustomersStore);
   private readonly exportSvc = inject(ExportService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
+  private readonly inventoryStore = inject(InventoryDefinitionsStore);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly maintenanceSync = inject(EquipmentMaintenanceSyncService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly calendarView = inject(CalendarViewStateService);
@@ -291,6 +344,7 @@ export class WeeklyGridComponent {
   private weekLoadInFlightKey = '';
   private hubRefreshSub: Subscription | null = null;
   private hubClientSearchSub: Subscription | null = null;
+  private hubClientSearchRiskSub: Subscription | null = null;
   /** A hub signal arrived while a week load / append was in flight; refetch once it lands. */
   private hubRefreshQueued = false;
   private destroyed = false;
@@ -362,6 +416,8 @@ export class WeeklyGridComponent {
   protected readonly clientSearchLoading = signal(false);
   /** Results plus the query they were fetched for, so stale results are never shown for a new term. */
   private readonly clientSearchResponse = signal<{ query: string; orders: OrderDto[] } | null>(null);
+  /** Shared debt / unreturned / cancelled lookup used to enrich search cards. */
+  private readonly clientSearchRiskData = signal<ClientSearchRiskData | null>(null);
 
   protected readonly clientSearchActive = computed(
     () => this.clientSearchTerm().trim().length >= CLIENT_SEARCH_MIN_LENGTH
@@ -386,7 +442,8 @@ export class WeeklyGridComponent {
       return null;
     }
     const todayIso = this.toIsoDate(new Date());
-    const items = orders.map((o) => this.toClientSearchItem(o, todayIso));
+    const risk = this.clientSearchRiskData();
+    const items = orders.map((o) => this.toClientSearchItem(o, todayIso, risk));
     return items.sort((a, b) => {
       if (a.isPast !== b.isPast) {
         return a.isPast ? 1 : -1;
@@ -504,6 +561,7 @@ export class WeeklyGridComponent {
 
     this.wireWaitlistCustomerAutocomplete();
     this.wireClientSearch();
+    this.wireClientSearchRiskData();
     this.wireScheduleHub();
 
     afterNextRender(() => {
@@ -782,7 +840,11 @@ export class WeeklyGridComponent {
       .subscribe((response) => this.clientSearchResponse.set(response));
   }
 
-  private toClientSearchItem(order: OrderDto, todayIso: string): ClientSearchResultItem {
+  private toClientSearchItem(
+    order: OrderDto,
+    todayIso: string,
+    risk: ClientSearchRiskData | null
+  ): ClientSearchResultItem {
     const first = this.orderFirstShift(order);
     const last = this.orderLastShift(order);
     const firstDate = first ? this.hebrew.parseIso(first.orderDate) : null;
@@ -812,6 +874,16 @@ export class WeeklyGridComponent {
     const boardDate =
       boardIso !== null && order.equipmentDefinitionIds.length > 0 ? this.hebrew.parseIso(boardIso) : null;
 
+    const status = risk
+      ? buildClientSearchStatusTooltips(
+          risk.cancelled,
+          risk.openDebts,
+          risk.unreturned,
+          order,
+          risk.lostEquipment
+        )
+      : buildClientSearchStatusTooltips([], [], [], order, []);
+
     return {
       order,
       isPast: !last || last.orderDate < todayIso,
@@ -822,8 +894,69 @@ export class WeeklyGridComponent {
         .map((id) => this.equipmentSlots.displayLabel(id))
         .join(', '),
       returnTimeLabel: shiftCount > 0 ? this.finalReturnTimeLabel(order) : '',
-      boardDate
+      depositLabel: formatClientSearchDepositLabel(order),
+      isPaid: order.isPaid === true,
+      boardDate,
+      status
     };
+  }
+
+  private wireClientSearchRiskData(): void {
+    toObservable(this.clientSearchActive)
+      .pipe(
+        distinctUntilChanged(),
+        switchMap((active) => {
+          if (!active) {
+            this.clientSearchRiskData.set(null);
+            return EMPTY;
+          }
+          return this.loadClientSearchRiskData$();
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((data) => this.clientSearchRiskData.set(data));
+
+    merge(
+      this.ordersSync.debtChanged$,
+      this.ordersSync.unreturnedChanged$,
+      this.ordersSync.lostEquipmentChanged$,
+      this.ordersSync.orderChanged$
+    )
+      .pipe(
+        debounceTime(300),
+        switchMap(() => (this.clientSearchActive() ? this.loadClientSearchRiskData$() : EMPTY)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((data) => this.clientSearchRiskData.set(data));
+  }
+
+  private loadClientSearchRiskData$() {
+    return forkJoin({
+      cancelled: this.data.getCancelledOrdersReport(),
+      openDebts: this.data.getOpenDebtGroupsReport(),
+      unreturned: this.data.getUnreturnedItems(),
+      lostEquipment: this.data.getLostEquipment()
+    }).pipe(
+      map(({ cancelled, openDebts, unreturned, lostEquipment }) => ({
+        cancelled,
+        openDebts,
+        unreturned: unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
+        lostEquipment
+      }))
+    );
+  }
+
+  private refreshClientSearchRiskInBackground(): void {
+    if (!this.clientSearchActive()) {
+      return;
+    }
+    this.hubClientSearchRiskSub?.unsubscribe();
+    this.hubClientSearchRiskSub = this.loadClientSearchRiskData$()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => this.clientSearchRiskData.set(data),
+        error: () => undefined
+      });
   }
 
   protected onOrderContextMenu(event: MouseEvent, order: OrderDto): void {
@@ -1376,6 +1509,7 @@ export class WeeklyGridComponent {
       .subscribe(() => {
         this.refreshLoadedRangeInBackground();
         this.refreshClientSearchInBackground();
+        this.refreshClientSearchRiskInBackground();
       });
   }
 

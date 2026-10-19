@@ -207,6 +207,12 @@
                       @if (item.equipmentLabel) {
                         <div class="client-search__equipment">🔊 {{ item.equipmentLabel }}</div>
                       }
+                      @if (item.depositLabel) {
+                        <div class="client-search__deposit" [attr.title]="item.depositLabel">
+                          <span class="client-search__deposit-label">פיקדון:</span>
+                          {{ item.depositLabel }}
+                        </div>
+                      }
                       @if (item.order.institutionName?.trim() || item.order.address?.trim()) {
                         <div class="client-search__secondary">
                           {{ item.order.institutionName?.trim() || item.order.address?.trim() }}
@@ -218,8 +224,40 @@
                         } @else {
                           <span class="client-search__badge client-search__badge--upcoming">פעילה / עתידית</span>
                         }
-                        @if (item.order.isUnpaid) {
-                          <span class="client-search__badge client-search__badge--unpaid">לא שולם</span>
+                        @if (item.isPaid) {
+                          <span class="client-search__badge client-search__badge--paid">שולם</span>
+                        }
+                        @if (item.status.openDebtTooltip) {
+                          <span
+                            class="client-search__status-icon client-search__status-icon--debt"
+                            [attr.title]="item.status.openDebtTooltip"
+                            [attr.aria-label]="item.status.openDebtTooltip"
+                            role="img"
+                          >🔴</span>
+                        }
+                        @if (item.status.missingEquipmentTooltip) {
+                          <span
+                            class="client-search__status-icon client-search__status-icon--missing"
+                            [attr.title]="item.status.missingEquipmentTooltip"
+                            [attr.aria-label]="item.status.missingEquipmentTooltip"
+                            role="img"
+                          >⚠️</span>
+                        }
+                        @if (item.status.forgottenEquipmentTooltip) {
+                          <span
+                            class="client-search__status-icon client-search__status-icon--forgotten"
+                            [attr.title]="item.status.forgottenEquipmentTooltip"
+                            [attr.aria-label]="item.status.forgottenEquipmentTooltip"
+                            role="img"
+                          >🧰</span>
+                        }
+                        @if (item.status.cancelledTooltip) {
+                          <span
+                            class="client-search__status-icon client-search__status-icon--cancelled"
+                            [attr.title]="item.status.cancelledTooltip"
+                            [attr.aria-label]="item.status.cancelledTooltip"
+                            role="img"
+                          >❌</span>
                         }
                         @if (hasUrgentBoardNote(item.order)) {
                           <span class="client-search__badge client-search__badge--urgent" [title]="urgentBoardNoteText(item.order)">
