@@ -111,15 +111,10 @@ import { HeaderClockComponent } from './header-clock.component';
                 class="layout-nav__link"
               >לקוחות</a>
               <a
-                routerLink="/admin/lost-equipment"
+                routerLink="/admin/lost-items"
                 routerLinkActive="bg-white/10 text-white"
                 class="layout-nav__link"
-              >ציוד שנשכח</a>
-              <a
-                routerLink="/admin/unreturned-items"
-                routerLinkActive="bg-white/10 text-white"
-                class="layout-nav__link"
-              >פריטים שלא חזרו</a>
+              >אבידות</a>
               <a
                 routerLink="/admin/blocked-dates"
                 routerLinkActive="bg-white/10 text-white"

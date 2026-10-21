@@ -86,6 +86,20 @@ public class CashDepositSyncTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Delete_RemovesLedgerRow_AndClearsParentCashFields()
+    {
+        var created = await _loans.CreateAsync(Request(cash: 150m));
+        var deposit = Assert.Single(await _deposits.GetAsync(CashDepositStatus.Open, null));
+
+        await _deposits.DeleteAsync(deposit.Id);
+
+        Assert.Empty(await _deposits.GetAsync(null, null));
+        var loan = await _db.BookLoans.AsNoTracking().SingleAsync(l => l.Id == created.Id);
+        Assert.Null(loan.CashDepositAmount);
+        Assert.False(loan.DepositReturned);
+    }
+
+    [Fact]
     public void OrderWithCashTypeButNoAmount_IsRejected()
     {
         var dto = new OrderCreateUpdateDto { DepositType = DepositType.Cash, CashDepositAmount = null };

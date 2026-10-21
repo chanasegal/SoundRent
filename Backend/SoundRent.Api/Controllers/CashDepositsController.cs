@@ -47,6 +47,27 @@ public class CashDepositsController : ControllerBase
     }
 
     /// <summary>
+    /// Deletes a cash-deposit ledger row and clears cash deposit fields on the linked order / loan.
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _cashDeposits.DeleteAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Toggle <c>depositReturned</c> for an order / tool loan / book loan (and align the cash-deposit ledger).
     /// </summary>
     [HttpPut("returned")]

@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { Routes } from '@angular/router';
+import { Router, Routes } from '@angular/router';
 
 import { authGuard, guestGuard } from './core/guards/auth.guard';
 import { SystemType } from './core/models/enums';
@@ -173,18 +173,24 @@ export const routes: Routes = [
           import('./features/admin/customers-admin.component').then((m) => m.CustomersAdminComponent)
       },
       {
-        path: 'admin/lost-equipment',
+        path: 'admin/lost-items',
         loadComponent: () =>
-          import('./features/admin/lost-equipment-admin.component').then(
-            (m) => m.LostEquipmentAdminComponent
+          import('./features/admin/lost-items-admin.component').then(
+            (m) => m.LostItemsAdminComponent
           )
       },
       {
+        path: 'admin/lost-equipment',
+        redirectTo: 'admin/lost-items',
+        pathMatch: 'full'
+      },
+      {
         path: 'admin/unreturned-items',
-        loadComponent: () =>
-          import('./features/admin/unreturned-items-admin.component').then(
-            (m) => m.UnreturnedItemsAdminComponent
-          )
+        pathMatch: 'full',
+        redirectTo: () =>
+          inject(Router).createUrlTree(['/admin/lost-items'], {
+            queryParams: { tab: 'unreturned' }
+          })
       },
       {
         path: 'admin/blocked-dates',

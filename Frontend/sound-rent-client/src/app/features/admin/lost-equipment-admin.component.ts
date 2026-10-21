@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   inject,
+  input,
   OnInit,
   signal
 } from '@angular/core';
@@ -58,6 +59,8 @@ export class LostEquipmentAdminComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly hebrew = inject(HebrewDateService);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ציוד שנשכח');
+  /** When true, omit page chrome — parent shell owns title/padding. */
+  readonly embedded = input(false);
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
 

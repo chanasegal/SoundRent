@@ -1,0 +1,38 @@
+<div class="mx-auto max-w-7xl px-4 py-6">
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold text-[#002244]">{{ pageTitle() }}</h1>
+  </div>
+
+  <div class="admin-tabs mb-5" role="tablist" aria-label="אבידות">
+    <button
+      type="button"
+      role="tab"
+      class="admin-tab"
+      [class.admin-tab--active]="activeTab() === 'forgotten'"
+      [attr.aria-selected]="activeTab() === 'forgotten'"
+      (click)="switchTab('forgotten')"
+    >
+      ציוד שנשכח
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="admin-tab"
+      [class.admin-tab--active]="activeTab() === 'unreturned'"
+      [attr.aria-selected]="activeTab() === 'unreturned'"
+      (click)="switchTab('unreturned')"
+    >
+      פריטים שלא חזרו
+    </button>
+  </div>
+
+  @if (activeTab() === 'forgotten') {
+    <div role="tabpanel" aria-label="ציוד שנשכח">
+      <app-lost-equipment-admin [embedded]="true" />
+    </div>
+  } @else {
+    <div role="tabpanel" aria-label="פריטים שלא חזרו">
+      <app-unreturned-items-admin [embedded]="true" />
+    </div>
+  }
+</div>

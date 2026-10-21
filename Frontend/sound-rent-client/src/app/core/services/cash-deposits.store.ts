@@ -32,6 +32,9 @@ export class CashDepositsStore {
   private readonly markingIdSignal = signal<number | null>(null);
   readonly markingId = this.markingIdSignal.asReadonly();
 
+  private readonly deletingIdSignal = signal<number | null>(null);
+  readonly deletingId = this.deletingIdSignal.asReadonly();
+
   private lastLoadedAt = 0;
   private inFlight: Subscription | null = null;
 
@@ -84,7 +87,7 @@ export class CashDepositsStore {
 
   /** Marks the deposit returned and drops it from the open list. Emits the updated row, or null. */
   markReturned(deposit: CashDepositDto): Observable<CashDepositDto | null> {
-    if (this.markingIdSignal() != null) {
+    if (this.markingIdSignal() != null || this.deletingIdSignal() != null) {
       return of(null);
     }
 
@@ -98,6 +101,25 @@ export class CashDepositsStore {
         this.toast.success(`הפיקדון בסך ${formatCashAmount(deposit.amount)} סומן כהוחזר`);
       }),
       finalize(() => this.markingIdSignal.set(null))
+    );
+  }
+
+  /** Deletes the deposit ledger row and drops it from the open list. Emits true on success. */
+  delete(deposit: CashDepositDto): Observable<boolean> {
+    if (this.deletingIdSignal() != null || this.markingIdSignal() != null) {
+      return of(false);
+    }
+
+    this.deletingIdSignal.set(deposit.id);
+    return this.data.deleteCashDeposit(deposit.id).pipe(
+      tap((ok) => {
+        if (!ok) {
+          return;
+        }
+        this.openSignal.update((rows) => rows.filter((d) => d.id !== deposit.id));
+        this.toast.success(`הפיקדון בסך ${formatCashAmount(deposit.amount)} נמחק`);
+      }),
+      finalize(() => this.deletingIdSignal.set(null))
     );
   }
 

@@ -177,7 +177,7 @@
                       } @else {
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path
-                            d="M9 14 4 9l5-5"
+                            d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
                             fill="none"
                             stroke="currentColor"
                             stroke-width="2"
@@ -185,7 +185,7 @@
                             stroke-linejoin="round"
                           />
                           <path
-                            d="M20 20a8 8 0 0 0-8-8H4"
+                            d="M3 3v5h5"
                             fill="none"
                             stroke="currentColor"
                             stroke-width="2"
@@ -197,7 +197,7 @@
                     </button>
                     <button
                       type="button"
-                      class="action-icon-btn action-icon-btn--delete"
+                      class="recent-loan-action recent-loan-action--delete"
                       [disabled]="actionsBusy()"
                       [attr.aria-label]="'מחיקת רשומת החזרה עבור ' + row.itemName"
                       title="מחיקה לצמיתות"
@@ -207,36 +207,11 @@
                         …
                       } @else {
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            d="M3 6h18"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                          />
-                          <path
-                            d="M8 6V4h8v2"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          />
-                          <path
-                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          />
-                          <path
-                            d="M10 11v6M14 11v6"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                          />
+                          <path d="M4 7h16"></path>
+                          <path d="M10 11v6"></path>
+                          <path d="M14 11v6"></path>
+                          <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                          <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
                         </svg>
                       }
                     </button>

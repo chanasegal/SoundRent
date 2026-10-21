@@ -7,6 +7,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked
 } from '@angular/core';
@@ -76,6 +77,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('פריטים שלא חזרו');
+  /** When true, omit page chrome — parent shell owns title/padding. */
+  readonly embedded = input(false);
 
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 

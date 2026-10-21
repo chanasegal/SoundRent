@@ -462,13 +462,14 @@
   }
 
   &--undo {
-    border-color: #fecaca;
-    background: #fff1f2;
-    color: #b91c1c;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #1e293b;
 
     &:hover:not(:disabled) {
-      background: #ffe4e6;
-      border-color: #f87171;
+      background: #f1f5f9;
+      border-color: #94a3b8;
+      color: #0f172a;
     }
   }
 

@@ -618,6 +618,17 @@ export class DataService {
     );
   }
 
+  /** `true` when the delete succeeded; `false` after a handled HTTP error (toast already shown). */
+  deleteCashDeposit(id: number): Observable<boolean> {
+    return this.http.delete<void>(`${this.cashDepositsBase}/${id}`).pipe(
+      map(() => true),
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(false);
+      })
+    );
+  }
+
   /** Toggle depositReturned for an order / tool loan / book loan and align the cash ledger. */
   setDepositReturned(payload: SetDepositReturnedDto): Observable<DepositReturnedResultDto | null> {
     return this.http.put<DepositReturnedResultDto>(`${this.cashDepositsBase}/returned`, payload).pipe(

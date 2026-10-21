@@ -17,6 +17,7 @@ import { SYSTEM_TYPE_OPTIONS, SystemType } from '../../core/models/enums';
 import { CashDepositsStore } from '../../core/services/cash-deposits.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
+import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { formatCashAmount } from '../../core/utils/cash-deposit';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 
@@ -34,6 +35,7 @@ const MODULE_LABELS: Record<SystemType, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ConfirmPopup],
   providers: [ConfirmationService],
+  styleUrl: './cash-deposits.component.scss',
   template: `
     <div class="mx-auto max-w-6xl px-4 py-6">
       <p-confirmpopup />
@@ -155,9 +157,10 @@ const MODULE_LABELS: Record<SystemType, string> = {
                   <th class="px-3 py-2 font-semibold">מערכת</th>
                   <th class="px-3 py-2 font-semibold">הזמנה</th>
                   <th class="px-3 py-2 font-semibold">הערות</th>
-                  <th class="px-3 py-2 text-center font-semibold">
-                    {{ tab() === 'open' ? 'פעולה' : 'הוחזר' }}
-                  </th>
+                  @if (tab() === 'returned') {
+                    <th class="px-3 py-2 text-center font-semibold">הוחזר</th>
+                  }
+                  <th class="px-3 py-2 text-center font-semibold">פעולה</th>
                 </tr>
               </thead>
               <tbody>
@@ -171,19 +174,44 @@ const MODULE_LABELS: Record<SystemType, string> = {
                     <td class="whitespace-nowrap px-3 py-2">{{ moduleLabels[row.sourceModule] || row.sourceModuleLabel }}</td>
                     <td class="whitespace-nowrap px-3 py-2 text-slate-600">{{ row.sourceReference || '—' }}</td>
                     <td class="max-w-[14rem] truncate px-3 py-2 text-slate-600" [title]="row.notes || ''">{{ row.notes || '—' }}</td>
+                    @if (tab() === 'returned') {
+                      <td class="whitespace-nowrap px-3 py-2 text-center text-xs text-slate-600">
+                        {{ row.returnedAt ? formatDate(row.returnedAt) : '—' }}
+                      </td>
+                    }
                     <td class="whitespace-nowrap px-3 py-2 text-center">
-                      @if (tab() === 'open') {
+                      <div class="inline-flex items-center justify-center gap-2">
+                        @if (tab() === 'open') {
+                          <button
+                            type="button"
+                            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                            [disabled]="store.markingId() != null || store.deletingId() != null"
+                            (click)="confirmMarkReturned($event, row)"
+                          >
+                            {{ store.markingId() === row.id ? 'מעדכן…' : 'סמן כהוחזר' }}
+                          </button>
+                        }
                         <button
                           type="button"
-                          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                          [disabled]="store.markingId() != null"
-                          (click)="confirmMarkReturned($event, row)"
+                          class="recent-loan-action recent-loan-action--delete"
+                          [disabled]="store.deletingId() != null || store.markingId() != null"
+                          title="מחיקת פיקדון"
+                          aria-label="מחיקת פיקדון"
+                          (click)="confirmDelete($event, row)"
                         >
-                          {{ store.markingId() === row.id ? 'מעדכן…' : 'סמן כהוחזר' }}
+                          @if (store.deletingId() === row.id) {
+                            …
+                          } @else {
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M4 7h16"></path>
+                              <path d="M10 11v6"></path>
+                              <path d="M14 11v6"></path>
+                              <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                              <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                            </svg>
+                          }
                         </button>
-                      } @else {
-                        <span class="text-xs text-slate-600">{{ row.returnedAt ? formatDate(row.returnedAt) : '—' }}</span>
-                      }
+                      </div>
                     </td>
                   </tr>
                 }
@@ -200,6 +228,7 @@ export class CashDepositsComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly hebrew = inject(HebrewDateService);
   private readonly confirmation = inject(ConfirmationService);
+  private readonly ordersSync = inject(OrdersSyncService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -255,7 +284,7 @@ export class CashDepositsComponent implements OnInit {
     }
     this.store.refresh({ force: true });
     startLiveDataRefresh(this.destroyRef, () => this.reload(), {
-      skipWhen: () => this.store.markingId() != null
+      skipWhen: () => this.store.markingId() != null || this.store.deletingId() != null
     });
   }
 
@@ -294,6 +323,26 @@ export class CashDepositsComponent implements OnInit {
       acceptButtonStyleClass: 'p-button-sm p-button-success',
       rejectButtonStyleClass: 'p-button-sm p-button-outlined',
       accept: () => this.store.markReturned(row).subscribe()
+    });
+  }
+
+  protected confirmDelete(event: Event, row: CashDepositDto): void {
+    this.confirmation.confirm({
+      target: event.currentTarget as EventTarget,
+      message: 'האם אתה בטוח שברצונך למחוק פיקדון זה?',
+      acceptLabel: 'מחק',
+      rejectLabel: 'ביטול',
+      acceptButtonStyleClass: 'p-button-sm p-button-danger',
+      rejectButtonStyleClass: 'p-button-sm p-button-outlined',
+      accept: () => {
+        this.store.delete(row).subscribe((ok) => {
+          if (!ok) {
+            return;
+          }
+          this.returnedRows.update((rows) => rows.filter((d) => d.id !== row.id));
+          this.ordersSync.notifyLoanChanged();
+        });
+      }
     });
   }
 

@@ -18,6 +18,11 @@ public interface ICashDepositService
 
     Task<CashDepositDto> MarkReturnedAsync(int id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Removes a ledger row and clears cash-deposit amount / returned flag on the linked order or loan.
+    /// </summary>
+    Task DeleteAsync(int id, CancellationToken cancellationToken = default);
+
     /// <summary>Toggles returned status for the cash deposit of one order / tool loan / book loan.</summary>
     Task<DepositReturnedResultDto> SetReturnedBySourceAsync(
         SetDepositReturnedDto dto,
@@ -108,6 +113,21 @@ public class CashDepositService : ICashDepositService
         }
 
         return ToDto(deposit);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
+    {
+        if (id <= 0)
+        {
+            throw new ValidationException("מזהה פיקדון לא תקין");
+        }
+
+        var deposit = await _db.CashDeposits.FirstOrDefaultAsync(d => d.Id == id, cancellationToken)
+            ?? throw new NotFoundException("הפיקדון לא נמצא");
+
+        await ClearSourceCashDepositAsync(deposit, cancellationToken);
+        _db.CashDeposits.Remove(deposit);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<DepositReturnedResultDto> SetReturnedBySourceAsync(
@@ -396,6 +416,51 @@ public class CashDepositService : ICashDepositService
             if (loan != null)
             {
                 loan.DepositReturned = returned && loan.CashDepositAmount is > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clears cash deposit fields on the parent so a later Sync does not recreate the ledger row.
+    /// </summary>
+    private async Task ClearSourceCashDepositAsync(CashDeposit deposit, CancellationToken cancellationToken)
+    {
+        if (deposit.OrderId is int orderId)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+            if (order != null)
+            {
+                if (order.DepositType == DepositType.Cash)
+                {
+                    order.DepositType = null;
+                }
+
+                order.CashDepositAmount = null;
+                order.DepositReturned = false;
+            }
+
+            return;
+        }
+
+        if (deposit.ToolLoanId is int toolLoanId)
+        {
+            var loan = await _db.ToolLoans.FirstOrDefaultAsync(l => l.Id == toolLoanId, cancellationToken);
+            if (loan != null)
+            {
+                loan.CashDepositAmount = null;
+                loan.DepositReturned = false;
+            }
+
+            return;
+        }
+
+        if (deposit.BookLoanId is int bookLoanId)
+        {
+            var loan = await _db.BookLoans.FirstOrDefaultAsync(l => l.Id == bookLoanId, cancellationToken);
+            if (loan != null)
+            {
+                loan.CashDepositAmount = null;
+                loan.DepositReturned = false;
             }
         }
     }
