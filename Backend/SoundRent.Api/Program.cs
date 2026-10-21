@@ -127,7 +127,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // --- CORS ----------------------------------------------------------------
-const string CorsPolicyName = "SoundRentCors";
+// Single policy for local Angular + Vercel frontend. AllowCredentials is
+// required for SignalR (cookies / negotiated auth). Must be registered before
+// MapHub / UseAuthorization in the pipeline below.
+const string CorsPolicyName = "AllowVercel";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicyName, policy =>
@@ -176,17 +179,6 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Fastest;
 });
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAngular", policy =>
-    {
-        policy.WithOrigins("http://localhost:4200") 
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
-});
-
 var app = builder.Build();
 
 // --- Database migration (before pipeline — fixes missing-column errors on deploy) ---
@@ -227,14 +219,8 @@ app.UseWhen(
     context => !context.Request.Path.StartsWithSegments(ScheduleHub.Route),
     branch => branch.UseResponseCompression());
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors("AllowAngular");
-}
-else
-{
-    app.UseCors(CorsPolicyName);
-}
+// CORS before auth + hub mapping so preflight and SignalR negotiate succeed.
+app.UseCors(CorsPolicyName);
 app.UseHttpsRedirection();
 
 app.UseWebSockets();

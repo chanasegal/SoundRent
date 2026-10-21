@@ -112,8 +112,10 @@ export class ScheduleHubService {
       .withUrl(environment.scheduleHubUrl, {
         accessTokenFactory: () => this.auth.token() ?? '',
         // Prefer WebSockets; fall back to Long Polling when a proxy/filter
-        // blocks the upgrade (e.g. handshake HTTP 418).
-        transport: HttpTransportType.WebSockets | HttpTransportType.LongPolling
+        // blocks the upgrade (e.g. NetFree handshake HTTP 418).
+        // skipNegotiation must stay false so the client can negotiate LongPolling.
+        transport: HttpTransportType.WebSockets | HttpTransportType.LongPolling,
+        skipNegotiation: false
       })
       .withAutomaticReconnect(foreverRetryPolicy)
       .configureLogging(environment.production ? LogLevel.Error : LogLevel.Warning)
