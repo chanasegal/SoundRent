@@ -103,6 +103,8 @@ public class ToolLoanDto
     public int? InstitutionId { get; set; }
     public string? Deposit { get; set; }
     public decimal? CashDepositAmount { get; set; }
+    /// <summary>True when a cash deposit on this loan was marked returned.</summary>
+    public bool DepositReturned { get; set; }
     public string? Notes { get; set; }
     public DateTime? DeadlineAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
@@ -130,6 +132,9 @@ public class ToolLoanCreateDto : IValidatableObject
 
     /// <summary>Cash held as deposit. When set, a phone number is mandatory (already required).</summary>
     public decimal? CashDepositAmount { get; set; }
+
+    /// <summary>Null leaves the existing flag unchanged on update.</summary>
+    public bool? DepositReturned { get; set; }
 
     public string? Notes { get; set; }
     public string HebrewLentDisplay { get; set; } = string.Empty;

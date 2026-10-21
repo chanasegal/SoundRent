@@ -609,7 +609,9 @@
     <!-- Payment / Deposit section -->
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <h2 class="mb-4 border-b border-slate-200 pb-2 text-lg font-bold text-[#002244]">תשלום ופיקדון</h2>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
+
+      <!-- Row 1: Deposit -->
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div>
           <label class="form-label">סוג פיקדון</label>
           <select formControlName="depositType" class="form-input">
@@ -623,8 +625,53 @@
           <label class="form-label">פיקדון על שם</label>
           <input type="text" formControlName="depositOnName" class="form-input" />
         </div>
+        @if (isCashDeposit()) {
+          @let cashMissing = form.errors?.['cashDepositAmountRequired'] && (form.controls['cashDepositAmount'].touched || form.controls['depositType'].touched);
+          <div>
+            <label class="form-label" for="order-cash-deposit-amount">סכום פיקדון במזומן (₪) *</label>
+            <input
+              id="order-cash-deposit-amount"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              formControlName="cashDepositAmount"
+              class="form-input ltr-field"
+              [class.border-rose-400]="cashMissing"
+              [attr.aria-invalid]="cashMissing ? true : null"
+            />
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  formControlName="depositReturned"
+                  class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                הפקדון הוחזר
+              </label>
+              @if (form.controls['depositReturned'].value) {
+                <span
+                  class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800"
+                >
+                  פיקדון הוחזר
+                </span>
+              }
+            </div>
+            <p class="mt-1 text-sm" [class.text-rose-700]="cashMissing" [class.text-slate-500]="!cashMissing">
+              @if (cashMissing) {
+                יש להזין סכום פיקדון במזומן.
+              } @else {
+                הפיקדון יירשם במסך הפקדונות וייסגר כשיסומן כהוחזר ללקוח.
+              }
+            </p>
+          </div>
+        }
+      </div>
+
+      <!-- Row 2: Payment -->
+      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div>
-          <label class="form-label">סכום (₪)</label>
+          <label class="form-label">סכום תשלום (₪)</label>
           <input
             type="number"
             min="0"
@@ -636,7 +683,7 @@
             class="form-input ltr-field"
           />
         </div>
-        <div>
+        <div class="md:col-span-2">
           <span class="form-label" id="payment-status-label">סטטוס תשלום</span>
           <div
             class="inline-flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white text-sm font-medium"
@@ -664,32 +711,6 @@
       </div>
       @if (form.controls['paymentStatus'].value === 'unpaid' && !((form.controls['paymentAmount'].value ?? 0) > 0)) {
         <p class="mt-2 text-sm text-amber-700">יש להזין סכום כדי שההזמנה תופיע בדוח החובות הפתוחים.</p>
-      }
-      @if (isCashDeposit()) {
-        @let cashMissing = form.errors?.['cashDepositAmountRequired'] && (form.controls['cashDepositAmount'].touched || form.controls['depositType'].touched);
-        <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div>
-            <label class="form-label" for="order-cash-deposit-amount">סכום פיקדון במזומן (₪) *</label>
-            <input
-              id="order-cash-deposit-amount"
-              type="number"
-              min="1"
-              step="1"
-              inputmode="numeric"
-              formControlName="cashDepositAmount"
-              class="form-input ltr-field"
-              [class.border-rose-400]="cashMissing"
-              [attr.aria-invalid]="cashMissing ? true : null"
-            />
-          </div>
-          <p class="self-end text-sm md:col-span-3" [class.text-rose-700]="cashMissing" [class.text-slate-500]="!cashMissing">
-            @if (cashMissing) {
-              יש להזין סכום פיקדון במזומן.
-            } @else {
-              הפיקדון יירשם במסך הפקדונות וייסגר כשיסומן כהוחזר ללקוח.
-            }
-          </p>
-        </div>
       }
     </section>
 

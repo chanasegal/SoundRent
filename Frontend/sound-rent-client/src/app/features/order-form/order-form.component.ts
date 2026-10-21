@@ -2320,6 +2320,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       depositType: null,
       depositOnName: '',
       cashDepositAmount: null,
+      depositReturned: false,
       paymentAmount: null,
       paymentStatus: 'none',
       notes: ''
@@ -2661,6 +2662,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
         depositType: [null as DepositType | null],
         depositOnName: ['', Validators.maxLength(100)],
         cashDepositAmount: [null as number | null, [Validators.min(0)]],
+        depositReturned: [false],
         paymentAmount: [null as number | null, [Validators.min(0)]],
         paymentStatus: ['none' as PaymentStatus],
         notes: ['', Validators.maxLength(1000)],
@@ -4260,6 +4262,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
         depositOnName: typeof raw['depositOnName'] === 'string' ? raw['depositOnName'] : '',
         cashDepositAmount:
           typeof raw['cashDepositAmount'] === 'number' ? raw['cashDepositAmount'] : null,
+        depositReturned: raw['depositReturned'] === true,
         paymentAmount: typeof raw['paymentAmount'] === 'number' ? raw['paymentAmount'] : null,
         paymentStatus: OrderFormComponent.draftPaymentStatus(raw),
         notes: typeof raw['notes'] === 'string' ? raw['notes'] : ''
@@ -4442,6 +4445,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
           depositType: order.depositType ?? null,
           depositOnName: order.depositOnName ?? '',
           cashDepositAmount: order.cashDepositAmount ?? null,
+          depositReturned: mode === 'renew' ? false : order.depositReturned === true,
           paymentAmount: order.paymentAmount ?? null,
           paymentStatus: mode === 'renew' ? 'unpaid' : OrderFormComponent.orderPaymentStatus(order),
           notes: order.notes ?? ''
@@ -4539,7 +4543,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       // One physical cash deposit: only the first order holds it, or the ledger would count it per booking.
       const cashDepositOverride =
         i > 0 && shared.depositType === DepositType.Cash
-          ? { depositType: null, cashDepositAmount: null }
+          ? { depositType: null, cashDepositAmount: null, depositReturned: false }
           : {};
       payloads.push({
         equipmentDefinitionIds: this.equipmentIdsControl(i).value,
@@ -4570,6 +4574,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     | 'depositType'
     | 'depositOnName'
     | 'cashDepositAmount'
+    | 'depositReturned'
     | 'paymentAmount'
     | 'isPaid'
     | 'isUnpaid'
@@ -4579,6 +4584,8 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     const paymentStatus = v['paymentStatus'] as PaymentStatus;
     const depositType = (v['depositType'] as DepositType | null) ?? null;
     const cashAmount = Number(v['cashDepositAmount']);
+    const hasCash =
+      depositType === DepositType.Cash && Number.isFinite(cashAmount) && cashAmount > 0;
     return {
       customerName: this.optionalText(v['customerName']),
       phone: (v['phone'] as string).trim(),
@@ -4588,10 +4595,8 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       institutionId: (v['institutionId'] as number | null) ?? null,
       depositType,
       depositOnName: this.optionalText(v['depositOnName']),
-      cashDepositAmount:
-        depositType === DepositType.Cash && Number.isFinite(cashAmount) && cashAmount > 0
-          ? cashAmount
-          : null,
+      cashDepositAmount: hasCash ? cashAmount : null,
+      depositReturned: hasCash && v['depositReturned'] === true,
       paymentAmount: v['paymentAmount'] === '' || v['paymentAmount'] == null
         ? null
         : Math.max(0, Math.trunc(Number(v['paymentAmount']))),

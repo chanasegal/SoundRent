@@ -24,6 +24,8 @@ public class OrderDto
     public DepositType? DepositType { get; set; }
     public string? DepositOnName { get; set; }
     public decimal? CashDepositAmount { get; set; }
+    /// <summary>True when a cash deposit on this order was marked returned.</summary>
+    public bool DepositReturned { get; set; }
     public decimal? PaymentAmount { get; set; }
     public bool IsPaid { get; set; }
     public bool IsUnpaid { get; set; }

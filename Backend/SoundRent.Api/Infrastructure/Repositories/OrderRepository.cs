@@ -831,6 +831,8 @@ public class OrderRepository : IOrderRepository
                     HasEquipment = o.Equipments.Any(),
                     o.DepositType,
                     o.DepositOnName,
+                    o.CashDepositAmount,
+                    o.DepositReturned,
                     OrderNotes = o.Notes,
                     LoanDate = o.Shifts.Min(s => (DateOnly?)s.OrderDate),
                     ReturnDate = o.Shifts.Max(s => (DateOnly?)s.OrderDate),
@@ -929,6 +931,8 @@ public class OrderRepository : IOrderRepository
                         IsOrderBased = r.HasEquipment,
                         DepositType = r.DepositType,
                         DepositOnName = r.DepositOnName,
+                        CashDepositAmount = r.CashDepositAmount,
+                        DepositReturned = r.DepositReturned,
                         Notes = r.OrderNotes
                     });
                 }
@@ -960,6 +964,8 @@ public class OrderRepository : IOrderRepository
                     IsOrderBased = r.HasEquipment,
                     DepositType = r.DepositType,
                     DepositOnName = r.DepositOnName,
+                    CashDepositAmount = r.CashDepositAmount,
+                    DepositReturned = r.DepositReturned,
                     Notes = r.OrderNotes
                 });
             }
@@ -1014,6 +1020,8 @@ public class OrderRepository : IOrderRepository
                     IsOrderBased = m.OrderId is > 0,
                     DepositType = m.Order?.DepositType,
                     DepositOnName = m.Order?.DepositOnName,
+                    CashDepositAmount = m.Order?.CashDepositAmount,
+                    DepositReturned = m.Order?.DepositReturned ?? false,
                     Notes = m.Order?.Notes
                 };
             })

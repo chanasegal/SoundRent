@@ -209,20 +209,46 @@
 .client-search__equipment,
 .client-search__secondary,
 .client-search__deposit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
   font-size: 0.74rem;
-  color: #475569;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.client-search__deposit {
   color: #334155;
 }
 
 .client-search__deposit-label {
   font-weight: 700;
   color: #0f172a;
+}
+
+.client-search__deposit-returned {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.client-search__deposit-toggle {
+  display: inline-flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #065f46;
+  white-space: nowrap;
+
+  input {
+    width: 0.9rem;
+    height: 0.9rem;
+    accent-color: #059669;
+  }
+}
+
+.client-search__badge--deposit-returned {
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .client-search__badges {

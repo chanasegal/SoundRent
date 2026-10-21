@@ -20,3 +20,15 @@ export interface CashDepositDto {
   returnedAt?: string | null;
   notes?: string | null;
 }
+
+export interface SetDepositReturnedDto {
+  orderId?: number | null;
+  toolLoanId?: number | null;
+  bookLoanId?: number | null;
+  returned: boolean;
+}
+
+export interface DepositReturnedResultDto {
+  depositReturned: boolean;
+  deposit?: CashDepositDto | null;
+}

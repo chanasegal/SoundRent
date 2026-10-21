@@ -46,6 +46,8 @@ export interface OrderDto {
   depositType?: DepositType | null;
   depositOnName?: string | null;
   cashDepositAmount?: number | null;
+  /** True when the cash deposit was marked returned to the customer. */
+  depositReturned?: boolean;
   paymentAmount?: number | null;
   /** Paid in advance. Mutually exclusive with `isUnpaid`. */
   isPaid?: boolean;
@@ -77,6 +79,8 @@ export interface OrderCreateUpdateDto {
   depositOnName?: string | null;
   /** Required (> 0) when `depositType` is Cash; ignored by the server otherwise. */
   cashDepositAmount?: number | null;
+  /** Null leaves the existing flag unchanged on update. */
+  depositReturned?: boolean | null;
   paymentAmount?: number | null;
   isPaid?: boolean;
   isUnpaid: boolean;

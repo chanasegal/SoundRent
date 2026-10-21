@@ -94,7 +94,12 @@ import {
   BookLoanReturnDto,
   BookUpdateDto
 } from '../models/library-workspace.model';
-import { CashDepositDto, CashDepositStatus } from '../models/cash-deposit.model';
+import {
+  CashDepositDto,
+  CashDepositStatus,
+  DepositReturnedResultDto,
+  SetDepositReturnedDto
+} from '../models/cash-deposit.model';
 import { ToastService } from './toast.service';
 import { SystemContextService } from './system-context.service';
 
@@ -606,6 +611,16 @@ export class DataService {
 
   markCashDepositReturned(id: number): Observable<CashDepositDto | null> {
     return this.http.post<CashDepositDto>(`${this.cashDepositsBase}/${id}/mark-returned`, {}).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of(null);
+      })
+    );
+  }
+
+  /** Toggle depositReturned for an order / tool loan / book loan and align the cash ledger. */
+  setDepositReturned(payload: SetDepositReturnedDto): Observable<DepositReturnedResultDto | null> {
+    return this.http.put<DepositReturnedResultDto>(`${this.cashDepositsBase}/returned`, payload).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of(null);

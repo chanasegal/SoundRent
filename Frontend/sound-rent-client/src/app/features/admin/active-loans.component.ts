@@ -59,6 +59,8 @@ interface ActiveLoanRow {
   isOneTimeItem: boolean;
   /** Order-level deposit text (type + name), when present. */
   deposit: string | null;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
   /** Order-level notes from the loan form. */
   loanNotes: string | null;
   /** When set, this row is a manual "ציוד שלא חזר" report (not an order loan line). */
@@ -83,6 +85,10 @@ interface ActiveLoanCustomerCard {
   orders: ActiveLoanOrderRef[];
   items: ActiveLoanRow[];
   totalQuantity: number;
+  /** First order on the card — used for per-loan deposit-returned toggle. */
+  primaryOrderId: number | null;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
 }
 
 interface QuickReturnItem {
@@ -247,6 +253,10 @@ export class ActiveLoansComponent implements OnInit {
     this.loadActiveLoans();
 
     this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadActiveLoans());
+
+    this.ordersSync.loanChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.loadActiveLoans());
 
@@ -1094,7 +1104,10 @@ export class ActiveLoansComponent implements OnInit {
           loanNotesList: [],
           orders: [],
           items: [],
-          totalQuantity: 0
+          totalQuantity: 0,
+          primaryOrderId: row.orderId > 0 ? row.orderId : null,
+          cashDepositAmount: row.cashDepositAmount,
+          depositReturned: row.depositReturned
         };
         byCustomer.set(key, card);
       }
@@ -1104,6 +1117,11 @@ export class ActiveLoansComponent implements OnInit {
       }
       if (!card.customerNotes) {
         card.customerNotes = this.customers.notesForPhone(row.phone);
+      }
+      if (card.primaryOrderId == null && row.orderId > 0) {
+        card.primaryOrderId = row.orderId;
+        card.cashDepositAmount = row.cashDepositAmount;
+        card.depositReturned = row.depositReturned;
       }
       if (row.deposit && !card.deposits.includes(row.deposit)) {
         card.deposits.push(row.deposit);
@@ -1433,6 +1451,9 @@ export class ActiveLoansComponent implements OnInit {
           assignedSerialCodes: codes,
           isOrderBased,
           deposit,
+          cashDepositAmount:
+            order.depositType === DepositType.Cash ? (order.cashDepositAmount ?? null) : null,
+          depositReturned: order.depositReturned === true,
           loanNotes
         });
       }
@@ -1473,6 +1494,8 @@ export class ActiveLoansComponent implements OnInit {
           assignedSerialCodes: codes,
           isOrderBased: report.orderId > 0,
           deposit: null,
+          cashDepositAmount: null,
+          depositReturned: false,
           loanNotes: null,
           manualItemId
         } satisfies ActiveLoanRow;

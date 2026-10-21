@@ -221,8 +221,24 @@
 
       <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div>
+          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-deposit-type"
+            >סוג פיקדון</label
+          >
+          <select
+            id="quick-loan-deposit-type"
+            formControlName="depositType"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            (change)="onDepositTypeChange()"
+          >
+            <option [ngValue]="null">— ללא —</option>
+            @for (dt of depositTypes; track dt) {
+              <option [ngValue]="dt">{{ depositTypeLabels[dt] }}</option>
+            }
+          </select>
+        </div>
+        <div>
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-deposit"
-            >פיקדון</label
+            >פיקדון על שם</label
           >
           <input
             id="quick-loan-deposit"
@@ -232,24 +248,46 @@
             autocomplete="off"
           />
         </div>
-        <div>
-          <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-cash-deposit"
-            >פיקדון במזומן (₪)</label
-          >
-          <input
-            id="quick-loan-cash-deposit"
-            type="number"
-            min="0"
-            step="1"
-            inputmode="numeric"
-            appIntegerOnly
-            formControlName="cashDepositAmount"
-            class="ltr-field w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="ללא"
-            autocomplete="off"
-          />
-        </div>
-        <div>
+        @if (form.controls.depositType.value === depositTypeCash) {
+          <div>
+            <label
+              class="mb-1 block text-sm font-medium text-slate-700"
+              for="quick-loan-cash-deposit"
+              >סכום פיקדון במזומן (₪)</label
+            >
+            <input
+              id="quick-loan-cash-deposit"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              appIntegerOnly
+              formControlName="cashDepositAmount"
+              class="ltr-field w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              autocomplete="off"
+            />
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  formControlName="depositReturned"
+                  class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                הפקדון הוחזר
+              </label>
+              @if (form.controls.depositReturned.value) {
+                <span
+                  class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800"
+                  >פיקדון הוחזר</span
+                >
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div class="md:col-span-3">
           <label class="mb-1 block text-sm font-medium text-slate-700" for="quick-loan-notes"
             >הערות</label
           >
@@ -306,13 +344,36 @@
                   </button>
                 </div>
 
-                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-slate-700"
+                      [attr.for]="'quick-loan-deposit-type-' + group.orderId"
+                    >
+                      סוג פיקדון
+                    </label>
+                    <select
+                      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      [attr.id]="'quick-loan-deposit-type-' + group.orderId"
+                      [value]="group.depositType ?? ''"
+                      (change)="
+                        updateOrderGroupDepositType(group.orderId, $any($event.target).value)
+                      "
+                      [disabled]="submitting()"
+                    >
+                      <option value="">— ללא —</option>
+                      @for (dt of depositTypes; track dt) {
+                        <option [value]="dt">{{ depositTypeLabels[dt] }}</option>
+                      }
+                    </select>
+                  </div>
+
                   <div>
                     <label
                       class="mb-1 block text-sm font-medium text-slate-700"
                       [attr.for]="'quick-loan-deposit-' + group.orderId"
                     >
-                      פיקדון
+                      פיקדון על שם
                     </label>
                     <input
                       type="text"
@@ -326,7 +387,57 @@
                     />
                   </div>
 
-                  <div>
+                  @if (group.depositType === depositTypeCash) {
+                    <div>
+                      <label
+                        class="mb-1 block text-sm font-medium text-slate-700"
+                        [attr.for]="'quick-loan-cash-deposit-' + group.orderId"
+                      >
+                        סכום פיקדון במזומן (₪)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputmode="numeric"
+                        class="ltr-field w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        [attr.id]="'quick-loan-cash-deposit-' + group.orderId"
+                        [value]="group.cashDepositAmount ?? ''"
+                        (input)="
+                          updateOrderGroupCashDeposit(group.orderId, $any($event.target).value)
+                        "
+                        autocomplete="off"
+                        [disabled]="submitting()"
+                      />
+                      <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            [checked]="group.depositReturned"
+                            (change)="
+                              updateOrderGroupDepositReturned(
+                                group.orderId,
+                                $any($event.target).checked
+                              )
+                            "
+                            [disabled]="submitting()"
+                          />
+                          הפקדון הוחזר
+                        </label>
+                        @if (group.depositReturned) {
+                          <span
+                            class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800"
+                            >פיקדון הוחזר</span
+                          >
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div class="md:col-span-3">
                     <label
                       class="mb-1 block text-sm font-medium text-slate-700"
                       [attr.for]="'quick-loan-notes-' + group.orderId"
@@ -1052,6 +1163,17 @@
                 }
               </div>
             </header>
+
+            @for (session of cardSessions(card); track session.key) {
+              @if (session.cashDepositAmount != null && session.cashDepositAmount > 0) {
+                <app-cash-deposit-alert
+                  [phone]="card.phone"
+                  [orderId]="session.orderId"
+                  [cashDepositAmount]="session.cashDepositAmount"
+                  [depositReturned]="session.depositReturned"
+                />
+              }
+            }
 
             @if (card.sessions.length > 0 || card.customerNotes) {
               <div class="recent-loan-card__notes">

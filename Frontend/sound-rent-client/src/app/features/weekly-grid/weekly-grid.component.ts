@@ -232,6 +232,8 @@ interface ClientSearchResultItem {
   returnTimeLabel: string;
   /** Full deposit line (type, cash amount, check/credit/cash notes); empty when none. */
   depositLabel: string;
+  hasCashDeposit: boolean;
+  depositReturned: boolean;
   /** True only when the order is fully paid (`isPaid`). */
   isPaid: boolean;
   /** Date to jump to on the board; null for accessory-only orders that are not on the grid. */
@@ -895,10 +897,46 @@ export class WeeklyGridComponent {
         .join(', '),
       returnTimeLabel: shiftCount > 0 ? this.finalReturnTimeLabel(order) : '',
       depositLabel: formatClientSearchDepositLabel(order),
+      hasCashDeposit:
+        order.depositType === DepositType.Cash &&
+        order.cashDepositAmount != null &&
+        Number(order.cashDepositAmount) > 0,
+      depositReturned: order.depositReturned === true,
       isPaid: order.isPaid === true,
       boardDate,
       status
     };
+  }
+
+  protected readonly depositReturnedTogglingId = signal<number | null>(null);
+
+  protected toggleClientSearchDepositReturned(item: ClientSearchResultItem, returned: boolean): void {
+    const orderId = item.order.id;
+    if (orderId <= 0 || this.depositReturnedTogglingId() != null) {
+      return;
+    }
+    this.depositReturnedTogglingId.set(orderId);
+    this.data.setDepositReturned({ orderId, returned }).subscribe((result) => {
+      this.depositReturnedTogglingId.set(null);
+      if (!result) {
+        return;
+      }
+      this.clientSearchResponse.update((current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          orders: current.orders.map((o) =>
+            o.id === orderId ? { ...o, depositReturned: result.depositReturned } : o
+          )
+        };
+      });
+      this.ordersSync.notifyOrderUpdated({ ...item.order, depositReturned: result.depositReturned });
+      this.toast.success(
+        result.depositReturned ? 'הפיקדון סומן כהוחזר' : 'סימון החזרת הפיקדון בוטל'
+      );
+    });
   }
 
   private wireClientSearchRiskData(): void {

@@ -165,6 +165,7 @@ public class BookLoanService : IBookLoanService
             Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim(),
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null,
+            DepositReturned = dto.DepositReturned == true && dto.CashDepositAmount is > 0,
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
             CreatedAt = now,
@@ -183,6 +184,7 @@ public class BookLoanService : IBookLoanService
         _db.BookLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForBookLoanAsync(entity, cancellationToken);
+        await _cashDeposits.ApplyBookLoanDepositReturnedAsync(entity, dto.DepositReturned, cancellationToken);
         return ToDto(entity);
     }
 
@@ -226,6 +228,15 @@ public class BookLoanService : IBookLoanService
         entity.Address = string.IsNullOrWhiteSpace(dto.Address) ? null : dto.Address.Trim();
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
         entity.CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null;
+        if (dto.DepositReturned is bool requestedReturned)
+        {
+            entity.DepositReturned = requestedReturned && entity.CashDepositAmount is > 0;
+        }
+        else if (entity.CashDepositAmount is not > 0)
+        {
+            entity.DepositReturned = false;
+        }
+
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
         var now = DateTime.UtcNow;
@@ -264,6 +275,7 @@ public class BookLoanService : IBookLoanService
 
         await _db.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForBookLoanAsync(entity, cancellationToken);
+        await _cashDeposits.ApplyBookLoanDepositReturnedAsync(entity, dto.DepositReturned, cancellationToken);
         return ToDto(entity);
     }
 
@@ -622,6 +634,7 @@ public class BookLoanService : IBookLoanService
             Address = entity.Address,
             Deposit = entity.Deposit,
             CashDepositAmount = entity.CashDepositAmount,
+            DepositReturned = entity.DepositReturned,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,
             ReturnedAt = entity.ReturnedAt,

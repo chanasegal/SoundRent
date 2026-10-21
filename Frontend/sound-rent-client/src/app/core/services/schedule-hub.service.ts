@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import {
+  HttpTransportType,
   HubConnection,
   HubConnectionBuilder,
   IRetryPolicy,
@@ -109,7 +110,10 @@ export class ScheduleHubService {
   private buildConnection(): HubConnection {
     return new HubConnectionBuilder()
       .withUrl(environment.scheduleHubUrl, {
-        accessTokenFactory: () => this.auth.token() ?? ''
+        accessTokenFactory: () => this.auth.token() ?? '',
+        // Prefer WebSockets; fall back to Long Polling when a proxy/filter
+        // blocks the upgrade (e.g. handshake HTTP 418).
+        transport: HttpTransportType.WebSockets | HttpTransportType.LongPolling
       })
       .withAutomaticReconnect(foreverRetryPolicy)
       .configureLogging(environment.production ? LogLevel.Error : LogLevel.Warning)

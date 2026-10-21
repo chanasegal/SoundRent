@@ -19,6 +19,7 @@ public class BookLoanConfiguration : IEntityTypeConfiguration<BookLoan>
         builder.Property(e => e.Address).HasMaxLength(500);
         builder.Property(e => e.Deposit).HasMaxLength(500);
         builder.Property(e => e.CashDepositAmount).HasPrecision(18, 2);
+        builder.Property(e => e.DepositReturned).HasDefaultValue(false);
         builder.Property(e => e.Notes).HasMaxLength(2000);
         builder.Property(e => e.HebrewReturnedDisplay).HasMaxLength(120);
 

@@ -89,6 +89,7 @@ export interface BookLoanDto {
   address?: string | null;
   deposit?: string | null;
   cashDepositAmount?: number | null;
+  depositReturned?: boolean;
   notes?: string | null;
   deadlineAt?: string | null;
   returnedAt?: string | null;
@@ -109,6 +110,8 @@ export interface BookLoanCreateDto {
   deposit?: string | null;
   /** Cash held as deposit; creates an open entry in the central deposits ledger. */
   cashDepositAmount?: number | null;
+  /** Null leaves the existing flag unchanged on update. */
+  depositReturned?: boolean | null;
   notes?: string | null;
   hebrewLentDisplay: string;
   deadlineAt?: string | null;

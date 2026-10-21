@@ -156,7 +156,10 @@ builder.Services
 
 builder.Services.AddOpenApi();
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = isDevelopment;
+});
 
 builder.Services.AddResponseCompression(options =>
 {
@@ -219,7 +222,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-app.UseResponseCompression();
+// Compression breaks SignalR long-polling / SSE framing — skip hub routes.
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments(ScheduleHub.Route),
+    branch => branch.UseResponseCompression());
 
 if (app.Environment.IsDevelopment())
 {
@@ -231,7 +237,7 @@ else
 }
 app.UseHttpsRedirection();
 
-//app.UseCors(CorsPolicyName);
+app.UseWebSockets();
 
 app.UseAuthentication();
 app.UseAuthorization();

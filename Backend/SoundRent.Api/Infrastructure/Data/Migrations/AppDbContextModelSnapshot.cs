@@ -176,6 +176,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("DepositReturned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("HebrewLentDisplay")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -979,6 +984,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("DepositReturned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int?>("DepositType")
                         .HasColumnType("integer");
 
@@ -1266,6 +1276,11 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<string>("Deposit")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("DepositReturned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("HebrewLentDisplay")
                         .IsRequired()

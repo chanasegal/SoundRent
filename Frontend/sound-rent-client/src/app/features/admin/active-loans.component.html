@@ -255,7 +255,12 @@
               </div>
             </header>
 
-            <app-cash-deposit-alert [phone]="card.phone" />
+            <app-cash-deposit-alert
+              [phone]="card.phone"
+              [orderId]="card.primaryOrderId"
+              [cashDepositAmount]="card.cashDepositAmount"
+              [depositReturned]="card.depositReturned"
+            />
 
             @if (card.deposits.length > 0 || card.loanNotesList.length > 0 || card.customerNotes) {
               <div class="mb-3 space-y-2">

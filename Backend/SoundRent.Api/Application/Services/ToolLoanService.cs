@@ -202,6 +202,7 @@ public class ToolLoanService : IToolLoanService
             InstitutionName = institutionName,
             Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim(),
             CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null,
+            DepositReturned = dto.DepositReturned == true && dto.CashDepositAmount is > 0,
             Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim(),
             DeadlineAt = dto.DeadlineAt,
             CreatedAt = now,
@@ -220,6 +221,7 @@ public class ToolLoanService : IToolLoanService
         _db.ToolLoans.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForToolLoanAsync(entity, cancellationToken);
+        await _cashDeposits.ApplyToolLoanDepositReturnedAsync(entity, dto.DepositReturned, cancellationToken);
         return ToDto(entity);
     }
 
@@ -266,6 +268,15 @@ public class ToolLoanService : IToolLoanService
         entity.InstitutionName = institutionName;
         entity.Deposit = string.IsNullOrWhiteSpace(dto.Deposit) ? null : dto.Deposit.Trim();
         entity.CashDepositAmount = dto.CashDepositAmount is > 0 ? dto.CashDepositAmount : null;
+        if (dto.DepositReturned is bool requestedReturned)
+        {
+            entity.DepositReturned = requestedReturned && entity.CashDepositAmount is > 0;
+        }
+        else if (entity.CashDepositAmount is not > 0)
+        {
+            entity.DepositReturned = false;
+        }
+
         entity.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
         entity.HebrewLentDisplay = (dto.HebrewLentDisplay ?? string.Empty).Trim();
         var now = DateTime.UtcNow;
@@ -309,6 +320,7 @@ public class ToolLoanService : IToolLoanService
 
         await _db.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForToolLoanAsync(entity, cancellationToken);
+        await _cashDeposits.ApplyToolLoanDepositReturnedAsync(entity, dto.DepositReturned, cancellationToken);
         return ToDto(entity);
     }
 
@@ -745,6 +757,7 @@ public class ToolLoanService : IToolLoanService
             InstitutionId = entity.InstitutionId,
             Deposit = entity.Deposit,
             CashDepositAmount = entity.CashDepositAmount,
+            DepositReturned = entity.DepositReturned,
             Notes = entity.Notes,
             DeadlineAt = entity.DeadlineAt,
             ReturnedAt = entity.ReturnedAt,
@@ -800,6 +813,7 @@ public class ToolLoanService : IToolLoanService
             InstitutionId = order.InstitutionId,
             Deposit = FormatOrderDeposit(order.DepositType, order.DepositOnName),
             CashDepositAmount = order.CashDepositAmount,
+            DepositReturned = order.DepositReturned,
             Notes = order.Notes,
             DeadlineAt = null,
             ReturnedAt = returnStamp,

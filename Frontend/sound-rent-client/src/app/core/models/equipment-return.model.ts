@@ -109,6 +109,8 @@ export interface ReturnedAccessoryHistoryDto {
   isOrderBased: boolean;
   depositType?: DepositType | null;
   depositOnName?: string | null;
+  cashDepositAmount?: number | null;
+  depositReturned?: boolean;
   /** Order-level notes from the loan/order form. */
   notes?: string | null;
 }

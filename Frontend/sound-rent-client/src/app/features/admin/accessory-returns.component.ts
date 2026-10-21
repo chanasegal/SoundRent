@@ -21,7 +21,7 @@ import {
   switchMap
 } from 'rxjs';
 
-import { DEPOSIT_TYPE_LABELS } from '../../core/models/enums';
+import { DEPOSIT_TYPE_LABELS, DepositType } from '../../core/models/enums';
 import { ReturnedAccessoryHistoryDto } from '../../core/models/equipment-return.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
@@ -60,6 +60,8 @@ interface ReturnedOrderCard {
   loanDate: string | null;
   returnDate: string | null;
   deposit: string;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
   loanNotes: string;
   customerNotes: string | null;
   totalQuantity: number;
@@ -117,6 +119,14 @@ export class AccessoryReturnsComponent implements OnInit {
           loanDate: row.loanDate ?? null,
           returnDate: row.returnDate ?? null,
           deposit: this.formatDeposit(row),
+          cashDepositAmount:
+            row.depositType === DepositType.Cash &&
+            row.cashDepositAmount != null &&
+            Number(row.cashDepositAmount) > 0
+              ? Number(row.cashDepositAmount)
+              : null,
+          depositReturned:
+            row.depositType === DepositType.Cash && row.depositReturned === true,
           loanNotes: (row.notes ?? '').trim(),
           customerNotes: this.customers.notesForPhone(row.phone),
           totalQuantity: 0,

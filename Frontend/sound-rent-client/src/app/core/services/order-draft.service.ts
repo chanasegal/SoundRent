@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { TimeSlot } from '../models/enums';
+import { DepositType, TimeSlot } from '../models/enums';
 
 export type OrderDraftKind = 'sound-order' | 'tools-loan' | 'library-loan' | 'quick-loan';
 
@@ -59,9 +59,13 @@ export interface QuickLoanDraftPayload {
     orderId: number;
     orderDateIso: string;
     timeSlot: TimeSlot;
+    /** Absent in drafts saved before typed deposits. */
+    depositType?: DepositType | null;
     deposit: string;
     /** Absent in drafts saved before cash deposits were tracked. */
     cashDepositAmount?: number | null;
+    /** Absent in drafts saved before deposit-returned tracking. */
+    depositReturned?: boolean;
     notes: string;
   }>;
 }

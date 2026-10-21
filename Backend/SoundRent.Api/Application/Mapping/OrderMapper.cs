@@ -32,6 +32,7 @@ public static class OrderMapper
         DepositType = order.DepositType,
         DepositOnName = order.DepositOnName,
         CashDepositAmount = order.CashDepositAmount,
+        DepositReturned = order.DepositReturned,
         PaymentAmount = order.PaymentAmount,
         IsPaid = order.IsPaid,
         IsUnpaid = order.IsUnpaid,
@@ -152,6 +153,9 @@ public static class OrderMapper
         DepositType = dto.DepositType,
         DepositOnName = NullIfBlank(dto.DepositOnName),
         CashDepositAmount = NormalizeCashDepositAmount(dto.DepositType, dto.CashDepositAmount),
+        DepositReturned = dto.DepositReturned == true
+            && dto.DepositType == DepositType.Cash
+            && NormalizeCashDepositAmount(dto.DepositType, dto.CashDepositAmount) is > 0,
         PaymentAmount = dto.PaymentAmount,
         IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid),
         IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid),
@@ -259,6 +263,17 @@ public static class OrderMapper
         entity.DepositType = dto.DepositType;
         entity.DepositOnName = NullIfBlank(dto.DepositOnName);
         entity.CashDepositAmount = NormalizeCashDepositAmount(dto.DepositType, dto.CashDepositAmount);
+        if (dto.DepositReturned is bool requestedReturned)
+        {
+            entity.DepositReturned = requestedReturned
+                && dto.DepositType == DepositType.Cash
+                && entity.CashDepositAmount is > 0;
+        }
+        else if (entity.DepositType != DepositType.Cash || entity.CashDepositAmount is not > 0)
+        {
+            entity.DepositReturned = false;
+        }
+
         entity.PaymentAmount = dto.PaymentAmount;
         entity.IsPaid = NormalizeIsPaid(dto.IsPaid, dto.IsUnpaid);
         entity.IsUnpaid = NormalizeIsUnpaid(dto.PaymentAmount, dto.IsUnpaid);

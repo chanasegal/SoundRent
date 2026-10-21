@@ -60,7 +60,15 @@ import {
   CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE,
   parseCashDepositAmount
 } from '../../core/utils/cash-deposit';
+import {
+  CASH_DEPOSIT_AMOUNT_REQUIRED_MESSAGE,
+  DEPOSIT_TYPE_OPTIONS,
+  formatLoanDepositText,
+  parseDepositTypeSelectValue,
+  parseLoanDepositText
+} from '../../core/utils/deposit-fields';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
@@ -88,9 +96,13 @@ interface LendingDraftForm {
   address: string;
   institutionName: string;
   institutionId: number | null;
+  /** Amplification-style deposit type; encoded into `deposit` text on save. */
+  depositType: DepositType | null;
+  /** Holder / notes for the deposit ("פיקדון על שם"). */
   deposit: string;
-  /** Raw input text; parsed on submit. */
+  /** Raw input text; parsed on submit when deposit type is Cash. */
   cashDepositAmount: string;
+  depositReturned: boolean;
   notes: string;
   clientAlertNotes: string | null;
   clientRiskAlerts: CustomerRiskAlertSnapshot;
@@ -120,6 +132,8 @@ interface ActiveLoanRowView {
   deadlineAt: Date | null;
   returning: boolean;
   deposit: string | null;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
   loanNotes: string | null;
 }
 
@@ -131,6 +145,15 @@ interface ActiveLoanCustomerCard {
   loanDate: Date;
   customerNotes: string | null;
   items: ActiveLoanRowView[];
+}
+
+/** One cash-deposit toggle target per distinct loan/order on a customer card. */
+interface CardCashDepositSource {
+  key: string;
+  toolLoanId: number | null;
+  orderId: number | null;
+  cashDepositAmount: number;
+  depositReturned: boolean;
 }
 
 interface CardMetaEntry {
@@ -188,6 +211,7 @@ interface QuickReturnSession {
     ReactiveFormsModule,
     IsraeliPhoneInputDirective,
     ClickOutsideDirective,
+    CashDepositAlertComponent,
     LoanRangeCalendarHostComponent
   ],
   templateUrl: './tools-lending.component.html',
@@ -209,6 +233,9 @@ export class ToolsLendingComponent implements OnInit {
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   protected readonly pageTitle = inject(WorkspaceUiService).title('לוח השאלות');
+  protected readonly depositTypes = DEPOSIT_TYPE_OPTIONS;
+  protected readonly depositTypeLabels = DEPOSIT_TYPE_LABELS;
+  protected readonly depositTypeCash = DepositType.Cash;
 
   private pendingRenew: {
     phone: string;
@@ -484,8 +511,7 @@ export class ToolsLendingComponent implements OnInit {
         address: String(raw['address'] ?? ''),
         institutionName: String(raw['institutionName'] ?? ''),
         institutionId: typeof raw['institutionId'] === 'number' ? raw['institutionId'] : null,
-        deposit: String(raw['deposit'] ?? ''),
-        cashDepositAmount: String(raw['cashDepositAmount'] ?? ''),
+        ...ToolsLendingComponent.reviveDepositFields(raw),
         notes: String(raw['notes'] ?? ''),
         clientAlertNotes:
           typeof raw['clientAlertNotes'] === 'string' ? raw['clientAlertNotes'] : null,
@@ -909,6 +935,11 @@ export class ToolsLendingComponent implements OnInit {
           deadlineAt,
           returning: this.returningItemId() === item.id,
           deposit: (loan.deposit ?? '').trim() || null,
+          cashDepositAmount:
+            loan.cashDepositAmount != null && Number(loan.cashDepositAmount) > 0
+              ? Number(loan.cashDepositAmount)
+              : null,
+          depositReturned: loan.depositReturned === true,
           loanNotes: (loan.notes ?? '').trim() || null
         });
       }
@@ -1028,6 +1059,14 @@ export class ToolsLendingComponent implements OnInit {
           deadlineAt: null,
           returning: false,
           deposit: this.formatOrderDeposit(order),
+          cashDepositAmount:
+            order.depositType === DepositType.Cash &&
+            order.cashDepositAmount != null &&
+            Number(order.cashDepositAmount) > 0
+              ? Number(order.cashDepositAmount)
+              : null,
+          depositReturned:
+            order.depositType === DepositType.Cash && order.depositReturned === true,
           loanNotes: (order.notes ?? '').trim() || null
         });
       }
@@ -1497,6 +1536,30 @@ export class ToolsLendingComponent implements OnInit {
       deposits.push({ key, text: value, lentAt: row.lentAt });
     }
     return deposits;
+  }
+
+  protected cardCashDepositSources(card: ActiveLoanCustomerCard): CardCashDepositSource[] {
+    const seen = new Set<string>();
+    const sources: CardCashDepositSource[] = [];
+    for (const row of card.items) {
+      const amount = row.cashDepositAmount;
+      if (amount == null || !(Number(amount) > 0) || row.loanId <= 0) {
+        continue;
+      }
+      const key = `${row.source}:${row.loanId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      sources.push({
+        key,
+        toolLoanId: row.source === 'tools' ? row.loanId : null,
+        orderId: row.source === 'accessory' ? row.loanId : null,
+        cashDepositAmount: Number(amount),
+        depositReturned: row.depositReturned === true
+      });
+    }
+    return sources;
   }
 
   protected cardLoanNotes(card: ActiveLoanCustomerCard): string[] {
@@ -2043,8 +2106,10 @@ export class ToolsLendingComponent implements OnInit {
         | 'address'
         | 'institutionName'
         | 'institutionId'
+        | 'depositType'
         | 'deposit'
         | 'cashDepositAmount'
+        | 'depositReturned'
         | 'notes'
         | 'clientAlertNotes'
         | 'clientRiskAlerts'
@@ -2052,6 +2117,22 @@ export class ToolsLendingComponent implements OnInit {
     >
   ): void {
     this.forms.update((list) => list.map((f) => (f.id === formId ? { ...f, ...patch } : f)));
+  }
+
+  protected onDepositTypeChange(formId: string, raw: string): void {
+    const depositType = parseDepositTypeSelectValue(raw);
+    this.forms.update((list) =>
+      list.map((f) =>
+        f.id === formId
+          ? {
+              ...f,
+              depositType,
+              cashDepositAmount: depositType === DepositType.Cash ? f.cashDepositAmount : '',
+              depositReturned: depositType === DepositType.Cash ? f.depositReturned : false
+            }
+          : f
+      )
+    );
   }
 
   private patchSharedEditForms(
@@ -2343,10 +2424,18 @@ export class ToolsLendingComponent implements OnInit {
       this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
       return;
     }
-    const cashDepositAmount = parseCashDepositAmount(form.cashDepositAmount);
-    if (cashDepositAmount === undefined) {
-      this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
-      return;
+    let cashDepositAmount: number | null = null;
+    if (form.depositType === DepositType.Cash) {
+      const parsedCash = parseCashDepositAmount(form.cashDepositAmount);
+      if (parsedCash === undefined) {
+        this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
+        return;
+      }
+      if (parsedCash == null) {
+        this.toast.error(CASH_DEPOSIT_AMOUNT_REQUIRED_MESSAGE);
+        return;
+      }
+      cashDepositAmount = parsedCash;
     }
 
     const payload: ToolLoanCreateDto = {
@@ -2356,8 +2445,9 @@ export class ToolsLendingComponent implements OnInit {
       address: form.address.trim() || null,
       institutionName: form.institutionName.trim() || null,
       institutionId: form.institutionId,
-      deposit: form.deposit.trim() || null,
+      deposit: formatLoanDepositText(form.depositType, form.deposit),
       cashDepositAmount,
+      depositReturned: form.depositType === DepositType.Cash && cashDepositAmount != null && form.depositReturned,
       notes: form.notes.trim() || null,
       hebrewLentDisplay: form.hebrewDateTime,
       deadlineAt: this.timeLimitEnabled() && form.deadlineAt ? form.deadlineAt.toISOString() : null,
@@ -3235,6 +3325,38 @@ export class ToolsLendingComponent implements OnInit {
     };
   }
 
+  private static reviveDepositFields(raw: Record<string, unknown>): Pick<
+    LendingDraftForm,
+    'depositType' | 'deposit' | 'cashDepositAmount' | 'depositReturned'
+  > {
+    const depositRaw = String(raw['deposit'] ?? '');
+    const cashRaw = String(raw['cashDepositAmount'] ?? '');
+    const cashAmount = parseCashDepositAmount(cashRaw);
+    const normalizedCash = cashAmount === undefined ? null : cashAmount;
+    const depositReturned = raw['depositReturned'] === true;
+
+    if ('depositType' in raw) {
+      const depositType = parseDepositTypeSelectValue(
+        typeof raw['depositType'] === 'string' ? raw['depositType'] : ''
+      );
+      return {
+        depositType,
+        deposit: depositRaw,
+        cashDepositAmount: depositType === DepositType.Cash ? cashRaw : '',
+        depositReturned: depositType === DepositType.Cash && depositReturned
+      };
+    }
+
+    const parsed = parseLoanDepositText(depositRaw, normalizedCash);
+    return {
+      depositType: parsed.depositType,
+      deposit: parsed.depositOnName,
+      cashDepositAmount:
+        parsed.depositType === DepositType.Cash && normalizedCash != null ? String(normalizedCash) : '',
+      depositReturned: parsed.depositType === DepositType.Cash && depositReturned
+    };
+  }
+
   private createDraftForm(): LendingDraftForm {
     const createdAt = new Date();
     const hours = Number(this.timeLimitForm?.controls.hours.value) || 2;
@@ -3251,8 +3373,10 @@ export class ToolsLendingComponent implements OnInit {
       address: '',
       institutionName: '',
       institutionId: null,
+      depositType: null,
       deposit: '',
       cashDepositAmount: '',
+      depositReturned: false,
       notes: '',
       clientAlertNotes: null,
       clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,
@@ -3304,6 +3428,7 @@ export class ToolsLendingComponent implements OnInit {
 
     const lentAt = this.parseLoanDate(loan.lentAt) ?? new Date();
     const deadlineAt = this.parseLoanDate(loan.deadlineAt);
+    const depositFields = parseLoanDepositText(loan.deposit, loan.cashDepositAmount);
     return {
       id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       editingLoanId: loan.id,
@@ -3317,8 +3442,14 @@ export class ToolsLendingComponent implements OnInit {
       address: loan.address ?? '',
       institutionName: loan.institutionName ?? '',
       institutionId: loan.institutionId ?? null,
-      deposit: loan.deposit ?? '',
-      cashDepositAmount: loan.cashDepositAmount != null ? String(loan.cashDepositAmount) : '',
+      depositType: depositFields.depositType,
+      deposit: depositFields.depositOnName,
+      cashDepositAmount:
+        depositFields.depositType === DepositType.Cash && loan.cashDepositAmount != null
+          ? String(loan.cashDepositAmount)
+          : '',
+      depositReturned:
+        depositFields.depositType === DepositType.Cash && loan.depositReturned === true,
       notes: loan.notes ?? '',
       clientAlertNotes: null,
       clientRiskAlerts: EMPTY_CUSTOMER_RISK_ALERTS,

@@ -190,8 +190,21 @@
   gap: 1rem 1.15rem;
 }
 
+/** Deposit type / name / cash amount — same 3-col row as Accessories (השאלת אביזרים). */
+.deposit-fields-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.15rem;
+  min-width: 0;
+}
+
 @media (max-width: 720px) {
   .loan-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deposit-fields-row {
     grid-template-columns: 1fr;
   }
 }

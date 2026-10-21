@@ -45,4 +45,26 @@ public class CashDepositsController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Toggle <c>depositReturned</c> for an order / tool loan / book loan (and align the cash-deposit ledger).
+    /// </summary>
+    [HttpPut("returned")]
+    public async Task<ActionResult<DepositReturnedResultDto>> SetReturned(
+        [FromBody] SetDepositReturnedDto dto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _cashDeposits.SetReturnedBySourceAsync(dto, cancellationToken));
+        }
+        catch (NotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

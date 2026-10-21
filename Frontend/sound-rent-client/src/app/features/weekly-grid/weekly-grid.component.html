@@ -207,10 +207,36 @@
                       @if (item.equipmentLabel) {
                         <div class="client-search__equipment">🔊 {{ item.equipmentLabel }}</div>
                       }
-                      @if (item.depositLabel) {
+                      @if (item.depositLabel || item.hasCashDeposit) {
                         <div class="client-search__deposit" [attr.title]="item.depositLabel">
-                          <span class="client-search__deposit-label">פיקדון:</span>
-                          {{ item.depositLabel }}
+                          @if (item.depositLabel) {
+                            <span class="client-search__deposit-label">פיקדון:</span>
+                            {{ item.depositLabel }}
+                          }
+                          @if (item.hasCashDeposit) {
+                            <span class="client-search__deposit-returned">
+                              @if (item.depositReturned) {
+                                <span class="client-search__badge client-search__badge--deposit-returned"
+                                  >פיקדון הוחזר</span
+                                >
+                              }
+                              <label class="client-search__deposit-toggle">
+                                <input
+                                  type="checkbox"
+                                  [checked]="item.depositReturned"
+                                  [disabled]="depositReturnedTogglingId() === item.order.id"
+                                  (click)="$event.stopPropagation()"
+                                  (change)="
+                                    toggleClientSearchDepositReturned(
+                                      item,
+                                      $any($event.target).checked
+                                    )
+                                  "
+                                />
+                                הפקדון הוחזר
+                              </label>
+                            </span>
+                          }
                         </div>
                       }
                       @if (item.order.institutionName?.trim() || item.order.address?.trim()) {

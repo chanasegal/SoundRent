@@ -55,6 +55,8 @@ interface CompletedLoanRowView {
   phone: string;
   address: string;
   deposit: string;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
   loanNotes: string;
   lentAt: Date;
   hebrewLentDisplay: string;
@@ -93,6 +95,8 @@ interface ReturnedLoanCard {
   hebrewLentDisplay: string;
   latestReturnedAt: Date;
   deposit: string;
+  cashDepositAmount: number | null;
+  depositReturned: boolean;
   loanNotes: string;
   customerNotes: string | null;
   items: GroupedCompletedLoanRowView[];
@@ -240,6 +244,8 @@ export class LibraryReturnsComponent implements OnInit {
           phone: loan.phone,
           address: (loan.address ?? '').trim(),
           deposit: (loan.deposit ?? '').trim(),
+          cashDepositAmount: loan.cashDepositAmount ?? null,
+          depositReturned: loan.depositReturned === true,
           loanNotes: (loan.notes ?? '').trim(),
           lentAt,
           hebrewLentDisplay:
@@ -311,6 +317,8 @@ export class LibraryReturnsComponent implements OnInit {
           hebrewLentDisplay: row.hebrewLentDisplay,
           latestReturnedAt: row.returnedAt,
           deposit: row.deposit,
+          cashDepositAmount: row.cashDepositAmount,
+          depositReturned: row.depositReturned,
           loanNotes: row.loanNotes,
           customerNotes: this.customers.notesForPhone(row.phone),
           rawItems: []
@@ -1212,6 +1220,8 @@ export class LibraryReturnsComponent implements OnInit {
       phone: h.phone,
       address: (loan?.address ?? '').trim(),
       deposit: (loan?.deposit ?? '').trim(),
+      cashDepositAmount: loan?.cashDepositAmount ?? null,
+      depositReturned: loan?.depositReturned === true,
       loanNotes: (loan?.notes ?? '').trim(),
       lentAt,
       hebrewLentDisplay: this.dateOnlyDisplay(h.hebrewLentDisplay, lentAt),

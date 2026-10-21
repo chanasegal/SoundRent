@@ -30,6 +30,9 @@ public class BookLoan
 
     public decimal? CashDepositAmount { get; set; }
 
+    /// <summary>True when the cash deposit was handed back to the customer.</summary>
+    public bool DepositReturned { get; set; }
+
     [MaxLength(2000)]
     public string? Notes { get; set; }
 

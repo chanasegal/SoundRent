@@ -43,6 +43,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.CashDepositAmount)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(o => o.DepositReturned)
+            .HasDefaultValue(false);
+
         builder.Property(o => o.PaymentAmount)
             .HasColumnType("decimal(18,2)");
 
@@ -58,8 +61,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.IsReturnProcessed)
             .HasDefaultValue(false);
 
+        // Sentinel 0 is not a named enum member; DB default LateNight applies only when unset.
         builder.Property(o => o.ReturnTimeType)
-            .HasDefaultValue(ReturnTimeType.LateNight);
+            .HasDefaultValue(ReturnTimeType.LateNight)
+            .HasSentinel(default(ReturnTimeType));
 
         builder.Property(o => o.CustomReturnTime)
             .HasMaxLength(20);

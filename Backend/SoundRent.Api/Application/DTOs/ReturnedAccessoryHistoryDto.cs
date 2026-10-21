@@ -50,6 +50,12 @@ public class ReturnedAccessoryHistoryDto
     /// <summary>Order-level deposit holder name.</summary>
     public string? DepositOnName { get; set; }
 
+    /// <summary>Cash deposit amount when DepositType is Cash.</summary>
+    public decimal? CashDepositAmount { get; set; }
+
+    /// <summary>True when the order's cash deposit was marked returned.</summary>
+    public bool DepositReturned { get; set; }
+
     /// <summary>Order-level notes from the loan/order form.</summary>
     public string? Notes { get; set; }
 }

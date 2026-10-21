@@ -131,6 +131,7 @@ public class OrderService : IOrderService
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForOrderAsync(entity, cancellationToken);
+        await _cashDeposits.ApplyOrderDepositReturnedAsync(entity, dto.DepositReturned, cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
 
         return OrderMapper.ToDto(entity);
@@ -200,6 +201,7 @@ public class OrderService : IOrderService
             cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
         await _cashDeposits.SyncForOrderAsync(existing, cancellationToken);
+        await _cashDeposits.ApplyOrderDepositReturnedAsync(existing, dto.DepositReturned, cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
         return OrderMapper.ToDto(existing);
     }

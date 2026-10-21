@@ -38,6 +38,12 @@ public class OrderCreateUpdateDto : IValidatableObject
     /// <summary>Required (&gt; 0) when <see cref="DepositType"/> is Cash; ignored otherwise.</summary>
     public decimal? CashDepositAmount { get; set; }
 
+    /// <summary>
+    /// When set, marks the order's cash deposit as returned / open.
+    /// Null leaves the existing flag unchanged (partial clients / older drafts).
+    /// </summary>
+    public bool? DepositReturned { get; set; }
+
     public decimal? PaymentAmount { get; set; }
 
     /// <summary>Paid in advance. Ignored when <see cref="IsUnpaid"/> is set.</summary>
