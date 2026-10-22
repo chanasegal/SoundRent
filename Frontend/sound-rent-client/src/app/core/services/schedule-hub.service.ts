@@ -109,18 +109,27 @@ export class ScheduleHubService {
 
   private buildConnection(): HubConnection {
     return new HubConnectionBuilder()
-      .withUrl(environment.scheduleHubUrl, {
+      .withUrl(withNgswBypass(environment.scheduleHubUrl), {
         accessTokenFactory: () => this.auth.token() ?? '',
         // LongPolling only: NetFree blocks WebSocket upgrades with HTTP 418.
         // skipNegotiation must stay false so negotiate runs over HTTP.
         transport: HttpTransportType.LongPolling,
-        skipNegotiation: false
+        skipNegotiation: false,
+        // Angular SW returns synthetic 504 when long-polls outlive its fetch
+        // handler — ngsw-bypass skips ngsw-worker.js entirely for hub traffic.
+        headers: { 'ngsw-bypass': '1' }
       })
-      // Server PollTimeout is 15s; client must wait longer than one empty poll.
+      // Server PollTimeout is 5s; client must wait longer than one empty poll.
       .withServerTimeout(60_000)
       .withKeepAliveInterval(15_000)
       .withAutomaticReconnect(foreverRetryPolicy)
       .configureLogging(environment.production ? LogLevel.Error : LogLevel.Warning)
       .build();
   }
+}
+
+/** Marks the hub URL so Angular's service worker does not intercept it. */
+function withNgswBypass(url: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}ngsw-bypass=1`;
 }
