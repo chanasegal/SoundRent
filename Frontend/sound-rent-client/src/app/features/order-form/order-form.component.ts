@@ -8,6 +8,7 @@ import {
   effect,
   HostListener,
   inject,
+  Injector,
   OnDestroy,
   OnInit,
   signal,
@@ -115,6 +116,18 @@ import {
 /** Form-only payment state; maps to the `isPaid` / `isUnpaid` flags on the order DTO. */
 type PaymentStatus = 'none' | 'paid' | 'unpaid';
 
+/** In-progress accessory entry row (item name + optional codes), matching השאלת אביזרים. */
+interface AccessoryDraftLine {
+  id: string;
+  query: string;
+  inventoryDefinitionId: number | null;
+  selectedCodes: string[];
+  /** Text typed into the codes multi-select (not yet added to selectedCodes). */
+  codesQuery: string;
+  suggestOpen: boolean;
+  codesOpen: boolean;
+}
+
 interface ReturnModalRow {
   rowId: string;
   loanedEquipmentId: number;
@@ -167,6 +180,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   private readonly hebrew = inject(HebrewDateService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly customers = inject(CustomersStore);
@@ -524,8 +538,10 @@ export class OrderFormComponent implements OnInit, OnDestroy {
    */
   private formPointerDownInside = false;
 
-  protected readonly addAccessoryOpen = signal(false);
-  protected readonly accessoryTypeQuery = signal('');
+  protected readonly accessoryDraftLines = signal<AccessoryDraftLine[]>([
+    this.createAccessoryDraftLine()
+  ]);
+  private readonly accessoryAvailabilityLoading = signal(false);
 
   protected readonly form = this.buildForm();
 
@@ -645,70 +661,793 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     return this.equipmentList.at(index) as FormGroup;
   }
 
-  /** Catalog rows not yet added to the form, sorted A–Z via the shared store. */
-  protected availableAccessoryTypes(): InventoryDefinitionDto[] {
-    const used = new Set(
-      this.equipmentList.controls
-        .map((c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    );
-    return this.inventoryStore.definitions().filter((d) => !used.has(d.id));
-  }
-
-  protected filteredAccessoryTypes(): InventoryDefinitionDto[] {
-    const query = this.accessoryTypeQuery().trim().toLowerCase();
-    const available = this.availableAccessoryTypes();
-    if (!query) {
-      return available;
-    }
-    return available.filter((d) => d.displayName.toLowerCase().includes(query));
-  }
-
   protected accessoryTypeLabel(def: InventoryDefinitionDto): string {
     return def.displayName;
   }
 
-  protected toggleAddAccessory(): void {
-    const willOpen = !this.addAccessoryOpen();
-    this.addAccessoryOpen.set(willOpen);
-    this.accessoryTypeQuery.set('');
-    if (willOpen) {
-      queueMicrotask(() => {
-        const input = this.document.querySelector<HTMLInputElement>('.add-accessory__search');
-        input?.focus();
-      });
-    }
+  protected filteredAccessoryTypesForDraft(line: AccessoryDraftLine): InventoryDefinitionDto[] {
+    return this.filterAccessoryTypesForDraftLine(line, line.query);
   }
 
-  protected onAccessoryTypeChosen(def: InventoryDefinitionDto): void {
-    if (this.equipmentList.controls.some(
-      (c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value) === def.id
-    )) {
-      this.toast.warning('סוג אביזר זה כבר נוסף');
+  protected onDraftQueryInput(lineId: string, value: string): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) =>
+        l.id !== lineId
+          ? { ...l, suggestOpen: false, codesOpen: false }
+          : {
+              ...l,
+              query: value,
+              inventoryDefinitionId: null,
+              selectedCodes: [],
+              codesQuery: '',
+              suggestOpen: true,
+              codesOpen: false
+            }
+      )
+    );
+    this.tryAutoSelectSingleAccessoryMatch(lineId, value);
+  }
+
+  protected onDraftQueryFocus(lineId: string): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => ({
+        ...l,
+        suggestOpen: l.id === lineId,
+        codesOpen: false
+      }))
+    );
+  }
+
+  protected onDraftQueryEnter(lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    // From the item field: commit when codes are present; otherwise focus the codes input.
+    this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: false });
+  }
+
+  /** Swallow Enter from checkbox/panel so it cannot re-trigger add/commit on the wrapper. */
+  protected onDraftCodesPanelKeydown(event: Event): void {
+    const keyEvent = event as KeyboardEvent;
+    if (keyEvent.key !== 'Enter') {
+      return;
+    }
+    keyEvent.preventDefault();
+    keyEvent.stopPropagation();
+  }
+
+  protected onAddDraftLineClick(event: Event): void {
+    const activeLineId = this.activeDraftLineId();
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeLineId) {
+      this.commitDraftLineFromText(activeLineId, { addNext: true, allowEmptyCodes: true });
+      return;
+    }
+    this.accessoryDraftLines.update((lines) => [...lines, this.createAccessoryDraftLine()]);
+  }
+
+  protected selectAccessoryDefinition(
+    lineId: string,
+    def: InventoryDefinitionDto,
+    event?: Event
+  ): void {
+    event?.preventDefault();
+    this.patchDraftLine(lineId, {
+      inventoryDefinitionId: def.id,
+      query: def.displayName,
+      selectedCodes: [],
+      codesQuery: '',
+      suggestOpen: false,
+      codesOpen: false
+    });
+    this.ensureDraftDefinitionAvailability(def.id);
+    // Touch/tablet: jump straight to optional code selection after choosing an item.
+    this.scheduleFocusDraftCodesDropdown(lineId);
+  }
+
+  protected closeDraftSuggest(lineId: string): void {
+    this.patchDraftLine(lineId, { suggestOpen: false });
+  }
+
+  protected closeDraftCodesDropdown(lineId: string): void {
+    this.patchDraftLine(lineId, { codesOpen: false });
+  }
+
+  protected openDraftCodesDropdown(lineId: string): void {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (line?.inventoryDefinitionId != null && line.inventoryDefinitionId > 0) {
+      this.ensureDraftDefinitionAvailability(line.inventoryDefinitionId);
+    }
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => ({
+        ...l,
+        codesOpen: l.id === lineId,
+        suggestOpen: false
+      }))
+    );
+  }
+
+  protected isDraftCodesInputEnabled(line: AccessoryDraftLine): boolean {
+    return line.inventoryDefinitionId != null;
+  }
+
+  protected focusDraftCodesInput(lineId: string): void {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line || !this.isDraftCodesInputEnabled(line)) {
+      return;
+    }
+    this.openDraftCodesDropdown(lineId);
+    this.document
+      .querySelector<HTMLInputElement>(`[data-accessory-draft-codes-input][data-line-id="${lineId}"]`)
+      ?.focus();
+  }
+
+  protected onDraftCodesQueryInput(lineId: string, value: string): void {
+    this.patchDraftLine(lineId, { codesQuery: value, codesOpen: true, suggestOpen: false });
+  }
+
+  protected onDraftCodesInputEnter(lineId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
       return;
     }
 
-    const linkedType =
-      LOANED_EQUIPMENT_ORDER.find(
-        (type) =>
-          def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
-            sensitivity: 'accent'
-          }) === 0
-      ) ?? null;
+    const typed = line.codesQuery.trim();
+    if (!typed) {
+      this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: true });
+      return;
+    }
 
+    // Enter on a code that is already selected → advance to the next row (no re-add / toast).
+    const tokens = this.splitTypedCodes(typed);
+    if (
+      tokens.length > 0 &&
+      tokens.every((token) => this.isTokenAlreadySelectedOnDraftLine(line, token))
+    ) {
+      this.patchDraftLine(lineId, { codesQuery: '' });
+      this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: true });
+      return;
+    }
+
+    this.addTypedDraftCodes(lineId);
+  }
+
+  protected onDraftCodesInputBackspace(lineId: string, event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.value) {
+      return;
+    }
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line || line.selectedCodes.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    this.patchDraftLine(lineId, { selectedCodes: line.selectedCodes.slice(0, -1) });
+  }
+
+  protected removeDraftCode(lineId: string, code: string, event: Event): void {
+    event.stopPropagation();
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) =>
+        l.id === lineId
+          ? { ...l, selectedCodes: l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code)) }
+          : l
+      )
+    );
+  }
+
+  protected toggleDraftCodeSelection(lineId: string, code: string, event: Event): void {
+    event.stopPropagation();
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => {
+        if (l.id !== lineId) {
+          return l;
+        }
+        const selected = this.isDraftCodeSelected(l, code)
+          ? l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code))
+          : [...l.selectedCodes, code];
+        return { ...l, selectedCodes: selected, codesQuery: '' };
+      })
+    );
+    queueMicrotask(() => this.focusDraftCodesInput(lineId));
+  }
+
+  protected isDraftCodeSelected(line: AccessoryDraftLine, code: string): boolean {
+    return line.selectedCodes.some((c) => this.isSameSerialCode(c, code));
+  }
+
+  protected filteredSerialOptionsForDraftLine(line: AccessoryDraftLine): AccessorySerialOptionDto[] {
+    const options = this.serialOptionsForDraftLine(line);
+    const tokens = this.splitTypedCodes(line.codesQuery);
+    const needle = tokens[tokens.length - 1]?.toLowerCase();
+    if (!needle) {
+      return options;
+    }
+    return options.filter((opt) => opt.serialCode.toLowerCase().includes(needle));
+  }
+
+  protected serialOptionsForDraftLine(line: AccessoryDraftLine): AccessorySerialOptionDto[] {
+    if (line.inventoryDefinitionId == null || line.inventoryDefinitionId <= 0) {
+      return [];
+    }
+    const availabilityMap = this.accessoryAvailabilityByDefinitionId();
+    if (availabilityMap.has(line.inventoryDefinitionId)) {
+      return this.sortSerialOptions(availabilityMap.get(line.inventoryDefinitionId) ?? []);
+    }
+
+    const def = this.inventoryStore.byId(line.inventoryDefinitionId);
+    if (!def) {
+      return [];
+    }
+    const reserved = new Set(
+      line.selectedCodes.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
+    );
+    const units = def.serialUnits ?? [];
+    if (units.length > 0) {
+      return this.sortSerialOptions(
+        units.map((unit) => {
+          const serialCode = unit.serialCode.trim();
+          const status = unit.physicalStatus;
+          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
+          return {
+            serialCode,
+            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
+          };
+        })
+      );
+    }
+    return this.sortSerialOptions(
+      (def.serialCodes ?? []).map((serialCode) => ({
+        serialCode,
+        isAvailable: reserved.has(serialCode.trim().toLowerCase())
+      }))
+    );
+  }
+
+  protected draftCodesPanelState(
+    line: AccessoryDraftLine
+  ): 'loading' | 'no-inventory' | 'all-booked' | 'options' {
+    if (line.inventoryDefinitionId == null || line.inventoryDefinitionId <= 0) {
+      return 'no-inventory';
+    }
+    if (
+      this.accessoryAvailabilityLoading() &&
+      !this.accessoryAvailabilityByDefinitionId().has(line.inventoryDefinitionId)
+    ) {
+      return 'loading';
+    }
+    const options = this.serialOptionsForDraftLine(line);
+    if (options.length === 0) {
+      return 'no-inventory';
+    }
+    if (options.every((opt) => !opt.isAvailable)) {
+      return 'all-booked';
+    }
+    return 'options';
+  }
+
+  protected removeDraftLine(lineId: string): void {
+    this.accessoryDraftLines.update((lines) => {
+      const next = lines.filter((l) => l.id !== lineId);
+      return next.length > 0 ? next : [this.createAccessoryDraftLine()];
+    });
+  }
+
+  /**
+   * Moves typed codes into selectedCodes. When the item has known serials, only existing
+   * available codes are accepted; otherwise any typed code is accepted.
+   * @returns false when at least one typed code was rejected (toast already shown).
+   */
+  private addTypedDraftCodes(lineId: string): boolean {
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return true;
+    }
+    const tokens = this.splitTypedCodes(line.codesQuery);
+    const options = this.serialOptionsForDraftLine(line);
+    const selected = [...line.selectedCodes];
+    const rejected: string[] = [];
+
+    for (const token of tokens) {
+      let code = token;
+      if (options.length > 0) {
+        const match = options.find((opt) => this.isSameSerialCode(opt.serialCode, token));
+        if (!match) {
+          this.toast.warning(`קוד "${token}" לא קיים במלאי לפריט זה`);
+          rejected.push(token);
+          continue;
+        }
+        // Already on this draft line — ignore quietly (Enter may re-fire after checkbox select).
+        if (selected.some((c) => this.isSameSerialCode(c, match.serialCode))) {
+          continue;
+        }
+        if (!match.isAvailable) {
+          this.toast.warning(`קוד "${match.serialCode}" כרגע תפוס ואינו זמין`);
+          rejected.push(token);
+          continue;
+        }
+        if (this.isSerialClaimedOnDraftOrRows(lineId, match.serialCode, line.inventoryDefinitionId)) {
+          this.toast.warning(`קוד "${match.serialCode}" כבר נבחר בהשאלה זו`);
+          rejected.push(token);
+          continue;
+        }
+        code = match.serialCode;
+      } else if (selected.some((c) => this.isSameSerialCode(c, code))) {
+        continue;
+      }
+      if (!selected.some((c) => this.isSameSerialCode(c, code))) {
+        selected.push(code);
+      }
+    }
+
+    this.patchDraftLine(lineId, { selectedCodes: selected, codesQuery: rejected.join(' ') });
+    return rejected.length === 0;
+  }
+
+  private isTokenAlreadySelectedOnDraftLine(line: AccessoryDraftLine, token: string): boolean {
+    if (line.selectedCodes.some((c) => this.isSameSerialCode(c, token))) {
+      return true;
+    }
+    const match = this.serialOptionsForDraftLine(line).find((opt) =>
+      this.isSameSerialCode(opt.serialCode, token)
+    );
+    return match != null && line.selectedCodes.some((c) => this.isSameSerialCode(c, match.serialCode));
+  }
+
+  private splitTypedCodes(raw: string): string[] {
+    return raw
+      .split(/[\s,;|]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+  }
+
+  private isSameSerialCode(a: string, b: string): boolean {
+    return a.trim().localeCompare(b.trim(), undefined, { sensitivity: 'accent' }) === 0;
+  }
+
+  private isSerialClaimedOnDraftOrRows(
+    draftLineId: string,
+    code: string,
+    definitionId: number | null
+  ): boolean {
+    if (definitionId == null || definitionId <= 0) {
+      return false;
+    }
+    for (const line of this.accessoryDraftLines()) {
+      if (line.id === draftLineId || line.inventoryDefinitionId !== definitionId) {
+        continue;
+      }
+      if (line.selectedCodes.some((c) => this.isSameSerialCode(c, code))) {
+        return true;
+      }
+    }
+    for (let i = 0; i < this.equipmentList.length; i++) {
+      const defId = Number(this.getRowGroup(i).get('inventoryDefinitionId')?.value);
+      if (defId !== definitionId) {
+        continue;
+      }
+      if (this.isAccessorySerialSelected(i, code)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private filterAccessoryTypesForDraftLine(
+    line: AccessoryDraftLine,
+    query: string
+  ): InventoryDefinitionDto[] {
+    const used = new Set<number>([
+      ...this.equipmentList.controls
+        .map((c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value))
+        .filter((id) => Number.isFinite(id) && id > 0),
+      ...this.accessoryDraftLines()
+        .filter((l) => l.id !== line.id && l.inventoryDefinitionId != null)
+        .map((l) => l.inventoryDefinitionId as number)
+    ]);
+    const q = query.trim().toLowerCase();
+    return this.inventoryStore.definitions().filter((d) => {
+      if (used.has(d.id)) {
+        return false;
+      }
+      if (!q) {
+        return true;
+      }
+      return d.displayName.toLowerCase().includes(q);
+    });
+  }
+
+  /** When typing narrows suggestions to one accessory, select it without a manual click. */
+  private tryAutoSelectSingleAccessoryMatch(lineId: string, query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextAccessoryEntry(trimmed);
+    if (parsed && parsed.codes.length > 0) {
+      return;
+    }
+
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return;
+    }
+
+    const matches = this.filterAccessoryTypesForDraftLine(line, query);
+    if (matches.length !== 1) {
+      return;
+    }
+
+    this.patchDraftLine(lineId, {
+      inventoryDefinitionId: matches[0].id,
+      query: matches[0].displayName,
+      selectedCodes: [],
+      codesQuery: '',
+      suggestOpen: false,
+      codesOpen: false
+    });
+    this.ensureDraftDefinitionAvailability(matches[0].id);
+  }
+
+  /**
+   * Commits in-progress draft rows before save so users are not blocked
+   * when they forget to press Enter on the final accessory line.
+   * @param soft when true (auto-save), incomplete drafts are left in place instead of blocking.
+   * @returns false when a non-empty draft could not be committed (toast already shown).
+   */
+  private commitPendingDraftLinesBeforeSave(soft = false): boolean {
+    const pending = this.accessoryDraftLines().filter((line) => {
+      const hasContent =
+        line.query.trim().length > 0 ||
+        line.selectedCodes.length > 0 ||
+        line.codesQuery.trim().length > 0 ||
+        line.inventoryDefinitionId != null;
+      if (!hasContent) {
+        return false;
+      }
+      if (!soft) {
+        return true;
+      }
+      // Auto-save: only flush drafts that already resolve to a catalog item.
+      return (
+        line.inventoryDefinitionId != null ||
+        this.parseFreeTextAccessoryEntry(line.query.trim()) != null
+      );
+    });
+    for (const line of pending) {
+      const result = this.commitDraftLineFromText(line.id, {
+        addNext: false,
+        allowEmptyCodes: true
+      });
+      if (result === 'failed') {
+        if (soft) {
+          continue;
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @returns 'committed' | 'skipped' (empty line) | 'failed' (validation / incomplete).
+   */
+  private commitDraftLineFromText(
+    lineId: string,
+    options: { addNext: boolean; allowEmptyCodes: boolean } = {
+      addNext: true,
+      allowEmptyCodes: false
+    }
+  ): 'committed' | 'skipped' | 'failed' {
+    const pendingLine = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!pendingLine) {
+      return 'skipped';
+    }
+    if (
+      pendingLine.codesQuery.trim() &&
+      this.isDraftCodesInputEnabled(pendingLine) &&
+      !this.addTypedDraftCodes(lineId)
+    ) {
+      this.scheduleFocusDraftCodesDropdown(lineId);
+      return 'failed';
+    }
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId) ?? pendingLine;
+
+    const trimmed = line.query.trim();
+    if (!trimmed) {
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'skipped';
+    }
+
+    const parsed = this.parseFreeTextAccessoryEntry(trimmed);
+    let def: InventoryDefinitionDto | null = null;
+    let codes: string[] = [...line.selectedCodes];
+
+    if (parsed) {
+      def = parsed.def;
+      if (parsed.codes.length > 0) {
+        codes = [...parsed.codes];
+      }
+    } else if (line.inventoryDefinitionId != null && line.inventoryDefinitionId > 0) {
+      def = this.inventoryStore.byId(line.inventoryDefinitionId) ?? null;
+      if (!def) {
+        this.toast.error('הפריט לא נמצא במלאי');
+        if (options.addNext) {
+          this.focusDraftInput(lineId);
+        }
+        return 'failed';
+      }
+    } else {
+      this.toast.warning('בחרו אביזר מהרשימה או הקלידו שם מדויק');
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'failed';
+    }
+
+    if (codes.length === 0 && !options.allowEmptyCodes) {
+      this.patchDraftLine(lineId, {
+        inventoryDefinitionId: def.id,
+        query: def.displayName,
+        selectedCodes: [],
+        codesQuery: '',
+        suggestOpen: false,
+        codesOpen: false
+      });
+      this.ensureDraftDefinitionAvailability(def.id);
+      this.scheduleFocusDraftCodesDropdown(lineId);
+      return 'failed';
+    }
+
+    if (
+      codes.length > 0 &&
+      !this.validateSerialCodesForDefinition(def.id, codes, def.displayName, lineId)
+    ) {
+      if (options.addNext) {
+        this.scheduleFocusDraftCodesDropdown(lineId);
+      }
+      return 'failed';
+    }
+
+    if (!this.appendAccessoryRowFromDefinition(def, codes)) {
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'failed';
+    }
+
+    const nextLineId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.accessoryDraftLines.update((lines) => {
+      const idx = lines.findIndex((l) => l.id === lineId);
+      const fresh = this.createAccessoryDraftLine(nextLineId);
+      const next = lines.filter((l) => l.id !== lineId);
+      next.splice(idx < 0 ? next.length : idx, 0, fresh);
+      return next;
+    });
+    if (options.addNext) {
+      this.scheduleFocusDraftInput(nextLineId);
+    }
+    return 'committed';
+  }
+
+  private parseFreeTextAccessoryEntry(
+    raw: string
+  ): { def: InventoryDefinitionDto; codes: string[] } | null {
+    const input = raw.trim();
+    if (!input) {
+      return null;
+    }
+
+    const lower = input.toLocaleLowerCase();
+    const defs = [...this.inventoryStore.definitions()].sort(
+      (a, b) => b.displayName.trim().length - a.displayName.trim().length
+    );
+
+    for (const def of defs) {
+      const name = def.displayName.trim();
+      const lowerName = name.toLocaleLowerCase();
+      if (!lower.startsWith(lowerName)) {
+        continue;
+      }
+
+      const remainder = input.slice(name.length).replace(/^[\s\-:;,#/\\]+/, '').trim();
+      if (!remainder) {
+        return { def, codes: [] };
+      }
+
+      const codes = remainder
+        .split(/[\s,;|/\\]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+      if (codes.length === 0) {
+        continue;
+      }
+
+      return { def, codes };
+    }
+
+    return null;
+  }
+
+  private appendAccessoryRowFromDefinition(
+    def: InventoryDefinitionDto,
+    selectedCodes: string[]
+  ): boolean {
+    if (
+      this.equipmentList.controls.some(
+        (c) => Number((c as FormGroup).get('inventoryDefinitionId')?.value) === def.id
+      )
+    ) {
+      this.toast.warning('סוג אביזר זה כבר נוסף');
+      return false;
+    }
+
+    const linkedType = this.resolveLinkedEquipmentType(def);
+    const codes = [...selectedCodes];
     this.equipmentList.push(
       this.buildDynamicEquipmentRow({
         inventoryDefinitionId: def.id,
         loanedEquipmentType: linkedType,
         label: def.displayName,
-        quantity: 1,
-        selectedCodes: [],
+        quantity: Math.max(1, codes.length),
+        selectedCodes: codes,
         lineId: null,
         isCustomItem: false
       })
     );
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.refreshAccessorySerialAvailability();
+
+    if (linkedType === LoanedEquipmentType.Mixer) {
+      for (const code of codes) {
+        this.applyMixerDefaultAccessories(code);
+      }
+    }
+    return true;
+  }
+
+  private validateSerialCodesForDefinition(
+    definitionId: number,
+    codes: string[],
+    label: string,
+    /** Draft line currently committing — its own chips must not count as duplicates. */
+    excludeDraftLineId?: string
+  ): boolean {
+    const tempLine: AccessoryDraftLine = {
+      id: '__validate__',
+      query: label,
+      inventoryDefinitionId: definitionId,
+      selectedCodes: [],
+      codesQuery: '',
+      suggestOpen: false,
+      codesOpen: false
+    };
+    const options = this.serialOptionsForDraftLine(tempLine);
+    if (options.length === 0) {
+      return true;
+    }
+
+    for (const code of codes) {
+      const match = options.find((opt) => this.isSameSerialCode(opt.serialCode, code));
+      if (!match) {
+        this.toast.error(`הקוד "${code}" לא שייך ל"${label}"`);
+        return false;
+      }
+      if (!match.isAvailable) {
+        this.toast.warning(`הקוד "${code}" אינו זמין כרגע להשאלה`);
+        return false;
+      }
+      if (
+        this.isSerialClaimedOnDraftOrRows(
+          excludeDraftLineId ?? '__validate__',
+          code,
+          definitionId
+        )
+      ) {
+        this.toast.warning(`הקוד "${code}" כבר נבחר בהשאלה זו`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private resolveLinkedEquipmentType(def: InventoryDefinitionDto): LoanedEquipmentType | null {
+    return (
+      LOANED_EQUIPMENT_ORDER.find(
+        (type) =>
+          def.displayName.trim().localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', {
+            sensitivity: 'accent'
+          }) === 0
+      ) ?? null
+    );
+  }
+
+  private patchDraftLine(lineId: string, patch: Partial<AccessoryDraftLine>): void {
+    this.accessoryDraftLines.update((lines) =>
+      lines.map((l) => (l.id === lineId ? { ...l, ...patch } : l))
+    );
+  }
+
+  private createAccessoryDraftLine(id?: string): AccessoryDraftLine {
+    return {
+      id: id ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      query: '',
+      inventoryDefinitionId: null,
+      selectedCodes: [],
+      codesQuery: '',
+      suggestOpen: false,
+      codesOpen: false
+    };
+  }
+
+  private resetAccessoryDraftLines(): void {
+    this.accessoryDraftLines.set([this.createAccessoryDraftLine()]);
+  }
+
+  private activeDraftLineId(): string | null {
+    const active = this.document.activeElement as HTMLElement | null;
+    if (!active) {
+      return null;
+    }
+    const holder = active.closest<HTMLElement>('[data-line-id]');
+    return holder?.dataset['lineId'] ?? null;
+  }
+
+  private focusDraftInput(lineId: string): void {
+    const input = this.document.querySelector<HTMLInputElement>(
+      `[data-accessory-draft-input][data-line-id="${lineId}"]`
+    );
+    input?.focus();
+    input?.select();
+  }
+
+  private scheduleFocusDraftInput(lineId: string): void {
+    afterNextRender(
+      () => {
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-accessory-draft-input][data-line-id="${lineId}"]`
+        );
+        if (!input) {
+          return;
+        }
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+      { injector: this.injector }
+    );
+  }
+
+  private scheduleFocusDraftCodesDropdown(lineId: string): void {
+    afterNextRender(
+      () => {
+        this.patchDraftLine(lineId, { codesOpen: true });
+        const input = this.document.querySelector<HTMLInputElement>(
+          `[data-accessory-draft-codes-input][data-line-id="${lineId}"]`
+        );
+        if (!input) {
+          return;
+        }
+        input.scrollIntoView({ block: 'nearest' });
+        input.focus({ preventScroll: true });
+      },
+      { injector: this.injector }
+    );
+  }
+
+  private ensureDraftDefinitionAvailability(definitionId: number): void {
+    if (
+      !Number.isFinite(definitionId) ||
+      definitionId <= 0 ||
+      this.accessoryAvailabilityByDefinitionId().has(definitionId)
+    ) {
+      return;
+    }
     this.refreshAccessorySerialAvailability();
   }
 
@@ -1694,6 +2433,10 @@ export class OrderFormComponent implements OnInit, OnDestroy {
    * Validation toasts remain for explicit submit attempts.
    */
   protected submit(): void {
+    if (!this.commitPendingDraftLinesBeforeSave()) {
+      return;
+    }
+
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.toast.error(this.firstInvalidMessage());
@@ -1711,7 +2454,13 @@ export class OrderFormComponent implements OnInit, OnDestroy {
 
   /** Force-save when auto-save paused due to a double-booking conflict. */
   protected forceSaveDespiteConflict(): void {
-    if (this.autoSaveBusy || this.submitting() || this.form.invalid) {
+    if (this.autoSaveBusy || this.submitting()) {
+      return;
+    }
+    if (!this.commitPendingDraftLinesBeforeSave()) {
+      return;
+    }
+    if (this.form.invalid) {
       return;
     }
     const serialError = this.validateSelectedSerialAvailability();
@@ -1736,6 +2485,9 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     ) {
       return;
     }
+
+    // Soft: never block background save on a half-typed accessory draft line.
+    this.commitPendingDraftLinesBeforeSave(true);
 
     if (this.form.invalid) {
       if (this.autoSaveStatus() === 'conflict' || this.autoSaveStatus() === 'error') {
@@ -2329,8 +3081,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     while (this.equipmentList.length > 0) {
       this.equipmentList.removeAt(0);
     }
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.resetAccessoryDraftLines();
     this.accessorySerialDropdownRow.set(null);
     this.accessorySerialQuickEntry.set('');
     this.existingCustomerMatch.set(null);
@@ -3110,11 +3861,6 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     this.institutionSuggestIndex.set(-1);
   }
 
-  protected closeAddAccessoryPicker(): void {
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
-  }
-
   protected closeReturnSerialDropdown(): void {
     this.returnSerialDropdownRowId.set(null);
   }
@@ -3259,23 +4005,27 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   private refreshAccessorySerialAvailability(): void {
     const dates = this.orderReservationDates();
     if (dates.length === 0) {
+      this.accessoryAvailabilityLoading.set(false);
       this.accessoryAvailabilityByDefinitionId.set(new Map());
       return;
     }
 
     const definitionIds = this.collectFormInventoryDefinitionIds();
     if (definitionIds.length === 0) {
+      this.accessoryAvailabilityLoading.set(false);
       this.accessoryAvailabilityByDefinitionId.set(new Map());
       return;
     }
 
     const excludeOrderId = this.editingId();
+    this.accessoryAvailabilityLoading.set(true);
     this.data
       .getAccessorySerialAvailability({
         dates,
         inventoryDefinitionIds: definitionIds,
         excludeOrderId: excludeOrderId ?? null
       })
+      .pipe(finalize(() => this.accessoryAvailabilityLoading.set(false)))
       .subscribe((groups) => {
         const map = new Map<number, AccessorySerialOptionDto[]>();
         for (const group of groups) {
@@ -3288,7 +4038,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       });
   }
 
-  /** Positive catalog ids for accessory rows currently on the order form. */
+  /** Positive catalog ids for accessory rows currently on the order form (including draft lines). */
   private collectFormInventoryDefinitionIds(): number[] {
     const ids = new Set<number>();
     for (const control of this.equipmentList.controls) {
@@ -3304,6 +4054,11 @@ export class OrderFormComponent implements OnInit, OnDestroy {
         if (fromType != null && fromType > 0) {
           ids.add(fromType);
         }
+      }
+    }
+    for (const line of this.accessoryDraftLines()) {
+      if (line.inventoryDefinitionId != null && line.inventoryDefinitionId > 0) {
+        ids.add(line.inventoryDefinitionId);
       }
     }
     return [...ids];
@@ -4161,8 +4916,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     this.existingCustomerMatch.set(null);
     this.customerSuggestions.set([]);
     this.customerSuggestOpen.set(false);
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.resetAccessoryDraftLines();
     this.accessorySerialDropdownRow.set(null);
 
     if (draft.boardDate) {
@@ -4469,8 +5223,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     while (this.equipmentList.length > 0) {
       this.equipmentList.removeAt(0);
     }
-    this.addAccessoryOpen.set(false);
-    this.accessoryTypeQuery.set('');
+    this.resetAccessoryDraftLines();
     this.accessorySerialDropdownRow.set(null);
 
     for (const row of order.loanedEquipments ?? []) {
