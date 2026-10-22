@@ -113,11 +113,10 @@ export class ScheduleHubService {
         accessTokenFactory: () => this.auth.token() ?? '',
         // LongPolling only: NetFree blocks WebSocket upgrades with HTTP 418.
         // skipNegotiation must stay false so negotiate runs over HTTP.
+        // ngsw-bypass is on the query string only (not a custom header) so
+        // Angular SW is skipped without adding a CORS preflight header.
         transport: HttpTransportType.LongPolling,
-        skipNegotiation: false,
-        // Angular SW returns synthetic 504 when long-polls outlive its fetch
-        // handler — ngsw-bypass skips ngsw-worker.js entirely for hub traffic.
-        headers: { 'ngsw-bypass': '1' }
+        skipNegotiation: false
       })
       // Server PollTimeout is 5s; client must wait longer than one empty poll.
       .withServerTimeout(60_000)

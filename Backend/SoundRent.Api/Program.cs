@@ -38,9 +38,17 @@ var jwtSettings = builder.Configuration
     .GetSection(JwtSettings.SectionName)
     .Get<JwtSettings>() ?? throw new InvalidOperationException("JWT settings are missing.");
 
-var allowedOrigins = builder.Configuration
+var allowedOrigins = (builder.Configuration
     .GetSection("Cors:AllowedOrigins")
-    .Get<string[]>() ?? new[] { "http://localhost:4200" };
+    .Get<string[]>() ?? Array.Empty<string>())
+    .Concat(new[]
+    {
+        "http://localhost:4200",
+        "https://nyschedule.vercel.app"
+    })
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
 
 // --- EF Core -------------------------------------------------------------
 var connectionString = ResolveDatabaseConnectionString(builder);
@@ -139,10 +147,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // --- CORS ----------------------------------------------------------------
-// Single policy for local Angular + Vercel frontend. AllowCredentials is
-// required for SignalR (cookies / negotiated auth). Must be registered before
-// MapHub / UseAuthorization in the pipeline below.
-const string CorsPolicyName = "AllowVercel";
+// AllowAnyHeader covers SignalR negotiate + client headers such as ngsw-bypass.
+// AllowCredentials is required for SignalR. Policy name matches MapHub.RequireCors.
+const string CorsPolicyName = "CorsPolicy";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicyName, policy =>
@@ -224,9 +231,8 @@ catch (Exception ex)
 }
 
 // --- Pipeline ------------------------------------------------------------
-// CORS must be first so Access-Control-* is applied on the way out for every
-// response — including exception middleware JSON and 5xx from the app.
-// (Gateway 504s still cannot get CORS; those are avoided via short PollTimeout.)
+// CORS before routing/endpoints so preflight and Access-Control-* apply to
+// controllers, SignalR negotiate/polls (incl. ?ngsw-bypass=1), and error responses.
 app.UseCors(CorsPolicyName);
 
 if (app.Environment.IsDevelopment())
@@ -248,14 +254,14 @@ app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
+app.MapControllers().RequireCors(CorsPolicyName);
 app.MapHub<ScheduleHub>(ScheduleHub.Route, options =>
 {
     // LongPolling only + short polls: NetFree / Cloud Run gateways 504 long holds.
     options.Transports = HttpTransportType.LongPolling;
     options.LongPolling.PollTimeout = TimeSpan.FromSeconds(5);
     options.TransportSendTimeout = TimeSpan.FromSeconds(30);
-});
+}).RequireCors(CorsPolicyName);
 
 app.Run();
 
