@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -162,6 +163,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = isDevelopment;
+    // LongPolling (NetFree-safe) holds HTTP requests open; give polls room
+    // before the server marks the client disconnected.
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+    options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
 builder.Services.AddResponseCompression(options =>
@@ -229,7 +235,12 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<ScheduleHub>(ScheduleHub.Route);
+app.MapHub<ScheduleHub>(ScheduleHub.Route, options =>
+{
+    // Client forces LongPolling (NetFree); keep WebSockets available for
+    // non-filtered environments that still negotiate them.
+    options.Transports = HttpTransportType.LongPolling | HttpTransportType.WebSockets;
+});
 
 app.Run();
 
