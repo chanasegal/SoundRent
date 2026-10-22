@@ -131,4 +131,15 @@ public interface IOrderService
     Task UndoResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 
     Task DeleteResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task DeleteManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Remove an order loan line from the unreturned list by deleting its outstanding
+    /// (not-yet-returned) portion — without recording it as a completed return.
+    /// </summary>
+    Task DeleteOrderUnreturnedItemAsync(
+        int orderId,
+        int loanedEquipmentId,
+        CancellationToken cancellationToken = default);
 }

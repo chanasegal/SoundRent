@@ -130,4 +130,11 @@ public interface IOrderRepository
     Task UndoResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
 
     Task DeleteResolvedManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>Permanently delete an active (unresolved) manual unreturned item.</summary>
+    Task DeleteManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default);
+
+    Task<List<ManualUnreturnedItem>> GetUnresolvedManualUnreturnedByOrderIdAsync(
+        int orderId,
+        CancellationToken cancellationToken = default);
 }

@@ -1242,6 +1242,42 @@ public class OrderRepository : IOrderRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task DeleteManualUnreturnedItemAsync(int manualItemId, CancellationToken cancellationToken = default)
+    {
+        if (manualItemId <= 0)
+        {
+            throw new ValidationException("מזהה פריט לא תקין");
+        }
+
+        var entity = await _db.ManualUnreturnedItems
+            .FirstOrDefaultAsync(m => m.Id == manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        if (entity.IsResolved)
+        {
+            throw new ValidationException("פריט שהוחזר נמחק ממסך היסטוריית החזרות בלבד");
+        }
+
+        _db.ManualUnreturnedItems.Remove(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task<List<ManualUnreturnedItem>> GetUnresolvedManualUnreturnedByOrderIdAsync(
+        int orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderId <= 0)
+        {
+            return Task.FromResult(new List<ManualUnreturnedItem>());
+        }
+
+        return _db.ManualUnreturnedItems
+            .Where(m => !m.IsResolved && m.OrderId == orderId)
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenBy(m => m.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     private static UnreturnedItemDto ToManualUnreturnedDto(ManualUnreturnedItem m)
     {
         var code = (m.ItemCode ?? string.Empty).Trim();

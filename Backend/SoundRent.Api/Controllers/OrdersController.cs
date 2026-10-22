@@ -141,6 +141,50 @@ public class OrdersController : ControllerBase
         }
     }
 
+    /// <summary>Permanently delete an active (unresolved) manual unreturned item from the tracking list.</summary>
+    [HttpDelete("unreturned/manual/{id:int}")]
+    public async Task<IActionResult> DeleteManualUnreturned(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.DeleteManualUnreturnedItemAsync(id, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Remove an order-linked row from the unreturned list by deleting its outstanding
+    /// (not-yet-returned) loan portion.
+    /// </summary>
+    [HttpDelete("{orderId:int}/unreturned/{loanedEquipmentId:int}")]
+    public async Task<IActionResult> DeleteOrderUnreturned(
+        int orderId,
+        int loanedEquipmentId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _orderService.DeleteOrderUnreturnedItemAsync(orderId, loanedEquipmentId, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
     /// <summary>
     /// Active accessory loans with outstanding quantity — standalone quick loans and
     /// weekly-schedule bookings that still have accessories out.

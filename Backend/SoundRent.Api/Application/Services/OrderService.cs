@@ -1076,6 +1076,174 @@ public class OrderService : IOrderService
         return _orderRepository.DeleteResolvedManualUnreturnedItemAsync(manualItemId, cancellationToken);
     }
 
+    public async Task DeleteManualUnreturnedItemAsync(
+        int manualItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _orderRepository.GetManualUnreturnedItemByIdAsync(manualItemId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        var code = (entity.ItemCode ?? string.Empty).Trim();
+        if (code.Length > 0 && entity.InventoryDefinitionId is > 0 && !entity.IsResolved)
+        {
+            await _inventoryDefinitions.RestoreSerialAsync(
+                entity.InventoryDefinitionId.Value,
+                code,
+                cancellationToken);
+        }
+
+        await _orderRepository.DeleteManualUnreturnedItemAsync(manualItemId, cancellationToken);
+    }
+
+    public async Task DeleteOrderUnreturnedItemAsync(
+        int orderId,
+        int loanedEquipmentId,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderId <= 0 || loanedEquipmentId <= 0)
+        {
+            throw new ValidationException("מזהה הזמנה או פריט לא תקין");
+        }
+
+        var existing = await _orderRepository.GetByIdAsync(orderId, cancellationToken)
+            ?? throw new NotFoundException("ההזמנה לא נמצאה");
+
+        if (existing.IsCancelled)
+        {
+            throw new ValidationException("לא ניתן למחוק פריט מהזמנה מבוטלת");
+        }
+
+        var line = existing.LoanedEquipments.FirstOrDefault(le => le.Id == loanedEquipmentId)
+            ?? throw new NotFoundException("פריט מושאל לא נמצא בהזמנה");
+
+        var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
+        var missingNotes = (line.Notes ?? [])
+            .Where(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content))
+            .ToList();
+        var missingCodes = missingNotes
+            .Select(n => (n.Content ?? string.Empty).Trim())
+            .Where(c => c.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (missingNotes.Count > 0)
+        {
+            foreach (var note in missingNotes)
+            {
+                var code = (note.Content ?? string.Empty).Trim();
+                if (code.Length > 0 && line.InventoryDefinitionId is > 0)
+                {
+                    await _inventoryDefinitions.RestoreSerialAsync(
+                        line.InventoryDefinitionId.Value,
+                        code,
+                        cancellationToken);
+                }
+
+                line.Notes.Remove(note);
+                _orderRepository.RemoveLoanedEquipmentNote(note);
+                line.Quantity = Math.Max(0, line.Quantity - 1);
+                line.ExpectedNoteCount = Math.Max(0, line.ExpectedNoteCount - 1);
+            }
+
+            var ordinal = 0;
+            foreach (var remaining in line.Notes.OrderBy(n => n.Ordinal))
+            {
+                remaining.Ordinal = ordinal++;
+            }
+
+            NormalizeLoanedEquipmentReturnState(line);
+        }
+        else
+        {
+            var missingQty = Math.Max(0, line.Quantity - line.ReturnedQuantity);
+            if (missingQty <= 0)
+            {
+                throw new ValidationException($"הפריט {label} אינו מופיע כפריט שלא חזר");
+            }
+
+            line.Quantity = Math.Max(0, line.Quantity - missingQty);
+            line.ReturnedQuantity = Math.Min(line.ReturnedQuantity, line.Quantity);
+            line.ExpectedNoteCount = Math.Max(0, Math.Min(line.ExpectedNoteCount, line.Quantity));
+        }
+
+        if (line.Quantity <= 0)
+        {
+            foreach (var leftover in line.Notes.ToList())
+            {
+                line.Notes.Remove(leftover);
+                _orderRepository.RemoveLoanedEquipmentNote(leftover);
+            }
+
+            existing.LoanedEquipments.Remove(line);
+            _orderRepository.RemoveLoanedEquipment(line);
+        }
+
+        await DeleteMatchingManualUnreturnedForOrderLineAsync(
+            orderId,
+            line.InventoryDefinitionId,
+            label,
+            missingCodes,
+            cancellationToken);
+
+        var hasMainEquipment = existing.Equipments.Any();
+        var hasRemainingAccessories = existing.LoanedEquipments.Any(IsLoanedEquipmentActiveForReturnState);
+
+        if (!hasMainEquipment && !hasRemainingAccessories && existing.LoanedEquipments.Count == 0)
+        {
+            _orderRepository.Remove(existing);
+            await _orderRepository.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
+        await _orderRepository.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task DeleteMatchingManualUnreturnedForOrderLineAsync(
+        int orderId,
+        int? inventoryDefinitionId,
+        string itemName,
+        IReadOnlyCollection<string> missingCodes,
+        CancellationToken cancellationToken)
+    {
+        var manuals = await _orderRepository.GetUnresolvedManualUnreturnedByOrderIdAsync(
+            orderId,
+            cancellationToken);
+        if (manuals.Count == 0)
+        {
+            return;
+        }
+
+        var name = (itemName ?? string.Empty).Trim();
+        var codeSet = missingCodes.Count > 0
+            ? new HashSet<string>(missingCodes, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        foreach (var manual in manuals)
+        {
+            var manualCode = (manual.ItemCode ?? string.Empty).Trim();
+            var manualName = (manual.ItemName ?? string.Empty).Trim();
+            var definitionMatch =
+                inventoryDefinitionId is > 0
+                && manual.InventoryDefinitionId == inventoryDefinitionId;
+            var nameMatch =
+                name.Length > 0
+                && manualName.Length > 0
+                && string.Equals(name, manualName, StringComparison.OrdinalIgnoreCase);
+            var codeMatch =
+                codeSet is not null
+                && manualCode.Length > 0
+                && codeSet.Contains(manualCode);
+
+            if (!definitionMatch && !nameMatch && !codeMatch)
+            {
+                continue;
+            }
+
+            await DeleteManualUnreturnedItemAsync(manual.Id, cancellationToken);
+        }
+    }
+
     private static Dictionary<int, HashSet<string>> ExtractAssignedSerialCodesByDefinitionId(Order order)
     {
         var result = new Dictionary<int, HashSet<string>>();
