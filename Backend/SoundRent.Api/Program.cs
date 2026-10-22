@@ -19,6 +19,17 @@ Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 var builder = WebApplication.CreateBuilder(args);
 var isDevelopment = builder.Environment.IsDevelopment();
 
+// Long-polling polls must finish well under Cloud Run / NetFree gateway limits
+// (often ~60s) or the edge returns 504 with no CORS headers.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+    // Disable min data rates — idle long-polls send nothing until PollTimeout.
+    options.Limits.MinRequestBodyDataRate = null;
+    options.Limits.MinResponseDataRate = null;
+});
+
 // --- Configuration -------------------------------------------------------
 builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection(JwtSettings.SectionName));
@@ -163,10 +174,10 @@ builder.Services.AddOpenApi();
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = isDevelopment;
-    // LongPolling (NetFree-safe) holds HTTP requests open; give polls room
-    // before the server marks the client disconnected.
-    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
-    options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+    // Must stay longer than MapHub LongPolling.PollTimeout + network slack.
+    // KeepAlive < ClientTimeout/2 (SignalR requirement).
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(90);
+    options.HandshakeTimeout = TimeSpan.FromSeconds(15);
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
@@ -213,6 +224,11 @@ catch (Exception ex)
 }
 
 // --- Pipeline ------------------------------------------------------------
+// CORS must be first so Access-Control-* is applied on the way out for every
+// response — including exception middleware JSON and 5xx from the app.
+// (Gateway 504s still cannot get CORS; those are avoided via short PollTimeout.)
+app.UseCors(CorsPolicyName);
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -225,8 +241,6 @@ app.UseWhen(
     context => !context.Request.Path.StartsWithSegments(ScheduleHub.Route),
     branch => branch.UseResponseCompression());
 
-// CORS before auth + hub mapping so preflight and SignalR negotiate succeed.
-app.UseCors(CorsPolicyName);
 app.UseHttpsRedirection();
 
 app.UseWebSockets();
@@ -240,6 +254,10 @@ app.MapHub<ScheduleHub>(ScheduleHub.Route, options =>
     // Client forces LongPolling (NetFree); keep WebSockets available for
     // non-filtered environments that still negotiate them.
     options.Transports = HttpTransportType.LongPolling | HttpTransportType.WebSockets;
+    // Empty poll returns before Cloud Run / NetFree / GFE cut the request (~60s)
+    // with a 504 that has no CORS headers (browser reports a CORS failure).
+    options.LongPolling.PollTimeout = TimeSpan.FromSeconds(15);
+    options.TransportSendTimeout = TimeSpan.FromSeconds(30);
 });
 
 app.Run();

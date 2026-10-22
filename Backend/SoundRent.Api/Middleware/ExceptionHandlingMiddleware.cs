@@ -109,7 +109,8 @@ public class ExceptionHandlingMiddleware
             return;
         }
 
-        context.Response.Clear();
+        // Do not Clear() — that strips CORS headers already queued by UseCors
+        // (outer middleware) via OnStarting, which makes 4xx/5xx look like CORS failures.
         context.Response.StatusCode = (int)statusCode;
         context.Response.ContentType = "application/json; charset=utf-8";
 

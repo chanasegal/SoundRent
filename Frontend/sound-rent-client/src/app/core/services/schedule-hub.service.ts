@@ -116,6 +116,9 @@ export class ScheduleHubService {
         transport: HttpTransportType.LongPolling,
         skipNegotiation: false
       })
+      // Server PollTimeout is 15s; client must wait longer than one empty poll.
+      .withServerTimeout(60_000)
+      .withKeepAliveInterval(15_000)
       .withAutomaticReconnect(foreverRetryPolicy)
       .configureLogging(environment.production ? LogLevel.Error : LogLevel.Warning)
       .build();
