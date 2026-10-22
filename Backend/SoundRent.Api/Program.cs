@@ -251,12 +251,9 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ScheduleHub>(ScheduleHub.Route, options =>
 {
-    // Client forces LongPolling (NetFree); keep WebSockets available for
-    // non-filtered environments that still negotiate them.
-    options.Transports = HttpTransportType.LongPolling | HttpTransportType.WebSockets;
-    // Empty poll returns before Cloud Run / NetFree / GFE cut the request (~60s)
-    // with a 504 that has no CORS headers (browser reports a CORS failure).
-    options.LongPolling.PollTimeout = TimeSpan.FromSeconds(15);
+    // LongPolling only + short polls: NetFree / Cloud Run gateways 504 long holds.
+    options.Transports = HttpTransportType.LongPolling;
+    options.LongPolling.PollTimeout = TimeSpan.FromSeconds(5);
     options.TransportSendTimeout = TimeSpan.FromSeconds(30);
 });
 
