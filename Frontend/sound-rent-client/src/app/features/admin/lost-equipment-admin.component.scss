@@ -182,6 +182,16 @@ $date-control-height: 2.5rem;
   }
 }
 
+.lost-col-status {
+  width: 6.5rem;
+  white-space: nowrap;
+}
+
+.lost-col-actions {
+  width: 14.5rem;
+  white-space: nowrap;
+}
+
 .row-status-pending {
   background-color: #fef2f2;
 }
@@ -219,16 +229,20 @@ $date-control-height: 2.5rem;
 
 .lost-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .status-action {
-  border-radius: 0.45rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
+  flex: 0 0 auto;
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.7rem;
   font-weight: 600;
+  line-height: 1.2;
   border: 1px solid transparent;
   transition: opacity 0.15s ease, background-color 0.15s ease;
 

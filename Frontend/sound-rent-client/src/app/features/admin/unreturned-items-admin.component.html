@@ -58,31 +58,33 @@
         <table class="unreturned-table w-full border-collapse text-right text-sm">
           <thead>
             <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <th class="px-3 py-2 font-semibold">שם לקוח</th>
-              <th class="px-3 py-2 font-semibold">טלפון</th>
-              <th class="px-3 py-2 font-semibold">ציוד</th>
-              <th class="px-3 py-2 font-semibold">פריטים חסרים</th>
-              <th class="px-3 py-2 font-semibold text-center">כמות חסרה</th>
-              <th class="px-3 py-2 font-semibold">תאריך החזרה</th>
-              <th class="px-3 py-2 font-semibold text-center">הזמנה#</th>
-              <th class="px-3 py-2 font-semibold text-center">פעולות</th>
+              <th class="unreturned-col-name px-2 py-2 font-semibold">שם לקוח</th>
+              <th class="unreturned-col-phone px-2 py-2 font-semibold">טלפון</th>
+              <th class="unreturned-col-equipment px-2 py-2 font-semibold">ציוד</th>
+              <th class="unreturned-col-missing px-2 py-2 font-semibold">פריטים חסרים</th>
+              <th class="unreturned-col-qty px-2 py-2 font-semibold text-center">כמות</th>
+              <th class="unreturned-col-date px-2 py-2 font-semibold">תאריך החזרה</th>
+              <th class="unreturned-col-order px-2 py-2 font-semibold text-center">הזמנה#</th>
+              <th class="unreturned-col-status px-2 py-2 font-semibold">סטטוס</th>
+              <th class="unreturned-col-actions px-2 py-2 font-semibold text-center">פעולות</th>
             </tr>
           </thead>
           <tbody>
             @for (row of filteredRows(); track rowKey(row)) {
               <tr
-                class="border-b border-slate-100 transition-opacity duration-300 odd:bg-slate-50/50"
+                class="border-b border-slate-100 transition-opacity duration-300"
+                [ngClass]="statusRowClass(rowStatus(row))"
                 [class.row-removing]="isRemoving(row)"
               >
-                <td class="px-3 py-2.5">{{ row.customerName || '—' }}</td>
-                <td class="px-3 py-2.5 font-mono" dir="ltr">{{ formatPhone(row.phone) }}</td>
-                <td class="px-3 py-2.5 font-medium text-[#002244]">
+                <td class="unreturned-col-name px-2 py-2">{{ row.customerName || '—' }}</td>
+                <td class="unreturned-col-phone px-2 py-2 font-mono" dir="ltr">{{ formatPhone(row.phone) }}</td>
+                <td class="unreturned-col-equipment px-2 py-2 font-medium text-[#002244]">
                   {{ row.equipmentName }}
                   @if (row.isCustomItem) {
                     <span class="one-time-badge">חד-פעמי</span>
                   }
                 </td>
-                <td class="px-3 py-2.5">
+                <td class="unreturned-col-missing px-2 py-2">
                   @if (hasMissingSerialCodes(row)) {
                     <span class="missing-serial-list">
                       @for (code of sortedMissingSerialCodes(row); track code) {
@@ -93,12 +95,12 @@
                     <span class="text-slate-400">—</span>
                   }
                 </td>
-                <td class="px-3 py-2.5 text-center">
-                  <span class="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">
+                <td class="unreturned-col-qty px-2 py-2 text-center">
+                  <span class="inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-xs font-bold text-rose-800">
                     {{ row.missingQuantity }}
                   </span>
                 </td>
-                <td class="px-3 py-2.5">
+                <td class="unreturned-col-date px-2 py-2">
                   <div class="return-date-cell">
                     <span class="return-date-cell__gregorian">{{ formatReturnDate(row.returnDate) }}</span>
                     @if (formatReturnHebrewDate(row.returnDate); as heb) {
@@ -106,7 +108,7 @@
                     }
                   </div>
                 </td>
-                <td class="px-3 py-2.5 text-center">
+                <td class="unreturned-col-order px-2 py-2 text-center">
                   @if (row.orderId > 0) {
                     <a
                       [routerLink]="['/orders', row.orderId]"
@@ -118,15 +120,50 @@
                     <span class="text-slate-400">—</span>
                   }
                 </td>
-                <td class="px-3 py-2.5 text-center">
-                  <button
-                    type="button"
-                    class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                    [disabled]="isReturning(row) || isRemoving(row)"
-                    (click)="quickReturn(row)"
-                  >
-                    {{ isReturning(row) ? 'שומר…' : 'סמן כהוחזר' }}
-                  </button>
+                <td class="unreturned-col-status px-2 py-2">
+                  <span [ngClass]="statusBadgeClass(rowStatus(row))">
+                    {{ statusLabels[rowStatus(row)] }}
+                  </span>
+                </td>
+                <td class="unreturned-col-actions px-2 py-2">
+                  <div class="lost-actions">
+                    <button
+                      type="button"
+                      class="status-action status-action--pending"
+                      [disabled]="isActionsBusy(row) || rowStatus(row) === statusEnum.Pending"
+                      (click)="setStatus(row, statusEnum.Pending)"
+                      title="סמן כממתין"
+                    >
+                      ממתין
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--notified"
+                      [disabled]="isActionsBusy(row) || rowStatus(row) === statusEnum.Notified"
+                      (click)="setStatus(row, statusEnum.Notified)"
+                      title="סמן שהודיעו ללקוח"
+                    >
+                      הודיעו
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--returned"
+                      [disabled]="isActionsBusy(row)"
+                      (click)="setStatus(row, statusEnum.Returned)"
+                      title="סמן כהוחזר"
+                    >
+                      {{ isReturning(row) ? '…' : 'הוחזר' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="status-action status-action--delete"
+                      [disabled]="isActionsBusy(row)"
+                      (click)="deleteRow(row)"
+                      title="מחק"
+                    >
+                      {{ isDeleting(row) ? '…' : 'מחק' }}
+                    </button>
+                  </div>
                 </td>
               </tr>
             }

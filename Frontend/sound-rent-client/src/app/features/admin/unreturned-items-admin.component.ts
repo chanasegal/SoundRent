@@ -23,6 +23,10 @@ import {
   UnreturnedItemDto
 } from '../../core/models/equipment-return.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
+import {
+  LOST_EQUIPMENT_STATUS_LABELS,
+  LostEquipmentStatus
+} from '../../core/models/lost-equipment.model';
 import { CustomersStore } from '../../core/services/customers.store';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
@@ -82,11 +86,21 @@ export class UnreturnedItemsAdminComponent implements OnInit {
 
   private static readonly CUSTOMER_SUGGEST_LIMIT = 8;
 
+  private static readonly STATUS_STORAGE_KEY = 'soundrent.unreturned.workflowStatus';
+
   protected readonly rows = signal<UnreturnedItemDto[]>([]);
   protected readonly loading = signal(false);
   protected readonly returningKeys = signal<Set<string>>(new Set());
   protected readonly removingKeys = signal<Set<string>>(new Set());
+  protected readonly deletingKeys = signal<Set<string>>(new Set());
+  protected readonly statusUpdatingKey = signal<string | null>(null);
+  protected readonly statusByKey = signal<Record<string, LostEquipmentStatus>>(
+    UnreturnedItemsAdminComponent.loadStoredStatuses()
+  );
   protected readonly searchQuery = signal('');
+
+  protected readonly statusLabels = LOST_EQUIPMENT_STATUS_LABELS;
+  protected readonly statusEnum = LostEquipmentStatus;
 
   protected readonly addOpen = signal(false);
   protected readonly savingMissing = signal(false);
@@ -179,7 +193,10 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         this.addOpen() ||
         this.loading() ||
         this.savingMissing() ||
-        this.removingKeys().size > 0
+        this.removingKeys().size > 0 ||
+        this.deletingKeys().size > 0 ||
+        this.statusUpdatingKey() != null ||
+        this.returningKeys().size > 0
     });
   }
 
@@ -646,6 +663,120 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     return this.removingKeys().has(this.rowKey(row));
   }
 
+  protected isDeleting(row: UnreturnedItemDto): boolean {
+    return this.deletingKeys().has(this.rowKey(row));
+  }
+
+  protected isActionsBusy(row: UnreturnedItemDto): boolean {
+    const key = this.rowKey(row);
+    return (
+      this.isReturning(row) ||
+      this.isRemoving(row) ||
+      this.isDeleting(row) ||
+      this.statusUpdatingKey() === key
+    );
+  }
+
+  protected rowStatus(row: UnreturnedItemDto): LostEquipmentStatus {
+    return this.statusByKey()[this.rowKey(row)] ?? LostEquipmentStatus.Pending;
+  }
+
+  protected statusRowClass(status: LostEquipmentStatus): string {
+    switch (status) {
+      case LostEquipmentStatus.Returned:
+        return 'row-status-returned';
+      case LostEquipmentStatus.Notified:
+        return 'row-status-notified';
+      default:
+        return 'row-status-pending';
+    }
+  }
+
+  protected statusBadgeClass(status: LostEquipmentStatus): string {
+    switch (status) {
+      case LostEquipmentStatus.Returned:
+        return 'status-badge status-badge--returned';
+      case LostEquipmentStatus.Notified:
+        return 'status-badge status-badge--notified';
+      default:
+        return 'status-badge status-badge--pending';
+    }
+  }
+
+  protected setStatus(row: UnreturnedItemDto, status: LostEquipmentStatus): void {
+    if (this.rowStatus(row) === status || this.isActionsBusy(row)) {
+      return;
+    }
+
+    if (status === LostEquipmentStatus.Returned) {
+      this.quickReturn(row);
+      return;
+    }
+
+    const key = this.rowKey(row);
+    this.statusUpdatingKey.set(key);
+    this.patchRowStatus(key, status);
+    this.statusUpdatingKey.set(null);
+    this.toast.success('הסטטוס עודכן');
+  }
+
+  protected deleteRow(row: UnreturnedItemDto): void {
+    if (this.isActionsBusy(row)) {
+      return;
+    }
+
+    const label = row.equipmentName?.trim() || row.customerName || 'הפריט';
+    if (!confirm(`להסיר את "${label}" מהרשימה?`)) {
+      return;
+    }
+
+    const key = this.rowKey(row);
+    this.deletingKeys.update((set) => new Set(set).add(key));
+
+    const request$ =
+      this.isManualRow(row) && row.manualItemId
+        ? this.data.deleteManualUnreturnedItem(row.manualItemId)
+        : row.orderId > 0 && row.loanedEquipmentId > 0
+          ? this.data.deleteOrderUnreturnedItem(row.orderId, row.loanedEquipmentId)
+          : null;
+
+    if (!request$) {
+      this.deletingKeys.update((set) => {
+        const next = new Set(set);
+        next.delete(key);
+        return next;
+      });
+      this.toast.error('לא ניתן למחוק את הפריט');
+      return;
+    }
+
+    request$
+      .pipe(
+        finalize(() =>
+          this.deletingKeys.update((set) => {
+            const next = new Set(set);
+            next.delete(key);
+            return next;
+          })
+        )
+      )
+      .subscribe({
+        next: (ok) => {
+          if (!ok) {
+            return;
+          }
+          this.clearRowStatus(key);
+          this.inventory.load({ force: true }).subscribe();
+          this.ordersSync.notifyUnreturnedChanged(null);
+          if (!this.isManualRow(row) && row.orderId > 0) {
+            this.ordersSync.notifyLoanChanged();
+          }
+          this.animateRowOut(key);
+          this.toast.success('הרשומה נמחקה');
+        }
+      });
+  }
+
   protected formatReturnDate(iso: string): string {
     const d = this.hebrew.parseIso(iso);
     return d ? this.hebrew.formatGregorianWithDayName(d) : iso;
@@ -696,6 +827,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
             if (!ok) {
               return;
             }
+            this.clearRowStatus(key);
             this.inventory.load({ force: true }).subscribe();
             this.ordersSync.notifyUnreturnedChanged(null);
             this.animateRowOut(key);
@@ -734,6 +866,7 @@ export class UnreturnedItemsAdminComponent implements OnInit {
           if (!updated) {
             return;
           }
+          this.clearRowStatus(key);
           this.ordersSync.notifyOrderUpdated(updated);
           this.animateRowOut(key);
           this.toast.success('הפריט סומן כהוחזר');
@@ -803,5 +936,56 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         return next;
       });
     }, 280);
+  }
+
+  private patchRowStatus(key: string, status: LostEquipmentStatus): void {
+    this.statusByKey.update((map) => {
+      const next = { ...map, [key]: status };
+      UnreturnedItemsAdminComponent.persistStatuses(next);
+      return next;
+    });
+  }
+
+  private clearRowStatus(key: string): void {
+    this.statusByKey.update((map) => {
+      if (!(key in map)) {
+        return map;
+      }
+      const next = { ...map };
+      delete next[key];
+      UnreturnedItemsAdminComponent.persistStatuses(next);
+      return next;
+    });
+  }
+
+  private static loadStoredStatuses(): Record<string, LostEquipmentStatus> {
+    try {
+      const raw = localStorage.getItem(UnreturnedItemsAdminComponent.STATUS_STORAGE_KEY);
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      const result: Record<string, LostEquipmentStatus> = {};
+      for (const [key, value] of Object.entries(parsed ?? {})) {
+        if (
+          value === LostEquipmentStatus.Pending ||
+          value === LostEquipmentStatus.Notified ||
+          value === LostEquipmentStatus.Returned
+        ) {
+          result[key] = value;
+        }
+      }
+      return result;
+    } catch {
+      return {};
+    }
+  }
+
+  private static persistStatuses(map: Record<string, LostEquipmentStatus>): void {
+    try {
+      localStorage.setItem(UnreturnedItemsAdminComponent.STATUS_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+      // Ignore quota / private-mode failures.
+    }
   }
 }

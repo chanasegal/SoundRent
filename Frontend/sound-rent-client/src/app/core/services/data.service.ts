@@ -484,6 +484,32 @@ export class DataService {
       );
   }
 
+  /** Permanently remove an active (unresolved) manual unreturned tracking row. */
+  deleteManualUnreturnedItem(manualItemId: number): Observable<boolean> {
+    return this.http
+      .delete<void>(`${this.ordersBase}/unreturned/manual/${manualItemId}`)
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
+  }
+
+  /** Remove an order-linked unreturned row by deleting its outstanding loan portion. */
+  deleteOrderUnreturnedItem(orderId: number, loanedEquipmentId: number): Observable<boolean> {
+    return this.http
+      .delete<void>(`${this.ordersBase}/${orderId}/unreturned/${loanedEquipmentId}`)
+      .pipe(
+        map(() => true),
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(false);
+        })
+      );
+  }
+
   getCancelledOrdersReport(): Observable<OrderDto[]> {
     return this.http.get<OrderDto[]>(`${this.reportsBase}/cancelled-orders`).pipe(
       catchError((err) => {

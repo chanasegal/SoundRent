@@ -25,7 +25,9 @@ import {
   ValidationErrors,
   Validators
 } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ConfirmationService } from 'primeng/api';
+import { ConfirmDialog } from 'primeng/confirmdialog';
 import {
   Subject,
   concatMap,
@@ -45,15 +47,6 @@ import {
   tap,
   toArray
 } from 'rxjs';
-
-/** Subtle footer/header feedback for background order persistence. */
-type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
-
-interface SaveOptions {
-  /** `auto` skips navigation/toasts and handles booking conflicts without a blocking confirm. */
-  mode: 'auto' | 'manual';
-  allowDoubleBooking?: boolean;
-}
 
 import {
   DEPOSIT_TYPE_LABELS,
@@ -113,6 +106,23 @@ import {
   optionalIsraeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 
+/** Subtle footer/header feedback for background order persistence. */
+type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
+
+interface SaveOptions {
+  /** `auto` skips navigation/toasts; duplicate-shift conflicts use ConfirmDialog. */
+  mode: 'auto' | 'manual';
+  allowDoubleBooking?: boolean;
+}
+
+const DUPLICATE_SHIFT_CONFIRM = {
+  header: 'קיימת הזמנה נוספת במשמרת זו',
+  message:
+    'שים לב: כבר קיימת הזמנה פעילה עבור המשמרת שנבחרה. האם ברצונך לשמור הזמנה נוספת על אותה משמרת?',
+  acceptLabel: 'כן, שמור הזמנה',
+  rejectLabel: 'ביטול'
+} as const;
+
 /** Form-only payment state; maps to the `isPaid` / `isUnpaid` flags on the order DTO. */
 type PaymentStatus = 'none' | 'paid' | 'unpaid';
 
@@ -162,12 +172,13 @@ interface BookingUiState {
   imports: [
     CommonModule,
     ReactiveFormsModule,
-    RouterLink,
     IntegerOnlyDirective,
     IsraeliPhoneInputDirective,
     ClickOutsideDirective,
-    HebrewCalendarPickerComponent
+    HebrewCalendarPickerComponent,
+    ConfirmDialog
   ],
+  providers: [ConfirmationService],
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
 })
@@ -175,6 +186,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
   private readonly data = inject(DataService);
   private readonly toast = inject(ToastService);
+  private readonly confirmation = inject(ConfirmationService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly hebrew = inject(HebrewDateService);
@@ -522,7 +534,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       case 'error':
         return 'שגיאה';
       case 'conflict':
-        return 'ציוד תפוס';
+        return 'קיימת הזמנה במשמרת';
       default:
         return '';
     }
@@ -531,6 +543,11 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   private autoSaveBusy = false;
   private suppressAutoSave = false;
   private lastSavedPayloadKey: string | null = null;
+  /** Payload key the user declined to double-book — avoid re-prompting until the form changes. */
+  private doubleBookingDeclinedKey: string | null = null;
+  private shiftConflictDialogOpen = false;
+  /** True during pagehide/beforeunload — ConfirmDialog cannot block unload. */
+  private documentUnloading = false;
   private autoSaveBadgeClearTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * True while a pointer gesture started inside the form. Prevents false exit-saves when
@@ -2230,6 +2247,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.documentUnloading = true;
     this.tryAutoSave();
     if (this.autoSaveBadgeClearTimer !== null) {
       clearTimeout(this.autoSaveBadgeClearTimer);
@@ -2241,6 +2259,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   @HostListener('window:pagehide')
   @HostListener('window:beforeunload')
   protected onWindowExit(): void {
+    this.documentUnloading = true;
     this.tryAutoSave();
   }
 
@@ -2282,10 +2301,75 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Save (with duplicate-shift confirm) then return to the board. */
+  protected backToDashboard(): void {
+    this.persistThenLeave(() => this.navigateToDashboard());
+  }
+
   /** Backup form state and return to the board without discarding the draft. */
   protected minimizeDraft(): void {
-    this.tryAutoSave();
+    this.persistThenLeave(() => this.completeMinimizeDraft());
+  }
 
+  /**
+   * Shared exit path for "חזרה ללוח" / "מזער": auto-save, and if another order
+   * already occupies the selected shift, ask before leaving so Cancel stays on the form.
+   */
+  private persistThenLeave(onComplete: () => void): void {
+    if (
+      this.suppressAutoSave ||
+      this.autoSaveBusy ||
+      this.submitting() ||
+      this.returnSaving() ||
+      this.returnModalOpen()
+    ) {
+      onComplete();
+      return;
+    }
+
+    this.commitPendingDraftLinesBeforeSave(true);
+    if (this.form.invalid || this.validateSelectedSerialAvailability()) {
+      onComplete();
+      return;
+    }
+
+    const payloads = this.toPayloads();
+    if (payloads.length === 0) {
+      onComplete();
+      return;
+    }
+
+    const key = this.payloadKey(payloads);
+    if (key === this.lastSavedPayloadKey) {
+      onComplete();
+      return;
+    }
+
+    forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p))).subscribe((conflictFlags) => {
+      if (conflictFlags.some((c) => c)) {
+        this.promptDuplicateShiftConfirm({
+          onAccept: () => {
+            this.doubleBookingDeclinedKey = null;
+            this.executeSaveRequests(
+              payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
+              { mode: 'auto' }
+            );
+            onComplete();
+          },
+          onReject: () => {
+            this.doubleBookingDeclinedKey = key;
+            this.setAutoSaveStatus('conflict');
+          }
+        });
+        return;
+      }
+
+      this.executeSaveRequests(payloads, { mode: 'auto' });
+      onComplete();
+    });
+  }
+
+  private completeMinimizeDraft(): void {
     const customerName = String(this.form.controls['customerName'].value ?? '').trim();
     const editingId = this.editingId();
     const boardDate =
@@ -2309,11 +2393,20 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       }
     });
 
-    if (boardDate) {
-      this.calendarView.setSelectedDate(boardDate);
+    this.navigateToDashboard(boardDate);
+  }
+
+  private navigateToDashboard(boardDate?: string | null): void {
+    const date =
+      boardDate ??
+      this.boardQueryParams().date ??
+      this.calendarView.selectedDateIso() ??
+      null;
+    if (date) {
+      this.calendarView.setSelectedDate(date);
     }
     void this.router.navigate(['/dashboard'], {
-      queryParams: boardDate ? { date: boardDate } : this.calendarView.dashboardQueryParams()
+      queryParams: date ? { date } : this.calendarView.dashboardQueryParams()
     });
   }
 
@@ -2494,6 +2587,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       this.toast.error(serialError);
       return;
     }
+    this.doubleBookingDeclinedKey = null;
     this.performSave({ mode: 'auto', allowDoubleBooking: true });
   }
 
@@ -2844,27 +2938,77 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     conflictChecks$.subscribe((conflictFlags) => {
       const hasConflict = conflictFlags.some((c) => c);
       if (hasConflict && !forceDoubleBooking) {
-        if (options.mode === 'auto') {
+        const key = this.payloadKey(payloads);
+
+        // Unload cannot host a modal — abort rather than silently force-saving.
+        if (this.documentUnloading) {
           this.setAutoSaveStatus('conflict');
           return;
         }
-        const confirmed = confirm('הציוד כבר תפוס ליום זה, האם להמשיך בכל זאת?');
-        if (!confirmed) {
+
+        // User already cancelled for this exact payload; keep badge, don't re-prompt.
+        if (options.mode === 'auto' && key === this.doubleBookingDeclinedKey) {
+          this.setAutoSaveStatus('conflict');
           return;
         }
-        this.executeSaveRequests(
-          payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
-          options
-        );
+
+        this.promptDuplicateShiftConfirm({
+          onAccept: () => {
+            this.doubleBookingDeclinedKey = null;
+            this.executeSaveRequests(
+              payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
+              options
+            );
+          },
+          onReject: () => {
+            this.doubleBookingDeclinedKey = key;
+            if (options.mode === 'auto') {
+              this.setAutoSaveStatus('conflict');
+            }
+          }
+        });
         return;
       }
 
+      this.doubleBookingDeclinedKey = null;
       this.executeSaveRequests(
         forceDoubleBooking
           ? payloads.map((p) => ({ ...p, allowDoubleBooking: true }))
           : payloads,
         options
       );
+    });
+  }
+
+  /**
+   * Confirm allowing another order on a shift that already has an active booking.
+   * Accept proceeds with `allowDoubleBooking`; reject aborts so the user can change the shift.
+   */
+  private promptDuplicateShiftConfirm(handlers: {
+    onAccept: () => void;
+    onReject: () => void;
+  }): void {
+    if (this.shiftConflictDialogOpen) {
+      return;
+    }
+    this.shiftConflictDialogOpen = true;
+    this.confirmation.confirm({
+      header: DUPLICATE_SHIFT_CONFIRM.header,
+      message: DUPLICATE_SHIFT_CONFIRM.message,
+      acceptLabel: DUPLICATE_SHIFT_CONFIRM.acceptLabel,
+      rejectLabel: DUPLICATE_SHIFT_CONFIRM.rejectLabel,
+      acceptButtonStyleClass: 'p-button-sm',
+      rejectButtonStyleClass: 'p-button-sm p-button-outlined',
+      dismissableMask: false,
+      closeOnEscape: true,
+      accept: () => {
+        this.shiftConflictDialogOpen = false;
+        handlers.onAccept();
+      },
+      reject: () => {
+        this.shiftConflictDialogOpen = false;
+        handlers.onReject();
+      }
     });
   }
 
@@ -3115,6 +3259,8 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     this.institutionConflict.set(null);
     this.setAutoSaveStatus('idle');
     this.lastSavedPayloadKey = null;
+    this.doubleBookingDeclinedKey = null;
+    this.shiftConflictDialogOpen = false;
     queueMicrotask(() => {
       this.suppressAutoSave = false;
     });

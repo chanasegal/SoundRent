@@ -208,8 +208,8 @@
               <th class="px-3 py-2 font-semibold">תיאור פריט</th>
               <th class="px-3 py-2 font-semibold">תאריך</th>
               <th class="px-3 py-2 font-semibold">הערות</th>
-              <th class="px-3 py-2 font-semibold">סטטוס</th>
-              <th class="px-3 py-2 text-center font-semibold">פעולות</th>
+              <th class="lost-col-status px-2 py-2 font-semibold">סטטוס</th>
+              <th class="lost-col-actions px-2 py-2 text-center font-semibold">פעולות</th>
             </tr>
           </thead>
           <tbody>
@@ -220,12 +220,12 @@
                 <td class="px-3 py-2">{{ row.itemDescription }}</td>
                 <td class="px-3 py-2 whitespace-nowrap">{{ row.hebrewDate }}</td>
                 <td class="px-3 py-2 max-w-xs truncate" [title]="row.notes ?? ''">{{ row.notes || '—' }}</td>
-                <td class="px-3 py-2">
+                <td class="lost-col-status px-2 py-2">
                   <span [ngClass]="statusBadgeClass(row.status)">
                     {{ statusLabels[row.status] }}
                   </span>
                 </td>
-                <td class="px-3 py-2">
+                <td class="lost-col-actions px-2 py-2">
                   <div class="lost-actions">
                     <button
                       type="button"
