@@ -1239,6 +1239,51 @@
   </div>
 }
 
+@if (removeAccessoryConfirmIndex() !== null) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="remove-accessory-confirm-title"
+    (click)="cancelRemoveAccessoryRow()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 28rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
+        <h2 id="remove-accessory-confirm-title" class="text-lg font-bold text-[#002244]">
+          הסרת פריט מההזמנה
+        </h2>
+      </div>
+      <div class="app-modal-body px-5 py-4">
+        <p class="text-sm text-slate-700">
+          האם אתה בטוח שברצונך להסיר את הפריט
+          <strong>{{ removeAccessoryConfirmName() }}</strong>
+          מההזמנה?
+        </p>
+      </div>
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          (click)="cancelRemoveAccessoryRow()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-rose-600 bg-rose-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+          (click)="confirmRemoveAccessoryRow()"
+        >
+          הסר
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
 @if (unreturnedReportOpen()) {
   <div
     class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"

@@ -1744,8 +1744,34 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     );
   }
 
+  /** Pending accessory-row index for the remove confirmation modal; `null` when closed. */
+  protected readonly removeAccessoryConfirmIndex = signal<number | null>(null);
+  protected readonly removeAccessoryConfirmName = signal('');
+
+  /** Opens the remove confirmation modal; the row is only deleted after the user confirms. */
   protected removeAccessoryRow(index: number): void {
     if (index < 0 || index >= this.equipmentList.length) {
+      return;
+    }
+    if (this.isAccessoryRowReadOnly(index)) {
+      this.toast.warning('לא ניתן להסיר שורה שנעולה לאחר רישום החזרה');
+      return;
+    }
+    const label =
+      String(this.getRowGroup(index).get('label')?.value ?? '').trim() || 'item';
+    this.removeAccessoryConfirmIndex.set(index);
+    this.removeAccessoryConfirmName.set(label);
+  }
+
+  protected cancelRemoveAccessoryRow(): void {
+    this.removeAccessoryConfirmIndex.set(null);
+    this.removeAccessoryConfirmName.set('');
+  }
+
+  protected confirmRemoveAccessoryRow(): void {
+    const index = this.removeAccessoryConfirmIndex();
+    this.cancelRemoveAccessoryRow();
+    if (index == null || index < 0 || index >= this.equipmentList.length) {
       return;
     }
     if (this.isAccessoryRowReadOnly(index)) {
