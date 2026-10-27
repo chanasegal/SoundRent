@@ -130,11 +130,10 @@
                           {{ customer.customerName || 'ללא שם' }}
                         </span>
                         @if (customer.hasLastNameDuplicate) {
-                          <span
+                          <app-touch-tooltip
                             class="name-duplicate-warn"
-                            [title]="sameDayNameDuplicateTooltip"
-                            aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
-                          >⚠️</span>
+                            [text]="sameDayNameDuplicateTooltip"
+                          >⚠️</app-touch-tooltip>
                         }
                       </div>
                       <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(customer.phone) }}</span>
@@ -448,11 +447,10 @@
                           {{ customer.customerName || 'ללא שם' }}
                         </span>
                         @if (customer.hasLastNameDuplicate) {
-                          <span
+                          <app-touch-tooltip
                             class="name-duplicate-warn"
-                            [title]="sameDayNameDuplicateTooltip"
-                            aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
-                          >⚠️</span>
+                            [text]="sameDayNameDuplicateTooltip"
+                          >⚠️</app-touch-tooltip>
                         }
                       </div>
                       <span class="customer-breakdown-card__phone" dir="ltr">{{ formatPhone(customer.phone) }}</span>

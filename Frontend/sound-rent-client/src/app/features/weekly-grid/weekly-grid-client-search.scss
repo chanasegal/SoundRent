@@ -257,7 +257,7 @@
   align-items: center;
   gap: 0.3rem;
   margin-top: 0.15rem;
-  /* Native title tooltips render outside the panel; keep icons from stretching the card. */
+  /* Touch tooltips use fixed positioning; keep icons from stretching the card. */
   overflow: visible;
 }
 

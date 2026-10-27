@@ -247,11 +247,10 @@
                       <div class="client-search__badges">
                         @if (item.isPast) {
                           @if (item.status.neverReturnedTooltip) {
-                            <span
+                            <app-touch-tooltip
                               class="client-search__badge client-search__badge--never-returned"
-                              [attr.title]="item.status.neverReturnedTooltip"
-                              [attr.aria-label]="item.status.neverReturnedTooltip"
-                            >ציוד טרם הוחזר</span>
+                              [text]="item.status.neverReturnedTooltip"
+                            >ציוד טרם הוחזר</app-touch-tooltip>
                           } @else {
                             <span class="client-search__badge client-search__badge--past">הסתיימה</span>
                           }
@@ -262,52 +261,46 @@
                           <span class="client-search__badge client-search__badge--paid">שולם</span>
                         }
                         @if (item.status.openDebtTooltip) {
-                          <span
+                          <app-touch-tooltip
                             class="client-search__status-icon client-search__status-icon--debt"
-                            [attr.title]="item.status.openDebtTooltip"
-                            [attr.aria-label]="item.status.openDebtTooltip"
-                            role="img"
-                          >🔴</span>
+                            [text]="item.status.openDebtTooltip"
+                          >🔴</app-touch-tooltip>
                         }
                         @if (item.status.openCashDepositTooltip) {
-                          <span
+                          <app-touch-tooltip
                             class="client-search__status-icon client-search__status-icon--cash-deposit"
-                            [attr.title]="item.status.openCashDepositTooltip"
-                            [attr.aria-label]="item.status.openCashDepositTooltip"
-                            role="img"
-                          >💰</span>
+                            [text]="item.status.openCashDepositTooltip"
+                          >💰</app-touch-tooltip>
                         }
                         @if (item.status.missingEquipmentTooltip) {
-                          <span
+                          <app-touch-tooltip
                             class="client-search__status-icon client-search__status-icon--missing"
-                            [attr.title]="item.status.missingEquipmentTooltip"
-                            [attr.aria-label]="item.status.missingEquipmentTooltip"
-                            role="img"
-                          >⚠️</span>
+                            [text]="item.status.missingEquipmentTooltip"
+                          >⚠️</app-touch-tooltip>
                         }
                         @if (item.status.forgottenEquipmentTooltip) {
-                          <span
+                          <app-touch-tooltip
                             class="client-search__status-icon client-search__status-icon--forgotten"
-                            [attr.title]="item.status.forgottenEquipmentTooltip"
-                            [attr.aria-label]="item.status.forgottenEquipmentTooltip"
-                            role="img"
-                          >🧰</span>
+                            [text]="item.status.forgottenEquipmentTooltip"
+                          >🧰</app-touch-tooltip>
                         }
                         @if (item.status.cancelledTooltip) {
-                          <span
+                          <app-touch-tooltip
                             class="client-search__status-icon client-search__status-icon--cancelled"
-                            [attr.title]="item.status.cancelledTooltip"
-                            [attr.aria-label]="item.status.cancelledTooltip"
-                            role="img"
-                          >❌</span>
+                            [text]="item.status.cancelledTooltip"
+                          >❌</app-touch-tooltip>
                         }
                         @if (hasUrgentBoardNote(item.order)) {
-                          <span class="client-search__badge client-search__badge--urgent" [title]="urgentBoardNoteText(item.order)">
-                            הערה דחופה
-                          </span>
+                          <app-touch-tooltip
+                            class="client-search__badge client-search__badge--urgent"
+                            [text]="urgentBoardNoteText(item.order)"
+                          >הערה דחופה</app-touch-tooltip>
                         }
                         @if (hasOrderNotes(item.order)) {
-                          <span class="client-search__badge" [title]="orderNotesTooltip(item.order)">💡 הערות</span>
+                          <app-touch-tooltip
+                            class="client-search__badge"
+                            [text]="orderNotesTooltip(item.order)"
+                          >💡 הערות</app-touch-tooltip>
                         }
                       </div>
                     </div>
@@ -478,8 +471,8 @@
                         [attr.aria-label]="'הזמנות — ' + segmentBookingLabel(segment)"
                       >
                         @if (segment.orders.length > 1) {
-                          <div class="cell-double-row" aria-hidden="true">
-                            <span class="cell-warn" title="יותר מהזמנה אחת במשמרת">⚠️</span>
+                          <div class="cell-double-row">
+                            <app-touch-tooltip class="cell-warn" text="יותר מהזמנה אחת במשמרת">⚠️</app-touch-tooltip>
                             <span class="cell-double-badge">הזמנה כפולה</span>
                           </div>
                         }
@@ -501,26 +494,22 @@
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
                                 @if (hasNameDuplicateOnSameDay(o, row)) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-name-duplicate-warn"
-                                    [title]="sameDayNameDuplicateTooltip"
-                                    aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
-                                  >⚠️</span>
+                                    [text]="sameDayNameDuplicateTooltip"
+                                  >⚠️</app-touch-tooltip>
                                 }
                                 @if (openCashDepositTooltipForOrder(o); as cashDepositTip) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-cash-deposit-indicator"
-                                    [attr.title]="cashDepositTip"
-                                    [attr.aria-label]="cashDepositTip"
-                                    role="img"
-                                  >💰</span>
+                                    [text]="cashDepositTip"
+                                  >💰</app-touch-tooltip>
                                 }
                                 @if (hasOrderNotes(o)) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-notes-indicator"
-                                    [title]="orderNotesTooltip(o)"
-                                    aria-label="יש הערות"
-                                  >💡</span>
+                                    [text]="orderNotesTooltip(o)"
+                                  >💡</app-touch-tooltip>
                                 }
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
@@ -607,8 +596,8 @@
                         [attr.aria-label]="'הזמנות — ' + segmentBookingLabel(segment)"
                       >
                         @if (segment.orders.length > 1) {
-                          <div class="cell-double-row" aria-hidden="true">
-                            <span class="cell-warn" title="יותר מהזמנה אחת במשמרת">⚠️</span>
+                          <div class="cell-double-row">
+                            <app-touch-tooltip class="cell-warn" text="יותר מהזמנה אחת במשמרת">⚠️</app-touch-tooltip>
                             <span class="cell-double-badge">הזמנה כפולה</span>
                           </div>
                         }
@@ -630,26 +619,22 @@
                               <div class="cell-name-row">
                                 <span class="cell-name">{{ o.customerName }}</span>
                                 @if (hasNameDuplicateOnSameDay(o, row)) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-name-duplicate-warn"
-                                    [title]="sameDayNameDuplicateTooltip"
-                                    aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
-                                  >⚠️</span>
+                                    [text]="sameDayNameDuplicateTooltip"
+                                  >⚠️</app-touch-tooltip>
                                 }
                                 @if (openCashDepositTooltipForOrder(o); as cashDepositTip) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-cash-deposit-indicator"
-                                    [attr.title]="cashDepositTip"
-                                    [attr.aria-label]="cashDepositTip"
-                                    role="img"
-                                  >💰</span>
+                                    [text]="cashDepositTip"
+                                  >💰</app-touch-tooltip>
                                 }
                                 @if (hasOrderNotes(o)) {
-                                  <span
+                                  <app-touch-tooltip
                                     class="cell-notes-indicator"
-                                    [title]="orderNotesTooltip(o)"
-                                    aria-label="יש הערות"
-                                  >💡</span>
+                                    [text]="orderNotesTooltip(o)"
+                                  >💡</app-touch-tooltip>
                                 }
                               </div>
                               <span class="cell-phone">{{ o.phone }}</span>
@@ -693,16 +678,18 @@
                   </div>
                   <div class="waitlist-badge-strip">
                     @for (w of row.waitlist; track w.id) {
-                      <div class="waitlist-phone-badge" [attr.title]="waitlistBadgeTitle(w)">
-                        <span class="waitlist-badge-text">
-                          @if (w.customerName?.trim()) {
-                            <span class="waitlist-name-text">{{ w.customerName!.trim() }}</span>
+                      <div class="waitlist-phone-badge">
+                        <app-touch-tooltip class="waitlist-badge-info" [text]="waitlistBadgeTitle(w)">
+                          <span class="waitlist-badge-text">
+                            @if (w.customerName?.trim()) {
+                              <span class="waitlist-name-text">{{ w.customerName!.trim() }}</span>
+                            }
+                            <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
+                          </span>
+                          @if (w.notes?.trim()) {
+                            <span class="waitlist-note-icon" aria-hidden="true">📝</span>
                           }
-                          <span class="waitlist-phone-text ltr-field">{{ w.phone }}</span>
-                        </span>
-                        @if (w.notes?.trim()) {
-                          <span class="waitlist-note-icon" aria-hidden="true">📝</span>
-                        }
+                        </app-touch-tooltip>
                         <span class="waitlist-badge-actions">
                           <button
                             type="button"

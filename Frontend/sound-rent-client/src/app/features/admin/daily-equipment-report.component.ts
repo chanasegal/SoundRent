@@ -46,6 +46,7 @@ import {
 } from '../../core/utils/quantity-code-shortage';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
+import { TouchTooltipComponent } from '../../shared/components/touch-tooltip.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface EquipmentLine {
@@ -101,7 +102,14 @@ const EMPTY_RETURNS_CUSTOMERS_MSG = 'אין הזמנות להחזרה בתארי
 @Component({
   selector: 'app-daily-equipment-report',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, HebrewCalendarPickerComponent, ClickOutsideDirective],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    HebrewCalendarPickerComponent,
+    ClickOutsideDirective,
+    TouchTooltipComponent
+  ],
   templateUrl: './daily-equipment-report.component.html',
   styleUrl: './daily-equipment-report.component.scss'
 })

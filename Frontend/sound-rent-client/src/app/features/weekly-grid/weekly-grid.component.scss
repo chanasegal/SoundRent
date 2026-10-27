@@ -714,7 +714,7 @@
       overflow-wrap: normal;
       hyphens: none;
       font-size: 0.78rem;
-      /* Let the absolute notes lightbulb receive hover for its title tooltip */
+      /* Let the absolute notes lightbulb receive pointer events for its tooltip */
       pointer-events: none;
     }
 
@@ -877,6 +877,13 @@
     font-size: 0.72rem;
     line-height: 1.2;
     color: #451a03;
+  }
+
+  .waitlist-badge-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 0;
   }
 
   .waitlist-badge-text {

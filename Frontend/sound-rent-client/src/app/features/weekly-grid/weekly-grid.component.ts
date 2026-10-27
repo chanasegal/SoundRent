@@ -73,6 +73,7 @@ import {
 } from '../../core/validators/israeli-phone.validator';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
+import { TouchTooltipComponent } from '../../shared/components/touch-tooltip.component';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
 
 interface WeeklyGridColumnDef {
@@ -317,7 +318,8 @@ function createInitialDashboardDateState(): DashboardDateFilterState {
     RouterLink,
     IntegerOnlyDirective,
     IsraeliPhoneInputDirective,
-    ClickOutsideDirective
+    ClickOutsideDirective,
+    TouchTooltipComponent
   ],
   templateUrl: './weekly-grid.component.html',
   styleUrls: ['./weekly-grid.component.scss', './weekly-grid-client-search.scss']
