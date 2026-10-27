@@ -676,6 +676,14 @@
       filter: drop-shadow(0 0 2px #fecaca) drop-shadow(0 0 5px #ef4444);
     }
 
+    .cell-cash-deposit-indicator {
+      flex: 0 0 auto;
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: help;
+      filter: drop-shadow(0 0 2px #fde68a) drop-shadow(0 0 5px #f59e0b);
+    }
+
     .cell-notes-indicator {
       position: absolute;
       top: 1px;

@@ -1,3 +1,4 @@
+import { CashDepositDto } from '../models/cash-deposit.model';
 import { UnreturnedItemDto } from '../models/equipment-return.model';
 import {
   LOST_EQUIPMENT_ACTIVE_STATUSES,
@@ -5,6 +6,10 @@ import {
 } from '../models/lost-equipment.model';
 import { OpenDebtGroupDto } from '../models/open-debt.model';
 import { OrderDto } from '../models/order.model';
+import {
+  buildOpenCashDepositAlertMessage,
+  sumOpenCashDepositAmount
+} from './cash-deposit';
 
 /** Digits-only phone normalize used for customer matching. */
 export function digitsOnlyPhone(raw: string | null | undefined): string {
@@ -123,10 +128,22 @@ export function buildOpenDebtAlertMessage(amount: number): string {
 export interface CustomerRiskAlertSnapshot {
   cancelledDebtAmount: number;
   openDebtAmount: number;
+  openCashDepositAmount: number;
   unreturnedItems: UnreturnedItemDto[];
   cancelledDebtMessage: string;
   openDebtMessage: string;
+  openCashDepositMessage: string;
   unreturnedMessage: string;
+}
+
+export function filterOpenCashDepositsForCustomer(
+  deposits: CashDepositDto[],
+  phoneDigits: string,
+  customerName: string
+): CashDepositDto[] {
+  return deposits.filter((d) =>
+    matchesCustomerIdentity(d.phone, d.customerName, phoneDigits, customerName)
+  );
 }
 
 export function buildCustomerRiskAlertSnapshot(
@@ -134,17 +151,23 @@ export function buildCustomerRiskAlertSnapshot(
   openDebts: OpenDebtGroupDto[],
   unreturned: UnreturnedItemDto[],
   phoneDigits: string,
-  customerName: string
+  customerName: string,
+  openCashDeposits: CashDepositDto[] = []
 ): CustomerRiskAlertSnapshot {
   const cancelledDebtAmount = sumCancelledOrderDebt(cancelledOrders, phoneDigits, customerName);
   const openDebtAmount = sumOpenDebt(openDebts, phoneDigits, customerName);
   const unreturnedItems = filterUnreturnedForCustomer(unreturned, phoneDigits, customerName);
+  const openCashDepositAmount = sumOpenCashDepositAmount(
+    filterOpenCashDepositsForCustomer(openCashDeposits, phoneDigits, customerName)
+  );
   return {
     cancelledDebtAmount,
     openDebtAmount,
+    openCashDepositAmount,
     unreturnedItems,
     cancelledDebtMessage: buildCancelledDebtAlertMessage(cancelledDebtAmount),
     openDebtMessage: buildOpenDebtAlertMessage(openDebtAmount),
+    openCashDepositMessage: buildOpenCashDepositAlertMessage(openCashDepositAmount),
     unreturnedMessage: buildUnreturnedItemsAlertMessage(unreturnedItems)
   };
 }
@@ -152,9 +175,11 @@ export function buildCustomerRiskAlertSnapshot(
 export const EMPTY_CUSTOMER_RISK_ALERTS: CustomerRiskAlertSnapshot = {
   cancelledDebtAmount: 0,
   openDebtAmount: 0,
+  openCashDepositAmount: 0,
   unreturnedItems: [],
   cancelledDebtMessage: '',
   openDebtMessage: '',
+  openCashDepositMessage: '',
   unreturnedMessage: ''
 };
 
@@ -215,18 +240,21 @@ export interface ClientSearchStatusTooltips {
   forgottenEquipmentTooltip: string | null;
   /** Cancelled-order badge hover text; null when none apply. */
   cancelledTooltip: string | null;
+  /** Open cash-deposit badge hover text with exact amount; null when none. */
+  openCashDepositTooltip: string | null;
 }
 
 /**
  * Status indicators for a weekly-board client-search card.
- * Combines order-level flags with customer-level debt / unreturned / cancelled data.
+ * Combines order-level flags with customer-level debt / unreturned / cancelled / cash-deposit data.
  */
 export function buildClientSearchStatusTooltips(
   cancelledOrders: OrderDto[],
   openDebts: OpenDebtGroupDto[],
   unreturned: UnreturnedItemDto[],
   order: OrderDto,
-  lostEquipment: LostEquipmentDto[] = []
+  lostEquipment: LostEquipmentDto[] = [],
+  openCashDeposits: CashDepositDto[] = []
 ): ClientSearchStatusTooltips {
   const phoneDigits = digitsOnlyPhone(order.phone);
   const customerName = (order.customerName ?? '').trim();
@@ -235,7 +263,8 @@ export function buildClientSearchStatusTooltips(
     openDebts,
     unreturned,
     phoneDigits,
-    customerName
+    customerName,
+    openCashDeposits
   );
 
   const debtParts: string[] = [];
@@ -268,6 +297,10 @@ export function buildClientSearchStatusTooltips(
       missingItems.length > 0 ? buildUnreturnedItemsAlertMessage(missingItems) : null,
     forgottenEquipmentTooltip:
       forgottenItems.length > 0 ? buildForgottenEquipmentTooltip(forgottenItems) : null,
-    cancelledTooltip: hasCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null
+    cancelledTooltip: hasCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null,
+    openCashDepositTooltip:
+      snapshot.openCashDepositAmount > 0 && snapshot.openCashDepositMessage
+        ? snapshot.openCashDepositMessage
+        : null
   };
 }

@@ -20,6 +20,7 @@ public class CashDepositConfiguration : IEntityTypeConfiguration<CashDeposit>
         builder.Property(e => e.Status).HasConversion<int>();
         builder.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        // Ledger queries never filter by order lifecycle — Open/Returned is the only status gate.
         builder.HasIndex(e => e.Status).HasDatabaseName("IX_CashDeposits_Status");
         builder.HasIndex(e => e.Phone).HasDatabaseName("IX_CashDeposits_Phone");
         builder.HasIndex(e => e.OrderId).HasDatabaseName("IX_CashDeposits_OrderId");

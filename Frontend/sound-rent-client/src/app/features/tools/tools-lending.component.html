@@ -133,6 +133,13 @@
               </div>
             </div>
           }
+          @if (sharedForm.clientRiskAlerts.openCashDepositMessage) {
+            <div class="client-alert client-alert--risk mb-2" role="alert">
+              <div class="client-alert__body">
+                <span>{{ sharedForm.clientRiskAlerts.openCashDepositMessage }}</span>
+              </div>
+            </div>
+          }
           @if (sharedForm.clientRiskAlerts.unreturnedMessage) {
             <div class="client-alert client-alert--risk mb-3" role="alert">
               <div class="client-alert__body">
@@ -744,6 +751,13 @@
                 <div class="client-alert client-alert--risk" role="alert">
                   <div class="client-alert__body">
                     <span>{{ form.clientRiskAlerts.openDebtMessage }}</span>
+                  </div>
+                </div>
+              }
+              @if (form.clientRiskAlerts.openCashDepositMessage) {
+                <div class="client-alert client-alert--risk" role="alert">
+                  <div class="client-alert__body">
+                    <span>{{ form.clientRiskAlerts.openCashDepositMessage }}</span>
                   </div>
                 </div>
               }

@@ -212,7 +212,8 @@ public class OrderService : IOrderService
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
 
         await _inventoryDefinitions.ReleaseAllOrderInventorySerialsAsync(id, cancellationToken);
-        _orderRepository.Remove(existing);
+        // Soft-delete keeps the row for cash-deposit FKs; deposit Open/Returned is unchanged.
+        _orderRepository.SoftDelete(existing);
         await _orderRepository.SaveChangesAsync(cancellationToken);
     }
 
@@ -387,6 +388,7 @@ public class OrderService : IOrderService
             throw new ValidationException("ההזמנה כבר בוטלה");
         }
 
+        // Cancellation does not mark or remove the cash deposit — it stays Open until returned explicitly.
         existing.IsCancelled = true;
         await _inventoryDefinitions.ReleaseAllOrderInventorySerialsAsync(id, cancellationToken);
         await _orderRepository.SaveChangesAsync(cancellationToken);
@@ -984,8 +986,8 @@ public class OrderService : IOrderService
 
         if (!hasMainEquipment && !hasRemainingAccessories)
         {
-            // Standalone accessory-only loan with nothing left — remove the order record.
-            _orderRepository.Remove(existing);
+            // Soft-delete so an open cash deposit on this order stays linked and Open.
+            _orderRepository.SoftDelete(existing);
             await _orderRepository.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -1190,7 +1192,8 @@ public class OrderService : IOrderService
 
         if (!hasMainEquipment && !hasRemainingAccessories && existing.LoanedEquipments.Count == 0)
         {
-            _orderRepository.Remove(existing);
+            // Soft-delete so an open cash deposit on this order stays linked and Open.
+            _orderRepository.SoftDelete(existing);
             await _orderRepository.SaveChangesAsync(cancellationToken);
             return;
         }

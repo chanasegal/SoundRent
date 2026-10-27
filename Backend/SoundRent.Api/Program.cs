@@ -235,6 +235,30 @@ catch (Exception ex)
 // controllers, SignalR negotiate/polls (incl. ?ngsw-bypass=1), and error responses.
 app.UseCors(CorsPolicyName);
 
+// Append charset=utf-8 when missing on JSON/text so Hebrew strings stay intact.
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        var contentType = context.Response.ContentType;
+        if (string.IsNullOrEmpty(contentType) ||
+            contentType.Contains("charset=", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
+        if (contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ||
+            contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+            contentType.StartsWith("application/problem+json", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.ContentType = contentType + "; charset=utf-8";
+        }
+
+        return Task.CompletedTask;
+    });
+    await next();
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

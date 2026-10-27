@@ -290,6 +290,18 @@
     margin-top: -0.35rem;
   }
 
+  .customer-risk-alert--cash-deposit {
+    background: #fffbeb;
+    border-color: #fde68a;
+    border-inline-start-color: #d97706;
+    color: #92400e;
+    box-shadow: 0 8px 20px -16px rgba(146, 64, 14, 0.45);
+
+    .lost-equipment-alert__icon {
+      color: #d97706;
+    }
+  }
+
   .lost-equipment-report {
     margin-top: 0;
     padding: 1rem 1.25rem;

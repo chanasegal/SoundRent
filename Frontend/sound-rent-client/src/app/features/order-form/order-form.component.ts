@@ -489,6 +489,12 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   );
   protected readonly showOpenDebtAlert = computed(() => this.customerRiskAlerts().openDebtAmount > 0);
   protected readonly openDebtAlertMessage = computed(() => this.customerRiskAlerts().openDebtMessage);
+  protected readonly showOpenCashDepositAlert = computed(
+    () => this.customerRiskAlerts().openCashDepositAmount > 0
+  );
+  protected readonly openCashDepositAlertMessage = computed(
+    () => this.customerRiskAlerts().openCashDepositMessage
+  );
   protected readonly showUnreturnedItemsAlert = computed(
     () => this.customerRiskAlerts().unreturnedItems.length > 0
   );
@@ -4504,7 +4510,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Watches Name / Phone1 and loads cancelled-debt, open-debt, and unreturned-item alerts.
+   * Watches Name / Phone1 and loads cancelled-debt, open-debt, open cash-deposit, and unreturned alerts.
    */
   private wireCustomerRiskAlertLookup(): void {
     const name$ = this.form.controls['customerName'].valueChanges.pipe(
@@ -4549,15 +4555,18 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     return forkJoin({
       cancelled: this.data.getCancelledOrdersReport(),
       openDebts: this.data.getOpenDebtGroupsReport(),
-      unreturned: this.data.getUnreturnedItems()
+      unreturned: this.data.getUnreturnedItems(),
+      // Ledger-only Open rows (amount included); not filtered by order cancel/delete/return.
+      openCashDeposits: this.data.getCashDeposits('Open', { background: true })
     }).pipe(
-      map(({ cancelled, openDebts, unreturned }) =>
+      map(({ cancelled, openDebts, unreturned, openCashDeposits }) =>
         buildCustomerRiskAlertSnapshot(
           cancelled,
           openDebts,
           unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
           phoneDigits,
-          customerName
+          customerName,
+          openCashDeposits
         )
       )
     );

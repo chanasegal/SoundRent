@@ -54,7 +54,9 @@ public interface ICashDepositService
 
 /// <summary>
 /// Central cash-deposit ledger. Loan / order saves call the Sync* methods so every cash deposit
-/// gets exactly one ledger row per source; the row stays Open until staff mark it returned.
+/// gets exactly one ledger row per source. Open / Returned is independent of order cancel,
+/// soft-delete, or full equipment return — only explicit mark-returned (or delete) changes it.
+/// List/search reads the ledger directly and never filters by order lifecycle.
 /// </summary>
 public class CashDepositService : ICashDepositService
 {
@@ -73,6 +75,8 @@ public class CashDepositService : ICashDepositService
         string? phone,
         CancellationToken cancellationToken = default)
     {
+        // Ledger-only query: do not join/filter on Orders (cancelled, soft-deleted, or returned).
+        // Each DTO always carries Amount — the exact cash still held for that ledger row.
         var query = _db.CashDeposits.AsNoTracking().AsQueryable();
 
         if (status is { } s)
@@ -144,7 +148,8 @@ public class CashDepositService : ICashDepositService
 
         if (dto.OrderId is > 0)
         {
-            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == dto.OrderId, cancellationToken)
+            // Include soft-deleted orders — deposit return must still work after order delete.
+            var order = await FindOrderIncludingDeletedAsync(dto.OrderId.Value, cancellationToken)
                 ?? throw new NotFoundException("ההזמנה לא נמצאה");
             await ApplyOrderDepositReturnedAsync(order, dto.Returned, cancellationToken);
             var deposit = await FindDepositAsync(d => d.OrderId == order.Id, cancellationToken);
@@ -181,6 +186,8 @@ public class CashDepositService : ICashDepositService
 
     public async Task SyncForOrderAsync(Order order, CancellationToken cancellationToken = default)
     {
+        // Cancelled / soft-deleted orders must never destroy an open ledger row.
+        var protectOpenRow = order.IsCancelled || order.IsDeleted;
         await SyncAsync(
             d => d.OrderId == order.Id,
             d => d.OrderId = order.Id,
@@ -191,6 +198,7 @@ public class CashDepositService : ICashDepositService
             order.SystemType,
             order.DepositOnName,
             preserveReturned: !order.DepositReturned,
+            protectOpenRowFromRemoval: protectOpenRow,
             cancellationToken);
     }
 
@@ -206,6 +214,7 @@ public class CashDepositService : ICashDepositService
             SystemType.Tools,
             loan.Deposit,
             preserveReturned: !loan.DepositReturned,
+            protectOpenRowFromRemoval: false,
             cancellationToken);
     }
 
@@ -221,6 +230,7 @@ public class CashDepositService : ICashDepositService
             SystemType.Library,
             loan.Deposit,
             preserveReturned: !loan.DepositReturned,
+            protectOpenRowFromRemoval: false,
             cancellationToken);
     }
 
@@ -295,6 +305,8 @@ public class CashDepositService : ICashDepositService
     /// When <paramref name="preserveReturned"/> is true, a Returned row is left untouched
     /// (classic "re-save must not reopen"). When false, Returned rows may be updated/reopened
     /// by a later <see cref="AlignLedgerToFlagAsync"/> call.
+    /// When <paramref name="protectOpenRowFromRemoval"/> is true (cancelled / soft-deleted order),
+    /// an Open row is never deleted even if the source no longer carries a cash amount.
     /// </summary>
     private async Task SyncAsync(
         Expression<Func<CashDeposit, bool>> sourceFilter,
@@ -306,6 +318,7 @@ public class CashDepositService : ICashDepositService
         SystemType module,
         string? notes,
         bool preserveReturned,
+        bool protectOpenRowFromRemoval,
         CancellationToken cancellationToken)
     {
         var existing = await _db.CashDeposits
@@ -336,7 +349,7 @@ public class CashDepositService : ICashDepositService
         }
         else if (!hasDeposit)
         {
-            if (existing.Status != CashDepositStatus.Returned)
+            if (existing.Status != CashDepositStatus.Returned && !protectOpenRowFromRemoval)
             {
                 _db.CashDeposits.Remove(existing);
                 await _db.SaveChangesAsync(cancellationToken);
@@ -388,7 +401,7 @@ public class CashDepositService : ICashDepositService
     {
         if (deposit.OrderId is int orderId)
         {
-            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+            var order = await FindOrderIncludingDeletedAsync(orderId, cancellationToken);
             if (order != null)
             {
                 order.DepositReturned = returned
@@ -427,7 +440,7 @@ public class CashDepositService : ICashDepositService
     {
         if (deposit.OrderId is int orderId)
         {
-            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+            var order = await FindOrderIncludingDeletedAsync(orderId, cancellationToken);
             if (order != null)
             {
                 if (order.DepositType == DepositType.Cash)
@@ -472,6 +485,12 @@ public class CashDepositService : ICashDepositService
             .Where(sourceFilter)
             .OrderByDescending(d => d.Id)
             .FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// Soft-deleted orders remain in the table for the deposit FK; look up by id with no live-only filter.
+    /// </summary>
+    private Task<Order?> FindOrderIncludingDeletedAsync(int orderId, CancellationToken cancellationToken) =>
+        _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
 
     /// <summary>
     /// A cash deposit must carry an amount. Orders saved as Cash before amounts were tracked

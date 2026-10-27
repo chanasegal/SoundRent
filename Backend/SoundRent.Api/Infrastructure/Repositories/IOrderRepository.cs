@@ -72,6 +72,15 @@ public interface IOrderRepository
 
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Soft-deletes the order so cash-deposit FKs stay valid. Prefer this over <see cref="Remove"/>.
+    /// </summary>
+    void SoftDelete(Order order);
+
+    /// <summary>
+    /// Hard-delete. Blocked by the cash-deposit FK when a ledger row still references the order —
+    /// use <see cref="SoftDelete"/> instead for user-facing deletion.
+    /// </summary>
     void Remove(Order order);
 
     void RemoveLoanedEquipmentNote(LoanedEquipmentNote note);

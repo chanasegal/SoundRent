@@ -2,7 +2,11 @@ import { inject, Injectable, signal } from '@angular/core';
 import { finalize, merge, Observable, of, Subscription, tap } from 'rxjs';
 
 import { CashDepositDto } from '../models/cash-deposit.model';
-import { formatCashAmount } from '../utils/cash-deposit';
+import {
+  buildOpenCashDepositAlertMessage,
+  formatCashAmount,
+  sumOpenCashDepositAmount
+} from '../utils/cash-deposit';
 import { DataService } from './data.service';
 import { OrdersSyncService } from './orders-sync.service';
 import { ToastService } from './toast.service';
@@ -67,14 +71,17 @@ export class CashDepositsStore {
         })
       )
       .subscribe({
-        next: (rows) => {
-          this.openSignal.set(rows);
-          this.lastLoadedAt = Date.now();
-          this.loadedSignal.set(true);
-        },
+        next: (rows) => this.seedOpen(rows),
         // Background refresh: keep whatever is already on screen.
         error: () => undefined
       });
+  }
+
+  /** Apply an Open list already fetched elsewhere (board / search risk payload). */
+  seedOpen(rows: CashDepositDto[]): void {
+    this.openSignal.set(rows);
+    this.lastLoadedAt = Date.now();
+    this.loadedSignal.set(true);
   }
 
   openForPhone(phone: string | null | undefined): CashDepositDto[] {
@@ -83,6 +90,20 @@ export class CashDepositsStore {
       return [];
     }
     return this.openSignal().filter((d) => CashDepositsStore.digitsOnly(d.phone) === digits);
+  }
+
+  /** Exact total still held for this phone (ledger amount; independent of order lifecycle). */
+  openTotalForPhone(phone: string | null | undefined): number {
+    return sumOpenCashDepositAmount(this.openForPhone(phone));
+  }
+
+  /** Banner / tooltip copy, or null when the customer has no open cash deposit. */
+  openAlertMessageForPhone(phone: string | null | undefined): string | null {
+    const total = this.openTotalForPhone(phone);
+    if (!(total > 0)) {
+      return null;
+    }
+    return buildOpenCashDepositAlertMessage(total);
   }
 
   /** Marks the deposit returned and drops it from the open list. Emits the updated row, or null. */

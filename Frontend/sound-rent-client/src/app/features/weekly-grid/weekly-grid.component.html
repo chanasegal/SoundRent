@@ -261,6 +261,14 @@
                             role="img"
                           >🔴</span>
                         }
+                        @if (item.status.openCashDepositTooltip) {
+                          <span
+                            class="client-search__status-icon client-search__status-icon--cash-deposit"
+                            [attr.title]="item.status.openCashDepositTooltip"
+                            [attr.aria-label]="item.status.openCashDepositTooltip"
+                            role="img"
+                          >💰</span>
+                        }
                         @if (item.status.missingEquipmentTooltip) {
                           <span
                             class="client-search__status-icon client-search__status-icon--missing"
@@ -491,6 +499,14 @@
                                     aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
                                   >⚠️</span>
                                 }
+                                @if (openCashDepositTooltipForOrder(o); as cashDepositTip) {
+                                  <span
+                                    class="cell-cash-deposit-indicator"
+                                    [attr.title]="cashDepositTip"
+                                    [attr.aria-label]="cashDepositTip"
+                                    role="img"
+                                  >💰</span>
+                                }
                                 @if (hasOrderNotes(o)) {
                                   <span
                                     class="cell-notes-indicator"
@@ -611,6 +627,14 @@
                                     [title]="sameDayNameDuplicateTooltip"
                                     aria-label="שים לב! יש עוד הזמנה על שם זהה היום"
                                   >⚠️</span>
+                                }
+                                @if (openCashDepositTooltipForOrder(o); as cashDepositTip) {
+                                  <span
+                                    class="cell-cash-deposit-indicator"
+                                    [attr.title]="cashDepositTip"
+                                    [attr.aria-label]="cashDepositTip"
+                                    role="img"
+                                  >💰</span>
                                 }
                                 @if (hasOrderNotes(o)) {
                                   <span

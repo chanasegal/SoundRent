@@ -53,8 +53,20 @@ public class Order
 
     public bool IsCancelled { get; set; }
 
+    /// <summary>
+    /// Soft-delete flag. Deleted orders stay in the database so cash-deposit FKs remain valid;
+    /// deposit active/returned status is independent of this flag.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+
+    /// <summary>UTC timestamp when <see cref="IsDeleted"/> was set.</summary>
+    public DateTime? DeletedAt { get; set; }
+
     /// <summary>True after warehouse staff saved a return check-in for this order.</summary>
     public bool IsReturnProcessed { get; set; }
+
+    /// <summary>Cash-deposit ledger rows issued against this order (status is independent of order lifecycle).</summary>
+    public ICollection<CashDeposit> CashDeposits { get; set; } = new List<CashDeposit>();
 
     public ReturnTimeType ReturnTimeType { get; set; } = ReturnTimeType.LateNight;
 

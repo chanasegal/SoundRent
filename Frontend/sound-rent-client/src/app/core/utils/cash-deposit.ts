@@ -16,3 +16,28 @@ export function parseCashDepositAmount(raw: string | number | null | undefined):
 export function formatCashAmount(amount: number): string {
   return `₪${Number(amount).toLocaleString('he-IL', { maximumFractionDigits: 2 })}`;
 }
+
+/** Sum open cash-deposit ledger amounts (ignores non-positive rows). */
+export function sumOpenCashDepositAmount(
+  deposits: ReadonlyArray<{ amount: number | null | undefined }>
+): number {
+  return deposits.reduce((sum, d) => {
+    const n = Number(d.amount ?? 0);
+    return n > 0 ? sum + n : sum;
+  }, 0);
+}
+
+/**
+ * Global open-cash-deposit warning copy (order form banner + board/search tooltips).
+ * Amount is the exact ledger total still held for the customer.
+ */
+export function buildOpenCashDepositAlertMessage(amount: number): string {
+  if (!(amount > 0)) {
+    return '';
+  }
+  const formatted = Number(amount).toLocaleString('he-IL', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0
+  });
+  return `שים לב: ללקוח זה יש פיקדון מזומן פתוח על סך ${formatted}`;
+}

@@ -5,7 +5,9 @@ namespace SoundRent.Api.Domain.Entities;
 
 /// <summary>
 /// Central ledger row for a cash deposit held against a loan / order in any workspace.
-/// Customer details are copied from the source so the record survives source edits or deletion.
+/// Customer details are copied from the source so search/reports stay valid when the source
+/// order is cancelled, soft-deleted, or fully returned. Status (Open / Returned) changes only
+/// when staff explicitly mark the deposit returned — never from the order lifecycle.
 /// </summary>
 public class CashDeposit
 {
@@ -28,8 +30,13 @@ public class CashDeposit
     /// <summary>Workspace the deposit was taken in (Sound / Tools / Library).</summary>
     public SystemType SourceModule { get; set; } = SystemType.Sound;
 
-    /// <summary>Source <see cref="Order"/> (Sound bookings and Tools accessory loans). Not a FK.</summary>
+    /// <summary>
+    /// Source <see cref="Order"/> (Sound bookings and Tools accessory loans).
+    /// Real FK — order soft-delete keeps the link; hard delete is blocked while a row exists.
+    /// </summary>
     public int? OrderId { get; set; }
+
+    public Order? Order { get; set; }
 
     /// <summary>Source <see cref="ToolLoan"/>. Not a FK.</summary>
     public int? ToolLoanId { get; set; }

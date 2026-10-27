@@ -58,8 +58,18 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.IsCancelled)
             .HasDefaultValue(false);
 
+        builder.Property(o => o.IsDeleted)
+            .HasDefaultValue(false);
+
         builder.Property(o => o.IsReturnProcessed)
             .HasDefaultValue(false);
+
+        // Soft-delete is enforced in OrderRepository (not a global query filter):
+        // string-based model snapshots treat Entity("…Order") as Dictionary<string,object>,
+        // so HasQueryFilter((Order o) => …) breaks Migrate() / HasPendingModelChanges().
+
+        builder.HasIndex(o => o.IsDeleted)
+            .HasDatabaseName("IX_Orders_IsDeleted");
 
         // Sentinel 0 is not a named enum member; DB default LateNight applies only when unset.
         builder.Property(o => o.ReturnTimeType)
@@ -117,5 +127,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .WithOne(i => i.Order)
             .HasForeignKey(i => i.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(o => o.CashDeposits)
+            .WithOne(d => d.Order)
+            .HasForeignKey(d => d.OrderId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

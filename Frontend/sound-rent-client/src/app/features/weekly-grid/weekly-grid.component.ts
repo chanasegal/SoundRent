@@ -59,6 +59,8 @@ import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ScheduleHubService } from '../../core/services/schedule-hub.service';
 import { SystemContextService } from '../../core/services/system-context.service';
 import { ToastService } from '../../core/services/toast.service';
+import { CashDepositDto } from '../../core/models/cash-deposit.model';
+import { CashDepositsStore } from '../../core/services/cash-deposits.store';
 import { formatCashAmount } from '../../core/utils/cash-deposit';
 import { customerColorKey, customerOrderColors } from '../../core/utils/customer-order-colors';
 import {
@@ -220,6 +222,7 @@ interface ClientSearchRiskData {
   openDebts: OpenDebtGroupDto[];
   unreturned: UnreturnedItemDto[];
   lostEquipment: LostEquipmentDto[];
+  openCashDeposits: CashDepositDto[];
 }
 
 interface ClientSearchResultItem {
@@ -323,6 +326,7 @@ export class WeeklyGridComponent {
   private readonly initialDateState = createInitialDashboardDateState();
   private readonly data = inject(DataService);
   private readonly customers = inject(CustomersStore);
+  private readonly cashDeposits = inject(CashDepositsStore);
   private readonly exportSvc = inject(ExportService);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
@@ -561,6 +565,7 @@ export class WeeklyGridComponent {
       });
     });
 
+    this.cashDeposits.refresh();
     this.wireWaitlistCustomerAutocomplete();
     this.wireClientSearch();
     this.wireClientSearchRiskData();
@@ -882,9 +887,17 @@ export class WeeklyGridComponent {
           risk.openDebts,
           risk.unreturned,
           order,
-          risk.lostEquipment
+          risk.lostEquipment,
+          risk.openCashDeposits
         )
-      : buildClientSearchStatusTooltips([], [], [], order, []);
+      : buildClientSearchStatusTooltips(
+          [],
+          [],
+          [],
+          order,
+          [],
+          this.cashDeposits.openDeposits()
+        );
 
     return {
       order,
@@ -958,7 +971,8 @@ export class WeeklyGridComponent {
       this.ordersSync.debtChanged$,
       this.ordersSync.unreturnedChanged$,
       this.ordersSync.lostEquipmentChanged$,
-      this.ordersSync.orderChanged$
+      this.ordersSync.orderChanged$,
+      this.ordersSync.loanChanged$
     )
       .pipe(
         debounceTime(300),
@@ -973,15 +987,27 @@ export class WeeklyGridComponent {
       cancelled: this.data.getCancelledOrdersReport(),
       openDebts: this.data.getOpenDebtGroupsReport(),
       unreturned: this.data.getUnreturnedItems(),
-      lostEquipment: this.data.getLostEquipment()
+      lostEquipment: this.data.getLostEquipment(),
+      openCashDeposits: this.data.getCashDeposits('Open', { background: true })
     }).pipe(
-      map(({ cancelled, openDebts, unreturned, lostEquipment }) => ({
-        cancelled,
-        openDebts,
-        unreturned: unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
-        lostEquipment
-      }))
+      map(({ cancelled, openDebts, unreturned, lostEquipment, openCashDeposits }) => {
+        this.cashDeposits.seedOpen(openCashDeposits);
+        return {
+          cancelled,
+          openDebts,
+          unreturned: unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
+          lostEquipment,
+          openCashDeposits
+        };
+      })
     );
+  }
+
+  /** Board-cell tooltip for an open cash deposit held for this customer (exact ledger amount). */
+  protected openCashDepositTooltipForOrder(order: OrderDto): string | null {
+    // Touch the store signal so OnPush re-renders when open deposits refresh.
+    void this.cashDeposits.openDeposits();
+    return this.cashDeposits.openAlertMessageForPhone(order.phone);
   }
 
   private refreshClientSearchRiskInBackground(): void {

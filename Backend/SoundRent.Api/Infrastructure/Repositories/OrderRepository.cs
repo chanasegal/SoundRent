@@ -20,16 +20,19 @@ public class OrderRepository : IOrderRepository
         _db = db;
     }
 
+    /// <summary>Live orders only — soft-deleted rows stay in the DB for cash-deposit FKs.</summary>
+    private IQueryable<Order> LiveOrders => _db.Orders.Where(o => !o.IsDeleted);
+
     public Task<Order?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSingleQuery()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
     public Task<Order?> GetByIdForReadAsync(int id, CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .AsNoTracking()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
@@ -41,7 +44,7 @@ public class OrderRepository : IOrderRepository
         SystemType? systemType = null,
         CancellationToken cancellationToken = default)
     {
-        var query = WithOrderGraph(_db.Orders)
+        var query = WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .Where(o => !o.IsCancelled && o.Shifts.Any(s => s.OrderDate >= startDate && s.OrderDate <= endDate));
 
@@ -69,7 +72,7 @@ public class OrderRepository : IOrderRepository
             return [];
         }
 
-        var filtered = _db.Orders.AsNoTracking().Where(o => !o.IsCancelled);
+        var filtered = LiveOrders.AsNoTracking().Where(o => !o.IsCancelled);
 
         if (systemType.HasValue)
         {
@@ -101,7 +104,7 @@ public class OrderRepository : IOrderRepository
             return [];
         }
 
-        var loaded = await WithOrderGraph(_db.Orders)
+        var loaded = await WithOrderGraph(LiveOrders)
             .AsNoTracking()
             .AsSplitQuery()
             .Where(o => ids.Contains(o.Id))
@@ -135,7 +138,7 @@ public class OrderRepository : IOrderRepository
 
     public Task<List<Order>> GetAllForExportAsync(CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .OrderBy(o => o.Shifts.Min(s => s.OrderDate))
             .ThenBy(o => o.Id)
@@ -151,7 +154,7 @@ public class OrderRepository : IOrderRepository
         CancellationToken cancellationToken = default)
     {
         var trimmed = equipmentType.Trim();
-        var query = _db.Orders.AsNoTracking().Where(o =>
+        var query = LiveOrders.AsNoTracking().Where(o =>
             !o.IsCancelled &&
             o.Equipments.Any(e => e.EquipmentDefinitionId == trimmed) &&
             o.Shifts.Any(s => s.OrderDate == orderDate && s.TimeSlot == timeSlot));
@@ -178,7 +181,7 @@ public class OrderRepository : IOrderRepository
         }
 
         var normalized = trimmedName.ToLowerInvariant();
-        var query = _db.Orders.AsNoTracking()
+        var query = LiveOrders.AsNoTracking()
             .Include(o => o.Institution)
             .Where(o =>
                 !o.IsCancelled &&
@@ -227,7 +230,7 @@ public class OrderRepository : IOrderRepository
         int institutionId,
         CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .AsNoTracking()
             .Where(o => o.InstitutionId == institutionId)
@@ -254,7 +257,7 @@ public class OrderRepository : IOrderRepository
 
         var matches = await (
             from oe in _db.OrderEquipments.AsNoTracking()
-            join o in _db.Orders.AsNoTracking() on oe.OrderId equals o.Id
+            join o in LiveOrders.AsNoTracking() on oe.OrderId equals o.Id
             join os in _db.OrderShifts.AsNoTracking() on o.Id equals os.OrderId
             where !o.IsCancelled
                 && (!excludeOrderId.HasValue || o.Id != excludeOrderId.Value)
@@ -290,8 +293,7 @@ public class OrderRepository : IOrderRepository
             .Select(s => (s.OrderDate, s.TimeSlot))
             .ToHashSet();
 
-        var query = _db.Orders
-            .AsNoTracking()
+        var query = LiveOrders.AsNoTracking()
             .Include(o => o.Equipments)
             .ThenInclude(e => e.EquipmentDefinition)
             .Include(o => o.Shifts)
@@ -342,8 +344,7 @@ public class OrderRepository : IOrderRepository
         CancellationToken cancellationToken = default)
     {
         var trimmed = equipmentType.Trim();
-        return await _db.Orders
-            .AsNoTracking()
+        return await LiveOrders.AsNoTracking()
             .Where(o =>
                 !o.IsCancelled &&
                 o.Equipments.Any(e => e.EquipmentDefinitionId == trimmed) &&
@@ -362,6 +363,12 @@ public class OrderRepository : IOrderRepository
     public async Task AddAsync(Order order, CancellationToken cancellationToken = default)
     {
         await _db.Orders.AddAsync(order, cancellationToken);
+    }
+
+    public void SoftDelete(Order order)
+    {
+        order.IsDeleted = true;
+        order.DeletedAt = DateTime.UtcNow;
     }
 
     public void Remove(Order order)
@@ -395,7 +402,7 @@ public class OrderRepository : IOrderRepository
 
         var phones = normalizedDigitPhones.Where(p => p.Length > 0).Distinct().ToList();
 
-        return await WithOrderGraph(_db.Orders)
+        return await WithOrderGraph(LiveOrders)
             .AsNoTracking()
             .AsSplitQuery()
             .Where(o => phones.Contains(o.Phone) || (o.Phone2 != null && phones.Contains(o.Phone2)))
@@ -417,8 +424,7 @@ public class OrderRepository : IOrderRepository
             return false;
         }
 
-        return await _db.Orders
-            .AsNoTracking()
+        return await LiveOrders.AsNoTracking()
             .Where(o =>
                 !o.IsCancelled &&
                 o.Shifts.Any(s => s.OrderDate >= todayInclusive) &&
@@ -428,7 +434,7 @@ public class OrderRepository : IOrderRepository
 
     public Task<List<Order>> GetCancelledOrdersAsync(CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .Where(o => o.IsCancelled)
             .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
@@ -439,7 +445,7 @@ public class OrderRepository : IOrderRepository
 
     public Task<List<Order>> GetUnpaidOrdersAsync(CancellationToken cancellationToken = default)
     {
-        return WithOrderGraph(_db.Orders)
+        return WithOrderGraph(LiveOrders)
             .AsSplitQuery()
             .Where(o => o.IsUnpaid)
             .OrderByDescending(o => o.Shifts.Max(s => s.OrderDate))
@@ -460,8 +466,7 @@ public class OrderRepository : IOrderRepository
         CancellationToken cancellationToken = default)
     {
         // Phase 1: ids only — avoids holding a wide split-query stream open while filtering.
-        var query = _db.Orders
-            .AsNoTracking()
+        var query = LiveOrders.AsNoTracking()
             .Where(o =>
                 !o.IsCancelled
                 && o.LoanedEquipments.Any(le =>
@@ -492,8 +497,7 @@ public class OrderRepository : IOrderRepository
         }
 
         // Phase 2: slim graph (no Institution / EquipmentDefinition / serial catalogs).
-        var loaded = await _db.Orders
-            .AsNoTracking()
+        var loaded = await LiveOrders.AsNoTracking()
             .Where(o => ids.Contains(o.Id))
             .Include(o => o.Equipments)
             .Include(o => o.Shifts)
@@ -531,8 +535,7 @@ public class OrderRepository : IOrderRepository
                 .Where(n => n.Length > 0),
             StringComparer.OrdinalIgnoreCase);
 
-        var orderRows = await _db.Orders
-            .AsNoTracking()
+        var orderRows = await LiveOrders.AsNoTracking()
             .Where(o => !o.IsCancelled)
             .SelectMany(o => o.LoanedEquipments
                 .Where(le =>
@@ -652,8 +655,7 @@ public class OrderRepository : IOrderRepository
     {
         // Phase 1: order ids only. This keeps the SQL predicate aligned with quick returns
         // and avoids APPLY-heavy projections that are harder to reason about and inspect.
-        var orderQuery = _db.Orders
-            .AsNoTracking()
+        var orderQuery = LiveOrders.AsNoTracking()
             .Where(o => !o.IsCancelled)
             .Where(o => o.LoanedEquipments.Any(le => le.ReturnedQuantity > 0 || le.Notes.Any(n => n.IsReturned)))
             .Where(o => o.LoanedEquipments.Any(le =>
@@ -673,8 +675,7 @@ public class OrderRepository : IOrderRepository
 
         var loadedOrders = orderIds.Count == 0
             ? []
-            : await _db.Orders
-                .AsNoTracking()
+            : await LiveOrders.AsNoTracking()
                 .Where(o => orderIds.Contains(o.Id))
                 .Include(o => o.Shifts)
                 .Include(o => o.LoanedEquipments)
@@ -813,8 +814,7 @@ public class OrderRepository : IOrderRepository
     {
         var needle = (search ?? string.Empty).Trim();
 
-        var rows = await _db.Orders
-            .AsNoTracking()
+        var rows = await LiveOrders.AsNoTracking()
             .Where(o =>
                 !o.IsCancelled
                 && (o.SystemType == SystemType.Sound || o.SystemType == SystemType.Tools))

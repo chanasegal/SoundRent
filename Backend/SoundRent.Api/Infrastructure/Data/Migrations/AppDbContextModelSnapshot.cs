@@ -999,7 +999,15 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("IsCancelled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
@@ -1056,6 +1064,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("IsCancelled")
                         .HasDatabaseName("IX_Orders_IsCancelled");
+
+                    b.HasIndex("IsDeleted")
+                        .HasDatabaseName("IX_Orders_IsDeleted");
 
                     b.HasIndex("IsUnpaid")
                         .HasDatabaseName("IX_Orders_IsUnpaid");
@@ -1661,6 +1672,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CashDeposit", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany("CashDeposits")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.OrderLoanedEquipment", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.InventoryDefinition", "InventoryDefinition")
@@ -1768,6 +1789,8 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.Order", b =>
                 {
+                    b.Navigation("CashDeposits");
+
                     b.Navigation("CustomMissingItems");
 
                     b.Navigation("Equipments");

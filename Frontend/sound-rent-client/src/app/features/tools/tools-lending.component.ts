@@ -2579,16 +2579,18 @@ export class ToolsLendingComponent implements OnInit {
               return forkJoin({
                 cancelled: this.data.getCancelledOrdersReport(),
                 openDebts: this.data.getOpenDebtGroupsReport(),
-                unreturned: this.data.getUnreturnedItems()
+                unreturned: this.data.getUnreturnedItems(),
+                openCashDeposits: this.data.getCashDeposits('Open', { background: true })
               }).pipe(
-                map(({ cancelled, openDebts, unreturned }) => ({
+                map(({ cancelled, openDebts, unreturned, openCashDeposits }) => ({
                   formId,
                   snapshot: buildCustomerRiskAlertSnapshot(
                     cancelled,
                     openDebts,
                     unreturned.map((row) => this.inventoryStore.enrichUnreturnedItem(row)),
                     phone,
-                    customerName
+                    customerName,
+                    openCashDeposits
                   )
                 }))
               );
