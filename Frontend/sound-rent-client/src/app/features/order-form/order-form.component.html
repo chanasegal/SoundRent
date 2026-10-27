@@ -76,7 +76,7 @@
 
   <form
     [formGroup]="form"
-    (ngSubmit)="submit()"
+    (ngSubmit)="onFormSubmit($event)"
     (pointerdown)="onFormPointerDown()"
     (focusout)="onFormFocusOut($event)"
     class="space-y-5"
@@ -870,7 +870,7 @@
                         autocomplete="off"
                         [value]="accessorySerialQuickEntry()"
                         (input)="accessorySerialQuickEntry.set($any($event.target).value)"
-                        (keydown.enter)="onAccessorySerialQuickEnter(i, $event)"
+                        (keydown.enter)="$event.preventDefault(); onAccessorySerialQuickEnter(i, $event)"
                       />
                     </div>
                     @for (opt of serialOptionsForRow(i); track opt.serialCode) {
@@ -929,7 +929,8 @@
                   [value]="line.query"
                   (input)="onDraftQueryInput(line.id, $any($event.target).value)"
                   (focus)="onDraftQueryFocus(line.id)"
-                  (keydown.enter)="onDraftQueryEnter(line.id, $event)"
+                  (keydown)="onDraftQueryKeydown(line.id, $event)"
+                  enterkeyhint="next"
                   autocomplete="off"
                   role="combobox"
                   aria-autocomplete="list"
@@ -975,7 +976,7 @@
                         class="accessory-draft-line__codes-chip-remove"
                         [attr.aria-label]="'הסרת קוד ' + code"
                         (click)="removeDraftCode(line.id, code, $event)"
-                        (keydown.enter)="$event.stopPropagation()"
+                        (keydown.enter)="$event.preventDefault(); $event.stopPropagation()"
                       >
                         ×
                       </button>
@@ -991,9 +992,8 @@
                     [value]="line.codesQuery"
                     (input)="onDraftCodesQueryInput(line.id, $any($event.target).value)"
                     (focus)="openDraftCodesDropdown(line.id)"
-                    (keydown.enter)="onDraftCodesInputEnter(line.id, $event)"
-                    (keydown.backspace)="onDraftCodesInputBackspace(line.id, $event)"
-                    (keydown.escape)="closeDraftCodesDropdown(line.id)"
+                    (keydown)="onDraftCodesInputKeydown(line.id, $event)"
+                    enterkeyhint="done"
                     autocomplete="off"
                     role="combobox"
                     aria-autocomplete="list"

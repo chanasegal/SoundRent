@@ -567,6 +567,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
    * clicking checkboxes / equipment options (blur → body before the new control focuses).
    */
   private formPointerDownInside = false;
+  /** Blocks ngSubmit when Enter is handled inside accessory draft inputs (tablet VK quirk). */
+  private suppressImplicitFormSubmit = false;
 
   protected readonly accessoryDraftLines = signal<AccessoryDraftLine[]>([
     this.createAccessoryDraftLine()
@@ -728,21 +730,53 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     );
   }
 
-  protected onDraftQueryEnter(lineId: string, event: Event): void {
+  /**
+   * Item-name Enter:
+   * - "Item + Code" (or codes already chosen) → save row and advance
+   * - item name only → resolve item and move focus to the codes field
+   * Always preventDefault so tablet virtual keyboards cannot submit the form / jump to notes.
+   */
+  protected onDraftQueryKeydown(lineId: string, event: KeyboardEvent): void {
+    if (!this.isEnterKey(event)) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
-    // From the item field: commit when codes are present; otherwise focus the codes input.
+    this.blockImplicitFormSubmit();
+
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return;
+    }
+
+    const trimmed = line.query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const parsed = this.parseFreeTextAccessoryEntry(trimmed);
+    const hasInlineCodes = !!parsed && parsed.codes.length > 0;
+    const hasChosenCodes =
+      line.selectedCodes.length > 0 || line.codesQuery.trim().length > 0;
+
+    if (hasInlineCodes || hasChosenCodes) {
+      this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: true });
+      return;
+    }
+
+    // Name only → ensure item is resolved, then focus the corresponding codes input.
     this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: false });
   }
 
   /** Swallow Enter from checkbox/panel so it cannot re-trigger add/commit on the wrapper. */
   protected onDraftCodesPanelKeydown(event: Event): void {
     const keyEvent = event as KeyboardEvent;
-    if (keyEvent.key !== 'Enter') {
+    if (!this.isEnterKey(keyEvent)) {
       return;
     }
     keyEvent.preventDefault();
     keyEvent.stopPropagation();
+    this.blockImplicitFormSubmit();
   }
 
   protected onAddDraftLineClick(event: Event): void {
@@ -816,9 +850,27 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.patchDraftLine(lineId, { codesQuery: value, codesOpen: true, suggestOpen: false });
   }
 
-  protected onDraftCodesInputEnter(lineId: string, event: Event): void {
+  /**
+   * Codes-field Enter:
+   * - 1st Enter with typed code(s) → save/assign into selectedCodes (stay on field)
+   * - 2nd Enter (empty / already-selected) → commit row and move to the next draft line
+   */
+  protected onDraftCodesInputKeydown(lineId: string, event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      this.closeDraftCodesDropdown(lineId);
+      return;
+    }
+    if (event.key === 'Backspace') {
+      this.onDraftCodesInputBackspace(lineId, event);
+      return;
+    }
+    if (!this.isEnterKey(event)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
+    this.blockImplicitFormSubmit();
 
     const line = this.accessoryDraftLines().find((l) => l.id === lineId);
     if (!line) {
@@ -1454,20 +1506,49 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   private scheduleFocusDraftCodesDropdown(lineId: string): void {
+    const focusCodes = (): boolean => {
+      this.patchDraftLine(lineId, { codesOpen: true, suggestOpen: false });
+      const input = this.document.querySelector<HTMLInputElement>(
+        `[data-accessory-draft-codes-input][data-line-id="${lineId}"]`
+      );
+      if (!input || input.disabled) {
+        return false;
+      }
+      input.scrollIntoView({ block: 'nearest' });
+      input.focus({ preventScroll: true });
+      return this.document.activeElement === input;
+    };
+
     afterNextRender(
       () => {
-        this.patchDraftLine(lineId, { codesOpen: true });
-        const input = this.document.querySelector<HTMLInputElement>(
-          `[data-accessory-draft-codes-input][data-line-id="${lineId}"]`
-        );
-        if (!input) {
+        if (focusCodes()) {
+          // Tablet VK / viewport resize can steal focus right after Enter — re-assert once.
+          setTimeout(() => focusCodes(), 60);
           return;
         }
-        input.scrollIntoView({ block: 'nearest' });
-        input.focus({ preventScroll: true });
+        // Input may still be disabled until CD applies inventoryDefinitionId — retry shortly.
+        setTimeout(() => focusCodes(), 60);
       },
       { injector: this.injector }
     );
+  }
+
+  private isEnterKey(event: KeyboardEvent): boolean {
+    return (
+      event.key === 'Enter' ||
+      event.code === 'Enter' ||
+      event.code === 'NumpadEnter' ||
+      // Older Android WebViews still report keyCode only.
+      (event as KeyboardEvent & { keyCode?: number }).keyCode === 13
+    );
+  }
+
+  private blockImplicitFormSubmit(): void {
+    this.suppressImplicitFormSubmit = true;
+    // Tablet VKs sometimes fire form submit after keydown (not in the same turn).
+    setTimeout(() => {
+      this.suppressImplicitFormSubmit = false;
+    }, 300);
   }
 
   private ensureDraftDefinitionAvailability(definitionId: number): void {
@@ -1926,6 +2007,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected onAccessorySerialQuickEnter(rowIndex: number, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+    this.blockImplicitFormSubmit();
 
     const typed = this.accessorySerialQuickEntry().trim();
     if (!typed) {
@@ -2686,6 +2768,26 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return TimeSlot.Evening;
     }
     return null;
+  }
+
+  /**
+   * Form ngSubmit handler. Ignores implicit Enter submits from accessory draft fields
+   * (tablet virtual keyboards often fire submit even after keydown.preventDefault).
+   */
+  protected onFormSubmit(event?: Event): void {
+    event?.preventDefault();
+    if (this.suppressImplicitFormSubmit) {
+      return;
+    }
+    const active = this.document.activeElement as HTMLElement | null;
+    if (
+      active?.matches?.(
+        '[data-accessory-draft-input], [data-accessory-draft-codes-input], .multi-select__quick-input'
+      )
+    ) {
+      return;
+    }
+    this.submit();
   }
 
   /**
