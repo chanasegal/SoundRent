@@ -39,6 +39,32 @@ export function orderHasActiveLoans(order: OrderDto | null | undefined): boolean
   return (order?.loanedEquipments ?? []).some(isLoanedLineActive);
 }
 
+/**
+ * True when any return was logged for this order (full or partial) —
+ * either the order is marked return-processed, or a line has returnedQuantity / returned notes.
+ */
+export function orderHasRecordedReturns(order: OrderDto | null | undefined): boolean {
+  if (!order) {
+    return false;
+  }
+  if (order.isReturnProcessed) {
+    return true;
+  }
+  return (order.loanedEquipments ?? []).some(
+    (le) =>
+      (le.returnedQuantity ?? 0) > 0 ||
+      (le.notes ?? []).some((n) => n.isReturned === true)
+  );
+}
+
+/**
+ * Ended-order case: accessories are still out and no return registration exists at all
+ * (distinct from partial returns, which already have recorded returns).
+ */
+export function orderHasNeverRecordedReturns(order: OrderDto | null | undefined): boolean {
+  return orderHasActiveLoans(order) && !orderHasRecordedReturns(order);
+}
+
 export function buildOrderDeleteConfirmMessage(
   order: OrderDto | null | undefined,
   orderNumber: string,

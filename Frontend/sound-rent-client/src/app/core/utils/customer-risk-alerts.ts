@@ -10,6 +10,7 @@ import {
   buildOpenCashDepositAlertMessage,
   sumOpenCashDepositAmount
 } from './cash-deposit';
+import { orderHasNeverRecordedReturns } from './order-active-loans';
 
 /** Digits-only phone normalize used for customer matching. */
 export function digitsOnlyPhone(raw: string | null | undefined): string {
@@ -231,11 +232,19 @@ export function buildForgottenEquipmentTooltip(items: LostEquipmentDto[]): strin
   return `ציוד שנשכח: ${items.map(formatLostEquipmentItemLabel).join(' | ')}`;
 }
 
+export const NEVER_RETURNED_EQUIPMENT_TOOLTIP =
+  'ציוד טרם הוחזר — לא בוצעה רישום החזרה להזמנה זו';
+
 export interface ClientSearchStatusTooltips {
   /** Red debt badge hover text; null when no outstanding debt. */
   openDebtTooltip: string | null;
   /** Yellow missing-equipment badge hover text; null when nothing is missing. */
   missingEquipmentTooltip: string | null;
+  /**
+   * Zero return logs while accessories are still out (not partial returns).
+   * Shown on ended search cards as "ציוד טרם הוחזר".
+   */
+  neverReturnedTooltip: string | null;
   /** Forgotten-equipment badge hover text; null when none apply. */
   forgottenEquipmentTooltip: string | null;
   /** Cancelled-order badge hover text; null when none apply. */
@@ -295,6 +304,9 @@ export function buildClientSearchStatusTooltips(
     openDebtTooltip: debtParts.length > 0 ? debtParts.join(' · ') : null,
     missingEquipmentTooltip:
       missingItems.length > 0 ? buildUnreturnedItemsAlertMessage(missingItems) : null,
+    neverReturnedTooltip: orderHasNeverRecordedReturns(order)
+      ? NEVER_RETURNED_EQUIPMENT_TOOLTIP
+      : null,
     forgottenEquipmentTooltip:
       forgottenItems.length > 0 ? buildForgottenEquipmentTooltip(forgottenItems) : null,
     cancelledTooltip: hasCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null,

@@ -246,7 +246,15 @@
                       }
                       <div class="client-search__badges">
                         @if (item.isPast) {
-                          <span class="client-search__badge client-search__badge--past">הסתיימה</span>
+                          @if (item.status.neverReturnedTooltip) {
+                            <span
+                              class="client-search__badge client-search__badge--never-returned"
+                              [attr.title]="item.status.neverReturnedTooltip"
+                              [attr.aria-label]="item.status.neverReturnedTooltip"
+                            >ציוד טרם הוחזר</span>
+                          } @else {
+                            <span class="client-search__badge client-search__badge--past">הסתיימה</span>
+                          }
                         } @else {
                           <span class="client-search__badge client-search__badge--upcoming">פעילה / עתידית</span>
                         }
