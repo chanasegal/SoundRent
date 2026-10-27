@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes } from '@angular/router';
 
 import { authGuard, guestGuard } from './core/guards/auth.guard';
+import { canDeactivateGuard } from './core/guards/can-deactivate.guard';
 import { SystemType } from './core/models/enums';
 import { SystemContextService } from './core/services/system-context.service';
 import { LayoutComponent } from './shared/layout/layout.component';
@@ -129,6 +130,7 @@ export const routes: Routes = [
       },
       {
         path: 'admin/equipment-report',
+        canDeactivate: [canDeactivateGuard],
         loadComponent: () =>
           import('./features/admin/daily-equipment-report.component').then(
             (m) => m.DailyEquipmentReportComponent
@@ -152,11 +154,13 @@ export const routes: Routes = [
       },
       {
         path: 'orders/new',
+        canDeactivate: [canDeactivateGuard],
         loadComponent: () =>
           import('./features/order-form/order-form.component').then((m) => m.OrderFormComponent)
       },
       {
         path: 'orders/:id',
+        canDeactivate: [canDeactivateGuard],
         loadComponent: () =>
           import('./features/order-form/order-form.component').then((m) => m.OrderFormComponent)
       },

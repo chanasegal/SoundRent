@@ -41,6 +41,7 @@ import {
   map,
   merge,
   mergeMap,
+  Observable,
   of,
   startWith,
   switchMap,
@@ -95,6 +96,12 @@ import {
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { buildOrderDeleteConfirmMessage } from '../../core/utils/order-active-loans';
+import {
+  isQuantityCodeShortage,
+  QuantityCodeShortage,
+  quantityCodeShortageMessage
+} from '../../core/utils/quantity-code-shortage';
+import { CanComponentDeactivate } from '../../core/guards/can-deactivate.guard';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -182,7 +189,7 @@ interface BookingUiState {
   templateUrl: './order-form.component.html',
   styleUrl: './order-form.component.scss'
 })
-export class OrderFormComponent implements OnInit, OnDestroy {
+export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeactivate {
   private readonly fb = inject(FormBuilder);
   private readonly data = inject(DataService);
   private readonly toast = inject(ToastService);
@@ -1771,6 +1778,16 @@ export class OrderFormComponent implements OnInit, OnDestroy {
   protected readonly removeAccessoryConfirmIndex = signal<number | null>(null);
   protected readonly removeAccessoryConfirmName = signal('');
 
+  /**
+   * Soft warning when requested quantity > selected serial codes on save/exit.
+   * `null` when the modal is closed.
+   */
+  protected readonly quantityMismatchWarnings = signal<QuantityCodeShortage[] | null>(null);
+  private quantityMismatchPendingAction: (() => void) | null = null;
+  private quantityMismatchCancelAction: (() => void) | null = null;
+  /** Set when leave was already confirmed so the deactivate guard does not re-prompt. */
+  private bypassQuantityDeactivateGuard = false;
+
   /** Opens the remove confirmation modal; the row is only deleted after the user confirms. */
   protected removeAccessoryRow(index: number): void {
     if (index < 0 || index >= this.equipmentList.length) {
@@ -2134,6 +2151,110 @@ export class OrderFormComponent implements OnInit, OnDestroy {
     return (this.selectedCodesControl(rowIndex).value ?? []).length;
   }
 
+  /** Requested quantity from the row control (target for code selection). */
+  protected accessoryRequestedQuantity(rowIndex: number): number {
+    const qty = Number(this.getRowGroup(rowIndex).get('quantity')?.value);
+    return Number.isFinite(qty) && qty > 0 ? Math.trunc(qty) : 1;
+  }
+
+  /** Number of non-empty serial codes currently selected on the row. */
+  protected accessorySelectedCodesCount(rowIndex: number): number {
+    const selected = this.selectedCodesControl(rowIndex).value ?? [];
+    return selected.map((c) => String(c).trim()).filter((c) => c.length > 0).length;
+  }
+
+  /** True when selected codes are fewer than the requested quantity. */
+  protected accessoryCodesQuantityMismatch(rowIndex: number): boolean {
+    return isQuantityCodeShortage(
+      this.accessorySelectedCodesCount(rowIndex),
+      this.accessoryRequestedQuantity(rowIndex)
+    );
+  }
+
+  protected quantityMismatchMessage(warning: QuantityCodeShortage): string {
+    return quantityCodeShortageMessage(warning);
+  }
+
+  protected cancelQuantityMismatchWarning(): void {
+    const cancel = this.quantityMismatchCancelAction;
+    this.quantityMismatchWarnings.set(null);
+    this.quantityMismatchPendingAction = null;
+    this.quantityMismatchCancelAction = null;
+    cancel?.();
+  }
+
+  protected proceedDespiteQuantityMismatch(): void {
+    const action = this.quantityMismatchPendingAction;
+    this.quantityMismatchWarnings.set(null);
+    this.quantityMismatchPendingAction = null;
+    this.quantityMismatchCancelAction = null;
+    action?.();
+  }
+
+  /** Rows where selected serial codes are fewer than the requested quantity. */
+  private findQuantityMismatches(): QuantityCodeShortage[] {
+    const mismatches: QuantityCodeShortage[] = [];
+    for (let i = 0; i < this.equipmentList.length; i++) {
+      const group = this.getRowGroup(i);
+      const requestedRaw = Number(group.get('quantity')?.value);
+      const requested = Number.isFinite(requestedRaw) && requestedRaw > 0 ? Math.trunc(requestedRaw) : 0;
+      const selected = (group.get('selectedCodes')?.value as string[] | null) ?? [];
+      const actual = selected.map((c) => String(c).trim()).filter((c) => c.length > 0).length;
+      if (!isQuantityCodeShortage(actual, requested)) {
+        continue;
+      }
+      const itemName = String(group.get('label')?.value ?? '').trim() || 'פריט';
+      mismatches.push({ itemName, actualCount: actual, requestedCount: requested });
+    }
+    return mismatches;
+  }
+
+  /**
+   * Soft gate for intentional save/exit: warn when codes < quantity, allow proceed anyway.
+   * Silent auto-save / unload paths skip the modal.
+   */
+  private confirmQuantityMatchOrProceed(onProceed: () => void, onCancel?: () => void): void {
+    if (this.documentUnloading) {
+      onProceed();
+      return;
+    }
+    const mismatches = this.findQuantityMismatches();
+    if (mismatches.length === 0) {
+      onProceed();
+      return;
+    }
+    this.quantityMismatchPendingAction = onProceed;
+    this.quantityMismatchCancelAction = onCancel ?? null;
+    this.quantityMismatchWarnings.set(mismatches);
+  }
+
+  /** Block in-app navigation away while code quantities are short, unless already confirmed. */
+  canDeactivate(): Observable<boolean> | boolean {
+    if (this.bypassQuantityDeactivateGuard || this.documentUnloading) {
+      return true;
+    }
+    if (this.quantityMismatchWarnings() != null) {
+      return false;
+    }
+    const mismatches = this.findQuantityMismatches();
+    if (mismatches.length === 0) {
+      return true;
+    }
+    return new Observable<boolean>((subscriber) => {
+      this.confirmQuantityMatchOrProceed(
+        () => {
+          this.bypassQuantityDeactivateGuard = true;
+          subscriber.next(true);
+          subscriber.complete();
+        },
+        () => {
+          subscriber.next(false);
+          subscriber.complete();
+        }
+      );
+    });
+  }
+
   protected closeAccessorySerialDropdown(): void {
     this.accessorySerialDropdownRow.set(null);
     this.accessorySerialQuickEntry.set('');
@@ -2322,6 +2443,11 @@ export class OrderFormComponent implements OnInit, OnDestroy {
    * already occupies the selected shift, ask before leaving so Cancel stays on the form.
    */
   private persistThenLeave(onComplete: () => void): void {
+    // Quantity mismatch dialog owns the leave decision — don't navigate away underneath it.
+    if (this.quantityMismatchWarnings() != null) {
+      return;
+    }
+
     if (
       this.suppressAutoSave ||
       this.autoSaveBusy ||
@@ -2329,49 +2455,58 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       this.returnSaving() ||
       this.returnModalOpen()
     ) {
+      this.bypassQuantityDeactivateGuard = true;
       onComplete();
       return;
     }
 
     this.commitPendingDraftLinesBeforeSave(true);
-    if (this.form.invalid || this.validateSelectedSerialAvailability()) {
-      onComplete();
-      return;
-    }
 
-    const payloads = this.toPayloads();
-    if (payloads.length === 0) {
+    const leave = (): void => {
+      this.bypassQuantityDeactivateGuard = true;
       onComplete();
-      return;
-    }
+    };
 
-    const key = this.payloadKey(payloads);
-    if (key === this.lastSavedPayloadKey) {
-      onComplete();
-      return;
-    }
-
-    forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p))).subscribe((conflictFlags) => {
-      if (conflictFlags.some((c) => c)) {
-        this.promptDuplicateShiftConfirm({
-          onAccept: () => {
-            this.doubleBookingDeclinedKey = null;
-            this.executeSaveRequests(
-              payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
-              { mode: 'auto' }
-            );
-            onComplete();
-          },
-          onReject: () => {
-            this.doubleBookingDeclinedKey = key;
-            this.setAutoSaveStatus('conflict');
-          }
-        });
+    this.confirmQuantityMatchOrProceed(() => {
+      if (this.form.invalid || this.validateSelectedSerialAvailability()) {
+        leave();
         return;
       }
 
-      this.executeSaveRequests(payloads, { mode: 'auto' });
-      onComplete();
+      const payloads = this.toPayloads();
+      if (payloads.length === 0) {
+        leave();
+        return;
+      }
+
+      const key = this.payloadKey(payloads);
+      if (key === this.lastSavedPayloadKey) {
+        leave();
+        return;
+      }
+
+      forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p))).subscribe((conflictFlags) => {
+        if (conflictFlags.some((c) => c)) {
+          this.promptDuplicateShiftConfirm({
+            onAccept: () => {
+              this.doubleBookingDeclinedKey = null;
+              this.executeSaveRequests(
+                payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
+                { mode: 'auto' }
+              );
+              leave();
+            },
+            onReject: () => {
+              this.doubleBookingDeclinedKey = key;
+              this.setAutoSaveStatus('conflict');
+            }
+          });
+          return;
+        }
+
+        this.executeSaveRequests(payloads, { mode: 'auto' });
+        leave();
+      });
     });
   }
 
@@ -2574,7 +2709,7 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.performSave({ mode: 'manual' });
+    this.confirmQuantityMatchOrProceed(() => this.performSave({ mode: 'manual' }));
   }
 
   /** Force-save when auto-save paused due to a double-booking conflict. */
@@ -2594,7 +2729,9 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       return;
     }
     this.doubleBookingDeclinedKey = null;
-    this.performSave({ mode: 'auto', allowDoubleBooking: true });
+    this.confirmQuantityMatchOrProceed(() =>
+      this.performSave({ mode: 'auto', allowDoubleBooking: true })
+    );
   }
 
   /**
@@ -2607,7 +2744,8 @@ export class OrderFormComponent implements OnInit, OnDestroy {
       this.autoSaveBusy ||
       this.submitting() ||
       this.returnSaving() ||
-      this.returnModalOpen()
+      this.returnModalOpen() ||
+      this.quantityMismatchWarnings() != null
     ) {
       return;
     }

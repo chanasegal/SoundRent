@@ -1376,6 +1376,30 @@
   font-weight: 600;
 }
 
+.accessory-row__codes-progress {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+
+  &--mismatch {
+    border-color: #fdba74;
+    background: #fff7ed;
+    color: #c2410c;
+  }
+}
+
 .accessory-row__serial {
   display: inline-flex;
   flex-wrap: wrap;

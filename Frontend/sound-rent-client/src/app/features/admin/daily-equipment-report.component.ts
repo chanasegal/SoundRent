@@ -11,7 +11,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
+import { finalize, Observable } from 'rxjs';
 
 import {
   AccessorySerialOptionDto
@@ -38,6 +38,12 @@ import { ExportService } from '../../core/services/export.service';
 import { HebrewDateParts, HebrewDateService } from '../../core/services/hebrew-date.service';
 import { OrdersSyncService } from '../../core/services/orders-sync.service';
 import { ToastService } from '../../core/services/toast.service';
+import { CanComponentDeactivate } from '../../core/guards/can-deactivate.guard';
+import {
+  isQuantityCodeShortage,
+  QuantityCodeShortage,
+  quantityCodeShortageMessage
+} from '../../core/utils/quantity-code-shortage';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { ClickOutsideDirective } from '../../shared/directives/click-outside.directive';
@@ -99,7 +105,7 @@ const EMPTY_RETURNS_CUSTOMERS_MSG = 'אין הזמנות להחזרה בתארי
   templateUrl: './daily-equipment-report.component.html',
   styleUrl: './daily-equipment-report.component.scss'
 })
-export class DailyEquipmentReportComponent implements OnInit {
+export class DailyEquipmentReportComponent implements OnInit, CanComponentDeactivate {
   private readonly data = inject(DataService);
   private readonly ordersSync = inject(OrdersSyncService);
   private readonly exportSvc = inject(ExportService);
@@ -111,6 +117,12 @@ export class DailyEquipmentReportComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+
+  /** Soft warning when codes < quantity; `null` when the modal is closed. */
+  protected readonly quantityMismatchWarnings = signal<QuantityCodeShortage[] | null>(null);
+  private quantityMismatchPendingAction: (() => void) | null = null;
+  private quantityMismatchCancelAction: (() => void) | null = null;
+  private bypassQuantityDeactivateGuard = false;
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
   private readonly extraYearsSig = signal<number[]>([]);
@@ -288,6 +300,136 @@ export class DailyEquipmentReportComponent implements OnInit {
       return Math.max(row.serialCodes.length, 1);
     }
     return row.quantity;
+  }
+
+  /** Filled serial-code count for the progress counter (draft while panel is open). */
+  protected accessoryFilledCodesCount(row: CustomerAccessoryLine): number {
+    if (this.isSerialDropdownOpen(row)) {
+      return this.getDraftCodes(row).length;
+    }
+    return row.serialCodes.map((c) => c.trim()).filter((c) => c.length > 0).length;
+  }
+
+  protected accessoryCodesShortage(row: CustomerAccessoryLine): boolean {
+    return isQuantityCodeShortage(
+      this.accessoryFilledCodesCount(row),
+      this.displayAccessoryQuantity(row)
+    );
+  }
+
+  protected quantityMismatchMessage(warning: QuantityCodeShortage): string {
+    return quantityCodeShortageMessage(warning);
+  }
+
+  protected cancelQuantityMismatchWarning(): void {
+    const cancel = this.quantityMismatchCancelAction;
+    this.quantityMismatchWarnings.set(null);
+    this.quantityMismatchPendingAction = null;
+    this.quantityMismatchCancelAction = null;
+    cancel?.();
+  }
+
+  protected proceedDespiteQuantityMismatch(): void {
+    const action = this.quantityMismatchPendingAction;
+    this.quantityMismatchWarnings.set(null);
+    this.quantityMismatchPendingAction = null;
+    this.quantityMismatchCancelAction = null;
+    action?.();
+  }
+
+  private confirmQuantityMatchOrProceed(onProceed: () => void, onCancel?: () => void): void {
+    const mismatches = this.findQuantityShortages();
+    if (mismatches.length === 0) {
+      onProceed();
+      return;
+    }
+    this.quantityMismatchPendingAction = onProceed;
+    this.quantityMismatchCancelAction = onCancel ?? null;
+    this.quantityMismatchWarnings.set(mismatches);
+  }
+
+  private confirmRowQuantityOrProceed(
+    row: CustomerAccessoryLine,
+    codes: string[],
+    quantity: number,
+    onProceed: () => void,
+    onCancel?: () => void
+  ): void {
+    if (!isQuantityCodeShortage(codes.length, quantity)) {
+      onProceed();
+      return;
+    }
+    const shortage: QuantityCodeShortage = {
+      itemName: row.label.trim() || 'פריט',
+      actualCount: codes.length,
+      requestedCount: quantity
+    };
+    this.quantityMismatchPendingAction = onProceed;
+    this.quantityMismatchCancelAction = onCancel ?? null;
+    this.quantityMismatchWarnings.set([shortage]);
+  }
+
+  /** Outbound (and pending) rows where assigned codes are fewer than requested quantity. */
+  private findQuantityShortages(): QuantityCodeShortage[] {
+    const report = this.report();
+    if (!report) {
+      return [];
+    }
+
+    const rows: CustomerAccessoryLine[] = [];
+    for (const customer of report.outbound.customers) {
+      rows.push(...this.displayAccessoryRows(customer));
+    }
+
+    const shortages: QuantityCodeShortage[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (row.isCustomItem && row.inventoryDefinitionId == null) {
+        continue;
+      }
+      const actual = this.accessoryFilledCodesCount(row);
+      const requested = this.displayAccessoryQuantity(row);
+      if (!isQuantityCodeShortage(actual, requested)) {
+        continue;
+      }
+      const key = `${row.rowKey}|${actual}|${requested}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      shortages.push({
+        itemName: row.label.trim() || 'פריט',
+        actualCount: actual,
+        requestedCount: requested
+      });
+    }
+    return shortages;
+  }
+
+  canDeactivate(): Observable<boolean> | boolean {
+    if (this.bypassQuantityDeactivateGuard) {
+      return true;
+    }
+    if (this.quantityMismatchWarnings() != null) {
+      return false;
+    }
+    const mismatches = this.findQuantityShortages();
+    if (mismatches.length === 0) {
+      return true;
+    }
+    return new Observable<boolean>((subscriber) => {
+      this.confirmQuantityMatchOrProceed(
+        () => {
+          this.bypassQuantityDeactivateGuard = true;
+          subscriber.next(true);
+          subscriber.complete();
+        },
+        () => {
+          subscriber.next(false);
+          subscriber.complete();
+        }
+      );
+    });
   }
 
   protected getDraftQuantity(row: CustomerAccessoryLine): number {
@@ -935,15 +1077,25 @@ export class DailyEquipmentReportComponent implements OnInit {
     const quantity = this.getDraftQuantity(row);
     const hasChanges = this.hasSerialDraftChanges(row);
 
+    const finishClose = (): void => {
+      this.clearSerialDraft(row.rowKey);
+      this.serialQuickEntry.set('');
+      this.openSerialDropdownKey.set(null);
+    };
+
     if (options.saveIfChanged && hasChanges) {
-      this.saveSerialCodes({ ...row, serialCodes: draft }, draft, quantity);
-    } else if (!options.saveIfChanged && this.isPendingAccessoryRow(row)) {
+      this.confirmRowQuantityOrProceed(row, draft, quantity, () => {
+        this.saveSerialCodes({ ...row, serialCodes: draft }, draft, quantity);
+        finishClose();
+      });
+      return;
+    }
+
+    if (!options.saveIfChanged && this.isPendingAccessoryRow(row)) {
       this.removePendingRow(row);
     }
 
-    this.clearSerialDraft(row.rowKey);
-    this.serialQuickEntry.set('');
-    this.openSerialDropdownKey.set(null);
+    finishClose();
   }
 
   private initSerialDraft(row: CustomerAccessoryLine): void {

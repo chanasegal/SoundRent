@@ -248,12 +248,22 @@ $date-control-height: 2.5rem;
     justify-content: center;
     min-width: 1.65rem;
     height: 1.65rem;
-    padding: 0 0.35rem;
+    padding: 0 0.4rem;
     border-radius: 999px;
     background: #e0f2fe;
     color: #0c4a6e;
     font-weight: 800;
     font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    unicode-bidi: isolate;
+    white-space: nowrap;
+
+    &--mismatch {
+      background: #fff7ed;
+      color: #c2410c;
+      box-shadow: inset 0 0 0 1px #fdba74;
+    }
   }
 }
 

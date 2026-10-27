@@ -773,6 +773,14 @@
               </label>
               <span class="accessory-row__label">
                 {{ $any(ctrl).get('label')?.value }}
+                <span
+                  class="accessory-row__codes-progress"
+                  [class.accessory-row__codes-progress--mismatch]="accessoryCodesQuantityMismatch(i)"
+                  [attr.aria-label]="'נבחרו ' + accessorySelectedCodesCount(i) + ' מתוך ' + accessoryRequestedQuantity(i)"
+                  [attr.title]="'קודים שנבחרו / כמות מבוקשת: ' + accessorySelectedCodesCount(i) + '/' + accessoryRequestedQuantity(i)"
+                >
+                  {{ accessorySelectedCodesCount(i) }}/{{ accessoryRequestedQuantity(i) }}
+                </span>
                 @if (accessoryMissingQuantity(i) > 0) {
                   <span class="not-returned-badge" title="פריטים שלא הוחזרו">לא הוחזר ×{{ accessoryMissingQuantity(i) }}</span>
                 }
@@ -1294,6 +1302,51 @@
           (click)="confirmRemoveAccessoryRow()"
         >
           הסר
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (quantityMismatchWarnings(); as mismatchWarnings) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="quantity-mismatch-confirm-title"
+    (click)="cancelQuantityMismatchWarning()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 28rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
+        <h2 id="quantity-mismatch-confirm-title" class="text-lg font-bold text-[#002244]">
+          אי-התאמה בכמות קודים
+        </h2>
+      </div>
+      <div class="app-modal-body px-5 py-4">
+        <ul class="flex flex-col gap-2">
+          @for (warning of mismatchWarnings; track warning.itemName + '-' + warning.requestedCount) {
+            <li class="text-sm text-slate-700">{{ quantityMismatchMessage(warning) }}</li>
+          }
+        </ul>
+      </div>
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          (click)="cancelQuantityMismatchWarning()"
+        >
+          חזרה לטופס
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-amber-600 bg-amber-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
+          (click)="proceedDespiteQuantityMismatch()"
+        >
+          אישור והמשך בכל זאת
         </button>
       </div>
     </div>
