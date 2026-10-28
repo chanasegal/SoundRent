@@ -80,6 +80,14 @@ public class ToolsInventoryController : ControllerBase
         return Ok(await _service.LocateSerialAsync(serialCode, toolDefinitionId, cancellationToken));
     }
 
+    [HttpGet("location-by-type")]
+    public async Task<ActionResult<ToolTypeLocationDto>> LocateByType(
+        [FromQuery] int toolDefinitionId,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.LocateByTypeAsync(toolDefinitionId, cancellationToken));
+    }
+
     [HttpGet("available-serials")]
     public async Task<ActionResult<List<string>>> AvailableSerials(
         [FromQuery] int[] toolIds,

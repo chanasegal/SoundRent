@@ -19,6 +19,7 @@ public interface IToolInventoryService
         string serialCode,
         int? toolDefinitionId = null,
         CancellationToken cancellationToken = default);
+    Task<ToolTypeLocationDto> LocateByTypeAsync(int toolDefinitionId, CancellationToken cancellationToken = default);
     Task<List<string>> GetAvailableSerialsAsync(IEnumerable<int> toolDefinitionIds, CancellationToken cancellationToken = default);
     /// <summary>Single-query bulk availability for all tools (AsNoTracking).</summary>
     Task<List<ToolAvailableSerialsGroupDto>> GetAllAvailableSerialsGroupedAsync(
@@ -66,14 +67,21 @@ public class ToolInventoryService : IToolInventoryService
             throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
         }
 
+        var requiresCode = dto.RequiresCode;
         var quantity = dto.Quantity is int q && q > 0 ? Math.Min(q, 200) : 0;
-        var codes = BuildSerialCodes(quantity, dto.SerialCodes);
+        var codes = requiresCode ? BuildSerialCodes(quantity, dto.SerialCodes) : [];
+        if (requiresCode)
+        {
+            quantity = codes.Count;
+        }
 
         var maxSort = await _db.ToolDefinitions.MaxAsync(t => (int?)t.SortOrder, cancellationToken) ?? 0;
         var entity = new ToolDefinition
         {
             DisplayName = displayName,
             SortOrder = maxSort + 1,
+            Quantity = quantity,
+            RequiresCode = requiresCode,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SerialCodes = codes
@@ -145,7 +153,10 @@ public class ToolInventoryService : IToolInventoryService
 
         try
         {
-            ReplaceSerialCollection(entity, NormalizeCodes(dto.SerialCodes));
+            var codes = NormalizeCodes(dto.SerialCodes);
+            ReplaceSerialCollection(entity, codes);
+            entity.RequiresCode = true;
+            entity.Quantity = codes.Count;
             entity.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(cancellationToken);
             return ToDto(entity);
@@ -179,7 +190,7 @@ public class ToolInventoryService : IToolInventoryService
 
         var seenIds = new HashSet<int>();
         var ids = new List<int>(items.Count);
-        var normalizedById = new Dictionary<int, List<string>>(items.Count);
+        var normalizedById = new Dictionary<int, (string? DisplayName, bool? RequiresCode, int? Quantity, List<string>? Codes)>(items.Count);
         var totalCodes = 0;
 
         foreach (var item in items)
@@ -199,17 +210,40 @@ public class ToolInventoryService : IToolInventoryService
                 throw new ValidationException($"פריט #{item.Id} מופיע יותר מפעם אחת בבקשה");
             }
 
-            List<string> codes;
+            string? displayName = null;
+            if (item.DisplayName is not null)
+            {
+                displayName = item.DisplayName.Trim();
+                if (string.IsNullOrEmpty(displayName))
+                {
+                    throw new ValidationException($"פריט #{item.Id}: יש להזין שם פריט");
+                }
+
+                if (displayName.Length > 200)
+                {
+                    throw new ValidationException($"פריט #{item.Id}: שם הפריט ארוך מדי");
+                }
+            }
+
+            List<string>? codes = null;
             try
             {
-                codes = NormalizeCodes(item.SerialCodes);
+                // Null RequiresCode means "keep existing"; treat as code-tracked for validation of sent serials.
+                if (item.RequiresCode != false)
+                {
+                    codes = NormalizeCodes(item.SerialCodes);
+                }
+                else
+                {
+                    codes = [];
+                }
             }
             catch (ValidationException ex)
             {
                 throw new ValidationException($"פריט #{item.Id}: {ex.Message}");
             }
 
-            totalCodes += codes.Count;
+            totalCodes += codes?.Count ?? 0;
             const int maxTotalCodes = 10_000;
             if (totalCodes > maxTotalCodes)
             {
@@ -217,7 +251,7 @@ public class ToolInventoryService : IToolInventoryService
             }
 
             ids.Add(item.Id);
-            normalizedById[item.Id] = codes;
+            normalizedById[item.Id] = (displayName, item.RequiresCode, item.Quantity, codes);
         }
 
         // NpgsqlRetryingExecutionStrategy requires user transactions to run inside ExecuteAsync.
@@ -251,7 +285,44 @@ public class ToolInventoryService : IToolInventoryService
                 foreach (var id in ids)
                 {
                     var entity = byId[id];
-                    ReplaceSerialCollection(entity, normalizedById[id]);
+                    var (displayName, requiresCodeOpt, quantityOpt, codesOpt) = normalizedById[id];
+                    if (displayName is not null
+                        && !string.Equals(entity.DisplayName, displayName, StringComparison.Ordinal))
+                    {
+                        var nameTaken = await _db.ToolDefinitions.AnyAsync(
+                            t => t.DisplayName == displayName && t.Id != id,
+                            cancellationToken);
+                        if (nameTaken)
+                        {
+                            throw new ValidationException($"פריט בשם \"{displayName}\" כבר קיים במלאי");
+                        }
+
+                        entity.DisplayName = displayName;
+                    }
+
+                    var requiresCode = requiresCodeOpt ?? entity.RequiresCode;
+                    List<string> codes;
+                    int quantity;
+                    if (requiresCode)
+                    {
+                        codes = codesOpt ?? NormalizeCodes(null);
+                        if (quantityOpt is int requestedQty && requestedQty > 0 && codes.Count == 0)
+                        {
+                            codes = BuildSerialCodes(Math.Min(200, requestedQty), null);
+                        }
+                        quantity = codes.Count;
+                    }
+                    else
+                    {
+                        codes = [];
+                        quantity = quantityOpt is int q
+                            ? Math.Max(0, Math.Min(200, q))
+                            : entity.Quantity;
+                    }
+
+                    entity.RequiresCode = requiresCode;
+                    entity.Quantity = quantity;
+                    ReplaceSerialCollection(entity, codes);
                     entity.UpdatedAt = now;
                     results.Add(ToDto(entity));
                 }
@@ -363,6 +434,64 @@ public class ToolInventoryService : IToolInventoryService
         };
     }
 
+    public async Task<ToolTypeLocationDto> LocateByTypeAsync(
+        int toolDefinitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var def = await _db.ToolDefinitions
+            .AsNoTracking()
+            .Include(d => d.SerialCodes)
+            .FirstOrDefaultAsync(d => d.Id == toolDefinitionId, cancellationToken)
+            ?? throw new NotFoundException("הפריט לא נמצא");
+
+        var totalQuantity = def.RequiresCode
+            ? def.SerialCodes.Count
+            : Math.Max(0, def.Quantity);
+
+        var activeItems = await _db.ToolLoanItems
+            .AsNoTracking()
+            .Include(i => i.ToolLoan)
+            .Where(i => i.ToolDefinitionId == toolDefinitionId && i.ReturnedAt == null)
+            .OrderByDescending(i => i.ToolLoan.LentAt)
+            .ToListAsync(cancellationToken);
+
+        var holders = activeItems
+            .GroupBy(i => i.ToolLoanId)
+            .Select(g =>
+            {
+                var loan = g.First().ToolLoan;
+                var firstAdded = g.Min(i => i.AddedAt);
+                return new ToolTypeHolderDto
+                {
+                    LoanId = g.Key,
+                    Quantity = g.Count(),
+                    ClientName = loan.ClientName,
+                    Phone = loan.Phone,
+                    Phone2 = loan.Phone2,
+                    Address = loan.Address,
+                    Deposit = loan.Deposit,
+                    Notes = loan.Notes,
+                    HebrewLentDisplay = firstAdded == loan.LentAt ? loan.HebrewLentDisplay : null,
+                    LoanDate = DateOnly.FromDateTime(firstAdded)
+                };
+            })
+            .OrderByDescending(h => h.LoanDate)
+            .ThenByDescending(h => h.LoanId)
+            .ToList();
+
+        var loanedQuantity = activeItems.Count;
+        return new ToolTypeLocationDto
+        {
+            ToolDefinitionId = def.Id,
+            ToolName = def.DisplayName,
+            RequiresCode = def.RequiresCode,
+            TotalQuantity = totalQuantity,
+            LoanedQuantity = loanedQuantity,
+            AvailableQuantity = Math.Max(0, totalQuantity - loanedQuantity),
+            Holders = holders
+        };
+    }
+
     public async Task<List<string>> GetAvailableSerialsAsync(
         IEnumerable<int> toolDefinitionIds,
         CancellationToken cancellationToken = default)
@@ -425,7 +554,12 @@ public class ToolInventoryService : IToolInventoryService
     public async Task<List<ToolAvailableSerialsGroupDto>> GetAllAvailableSerialsGroupedAsync(
         CancellationToken cancellationToken = default)
     {
-        // Two AsNoTracking reads only — no per-tool round trips / connection fan-out.
+        // AsNoTracking reads only — no per-tool round trips / connection fan-out.
+        var definitions = await _db.ToolDefinitions
+            .AsNoTracking()
+            .Select(d => new { d.Id, d.RequiresCode, d.Quantity })
+            .ToListAsync(cancellationToken);
+
         var allCodes = await _db.ToolSerialCodes
             .AsNoTracking()
             .Select(s => new { s.ToolDefinitionId, s.SerialCode })
@@ -441,17 +575,37 @@ public class ToolInventoryService : IToolInventoryService
             .Select(b => $"{b.ToolDefinitionId}|{b.SerialCode.ToLowerInvariant()}")
             .ToHashSet(StringComparer.Ordinal);
 
-        return allCodes
+        var borrowedCountByDef = borrowedPairs
+            .GroupBy(b => b.ToolDefinitionId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var availableSerialsByDef = allCodes
             .Where(c => !borrowedKeys.Contains($"{c.ToolDefinitionId}|{c.SerialCode.ToLowerInvariant()}"))
             .GroupBy(c => c.ToolDefinitionId)
-            .Select(g => new ToolAvailableSerialsGroupDto
-            {
-                ToolDefinitionId = g.Key,
-                SerialCodes = g
+            .ToDictionary(
+                g => g.Key,
+                g => g
                     .Select(x => x.SerialCode)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(c => c, NumericStringComparer.Instance)
-                    .ToList()
+                    .ToList());
+
+        return definitions
+            .Select(d =>
+            {
+                availableSerialsByDef.TryGetValue(d.Id, out var serials);
+                serials ??= [];
+                borrowedCountByDef.TryGetValue(d.Id, out var borrowed);
+                var availableQuantity = d.RequiresCode
+                    ? serials.Count
+                    : Math.Max(0, d.Quantity - borrowed);
+
+                return new ToolAvailableSerialsGroupDto
+                {
+                    ToolDefinitionId = d.Id,
+                    SerialCodes = serials,
+                    AvailableQuantity = availableQuantity
+                };
             })
             .OrderBy(g => g.ToolDefinitionId)
             .ToList();
@@ -546,7 +700,10 @@ public class ToolInventoryService : IToolInventoryService
             Id = entity.Id,
             DisplayName = entity.DisplayName,
             SortOrder = entity.SortOrder,
-            TotalQuantity = codes.Count,
+            TotalQuantity = entity.RequiresCode
+                ? Math.Max(entity.Quantity, codes.Count)
+                : Math.Max(0, entity.Quantity),
+            RequiresCode = entity.RequiresCode,
             SerialCodes = codes
         };
     }

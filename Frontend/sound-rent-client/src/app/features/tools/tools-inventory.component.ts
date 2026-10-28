@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  AbstractControl,
   FormArray,
   FormBuilder,
   FormControl,
@@ -19,7 +20,12 @@ import {
 import { finalize } from 'rxjs';
 import { distinctUntilChanged, map } from 'rxjs/operators';
 
-import { ToolDefinitionDto, ToolSerialLocationDto } from '../../core/models/tools-workspace.model';
+import {
+  ToolDefinitionDto,
+  ToolSerialLocationDto,
+  ToolTypeLocationDto,
+  toolDefinitionRequiresCode
+} from '../../core/models/tools-workspace.model';
 import { DataService } from '../../core/services/data.service';
 import { HebrewDateService } from '../../core/services/hebrew-date.service';
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
@@ -46,19 +52,23 @@ export class ToolsInventoryComponent implements OnInit {
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול מלאי');
 
   protected readonly loading = signal(true);
-  protected readonly saving = signal(false);
   protected readonly inventorySaving = signal(false);
   protected readonly serialSearchLoading = signal(false);
   protected readonly serialSearchAttempted = signal(false);
   protected readonly serialLocationResult = signal<ToolSerialLocationDto | null>(null);
+  protected readonly typeLocationResult = signal<ToolTypeLocationDto | null>(null);
   /** Shared sorted catalog (A–Z) — same source as lending / returns. */
   protected readonly definitions = this.toolStore.definitions;
 
   protected readonly addInventoryOpen = signal(false);
-  protected readonly editInventoryOpen = signal(false);
-  protected readonly editInventorySaving = signal(false);
-  protected readonly editingInventoryId = signal<number | null>(null);
+  protected readonly editingInventoryRowId = signal<number | null>(null);
+  protected readonly savingInventoryRowId = signal<number | null>(null);
   protected readonly deletingInventoryId = signal<number | null>(null);
+
+  private readonly inventoryRowSnapshots = new Map<
+    number,
+    { displayName: string; quantity: number; requiresCode: boolean; codes: string[] }
+  >();
 
   protected readonly inventoryForm = this.fb.group({
     rows: this.fb.array<FormGroup>([])
@@ -66,21 +76,19 @@ export class ToolsInventoryComponent implements OnInit {
 
   protected readonly serialSearchForm = this.fb.group({
     toolDefinitionId: this.fb.nonNullable.control<number | null>(null),
-    serialCode: ['', Validators.required]
+    serialCode: ['']
   });
 
   protected readonly addInventoryForm = this.fb.group({
     displayName: ['', [Validators.required, Validators.maxLength(200)]],
     quantity: [0 as number | null, [Validators.min(0), Validators.max(200)]],
+    requiresCode: this.fb.nonNullable.control(true),
     codes: this.fb.array<FormControl<string>>([])
-  });
-
-  protected readonly editInventoryForm = this.fb.group({
-    displayName: ['', [Validators.required, Validators.maxLength(200)]]
   });
 
   ngOnInit(): void {
     this.wireAddInventoryQuantitySync();
+    this.wireAddInventoryRequiresCodeSync();
     this.wireSerialSearchTypeFilter();
     this.refresh();
   }
@@ -102,6 +110,22 @@ export class ToolsInventoryComponent implements OnInit {
     return Array.from({ length: len }, (_, i) => i);
   }
 
+  protected isInventoryRowEditing(defId: number): boolean {
+    return this.editingInventoryRowId() === defId;
+  }
+
+  protected selectedSearchDefinition(): ToolDefinitionDto | null {
+    const id = this.serialSearchForm.controls.toolDefinitionId.value;
+    if (id == null) {
+      return null;
+    }
+    return this.definitions().find((d) => d.id === id) ?? null;
+  }
+
+  protected selectedSearchRequiresCode(): boolean {
+    return toolDefinitionRequiresCode(this.selectedSearchDefinition());
+  }
+
   protected serialCodesForSearchType(): string[] {
     const id = this.serialSearchForm.controls.toolDefinitionId.value;
     if (id == null) {
@@ -112,6 +136,8 @@ export class ToolsInventoryComponent implements OnInit {
 
   protected refresh(): void {
     this.loading.set(true);
+    this.editingInventoryRowId.set(null);
+    this.inventoryRowSnapshots.clear();
     this.toolStore.invalidate();
     this.toolStore
       .load({ force: true })
@@ -121,6 +147,8 @@ export class ToolsInventoryComponent implements OnInit {
         this.rebuildRows(list);
         if (list.length > 0 && this.serialSearchForm.controls.toolDefinitionId.value == null) {
           this.serialSearchForm.patchValue({ toolDefinitionId: list[0]!.id });
+        } else {
+          this.syncSerialSearchCodeEnabled(this.serialSearchForm.controls.toolDefinitionId.value);
         }
       });
   }
@@ -132,6 +160,23 @@ export class ToolsInventoryComponent implements OnInit {
       this.toast.error('יש לבחור סוג כלי לחיפוש');
       return;
     }
+
+    const def = this.definitions().find((d) => d.id === toolDefinitionId);
+    if (!toolDefinitionRequiresCode(def)) {
+      this.serialSearchLoading.set(true);
+      this.serialSearchAttempted.set(true);
+      this.serialLocationResult.set(null);
+      this.data
+        .locateToolByType(toolDefinitionId)
+        .pipe(finalize(() => this.serialSearchLoading.set(false)))
+        .subscribe((result) => {
+          if (result) {
+            this.typeLocationResult.set(result);
+          }
+        });
+      return;
+    }
+
     if (!serialCode) {
       this.serialSearchForm.controls.serialCode.markAsTouched();
       this.toast.error('יש לבחור קוד פריט לחיפוש');
@@ -140,6 +185,7 @@ export class ToolsInventoryComponent implements OnInit {
 
     this.serialSearchLoading.set(true);
     this.serialSearchAttempted.set(true);
+    this.typeLocationResult.set(null);
     this.data
       .locateToolSerial(serialCode, toolDefinitionId)
       .pipe(finalize(() => this.serialSearchLoading.set(false)))
@@ -153,6 +199,7 @@ export class ToolsInventoryComponent implements OnInit {
   protected clearSerialSearch(): void {
     this.serialSearchAttempted.set(false);
     this.serialLocationResult.set(null);
+    this.typeLocationResult.set(null);
     this.serialSearchForm.patchValue({ serialCode: '' });
   }
 
@@ -185,7 +232,7 @@ export class ToolsInventoryComponent implements OnInit {
   }
 
   protected openAddInventoryItem(): void {
-    this.addInventoryForm.reset({ displayName: '', quantity: 0 });
+    this.addInventoryForm.reset({ displayName: '', quantity: 0, requiresCode: true });
     this.addInventoryCodes().clear();
     this.addInventoryOpen.set(true);
   }
@@ -195,7 +242,10 @@ export class ToolsInventoryComponent implements OnInit {
   }
 
   protected showAddInventoryCodes(): boolean {
-    return this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value) > 0;
+    return (
+      this.addInventoryForm.controls.requiresCode.value !== false &&
+      this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value) > 0
+    );
   }
 
   protected addInventoryCodes(): FormArray<FormControl<string>> {
@@ -253,13 +303,16 @@ export class ToolsInventoryComponent implements OnInit {
 
     const displayName = (this.addInventoryForm.controls.displayName.value ?? '').trim();
     const quantity = this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value);
-    const serialCodes = this.addInventoryCodes()
-      .controls.map((c) => String(c.value ?? '').trim())
-      .filter((c) => c.length > 0);
+    const requiresCode = this.addInventoryForm.controls.requiresCode.value !== false;
+    const serialCodes = requiresCode
+      ? this.addInventoryCodes()
+          .controls.map((c) => String(c.value ?? '').trim())
+          .filter((c) => c.length > 0)
+      : [];
 
     this.inventorySaving.set(true);
     this.data
-      .createToolDefinition({ displayName, quantity, serialCodes })
+      .createToolDefinition({ displayName, quantity, requiresCode, serialCodes })
       .pipe(finalize(() => this.inventorySaving.set(false)))
       .subscribe((created) => {
         if (!created) {
@@ -271,40 +324,122 @@ export class ToolsInventoryComponent implements OnInit {
       });
   }
 
-  protected openEditInventoryItem(def: ToolDefinitionDto): void {
-    this.editingInventoryId.set(def.id);
-    this.editInventoryForm.reset({ displayName: def.displayName });
-    this.editInventoryOpen.set(true);
-  }
-
-  protected closeEditInventoryItem(): void {
-    this.editInventoryOpen.set(false);
-    this.editingInventoryId.set(null);
-  }
-
-  protected submitEditInventoryItem(): void {
-    const id = this.editingInventoryId();
-    if (id == null || this.editInventoryForm.invalid) {
-      this.editInventoryForm.markAllAsTouched();
+  protected startEditInventoryRow(def: ToolDefinitionDto, rowIndex: number): void {
+    const currentEdit = this.editingInventoryRowId();
+    if (currentEdit != null && currentEdit !== def.id) {
+      this.toast.warning('יש לשמור או לבטל את העריכה הנוכחית תחילה');
       return;
     }
 
-    const displayName = (this.editInventoryForm.controls.displayName.value ?? '').trim();
-    this.editInventorySaving.set(true);
-    this.data
-      .updateToolDefinition(id, { displayName })
-      .pipe(finalize(() => this.editInventorySaving.set(false)))
-      .subscribe((updated) => {
-        if (!updated) {
+    const group = this.inventoryRowGroup(rowIndex);
+    const codes = this.inventoryCodesArray(rowIndex).controls.map((c) =>
+      String(c.value ?? '').trim()
+    );
+    this.inventoryRowSnapshots.set(def.id, {
+      displayName: String(group.get('displayName')?.value ?? ''),
+      quantity: this.toNonNegativeInteger(group.get('quantity')?.value),
+      requiresCode: group.get('requiresCode')?.value !== false,
+      codes: [...codes]
+    });
+    this.setInventoryRowEditable(rowIndex, true);
+    this.editingInventoryRowId.set(def.id);
+  }
+
+  protected cancelEditInventoryRow(def: ToolDefinitionDto, rowIndex: number): void {
+    const snap = this.inventoryRowSnapshots.get(def.id);
+    if (snap) {
+      const group = this.inventoryRowGroup(rowIndex);
+      group.patchValue(
+        {
+          displayName: snap.displayName,
+          quantity: snap.quantity,
+          requiresCode: snap.requiresCode
+        },
+        { emitEvent: false }
+      );
+      this.setCodesLength(group, snap.requiresCode ? snap.quantity : 0);
+      const codesFa = this.inventoryCodesArray(rowIndex);
+      for (let i = 0; i < codesFa.length; i++) {
+        codesFa.at(i).setValue(snap.codes[i] ?? '', { emitEvent: false });
+      }
+    }
+    this.setInventoryRowEditable(rowIndex, false);
+    this.editingInventoryRowId.set(null);
+    this.inventoryRowSnapshots.delete(def.id);
+  }
+
+  protected saveInventoryRow(def: ToolDefinitionDto, rowIndex: number): void {
+    const group = this.inventoryRowGroup(rowIndex);
+    const displayName = String(group.get('displayName')?.value ?? '').trim();
+    if (!displayName) {
+      this.toast.error('יש להזין שם פריט');
+      return;
+    }
+
+    const requiresCode = group.get('requiresCode')?.value !== false;
+    const quantity = this.toNonNegativeInteger(group.get('quantity')?.value);
+    const codesFa = this.inventoryCodesArray(rowIndex);
+    const serialCodes: string[] = [];
+
+    if (requiresCode) {
+      for (let c = 0; c < codesFa.length; c++) {
+        const raw = String(codesFa.at(c).value ?? '').trim();
+        if (raw.length === 0) {
+          this.toast.error(`יש להזין קוד פריט עבור ${displayName} (#${c + 1})`);
           return;
         }
-        this.toast.success('שם הפריט עודכן');
-        this.closeEditInventoryItem();
-        this.refresh();
+        if (
+          serialCodes.some(
+            (existing) => existing.localeCompare(raw, undefined, { sensitivity: 'accent' }) === 0
+          )
+        ) {
+          this.toast.error(`קוד כפול עבור ${displayName}: ${raw}`);
+          return;
+        }
+        serialCodes.push(raw);
+      }
+    }
+
+    this.savingInventoryRowId.set(def.id);
+    this.data
+      .updateToolDefinitionsBatch({
+        items: [
+          {
+            id: def.id,
+            displayName,
+            requiresCode,
+            quantity,
+            serialCodes
+          }
+        ]
+      })
+      .pipe(finalize(() => this.savingInventoryRowId.set(null)))
+      .subscribe((results) => {
+        if (results === null || results.length === 0) {
+          return;
+        }
+        const updated = results[0]!;
+        this.toast.success('הפריט נשמר');
+        this.toolStore.upsert(updated);
+        const rows = this.inventoryRows();
+        for (let i = 0; i < rows.length; i++) {
+          if (Number((rows.at(i) as FormGroup).get('id')?.value) === updated.id) {
+            const rebuilt = this.buildRow(updated);
+            rows.setControl(i, rebuilt);
+            this.wireRowQuantitySync(rebuilt);
+            break;
+          }
+        }
+        this.editingInventoryRowId.set(null);
+        this.inventoryRowSnapshots.delete(def.id);
       });
   }
 
   protected deleteInventoryItem(def: ToolDefinitionDto): void {
+    if (this.editingInventoryRowId() != null) {
+      this.toast.warning('יש לשמור או לבטל את העריכה הנוכחית תחילה');
+      return;
+    }
     if (!confirm(`למחוק את "${def.displayName}" מהמלאי?`)) {
       return;
     }
@@ -321,45 +456,6 @@ export class ToolsInventoryComponent implements OnInit {
       });
   }
 
-  protected saveInventory(): void {
-    const items: { id: number; serialCodes: string[] }[] = [];
-
-    for (let i = 0; i < this.inventoryRows().length; i++) {
-      const group = this.inventoryRowGroup(i);
-      const id = Number(group.get('id')?.value);
-      const label = String(group.get('displayName')?.value ?? '');
-      const codesFa = this.inventoryCodesArray(i);
-      const serialCodes: string[] = [];
-
-      for (let c = 0; c < codesFa.length; c++) {
-        const raw = String(codesFa.at(c).value ?? '').trim();
-        if (raw.length === 0) {
-          this.toast.error(`יש להזין קוד פריט עבור ${label} (#${c + 1})`);
-          return;
-        }
-        if (serialCodes.some((existing) => existing.localeCompare(raw, undefined, { sensitivity: 'accent' }) === 0)) {
-          this.toast.error(`קוד כפול עבור ${label}: ${raw}`);
-          return;
-        }
-        serialCodes.push(raw);
-      }
-
-      items.push({ id, serialCodes });
-    }
-
-    this.saving.set(true);
-    this.data
-      .updateToolDefinitionsBatch({ items })
-      .pipe(finalize(() => this.saving.set(false)))
-      .subscribe((results) => {
-        if (results === null) {
-          return;
-        }
-        this.toast.success('מלאי הכלים נשמר');
-        this.refresh();
-      });
-  }
-
   private rebuildRows(defs: ToolDefinitionDto[]): void {
     const rows = this.inventoryRows();
     rows.clear();
@@ -371,15 +467,52 @@ export class ToolsInventoryComponent implements OnInit {
   }
 
   private buildRow(def: ToolDefinitionDto): FormGroup {
+    const requiresCode = toolDefinitionRequiresCode(def);
+    const quantity = requiresCode
+      ? Math.max(def.totalQuantity ?? 0, def.serialCodes.length)
+      : Math.max(0, def.totalQuantity ?? 0);
+    const codeValues = requiresCode ? def.serialCodes : [];
     const codes = this.fb.array<FormControl<string>>(
-      def.serialCodes.map((code) => this.fb.nonNullable.control(code, [Validators.maxLength(100)]))
+      codeValues.map((code) =>
+        this.fb.nonNullable.control(
+          { value: code, disabled: true },
+          [Validators.maxLength(100)]
+        )
+      )
     );
+    while (requiresCode && codes.length < quantity) {
+      codes.push(
+        this.fb.nonNullable.control({ value: '', disabled: true }, [Validators.maxLength(100)])
+      );
+    }
     return this.fb.group({
       id: this.fb.nonNullable.control(def.id),
-      displayName: this.fb.nonNullable.control(def.displayName),
-      quantity: this.fb.control(def.serialCodes.length, [Validators.min(0)]),
+      displayName: this.fb.nonNullable.control(
+        { value: def.displayName, disabled: true },
+        [Validators.required, Validators.maxLength(200)]
+      ),
+      quantity: this.fb.control({ value: quantity, disabled: true }, [Validators.min(0)]),
+      requiresCode: this.fb.nonNullable.control({ value: requiresCode, disabled: true }),
       codes
     });
+  }
+
+  private setInventoryRowEditable(rowIndex: number, editable: boolean): void {
+    const group = this.inventoryRowGroup(rowIndex);
+    const toggle = (ctrl: AbstractControl | null | undefined) => {
+      if (!ctrl) {
+        return;
+      }
+      if (editable) {
+        ctrl.enable({ emitEvent: false });
+      } else {
+        ctrl.disable({ emitEvent: false });
+      }
+    };
+    toggle(group.get('displayName'));
+    toggle(group.get('quantity'));
+    toggle(group.get('requiresCode'));
+    this.inventoryCodesArray(rowIndex).controls.forEach((c) => toggle(c));
   }
 
   private wireRowQuantitySync(group: FormGroup): void {
@@ -393,7 +526,27 @@ export class ToolsInventoryComponent implements OnInit {
         distinctUntilChanged(),
         takeUntilDestroyed(this.destroyRef)
       )
-      .subscribe((quantity) => this.setCodesLength(group, quantity));
+      .subscribe((quantity) => {
+        if (group.get('requiresCode')?.value === false) {
+          this.setCodesLength(group, 0);
+          return;
+        }
+        this.setCodesLength(group, quantity);
+      });
+
+    const requiresCtrl = group.get('requiresCode');
+    if (!requiresCtrl) {
+      return;
+    }
+    requiresCtrl.valueChanges
+      .pipe(distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe((requiresCode) => {
+        if (requiresCode === false) {
+          this.setCodesLength(group, 0);
+          return;
+        }
+        this.setCodesLength(group, this.toNonNegativeInteger(group.get('quantity')?.value));
+      });
   }
 
   private setCodesLength(group: FormGroup, target: number): void {
@@ -402,8 +555,13 @@ export class ToolsInventoryComponent implements OnInit {
     if (!codes) {
       return;
     }
+    const editable = group.get('quantity')?.enabled === true;
     while (codes.length < length) {
-      codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
+      const ctrl = this.fb.nonNullable.control('', [Validators.maxLength(100)]);
+      if (!editable) {
+        ctrl.disable({ emitEvent: false });
+      }
+      codes.push(ctrl);
     }
     while (codes.length > length) {
       codes.removeAt(codes.length - 1);
@@ -418,6 +576,29 @@ export class ToolsInventoryComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((quantity) => {
+        if (this.addInventoryForm.controls.requiresCode.value === false) {
+          this.addInventoryCodes().clear();
+          return;
+        }
+        const codes = this.addInventoryCodes();
+        while (codes.length < quantity) {
+          codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
+        }
+        while (codes.length > quantity) {
+          codes.removeAt(codes.length - 1);
+        }
+      });
+  }
+
+  private wireAddInventoryRequiresCodeSync(): void {
+    this.addInventoryForm.controls.requiresCode.valueChanges
+      .pipe(distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe((requiresCode) => {
+        if (requiresCode === false) {
+          this.addInventoryCodes().clear();
+          return;
+        }
+        const quantity = this.toNonNegativeInteger(this.addInventoryForm.controls.quantity.value);
         const codes = this.addInventoryCodes();
         while (codes.length < quantity) {
           codes.push(this.fb.nonNullable.control('', [Validators.maxLength(100)]));
@@ -431,11 +612,25 @@ export class ToolsInventoryComponent implements OnInit {
   private wireSerialSearchTypeFilter(): void {
     this.serialSearchForm.controls.toolDefinitionId.valueChanges
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
+      .subscribe((toolDefinitionId) => {
         this.serialSearchForm.patchValue({ serialCode: '' }, { emitEvent: false });
         this.serialLocationResult.set(null);
+        this.typeLocationResult.set(null);
         this.serialSearchAttempted.set(false);
+        this.syncSerialSearchCodeEnabled(toolDefinitionId);
       });
+  }
+
+  private syncSerialSearchCodeEnabled(toolDefinitionId: number | null): void {
+    const def =
+      toolDefinitionId == null
+        ? null
+        : this.definitions().find((d) => d.id === toolDefinitionId) ?? null;
+    if (toolDefinitionRequiresCode(def)) {
+      this.serialSearchForm.controls.serialCode.enable({ emitEvent: false });
+    } else {
+      this.serialSearchForm.controls.serialCode.disable({ emitEvent: false });
+    }
   }
 
   private toNonNegativeInteger(value: unknown): number {

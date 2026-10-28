@@ -16,6 +16,12 @@ public class ToolDefinitionConfiguration : IEntityTypeConfiguration<ToolDefiniti
             .HasMaxLength(200)
             .IsRequired();
 
+        builder.Property(e => e.Quantity)
+            .HasDefaultValue(0);
+
+        builder.Property(e => e.RequiresCode)
+            .HasDefaultValue(true);
+
         builder.Property(e => e.CreatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP");
 

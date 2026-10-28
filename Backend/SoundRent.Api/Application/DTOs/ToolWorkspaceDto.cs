@@ -9,6 +9,8 @@ public class ToolDefinitionDto
     public string DisplayName { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public int TotalQuantity { get; set; }
+    /// <summary>When false, stock is tracked by quantity only (no serial codes).</summary>
+    public bool RequiresCode { get; set; } = true;
     public List<string> SerialCodes { get; set; } = new();
 }
 
@@ -16,6 +18,8 @@ public class ToolDefinitionCreateDto
 {
     public string DisplayName { get; set; } = string.Empty;
     public int? Quantity { get; set; }
+    /// <summary>When false, stock is quantity-only and serial codes are not created. Defaults to true.</summary>
+    public bool RequiresCode { get; set; } = true;
     public List<string>? SerialCodes { get; set; }
 }
 
@@ -32,6 +36,11 @@ public class ToolDefinitionSerialsUpdateDto
 public class ToolDefinitionTypeUpdateDto
 {
     public int Id { get; set; }
+    /// <summary>Optional rename when saving an inventory row inline.</summary>
+    public string? DisplayName { get; set; }
+    /// <summary>When false, clears serials and tracks quantity only.</summary>
+    public bool? RequiresCode { get; set; }
+    public int? Quantity { get; set; }
     public List<string> SerialCodes { get; set; } = new();
 }
 
@@ -62,11 +71,39 @@ public class ToolSerialLocationDto
     public DateOnly? LoanDate { get; set; }
 }
 
+/// <summary>Type-level locator result (quantity-only tools and optional type searches).</summary>
+public class ToolTypeLocationDto
+{
+    public int ToolDefinitionId { get; set; }
+    public string ToolName { get; set; } = string.Empty;
+    public bool RequiresCode { get; set; } = true;
+    public int TotalQuantity { get; set; }
+    public int LoanedQuantity { get; set; }
+    public int AvailableQuantity { get; set; }
+    public List<ToolTypeHolderDto> Holders { get; set; } = new();
+}
+
+public class ToolTypeHolderDto
+{
+    public int LoanId { get; set; }
+    public int Quantity { get; set; }
+    public string? ClientName { get; set; }
+    public string? Phone { get; set; }
+    public string? Phone2 { get; set; }
+    public string? Address { get; set; }
+    public string? Deposit { get; set; }
+    public string? Notes { get; set; }
+    public string? HebrewLentDisplay { get; set; }
+    public DateOnly? LoanDate { get; set; }
+}
+
 /// <summary>Available (unborrowed) serials for one tool definition — bulk availability payload.</summary>
 public class ToolAvailableSerialsGroupDto
 {
     public int ToolDefinitionId { get; set; }
     public List<string> SerialCodes { get; set; } = new();
+    /// <summary>Remaining units available to loan (serial count or quantity-only remainder).</summary>
+    public int AvailableQuantity { get; set; }
 }
 
 public class ToolLoanItemDto

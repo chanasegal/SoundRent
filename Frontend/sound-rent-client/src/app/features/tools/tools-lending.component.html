@@ -477,45 +477,61 @@
                     }
                   </div>
 
-                  <div
-                    class="tool-line__codes"
-                    data-codes-dropdown
-                    (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
-                    (appClickOutside)="closeCodesDropdown(form.id, line.id)"
-                    [appClickOutsideEnabled]="line.codesOpen"
-                  >
-                    <button
-                      type="button"
-                      class="ms-dropdown__btn"
-                      [attr.data-line-id]="line.id"
-                      [attr.data-form-id]="form.id"
-                      [disabled]="line.toolId == null"
-                      (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                  @if (lineRequiresCode(line)) {
+                    <div
+                      class="tool-line__codes"
+                      data-codes-dropdown
                       (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                      (appClickOutside)="closeCodesDropdown(form.id, line.id)"
+                      [appClickOutsideEnabled]="line.codesOpen"
                     >
-                      @if (line.selectedCodes.length === 0) {
-                        <span class="placeholder">בחרו קודים…</span>
-                      } @else {
-                        <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
-                      }
-                    </button>
-                    @if (line.codesOpen) {
-                      <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
-                        @for (code of availableCodesForLine(form, line); track code) {
-                          <label class="ms-dropdown__option">
-                            <input
-                              type="checkbox"
-                              [checked]="line.selectedCodes.includes(code)"
-                              (change)="toggleCodeSelection(form.id, line.id, code, $event)"
-                            />
-                            <span class="ltr-field" dir="ltr">{{ code }}</span>
-                          </label>
-                        } @empty {
-                          <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                      <button
+                        type="button"
+                        class="ms-dropdown__btn"
+                        [attr.data-line-id]="line.id"
+                        [attr.data-form-id]="form.id"
+                        [disabled]="line.toolId == null"
+                        (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                        (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                      >
+                        @if (line.selectedCodes.length === 0) {
+                          <span class="placeholder">בחרו קודים…</span>
+                        } @else {
+                          <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
                         }
-                      </div>
-                    }
-                  </div>
+                      </button>
+                      @if (line.codesOpen) {
+                        <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
+                          @for (code of availableCodesForLine(form, line); track code) {
+                            <label class="ms-dropdown__option">
+                              <input
+                                type="checkbox"
+                                [checked]="line.selectedCodes.includes(code)"
+                                (change)="toggleCodeSelection(form.id, line.id, code, $event)"
+                              />
+                              <span class="ltr-field" dir="ltr">{{ code }}</span>
+                            </label>
+                          } @empty {
+                            <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                          }
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <label class="tool-line__qty" [attr.aria-label]="'כמות עבור ' + line.toolQuery">
+                      <span class="tool-line__qty-label">כמות</span>
+                      <input
+                        type="number"
+                        min="1"
+                        [attr.max]="maxQuantityForLine(form, line)"
+                        step="1"
+                        inputmode="numeric"
+                        class="tool-line__qty-input"
+                        [value]="line.quantity"
+                        (input)="updateLineQuantity(form.id, line.id, $any($event.target).value)"
+                      />
+                    </label>
+                  }
 
                   @if (form.toolLines.length > 1) {
                     <button
@@ -656,45 +672,61 @@
                       }
                     </div>
 
-                    <div
-                      class="tool-line__codes"
-                      data-codes-dropdown
-                      (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
-                      (appClickOutside)="closeCodesDropdown(form.id, line.id)"
-                      [appClickOutsideEnabled]="line.codesOpen"
-                    >
-                      <button
-                        type="button"
-                        class="ms-dropdown__btn"
-                        [attr.data-line-id]="line.id"
-                        [attr.data-form-id]="form.id"
-                        [disabled]="line.toolId == null"
-                        (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                    @if (lineRequiresCode(line)) {
+                      <div
+                        class="tool-line__codes"
+                        data-codes-dropdown
                         (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                        (appClickOutside)="closeCodesDropdown(form.id, line.id)"
+                        [appClickOutsideEnabled]="line.codesOpen"
                       >
-                        @if (line.selectedCodes.length === 0) {
-                          <span class="placeholder">בחרו קודים…</span>
-                        } @else {
-                          <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
-                        }
-                      </button>
-                      @if (line.codesOpen) {
-                        <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
-                          @for (code of availableCodesForLine(form, line); track code) {
-                            <label class="ms-dropdown__option">
-                              <input
-                                type="checkbox"
-                                [checked]="line.selectedCodes.includes(code)"
-                                (change)="toggleCodeSelection(form.id, line.id, code, $event)"
-                              />
-                              <span class="ltr-field" dir="ltr">{{ code }}</span>
-                            </label>
-                          } @empty {
-                            <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                        <button
+                          type="button"
+                          class="ms-dropdown__btn"
+                          [attr.data-line-id]="line.id"
+                          [attr.data-form-id]="form.id"
+                          [disabled]="line.toolId == null"
+                          (click)="toggleCodesDropdown(form.id, line.id, $event)"
+                          (keydown.enter)="onCodesEnter(form.id, line.id, $event)"
+                        >
+                          @if (line.selectedCodes.length === 0) {
+                            <span class="placeholder">בחרו קודים…</span>
+                          } @else {
+                            <span class="ltr-field" dir="ltr">{{ line.selectedCodes.join(', ') }}</span>
                           }
-                        </div>
-                      }
-                    </div>
+                        </button>
+                        @if (line.codesOpen) {
+                          <div class="ms-dropdown__panel" (click)="$event.stopPropagation()">
+                            @for (code of availableCodesForLine(form, line); track code) {
+                              <label class="ms-dropdown__option">
+                                <input
+                                  type="checkbox"
+                                  [checked]="line.selectedCodes.includes(code)"
+                                  (change)="toggleCodeSelection(form.id, line.id, code, $event)"
+                                />
+                                <span class="ltr-field" dir="ltr">{{ code }}</span>
+                              </label>
+                            } @empty {
+                              <p class="ms-dropdown__empty">אין קודים זמינים לכלי זה</p>
+                            }
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <label class="tool-line__qty" [attr.aria-label]="'כמות עבור ' + line.toolQuery">
+                        <span class="tool-line__qty-label">כמות</span>
+                        <input
+                          type="number"
+                          min="1"
+                          [attr.max]="maxQuantityForLine(form, line)"
+                          step="1"
+                          inputmode="numeric"
+                          class="tool-line__qty-input"
+                          [value]="line.quantity"
+                          (input)="updateLineQuantity(form.id, line.id, $any($event.target).value)"
+                        />
+                      </label>
+                    }
 
                     @if (form.toolLines.length > 1) {
                       <button

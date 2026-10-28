@@ -25,7 +25,8 @@ import {
   ToolDefinitionDto,
   ToolLoanCreateDto,
   ToolLoanDto,
-  ToolLoanItemDto
+  ToolLoanItemDto,
+  toolDefinitionRequiresCode
 } from '../../core/models/tools-workspace.model';
 import { OrderDto } from '../../core/models/order.model';
 import { CustomersStore } from '../../core/services/customers.store';
@@ -79,6 +80,8 @@ interface ToolLineItem {
   toolId: number | null;
   toolQuery: string;
   selectedCodes: string[];
+  /** Used for quantity-only catalog tools (requiresCode === false). */
+  quantity: number;
   isTemporary: boolean;
   toolSuggestOpen: boolean;
   codesOpen: boolean;
@@ -248,6 +251,7 @@ export class ToolsLendingComponent implements OnInit {
 
   protected readonly definitions = this.toolStore.definitions;
   protected readonly availableByTool = signal<Map<number, string[]>>(new Map());
+  protected readonly availableQuantityByTool = signal<Map<number, number>>(new Map());
   protected readonly submittingId = signal<string | null>(null);
   /** Declared before `forms` — `createDraftForm()` reads this during field init. */
   protected readonly timeLimitEnabled = signal(false);
@@ -500,6 +504,7 @@ export class ToolsLendingComponent implements OnInit {
         toolLines: Array.isArray(raw['toolLines'])
           ? (raw['toolLines'] as ToolLineItem[]).map((line) => ({
               ...line,
+              quantity: Math.max(1, Number(line.quantity) || 1),
               isTemporary: line.isTemporary === true,
               toolSuggestOpen: false,
               codesOpen: false
@@ -1865,6 +1870,39 @@ export class ToolsLendingComponent implements OnInit {
     return sortNumericCodes([...merged]);
   }
 
+  protected lineRequiresCode(line: ToolLineItem): boolean {
+    if (line.isTemporary || line.toolId == null || line.toolId <= 0) {
+      return true;
+    }
+    const def = this.definitions().find((d) => d.id === line.toolId);
+    return toolDefinitionRequiresCode(def);
+  }
+
+  protected updateLineQuantity(formId: string, lineId: string, raw: string): void {
+    const parsed = Number.parseInt(raw, 10);
+    const quantity = Number.isFinite(parsed) ? Math.max(1, Math.min(200, parsed)) : 1;
+    this.forms.update((list) =>
+      list.map((f) => {
+        if (f.id !== formId) {
+          return f;
+        }
+        return {
+          ...f,
+          toolLines: f.toolLines.map((l) => (l.id === lineId ? { ...l, quantity } : l))
+        };
+      })
+    );
+  }
+
+  protected maxQuantityForLine(form: LendingDraftForm, line: ToolLineItem): number {
+    if (line.toolId == null) {
+      return 200;
+    }
+    const available = this.availableQuantityByTool().get(line.toolId) ?? 0;
+    // While editing, units already on this loan are not in the available pool.
+    return Math.max(1, available + Math.max(1, line.quantity || 1));
+  }
+
   protected onToolQueryInput(formId: string, lineId: string, value: string): void {
     const form = this.forms().find((f) => f.id === formId);
     let toolQuery = value;
@@ -2024,6 +2062,7 @@ export class ToolsLendingComponent implements OnInit {
   ): void {
     event?.preventDefault();
     this.clearToolSuggestBlurTimer();
+    const quantityOnly = !toolDefinitionRequiresCode(tool);
     this.forms.update((list) =>
       list.map((f) => {
         if (f.id !== formId) {
@@ -2039,6 +2078,7 @@ export class ToolsLendingComponent implements OnInit {
                   toolId: tool.id,
                   toolQuery: tool.displayName,
                   selectedCodes: [],
+                  quantity: quantityOnly ? Math.max(1, l.quantity || 1) : 1,
                   isTemporary: false,
                   toolSuggestOpen: false,
                   codesOpen: false
@@ -2047,6 +2087,10 @@ export class ToolsLendingComponent implements OnInit {
         };
       })
     );
+    if (quantityOnly) {
+      this.commitLineAndAddNext(formId, lineId);
+      return;
+    }
     if (isHammerDrillBitDisplayName(tool.displayName)) {
       this.scheduleFocusCodesDropdown(formId, lineId);
     }
@@ -2676,6 +2720,8 @@ export class ToolsLendingComponent implements OnInit {
             }
           }
           selectedCodes = [...line.selectedCodes];
+        } else if (!toolDefinitionRequiresCode(parsed.tool)) {
+          selectedCodes = [];
         } else {
           this.forms.update((list) =>
             list.map((f) => {
@@ -2692,6 +2738,7 @@ export class ToolsLendingComponent implements OnInit {
                         toolId,
                         toolQuery,
                         selectedCodes: [],
+                        quantity: 1,
                         isTemporary: false,
                         toolSuggestOpen: false,
                         codesOpen: false
@@ -2775,6 +2822,20 @@ export class ToolsLendingComponent implements OnInit {
         toolQuery = tool.displayName;
         selectedCodes = [...line.selectedCodes];
       } else if (
+        line.toolId != null &&
+        line.selectedCodes.length === 0 &&
+        !toolDefinitionRequiresCode(this.definitions().find((d) => d.id === line.toolId))
+      ) {
+        const tool = this.definitions().find((d) => d.id === line.toolId);
+        if (!tool) {
+          this.toast.error('הכלי שנבחר אינו קיים');
+          this.focusToolLineInput(lineId);
+          return;
+        }
+        toolId = line.toolId;
+        toolQuery = tool.displayName;
+        selectedCodes = [];
+      } else if (
         line.toolQuery.trim().length >= 2 &&
         !this.isStrictPrefixOfLongerCatalogToolName(line.toolQuery.trim())
       ) {
@@ -2797,6 +2858,9 @@ export class ToolsLendingComponent implements OnInit {
         if (f.id !== formId) {
           return f;
         }
+        const quantityOnly =
+          toolId != null &&
+          !toolDefinitionRequiresCode(this.definitions().find((d) => d.id === toolId));
         const updatedLines = f.toolLines.map((l) =>
           l.id !== lineId
             ? l
@@ -2805,6 +2869,7 @@ export class ToolsLendingComponent implements OnInit {
                 toolId,
                 toolQuery,
                 selectedCodes,
+                quantity: quantityOnly ? Math.max(1, l.quantity || 1) : 1,
                 isTemporary,
                 toolSuggestOpen: false,
                 codesOpen: false
@@ -2816,6 +2881,7 @@ export class ToolsLendingComponent implements OnInit {
           toolId: null,
           toolQuery: '',
           selectedCodes: [],
+          quantity: 1,
           isTemporary: false,
           toolSuggestOpen: false,
           codesOpen: false
@@ -3143,6 +3209,26 @@ export class ToolsLendingComponent implements OnInit {
         }
         continue;
       }
+
+      const def = this.definitions().find((d) => d.id === line.toolId);
+      if (!toolDefinitionRequiresCode(def)) {
+        const quantity = Math.max(1, Math.min(200, line.quantity || 1));
+        const available = this.availableQuantityByTool().get(line.toolId) ?? 0;
+        const maxAllowed = Math.max(1, available + (form.editingLoanId != null ? quantity : 0));
+        if (quantity > maxAllowed) {
+          this.toast.error(
+            maxAllowed <= 0
+              ? `אין מלאי זמין עבור ${line.toolQuery || 'הכלי שנבחר'}`
+              : `ניתן להשאיל עד ${maxAllowed} יחידות מתוך ${line.toolQuery || 'הכלי שנבחר'}`
+          );
+          return null;
+        }
+        for (let i = 0; i < quantity; i++) {
+          items.push({ toolDefinitionId: line.toolId, serialCode: '' });
+        }
+        continue;
+      }
+
       if (line.selectedCodes.length === 0) {
         this.toast.error(`יש לבחור לפחות קוד פריט עבור ${line.toolQuery || 'הכלי שנבחר'}`);
         return null;
@@ -3251,6 +3337,7 @@ export class ToolsLendingComponent implements OnInit {
         toolId: def.id,
         toolQuery: def.displayName,
         selectedCodes: [pending.serialCode],
+        quantity: 1,
         isTemporary: false,
         toolSuggestOpen: false,
         codesOpen: false
@@ -3266,10 +3353,17 @@ export class ToolsLendingComponent implements OnInit {
   private refreshAvailability(): void {
     this.data.getAllAvailableToolSerials().subscribe((groups) => {
       const map = new Map<number, string[]>();
+      const qtyMap = new Map<number, number>();
       for (const group of groups) {
-        map.set(group.toolDefinitionId, group.serialCodes ?? []);
+        const codes = group.serialCodes ?? [];
+        map.set(group.toolDefinitionId, codes);
+        qtyMap.set(
+          group.toolDefinitionId,
+          group.availableQuantity != null ? group.availableQuantity : codes.length
+        );
       }
       this.availableByTool.set(map);
+      this.availableQuantityByTool.set(qtyMap);
     });
   }
 
@@ -3321,6 +3415,7 @@ export class ToolsLendingComponent implements OnInit {
       toolId: null,
       toolQuery: '',
       selectedCodes: [],
+      quantity: 1,
       isTemporary: false,
       toolSuggestOpen: false,
       codesOpen: false
@@ -3399,6 +3494,7 @@ export class ToolsLendingComponent implements OnInit {
           toolId: null,
           toolQuery: (item.toolName ?? '').trim(),
           selectedCodes: serial ? [serial] : [],
+          quantity: 1,
           isTemporary: true,
           toolSuggestOpen: false,
           codesOpen: false
@@ -3410,6 +3506,8 @@ export class ToolsLendingComponent implements OnInit {
       if (existing) {
         if (serial) {
           existing.selectedCodes = [...existing.selectedCodes, serial];
+        } else {
+          existing.quantity = Math.max(1, (existing.quantity || 1) + 1);
         }
         continue;
       }
@@ -3420,6 +3518,7 @@ export class ToolsLendingComponent implements OnInit {
         toolId: item.toolDefinitionId,
         toolQuery: def?.displayName ?? item.toolName ?? '',
         selectedCodes: serial ? [serial] : [],
+        quantity: 1,
         isTemporary: false,
         toolSuggestOpen: false,
         codesOpen: false

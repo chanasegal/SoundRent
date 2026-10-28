@@ -356,9 +356,39 @@
 }
 
 .tool-line__tool,
-.tool-line__codes {
+.tool-line__codes,
+.tool-line__qty {
   position: relative;
   min-width: 0;
+}
+
+.tool-line__qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  background: #fff;
+  padding: 0.35rem 0.55rem;
+  height: 2.55rem;
+}
+
+.tool-line__qty-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.tool-line__qty-input {
+  width: 3.25rem;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #002244;
+  outline: none;
 }
 
 .tool-line__remove {

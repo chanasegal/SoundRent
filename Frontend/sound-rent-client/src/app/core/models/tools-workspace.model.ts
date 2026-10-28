@@ -3,12 +3,26 @@ export interface ToolDefinitionDto {
   displayName: string;
   sortOrder: number;
   totalQuantity: number;
+  /**
+   * When false, stock is quantity-only (no serial codes).
+   * Defaults to true when omitted (older payloads).
+   */
+  requiresCode?: boolean;
   serialCodes: string[];
+}
+
+/** True unless the catalog row is explicitly marked quantity-only. */
+export function toolDefinitionRequiresCode(
+  def: Pick<ToolDefinitionDto, 'requiresCode'> | null | undefined
+): boolean {
+  return def?.requiresCode !== false;
 }
 
 export interface ToolDefinitionCreateDto {
   displayName: string;
   quantity?: number | null;
+  /** When false, stock is quantity-only and serials are not created. Defaults to true. */
+  requiresCode?: boolean;
   serialCodes?: string[];
 }
 
@@ -22,6 +36,10 @@ export interface ToolDefinitionSerialsUpdateDto {
 
 export interface ToolDefinitionTypeUpdateDto {
   id: number;
+  /** Optional rename when saving an inventory row inline. */
+  displayName?: string | null;
+  requiresCode?: boolean | null;
+  quantity?: number | null;
   serialCodes: string[];
 }
 
@@ -48,9 +66,35 @@ export interface ToolSerialLocationDto {
   loanDate?: string | null;
 }
 
+/** Type-level locator (quantity-only tools — holders by loan/customer). */
+export interface ToolTypeLocationDto {
+  toolDefinitionId: number;
+  toolName: string;
+  requiresCode: boolean;
+  totalQuantity: number;
+  loanedQuantity: number;
+  availableQuantity: number;
+  holders: ToolTypeHolderDto[];
+}
+
+export interface ToolTypeHolderDto {
+  loanId: number;
+  quantity: number;
+  clientName?: string | null;
+  phone?: string | null;
+  phone2?: string | null;
+  address?: string | null;
+  deposit?: string | null;
+  notes?: string | null;
+  hebrewLentDisplay?: string | null;
+  loanDate?: string | null;
+}
+
 export interface ToolAvailableSerialsGroupDto {
   toolDefinitionId: number;
   serialCodes: string[];
+  /** Remaining units available to loan (serial count or quantity-only remainder). */
+  availableQuantity?: number;
 }
 
 export interface ToolLoanItemDto {

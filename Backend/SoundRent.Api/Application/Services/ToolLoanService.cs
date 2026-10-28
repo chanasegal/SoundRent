@@ -340,6 +340,7 @@ public class ToolLoanService : IToolLoanService
         CancellationToken cancellationToken)
     {
         var normalizedItems = new List<(int ToolDefinitionId, string SerialCode, string ToolName)>();
+        var quantityOnlyRequested = new Dictionary<int, (string Name, int Count)>();
 
         foreach (var item in items)
         {
@@ -367,16 +368,32 @@ public class ToolLoanService : IToolLoanService
                 continue;
             }
 
-            if (string.IsNullOrEmpty(serial))
-            {
-                throw new ValidationException("קוד פריט חסר");
-            }
-
             var definition = await _db.ToolDefinitions
                 .AsNoTracking()
                 .Include(t => t.SerialCodes)
                 .FirstOrDefaultAsync(t => t.Id == item.ToolDefinitionId, cancellationToken)
                 ?? throw new ValidationException($"סוג כלי #{item.ToolDefinitionId} לא נמצא");
+
+            if (!definition.RequiresCode)
+            {
+                // Quantity-only catalog tools are loaned as N rows with empty serial codes.
+                if (quantityOnlyRequested.TryGetValue(definition.Id, out var existing))
+                {
+                    quantityOnlyRequested[definition.Id] = (definition.DisplayName, existing.Count + 1);
+                }
+                else
+                {
+                    quantityOnlyRequested[definition.Id] = (definition.DisplayName, 1);
+                }
+
+                normalizedItems.Add((definition.Id, string.Empty, definition.DisplayName));
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(serial))
+            {
+                throw new ValidationException("קוד פריט חסר");
+            }
 
             if (!definition.SerialCodes.Any(s => string.Equals(s.SerialCode, serial, StringComparison.OrdinalIgnoreCase)))
             {
@@ -398,6 +415,32 @@ public class ToolLoanService : IToolLoanService
             }
 
             normalizedItems.Add((definition.Id, serial, definition.DisplayName));
+        }
+
+        foreach (var (definitionId, entry) in quantityOnlyRequested)
+        {
+            var stock = await _db.ToolDefinitions
+                .AsNoTracking()
+                .Where(t => t.Id == definitionId)
+                .Select(t => t.Quantity)
+                .FirstAsync(cancellationToken);
+
+            var activeCount = await _db.ToolLoanItems
+                .AsNoTracking()
+                .CountAsync(
+                    i => i.ToolDefinitionId == definitionId &&
+                         i.ReturnedAt == null &&
+                         (excludeLoanId == null || i.ToolLoanId != excludeLoanId.Value),
+                    cancellationToken);
+
+            if (activeCount + entry.Count > stock)
+            {
+                var available = Math.Max(0, stock - activeCount);
+                throw new ValidationException(
+                    available <= 0
+                        ? $"אין מלאי זמין עבור {entry.Name}"
+                        : $"ניתן להשאיל עד {available} יחידות מתוך {entry.Name}");
+            }
         }
 
         return normalizedItems;

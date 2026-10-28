@@ -77,7 +77,8 @@ import {
   ToolLoanDto,
   ToolLoanReturnByCodeDto,
   ToolLoanReturnDto,
-  ToolSerialLocationDto
+  ToolSerialLocationDto,
+  ToolTypeLocationDto
 } from '../models/tools-workspace.model';
 import {
   BookAvailableCopiesGroupDto,
@@ -1490,6 +1491,18 @@ export class DataService {
         return of(null);
       })
     );
+  }
+
+  locateToolByType(toolDefinitionId: number): Observable<ToolTypeLocationDto | null> {
+    const params = new HttpParams().set('toolDefinitionId', String(toolDefinitionId));
+    return this.http
+      .get<ToolTypeLocationDto>(`${this.toolsInventoryBase}/location-by-type`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of(null);
+        })
+      );
   }
 
   getAvailableToolSerials(toolIds: number[]): Observable<string[]> {
