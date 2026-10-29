@@ -685,6 +685,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     switch (status) {
       case LostEquipmentStatus.Returned:
         return 'row-status-returned';
+      case LostEquipmentStatus.Paid:
+        return 'row-status-paid';
       case LostEquipmentStatus.Notified:
         return 'row-status-notified';
       default:
@@ -696,6 +698,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
     switch (status) {
       case LostEquipmentStatus.Returned:
         return 'status-badge status-badge--returned';
+      case LostEquipmentStatus.Paid:
+        return 'status-badge status-badge--paid';
       case LostEquipmentStatus.Notified:
         return 'status-badge status-badge--notified';
       default:
@@ -970,7 +974,8 @@ export class UnreturnedItemsAdminComponent implements OnInit {
         if (
           value === LostEquipmentStatus.Pending ||
           value === LostEquipmentStatus.Notified ||
-          value === LostEquipmentStatus.Returned
+          value === LostEquipmentStatus.Returned ||
+          value === LostEquipmentStatus.Paid
         ) {
           result[key] = value;
         }

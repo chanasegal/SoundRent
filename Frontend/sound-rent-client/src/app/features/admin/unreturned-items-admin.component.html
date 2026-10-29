@@ -147,6 +147,15 @@
                     </button>
                     <button
                       type="button"
+                      class="status-action status-action--paid"
+                      [disabled]="isActionsBusy(row) || rowStatus(row) === statusEnum.Paid"
+                      (click)="setStatus(row, statusEnum.Paid)"
+                      title="סמן כשולם (הלקוח שילם במקום להחזיר)"
+                    >
+                      שולם
+                    </button>
+                    <button
+                      type="button"
                       class="status-action status-action--returned"
                       [disabled]="isActionsBusy(row)"
                       (click)="setStatus(row, statusEnum.Returned)"

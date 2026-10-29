@@ -223,6 +223,12 @@
   border-color: #bbf7d0;
 }
 
+.status-action--paid {
+  background: #e0f2fe;
+  color: #075985;
+  border-color: #bae6fd;
+}
+
 .status-action--delete {
   background: #fff;
   color: #b91c1c;
@@ -239,6 +245,10 @@
 
 .row-status-returned {
   background-color: #f0fdf4;
+}
+
+.row-status-paid {
+  background-color: #f0f9ff;
 }
 
 .status-badge {
@@ -262,6 +272,11 @@
 .status-badge--returned {
   background: #dcfce7;
   color: #166534;
+}
+
+.status-badge--paid {
+  background: #e0f2fe;
+  color: #075985;
 }
 
 .return-date-cell {
