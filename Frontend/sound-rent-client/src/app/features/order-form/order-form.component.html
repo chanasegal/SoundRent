@@ -700,7 +700,18 @@
           />
         </div>
         <div class="md:col-span-2">
-          <span class="form-label" id="payment-status-label">סטטוס תשלום</span>
+          <div class="mb-1 flex items-center justify-between gap-2">
+            <span class="form-label mb-0" id="payment-status-label">סטטוס תשלום</span>
+            @if (form.controls['paymentStatus'].value !== 'none') {
+              <button
+                type="button"
+                class="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+                (click)="resetPaymentStatus()"
+              >
+                נקה בחירה
+              </button>
+            }
+          </div>
           <div
             class="inline-flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white text-sm font-medium"
             role="radiogroup"
@@ -713,7 +724,6 @@
                 [class.border-s]="!first"
                 [class.border-slate-300]="!first"
                 [class.text-slate-700]="!selected"
-                [class.bg-slate-600]="selected && opt.value === 'none'"
                 [class.bg-emerald-600]="selected && opt.value === 'paid'"
                 [class.bg-amber-600]="selected && opt.value === 'unpaid'"
                 [class.text-white]="selected"

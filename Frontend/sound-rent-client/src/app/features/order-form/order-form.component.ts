@@ -402,11 +402,18 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     DepositType.Cash
   ];
   protected readonly depositTypeLabels = DEPOSIT_TYPE_LABELS;
-  protected readonly paymentStatusOptions: { value: PaymentStatus; label: string }[] = [
-    { value: 'none', label: 'ללא' },
+  /** Visible choices only; form/DB still use `'none'` when nothing is selected. */
+  protected readonly paymentStatusOptions: { value: Exclude<PaymentStatus, 'none'>; label: string }[] = [
     { value: 'paid', label: 'שילם' },
     { value: 'unpaid', label: 'לא שילם (חוב)' }
   ];
+
+  /** Clears the payment segment back to the unset (`none`) state — neither option highlighted. */
+  protected resetPaymentStatus(): void {
+    this.form.controls['paymentStatus'].setValue('none' as PaymentStatus);
+    this.form.controls['paymentStatus'].markAsDirty();
+  }
+
   protected readonly returnTimeTypes: ReturnTimeType[] = [
     ReturnTimeType.SpecificTime,
     ReturnTimeType.LateNight,
