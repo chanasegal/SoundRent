@@ -3447,6 +3447,21 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     );
   }
 
+  /** Opens a confirmation dialog; the form is only reset after the user accepts. */
+  protected requestClearForm(): void {
+    this.confirmation.confirm({
+      header: 'ניקוי טופס',
+      message: 'האם אתה בטוח שברצונך לנקות את הטופס? כל הנתונים שהוזנו ימחקו.',
+      acceptLabel: 'כן, נקה',
+      rejectLabel: 'ביטול',
+      acceptButtonStyleClass: 'p-button-sm p-button-danger',
+      rejectButtonStyleClass: 'p-button-sm p-button-outlined',
+      dismissableMask: true,
+      closeOnEscape: true,
+      accept: () => this.clearForm()
+    });
+  }
+
   protected clearForm(): void {
     this.suppressAutoSave = true;
     const today = new Date();
