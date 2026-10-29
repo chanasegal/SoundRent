@@ -247,7 +247,7 @@ export interface ClientSearchStatusTooltips {
   neverReturnedTooltip: string | null;
   /** Forgotten-equipment badge hover text; null when none apply. */
   forgottenEquipmentTooltip: string | null;
-  /** Cancelled-order badge hover text; null when none apply. */
+  /** Cross-order cancelled cue on active cards ("ישנה הזמנה מבוטלת"); null when none. */
   cancelledTooltip: string | null;
   /** Open cash-deposit badge hover text with exact amount; null when none. */
   openCashDepositTooltip: string | null;
@@ -297,8 +297,9 @@ export function buildClientSearchStatusTooltips(
     orderUnreturned.length > 0 ? orderUnreturned : snapshot.unreturnedItems;
   const forgottenItems = filterActiveLostForCustomer(lostEquipment, phoneDigits, customerName);
 
-  const hasCancelled =
-    order.isCancelled || customerHasCancelledOrder(cancelledOrders, phoneDigits, customerName);
+  // Cross-order cue only: the cancelled card itself uses a status badge, not this warning.
+  const hasRelatedCancelled =
+    !order.isCancelled && customerHasCancelledOrder(cancelledOrders, phoneDigits, customerName);
 
   return {
     openDebtTooltip: debtParts.length > 0 ? debtParts.join(' · ') : null,
@@ -309,7 +310,7 @@ export function buildClientSearchStatusTooltips(
       : null,
     forgottenEquipmentTooltip:
       forgottenItems.length > 0 ? buildForgottenEquipmentTooltip(forgottenItems) : null,
-    cancelledTooltip: hasCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null,
+    cancelledTooltip: hasRelatedCancelled ? CANCELLED_ORDER_STATUS_TOOLTIP : null,
     openCashDepositTooltip:
       snapshot.openCashDepositAmount > 0 && snapshot.openCashDepositMessage
         ? snapshot.openCashDepositMessage

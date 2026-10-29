@@ -72,7 +72,8 @@ public class OrderRepository : IOrderRepository
             return [];
         }
 
-        var filtered = LiveOrders.AsNoTracking().Where(o => !o.IsCancelled);
+        // Include cancelled orders so customer history (and debt cues) remain searchable.
+        var filtered = LiveOrders.AsNoTracking();
 
         if (systemType.HasValue)
         {

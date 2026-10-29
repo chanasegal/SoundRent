@@ -37,7 +37,7 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Weekly-board client search: active orders (any date) matching a customer name or phone.
+    /// Weekly-board client search: orders including cancelled (any date) matching a customer name or phone.
     /// </summary>
     [HttpGet("search")]
     public async Task<ActionResult<List<OrderDto>>> SearchByCustomer(

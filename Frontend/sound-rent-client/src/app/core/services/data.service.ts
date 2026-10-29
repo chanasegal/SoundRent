@@ -173,7 +173,7 @@ export class DataService {
       .pipe(catchError((err) => this.handleListError<OrderDto>(err, background)));
   }
 
-  /** Active orders (any date) whose customer name or phone matches `query`. */
+  /** Orders including cancelled (any date) whose customer name or phone matches `query`. */
   /** See {@link getWeeklyOrders} for `background`. */
   searchOrdersByCustomer(query: string, options?: { background?: boolean }): Observable<OrderDto[]> {
     const params = this.withSystemType(new HttpParams().set('q', query));

@@ -180,7 +180,11 @@
               }
               <ul class="client-search__list">
                 @for (item of items; track item.order.id) {
-                  <li class="client-search__item" [class.client-search__item--past]="item.isPast">
+                  <li
+                    class="client-search__item"
+                    [class.client-search__item--past]="item.isPast && !item.order.isCancelled"
+                    [class.client-search__item--cancelled]="item.order.isCancelled"
+                  >
                     <div class="client-search__item-main">
                       <div class="client-search__item-title">
                         <span class="client-search__name">{{ item.order.customerName?.trim() || 'ללא שם' }}</span>
@@ -244,9 +248,18 @@
                           {{ item.order.institutionName?.trim() || item.order.address?.trim() }}
                         </div>
                       }
-                      @if (!item.isPast || !item.status.neverReturnedTooltip || item.isPaid) {
+                      @if (
+                        item.order.isCancelled ||
+                        !item.isPast ||
+                        !item.status.neverReturnedTooltip ||
+                        item.isPaid
+                      ) {
                         <div class="client-search__badges">
-                          @if (item.isPast) {
+                          @if (item.order.isCancelled) {
+                            <span class="client-search__badge client-search__badge--cancelled"
+                              >הזמנה מבוטלת</span
+                            >
+                          } @else if (item.isPast) {
                             @if (!item.status.neverReturnedTooltip) {
                               <span class="client-search__badge client-search__badge--past">הסתיימה</span>
                             }
@@ -322,7 +335,7 @@
                       >
                         פתיחת הזמנה
                       </a>
-                      @if (item.boardDate) {
+                      @if (item.boardDate && !item.order.isCancelled) {
                         <button
                           type="button"
                           class="client-search__locate"
