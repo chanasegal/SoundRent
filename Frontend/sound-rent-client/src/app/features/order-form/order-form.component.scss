@@ -1535,14 +1535,26 @@
 
 .accessory-draft-line {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 1fr) auto;
   gap: 0.55rem;
   align-items: start;
 }
 
+.accessory-draft-line__qty {
+  padding-top: 0.15rem;
+}
+
 @media (max-width: 640px) {
   .accessory-draft-line {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .accessory-draft-line__search {
+    grid-column: 1 / -1;
+  }
+
+  .accessory-draft-line__codes {
+    grid-column: 1 / -2;
   }
 }
 

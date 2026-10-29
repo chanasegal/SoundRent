@@ -138,6 +138,8 @@ interface AccessoryDraftLine {
   id: string;
   query: string;
   inventoryDefinitionId: number | null;
+  /** Requested quantity — always editable on the draft row before commit. */
+  quantity: number;
   selectedCodes: string[];
   /** Text typed into the codes multi-select (not yet added to selectedCodes). */
   codesQuery: string;
@@ -737,6 +739,26 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     );
   }
 
+  protected updateDraftQuantity(lineId: string, raw: string): void {
+    const parsed = Number.parseInt(raw, 10);
+    const quantity = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    this.patchDraftLine(lineId, { quantity });
+  }
+
+  /**
+   * Quantity Enter → jump to the equipment name field so rapid entry stays
+   * name → codes → next row (quantity stays editable but off the critical path).
+   */
+  protected onDraftQuantityKeydown(lineId: string, event: KeyboardEvent): void {
+    if (!this.isEnterKey(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.blockImplicitFormSubmit();
+    this.focusDraftInput(lineId);
+  }
+
   /**
    * Item-name Enter:
    * - "Item + Code" (or codes already chosen) → save row and advance
@@ -938,7 +960,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         const selected = this.isDraftCodeSelected(l, code)
           ? l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code))
           : [...l.selectedCodes, code];
-        return { ...l, selectedCodes: selected, codesQuery: '' };
+        return {
+          ...l,
+          selectedCodes: selected,
+          codesQuery: '',
+          quantity: Math.max(l.quantity, selected.length, 1)
+        };
       })
     );
     queueMicrotask(() => this.focusDraftCodesInput(lineId));
@@ -1072,7 +1099,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       }
     }
 
-    this.patchDraftLine(lineId, { selectedCodes: selected, codesQuery: rejected.join(' ') });
+    this.patchDraftLine(lineId, {
+      selectedCodes: selected,
+      codesQuery: rejected.join(' '),
+      quantity: Math.max(line.quantity, selected.length, 1)
+    });
     return rejected.length === 0;
   }
 
@@ -1304,7 +1335,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return 'failed';
     }
 
-    if (!this.appendAccessoryRowFromDefinition(def, codes)) {
+    if (!this.appendAccessoryRowFromDefinition(def, codes, line.quantity)) {
       if (options.addNext) {
         this.focusDraftInput(lineId);
       }
@@ -1366,7 +1397,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
   private appendAccessoryRowFromDefinition(
     def: InventoryDefinitionDto,
-    selectedCodes: string[]
+    selectedCodes: string[],
+    requestedQuantity = 1
   ): boolean {
     if (
       this.equipmentList.controls.some(
@@ -1384,7 +1416,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         inventoryDefinitionId: def.id,
         loanedEquipmentType: linkedType,
         label: def.displayName,
-        quantity: Math.max(1, codes.length),
+        quantity: Math.max(1, requestedQuantity, codes.length),
         selectedCodes: codes,
         lineId: null,
         isCustomItem: false
@@ -1411,6 +1443,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       id: '__validate__',
       query: label,
       inventoryDefinitionId: definitionId,
+      quantity: Math.max(1, codes.length),
       selectedCodes: [],
       codesQuery: '',
       suggestOpen: false,
@@ -1467,6 +1500,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       id: id ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       query: '',
       inventoryDefinitionId: null,
+      quantity: 1,
       selectedCodes: [],
       codesQuery: '',
       suggestOpen: false,
@@ -2789,7 +2823,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     const active = this.document.activeElement as HTMLElement | null;
     if (
       active?.matches?.(
-        '[data-accessory-draft-input], [data-accessory-draft-codes-input], .multi-select__quick-input'
+        '[data-accessory-draft-input], [data-accessory-draft-codes-input], [data-accessory-draft-qty], .multi-select__quick-input'
       )
     ) {
       return;

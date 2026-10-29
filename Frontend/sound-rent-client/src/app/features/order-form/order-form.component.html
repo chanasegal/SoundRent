@@ -925,6 +925,25 @@
         <div class="accessory-draft-lines">
           @for (line of accessoryDraftLines(); track line.id) {
             <div class="accessory-draft-line">
+              <label
+                class="accessory-row__qty-wrap accessory-draft-line__qty"
+                [attr.aria-label]="'כמות עבור ' + (line.query.trim() || 'אביזר')"
+              >
+                <span class="accessory-row__qty-label">כמות</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="numeric"
+                  class="accessory-row__qty-input"
+                  data-accessory-draft-qty
+                  [attr.data-line-id]="line.id"
+                  [value]="line.quantity"
+                  (input)="updateDraftQuantity(line.id, $any($event.target).value)"
+                  (keydown)="onDraftQuantityKeydown(line.id, $event)"
+                  enterkeyhint="next"
+                />
+              </label>
               <div
                 class="accessory-draft-line__search"
                 (appClickOutside)="closeDraftSuggest(line.id)"
