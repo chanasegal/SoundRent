@@ -244,65 +244,75 @@
                           {{ item.order.institutionName?.trim() || item.order.address?.trim() }}
                         </div>
                       }
-                      <div class="client-search__badges">
-                        @if (item.isPast) {
-                          @if (item.status.neverReturnedTooltip) {
-                            <app-touch-tooltip
-                              class="client-search__badge client-search__badge--never-returned"
-                              [text]="item.status.neverReturnedTooltip"
-                            >ציוד טרם הוחזר</app-touch-tooltip>
+                      @if (!item.isPast || !item.status.neverReturnedTooltip || item.isPaid) {
+                        <div class="client-search__badges">
+                          @if (item.isPast) {
+                            @if (!item.status.neverReturnedTooltip) {
+                              <span class="client-search__badge client-search__badge--past">הסתיימה</span>
+                            }
                           } @else {
-                            <span class="client-search__badge client-search__badge--past">הסתיימה</span>
+                            <span class="client-search__badge client-search__badge--upcoming">פעילה / עתידית</span>
                           }
-                        } @else {
-                          <span class="client-search__badge client-search__badge--upcoming">פעילה / עתידית</span>
-                        }
-                        @if (item.isPaid) {
-                          <span class="client-search__badge client-search__badge--paid">שולם</span>
-                        }
-                        @if (item.status.openDebtTooltip) {
-                          <app-touch-tooltip
-                            class="client-search__status-icon client-search__status-icon--debt"
-                            [text]="item.status.openDebtTooltip"
-                          >🔴</app-touch-tooltip>
-                        }
-                        @if (item.status.openCashDepositTooltip) {
-                          <app-touch-tooltip
-                            class="client-search__status-icon client-search__status-icon--cash-deposit"
-                            [text]="item.status.openCashDepositTooltip"
-                          >💰</app-touch-tooltip>
-                        }
-                        @if (item.status.missingEquipmentTooltip) {
-                          <app-touch-tooltip
-                            class="client-search__status-icon client-search__status-icon--missing"
-                            [text]="item.status.missingEquipmentTooltip"
-                          >⚠️</app-touch-tooltip>
-                        }
-                        @if (item.status.forgottenEquipmentTooltip) {
-                          <app-touch-tooltip
-                            class="client-search__status-icon client-search__status-icon--forgotten"
-                            [text]="item.status.forgottenEquipmentTooltip"
-                          >🧰</app-touch-tooltip>
-                        }
-                        @if (item.status.cancelledTooltip) {
-                          <app-touch-tooltip
-                            class="client-search__status-icon client-search__status-icon--cancelled"
-                            [text]="item.status.cancelledTooltip"
-                          >❌</app-touch-tooltip>
-                        }
-                        @if (hasUrgentBoardNote(item.order)) {
-                          <app-touch-tooltip
-                            class="client-search__badge client-search__badge--urgent"
-                            [text]="urgentBoardNoteText(item.order)"
-                          >הערה דחופה</app-touch-tooltip>
-                        }
-                        @if (hasOrderNotes(item.order)) {
-                          <app-touch-tooltip
-                            class="client-search__badge"
-                            [text]="orderNotesTooltip(item.order)"
-                          >💡 הערות</app-touch-tooltip>
-                        }
-                      </div>
+                          @if (item.isPaid) {
+                            <span class="client-search__badge client-search__badge--paid">שולם</span>
+                          }
+                        </div>
+                      }
+                      @if (
+                        item.status.neverReturnedTooltip ||
+                        item.status.openDebtTooltip ||
+                        item.status.openCashDepositTooltip ||
+                        item.status.missingEquipmentTooltip ||
+                        item.status.forgottenEquipmentTooltip ||
+                        item.status.cancelledTooltip ||
+                        hasUrgentBoardNote(item.order) ||
+                        hasOrderNotes(item.order)
+                      ) {
+                        <div class="client-search__warnings" role="status">
+                          @if (item.status.neverReturnedTooltip) {
+                            <p class="client-search__warning client-search__warning--never-returned">
+                              {{ item.status.neverReturnedTooltip }}
+                            </p>
+                          }
+                          @if (item.status.openDebtTooltip) {
+                            <p class="client-search__warning client-search__warning--debt">
+                              {{ item.status.openDebtTooltip }}
+                            </p>
+                          }
+                          @if (item.status.openCashDepositTooltip) {
+                            <p class="client-search__warning client-search__warning--cash-deposit">
+                              {{ item.status.openCashDepositTooltip }}
+                            </p>
+                          }
+                          @if (item.status.missingEquipmentTooltip) {
+                            <p class="client-search__warning client-search__warning--missing">
+                              {{ item.status.missingEquipmentTooltip }}
+                            </p>
+                          }
+                          @if (item.status.forgottenEquipmentTooltip) {
+                            <p class="client-search__warning client-search__warning--forgotten">
+                              {{ item.status.forgottenEquipmentTooltip }}
+                            </p>
+                          }
+                          @if (item.status.cancelledTooltip) {
+                            <p class="client-search__warning client-search__warning--cancelled">
+                              {{ item.status.cancelledTooltip }}
+                            </p>
+                          }
+                          @if (hasUrgentBoardNote(item.order)) {
+                            <p class="client-search__warning client-search__warning--urgent">
+                              <span class="client-search__warning-label">הערה דחופה:</span>
+                              {{ urgentBoardNoteText(item.order) }}
+                            </p>
+                          }
+                          @if (hasOrderNotes(item.order)) {
+                            <p class="client-search__warning client-search__warning--notes">
+                              <span class="client-search__warning-label">הערות:</span>
+                              {{ orderNotesTooltip(item.order) }}
+                            </p>
+                          }
+                        </div>
+                      }
                     </div>
                     <div class="client-search__item-actions">
                       <a

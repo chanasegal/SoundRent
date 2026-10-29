@@ -59,18 +59,31 @@
                 <div class="slot-actions">
                   <button
                     type="button"
-                    class="slot-action-btn slot-action-btn--edit"
+                    class="recent-loan-action"
                     (click)="openEdit(row)"
+                    title="עריכה"
+                    aria-label="עריכה"
                   >
-                    עריכה
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                      <path d="M13.5 6 18 10.5"></path>
+                    </svg>
                   </button>
                   <button
                     type="button"
-                    class="slot-action-btn slot-action-btn--delete"
+                    class="recent-loan-action recent-loan-action--delete"
                     [disabled]="deletingId() === row.id"
                     (click)="deleteRow(row)"
+                    title="מחיקה"
+                    aria-label="מחיקה"
                   >
-                    {{ deletingId() === row.id ? 'מוחק…' : 'מחק' }}
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 7h16"></path>
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                    </svg>
                   </button>
                 </div>
               </td>
@@ -535,36 +548,62 @@
                     @if (isInventoryRowEditing(row.def.id)) {
                       <button
                         type="button"
-                        class="slot-action-btn slot-action-btn--edit"
+                        class="slot-icon-btn slot-icon-btn--save"
                         [disabled]="savingInventoryRowId() === row.def.id"
                         (click)="saveInventoryRow(row.def, row.formIndex)"
+                        title="שמירה"
+                        aria-label="שמירה"
                       >
-                        {{ savingInventoryRowId() === row.def.id ? 'שומר…' : 'שמור' }}
+                        @if (savingInventoryRowId() === row.def.id) {
+                          <span class="slot-icon-btn__busy">…</span>
+                        } @else {
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5"></path>
+                          </svg>
+                        }
                       </button>
                       <button
                         type="button"
-                        class="slot-action-btn slot-action-btn--delete"
+                        class="slot-icon-btn slot-icon-btn--cancel"
                         [disabled]="savingInventoryRowId() === row.def.id"
                         (click)="cancelEditInventoryRow(row.def, row.formIndex)"
+                        title="ביטול"
+                        aria-label="ביטול"
                       >
-                        ביטול
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M18 6 6 18"></path>
+                          <path d="M6 6l12 12"></path>
+                        </svg>
                       </button>
                     } @else {
                       <button
                         type="button"
-                        class="slot-action-btn slot-action-btn--edit"
+                        class="recent-loan-action"
                         [disabled]="editingInventoryRowId() !== null"
                         (click)="startEditInventoryRow(row.def, row.formIndex)"
+                        title="עריכה"
+                        aria-label="עריכה"
                       >
-                        עריכה
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"></path>
+                          <path d="M13.5 6 18 10.5"></path>
+                        </svg>
                       </button>
                       <button
                         type="button"
-                        class="slot-action-btn slot-action-btn--delete"
+                        class="recent-loan-action recent-loan-action--delete"
                         [disabled]="deletingInventoryId() === row.def.id || editingInventoryRowId() !== null"
                         (click)="deleteInventoryItem(row.def, row.formIndex)"
+                        title="מחיקה"
+                        aria-label="מחיקה"
                       >
-                        {{ deletingInventoryId() === row.def.id ? 'מוחק…' : 'מחק' }}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 7h16"></path>
+                          <path d="M10 11v6"></path>
+                          <path d="M14 11v6"></path>
+                          <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
+                          <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                        </svg>
                       </button>
                     }
                   </div>

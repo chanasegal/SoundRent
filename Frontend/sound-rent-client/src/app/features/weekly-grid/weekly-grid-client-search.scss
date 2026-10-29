@@ -257,8 +257,6 @@
   align-items: center;
   gap: 0.3rem;
   margin-top: 0.15rem;
-  /* Touch tooltips use fixed positioning; keep icons from stretching the card. */
-  overflow: visible;
 }
 
 .client-search__badge {
@@ -279,56 +277,72 @@
     color: #64748b;
   }
 
-  &--never-returned {
-    background: #ffedd5;
-    color: #c2410c;
-    font-weight: 800;
-  }
-
   &--paid {
     background: #dcfce7;
     color: #166534;
     font-weight: 800;
+  }
+}
+
+.client-search__warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.client-search__warning {
+  margin: 0;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #0f172a;
+
+  &--never-returned {
+    background: #ffedd5;
+    color: #9a3412;
+  }
+
+  &--debt {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  &--cash-deposit {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  &--missing {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  &--forgotten {
+    background: #e0e7ff;
+    color: #3730a3;
+  }
+
+  &--cancelled {
+    background: #f1f5f9;
+    color: #475569;
   }
 
   &--urgent {
     background: #fef3c7;
     color: #92400e;
   }
+
+  &--notes {
+    background: #f1f5f9;
+    color: #334155;
+  }
 }
 
-.client-search__status-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: 9999px;
-  font-size: 0.78rem;
-  line-height: 1;
-  cursor: help;
-  user-select: none;
-
-  &--debt {
-    background: #fee2e2;
-  }
-
-  &--cash-deposit {
-    background: #fef3c7;
-  }
-
-  &--missing {
-    background: #fef3c7;
-  }
-
-  &--forgotten {
-    background: #e0e7ff;
-  }
-
-  &--cancelled {
-    background: #f1f5f9;
-  }
+.client-search__warning-label {
+  font-weight: 800;
 }
 
 .client-search__item-actions {
