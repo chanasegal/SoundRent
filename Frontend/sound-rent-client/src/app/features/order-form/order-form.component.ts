@@ -571,8 +571,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   /** True during pagehide/beforeunload — ConfirmDialog cannot block unload. */
   private documentUnloading = false;
   private autoSaveBadgeClearTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Quiet period after typing before a background save (field blur still flushes immediately). */
+  private static readonly AUTO_SAVE_DEBOUNCE_MS = 3500;
   /**
-   * True while a pointer gesture started inside the form. Prevents false exit-saves when
+   * True while a pointer gesture started inside the form. Prevents false blur-saves when
    * clicking checkboxes / equipment options (blur → body before the new control focuses).
    */
   private formPointerDownInside = false;
@@ -2466,6 +2468,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.wireOpsAlertLiveSync();
     this.wireInstitutionConflictCheck();
     this.wireInstitutionAutocomplete();
+    this.wireAutoSave();
 
     this.data.getNextReferenceNumber('order').subscribe((next) => this.upcomingOrderNumber.set(next));
 
@@ -2536,20 +2539,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   /**
-   * Exit-only save: runs solely when focus leaves the form container entirely.
-   * Intra-form typing, tabbing between fields, and equipment/checkbox clicks stay local.
+   * Field-blur flush: save as soon as focus leaves a control (tab/click to another field
+   * or leave the form). Skips transient blurs from in-form pointer gestures (checkboxes,
+   * suggestion mousedown) so mid-selection clicks do not hit the API.
    */
-  protected onFormFocusOut(event: FocusEvent): void {
-    const formEl = event.currentTarget as HTMLElement | null;
-    if (!formEl) {
-      return;
-    }
-
-    const related = event.relatedTarget as Node | null;
-    if (related && formEl.contains(related)) {
-      return;
-    }
-
+  protected onFormFocusOut(_event: FocusEvent): void {
     // Click/tap inside the form (incl. non-focusable labels / equipment rows): stay local.
     if (this.formPointerDownInside) {
       queueMicrotask(() => {
@@ -2560,10 +2554,6 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     queueMicrotask(() => {
       this.formPointerDownInside = false;
-      const active = this.document.activeElement;
-      if (active && formEl.contains(active)) {
-        return;
-      }
       this.tryAutoSave();
     });
   }
@@ -2895,8 +2885,30 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   /**
-   * Persists the order. Call only from exit paths (form focusout leaving the container,
-   * navigate away / destroy, window pagehide). Never from valueChanges or selection handlers.
+   * Debounced typing + field-blur / unload persistence.
+   * Skips empty drafts until the user has entered a customer name or phone.
+   */
+  private wireAutoSave(): void {
+    this.form.valueChanges
+      .pipe(
+        debounceTime(OrderFormComponent.AUTO_SAVE_DEBOUNCE_MS),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => this.tryAutoSave());
+  }
+
+  /** True when the form has enough identity to justify creating/updating a DB row. */
+  private hasBasicCustomerIdentification(): boolean {
+    const name = String(this.form.controls['customerName'].value ?? '').trim();
+    const phoneDigits = OrderFormComponent.digitsOnly(
+      String(this.form.controls['phone'].value ?? '')
+    );
+    return name.length >= 2 || phoneDigits.length >= 7;
+  }
+
+  /**
+   * Persists the order from debounce, field blur, leave/navigate, destroy, or pagehide.
+   * Guarded so empty / incomplete drafts never hit the API.
    */
   private tryAutoSave(): void {
     if (
@@ -2907,6 +2919,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.returnModalOpen() ||
       this.softSaveWarnings() != null
     ) {
+      return;
+    }
+
+    // Do not create premature rows before the user identifies the customer.
+    if (!this.hasBasicCustomerIdentification()) {
+      if (this.autoSaveStatus() === 'conflict' || this.autoSaveStatus() === 'error') {
+        this.setAutoSaveStatus('idle');
+      }
       return;
     }
 
@@ -3337,7 +3357,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           } else {
             this.submitting.set(false);
           }
-          // Exit-only: do not re-save from finalize — next persist waits for leave/navigate.
+          // Do not chain another save from finalize — debounce / blur / leave own the next attempt.
         })
       )
       .subscribe({
