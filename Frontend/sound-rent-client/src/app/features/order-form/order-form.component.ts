@@ -1901,14 +1901,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected readonly removeAccessoryConfirmName = signal('');
 
   /**
-   * Soft warning when requested quantity > selected serial codes on save/exit.
+   * Soft warnings on save/exit (code-quantity mismatch and/or unset payment status).
    * `null` when the modal is closed.
    */
-  protected readonly quantityMismatchWarnings = signal<QuantityCodeShortage[] | null>(null);
-  private quantityMismatchPendingAction: (() => void) | null = null;
-  private quantityMismatchCancelAction: (() => void) | null = null;
+  protected readonly softSaveWarnings = signal<string[] | null>(null);
+  private softSavePendingAction: (() => void) | null = null;
+  private softSaveCancelAction: (() => void) | null = null;
   /** Set when leave was already confirmed so the deactivate guard does not re-prompt. */
-  private bypassQuantityDeactivateGuard = false;
+  private bypassSoftSaveDeactivateGuard = false;
 
   /** Opens the remove confirmation modal; the row is only deleted after the user confirms. */
   protected removeAccessoryRow(index: number): void {
@@ -2294,23 +2294,19 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     );
   }
 
-  protected quantityMismatchMessage(warning: QuantityCodeShortage): string {
-    return quantityCodeShortageMessage(warning);
-  }
-
-  protected cancelQuantityMismatchWarning(): void {
-    const cancel = this.quantityMismatchCancelAction;
-    this.quantityMismatchWarnings.set(null);
-    this.quantityMismatchPendingAction = null;
-    this.quantityMismatchCancelAction = null;
+  protected cancelSoftSaveWarning(): void {
+    const cancel = this.softSaveCancelAction;
+    this.softSaveWarnings.set(null);
+    this.softSavePendingAction = null;
+    this.softSaveCancelAction = null;
     cancel?.();
   }
 
-  protected proceedDespiteQuantityMismatch(): void {
-    const action = this.quantityMismatchPendingAction;
-    this.quantityMismatchWarnings.set(null);
-    this.quantityMismatchPendingAction = null;
-    this.quantityMismatchCancelAction = null;
+  protected proceedDespiteSoftSaveWarnings(): void {
+    const action = this.softSavePendingAction;
+    this.softSaveWarnings.set(null);
+    this.softSavePendingAction = null;
+    this.softSaveCancelAction = null;
     action?.();
   }
 
@@ -2332,41 +2328,62 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return mismatches;
   }
 
+  private isPaymentStatusUnset(): boolean {
+    return (this.form.controls['paymentStatus'].value as PaymentStatus) === 'none';
+  }
+
   /**
-   * Soft gate for intentional save/exit: warn when codes < quantity, allow proceed anyway.
+   * Soft warnings for intentional save/exit.
+   * Payment-status unset is only included when there is already a code-quantity mismatch —
+   * alone it must not interrupt save/proceed.
+   */
+  private collectSoftSaveWarnings(): string[] {
+    const mismatches = this.findQuantityMismatches();
+    if (mismatches.length === 0) {
+      return [];
+    }
+    const warnings = mismatches.map((mismatch) => quantityCodeShortageMessage(mismatch));
+    if (this.isPaymentStatusUnset()) {
+      warnings.push('שדה התשלום לא צוין (האם שולם?)');
+    }
+    return warnings;
+  }
+
+  /**
+   * Soft gate for intentional save/exit: warn on code-quantity mismatch
+   * (and unset payment status only when paired with that mismatch); allow proceed anyway.
    * Silent auto-save / unload paths skip the modal.
    */
-  private confirmQuantityMatchOrProceed(onProceed: () => void, onCancel?: () => void): void {
+  private confirmSoftSaveWarningsOrProceed(onProceed: () => void, onCancel?: () => void): void {
     if (this.documentUnloading) {
       onProceed();
       return;
     }
-    const mismatches = this.findQuantityMismatches();
-    if (mismatches.length === 0) {
+    const warnings = this.collectSoftSaveWarnings();
+    if (warnings.length === 0) {
       onProceed();
       return;
     }
-    this.quantityMismatchPendingAction = onProceed;
-    this.quantityMismatchCancelAction = onCancel ?? null;
-    this.quantityMismatchWarnings.set(mismatches);
+    this.softSavePendingAction = onProceed;
+    this.softSaveCancelAction = onCancel ?? null;
+    this.softSaveWarnings.set(warnings);
   }
 
-  /** Block in-app navigation away while code quantities are short, unless already confirmed. */
+  /** Block in-app navigation away while soft warnings remain, unless already confirmed. */
   canDeactivate(): Observable<boolean> | boolean {
-    if (this.bypassQuantityDeactivateGuard || this.documentUnloading) {
+    if (this.bypassSoftSaveDeactivateGuard || this.documentUnloading) {
       return true;
     }
-    if (this.quantityMismatchWarnings() != null) {
+    if (this.softSaveWarnings() != null) {
       return false;
     }
-    const mismatches = this.findQuantityMismatches();
-    if (mismatches.length === 0) {
+    if (this.collectSoftSaveWarnings().length === 0) {
       return true;
     }
     return new Observable<boolean>((subscriber) => {
-      this.confirmQuantityMatchOrProceed(
+      this.confirmSoftSaveWarningsOrProceed(
         () => {
-          this.bypassQuantityDeactivateGuard = true;
+          this.bypassSoftSaveDeactivateGuard = true;
           subscriber.next(true);
           subscriber.complete();
         },
@@ -2566,8 +2583,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
    * already occupies the selected shift, ask before leaving so Cancel stays on the form.
    */
   private persistThenLeave(onComplete: () => void): void {
-    // Quantity mismatch dialog owns the leave decision — don't navigate away underneath it.
-    if (this.quantityMismatchWarnings() != null) {
+    // Soft-save warning dialog owns the leave decision — don't navigate away underneath it.
+    if (this.softSaveWarnings() != null) {
       return;
     }
 
@@ -2578,7 +2595,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.returnSaving() ||
       this.returnModalOpen()
     ) {
-      this.bypassQuantityDeactivateGuard = true;
+      this.bypassSoftSaveDeactivateGuard = true;
       onComplete();
       return;
     }
@@ -2586,11 +2603,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.commitPendingDraftLinesBeforeSave(true);
 
     const leave = (): void => {
-      this.bypassQuantityDeactivateGuard = true;
+      this.bypassSoftSaveDeactivateGuard = true;
       onComplete();
     };
 
-    this.confirmQuantityMatchOrProceed(() => {
+    this.confirmSoftSaveWarningsOrProceed(() => {
       if (this.form.invalid || this.validateSelectedSerialAvailability()) {
         leave();
         return;
@@ -2852,7 +2869,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
-    this.confirmQuantityMatchOrProceed(() => this.performSave({ mode: 'manual' }));
+    this.confirmSoftSaveWarningsOrProceed(() => this.performSave({ mode: 'manual' }));
   }
 
   /** Force-save when auto-save paused due to a double-booking conflict. */
@@ -2872,7 +2889,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
     this.doubleBookingDeclinedKey = null;
-    this.confirmQuantityMatchOrProceed(() =>
+    this.confirmSoftSaveWarningsOrProceed(() =>
       this.performSave({ mode: 'auto', allowDoubleBooking: true })
     );
   }
@@ -2888,7 +2905,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.submitting() ||
       this.returnSaving() ||
       this.returnModalOpen() ||
-      this.quantityMismatchWarnings() != null
+      this.softSaveWarnings() != null
     ) {
       return;
     }
