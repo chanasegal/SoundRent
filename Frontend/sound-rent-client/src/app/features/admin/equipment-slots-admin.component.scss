@@ -412,6 +412,7 @@ tr.row-in-maintenance:hover {
 }
 
 .qty-input {
+  display: inline-block;
   width: 4.5rem;
   border-radius: 0.5rem;
   border: 1px solid #cbd5e1;
@@ -427,6 +428,25 @@ tr.row-in-maintenance:hover {
   &:focus {
     border-color: #0ea5e9;
     box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+  }
+
+  &:disabled,
+  &--readonly,
+  &--readonly:disabled {
+    border-color: transparent;
+    background: transparent;
+    color: #0f172a;
+    box-shadow: none;
+    cursor: default;
+    -moz-appearance: textfield;
+  }
+
+  &:disabled::-webkit-outer-spin-button,
+  &:disabled::-webkit-inner-spin-button,
+  &--readonly::-webkit-outer-spin-button,
+  &--readonly::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 }
 

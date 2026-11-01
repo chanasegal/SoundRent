@@ -136,8 +136,10 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         var quantity = dto.Quantity is int q ? Math.Max(0, Math.Min(200, q)) : entity.Quantity;
         var codes = ResolveSerialCodes(quantity, dto.SerialCodes);
         quantity = codes.Count;
+        var sortOrder = Math.Clamp(dto.SortOrder, 0, 1_000_000);
 
         entity.DisplayName = displayName;
+        entity.SortOrder = sortOrder;
         entity.Quantity = quantity;
         entity.UpdatedAt = DateTime.UtcNow;
         ReplaceSerialCollection(entity, codes);

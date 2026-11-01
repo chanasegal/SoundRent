@@ -20,7 +20,7 @@ export interface LinkedAccessoryTypeOption {
 export class InventoryDefinitionsStore {
   private readonly data = inject(DataService);
 
-  /** All inventory catalog rows, always sorted A–Z by Hebrew display name. */
+  /** All inventory catalog rows, sorted by sortOrder then id. */
   readonly definitions = signal<InventoryDefinitionDto[]>([]);
 
   /** Linked system types only, sorted A–Z by display label. */
@@ -63,7 +63,7 @@ export class InventoryDefinitionsStore {
 
   /** Replace the full catalog (e.g. after a batch save). */
   replaceAll(rows: InventoryDefinitionDto[]): void {
-    this.definitions.set(this.sortByDisplayName(rows));
+    this.definitions.set(this.sortBySortOrder(rows));
     this.loaded = true;
   }
 
@@ -71,7 +71,7 @@ export class InventoryDefinitionsStore {
     this.definitions.update((rows) => {
       const idx = rows.findIndex((d) => d.id === dto.id);
       const next = idx >= 0 ? rows.map((r, i) => (i === idx ? { ...r, ...dto } : r)) : [...rows, dto];
-      return this.sortByDisplayName(next);
+      return this.sortBySortOrder(next);
     });
     this.loaded = true;
   }
@@ -272,9 +272,10 @@ export class InventoryDefinitionsStore {
     return [...byType.values()].sort((a, b) => a.label.localeCompare(b.label, 'he'));
   }
 
-  private sortByDisplayName(rows: InventoryDefinitionDto[]): InventoryDefinitionDto[] {
-    return [...rows].sort((a, b) =>
-      (a.displayName ?? '').localeCompare(b.displayName ?? '', 'he', { sensitivity: 'base' })
-    );
+  private sortBySortOrder(rows: InventoryDefinitionDto[]): InventoryDefinitionDto[] {
+    return [...rows].sort((a, b) => {
+      const order = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      return order !== 0 ? order : a.id - b.id;
+    });
   }
 }

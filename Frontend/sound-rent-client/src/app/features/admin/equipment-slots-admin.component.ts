@@ -99,7 +99,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly pageTitle = inject(WorkspaceUiService).title('ניהול ציוד');
 
-  /** Shared sorted inventory catalog (A–Z) — same source as loan / lookup screens. */
+  /** Shared inventory catalog (by sortOrder) — same source as loan / lookup screens. */
   protected readonly inventoryCatalog = this.inventoryStore.definitions;
 
   /**
@@ -140,7 +140,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     serialCode: ['']
   });
 
-  /** Catalog options for איתור פריט, filtered by typed query (catalog already A–Z). */
+  /** Catalog options for איתור פריט, filtered by typed query (catalog already by sortOrder). */
   protected readonly filteredSerialTypes = computed(() => {
     const query = this.serialTypeQuery().trim().toLowerCase();
     const digitsQuery = query.replace(/\D/g, '');
@@ -268,7 +268,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   protected readonly savingInventoryRowId = signal<number | null>(null);
   private readonly inventoryRowSnapshots = new Map<
     number,
-    { displayName: string; quantity: number; codes: string[] }
+    { displayName: string; sortOrder: number; quantity: number; codes: string[] }
   >();
 
   /** Default accessories bound to a specific Mixer unit code. */
@@ -1649,9 +1649,11 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     );
     this.inventoryRowSnapshots.set(def.id, {
       displayName: String(group.get('displayName')?.value ?? ''),
+      sortOrder: this.toNonNegativeInteger(group.getRawValue()?.sortOrder ?? group.get('sortOrder')?.value),
       quantity: this.toNonNegativeInteger(group.get('quantity')?.value),
       codes: [...codes]
     });
+    // Enable controls before flipping the edit signal so the סדר input mounts enabled.
     this.setInventoryRowEditable(rowIndex, true);
     this.editingInventoryRowId.set(def.id);
   }
@@ -1660,7 +1662,10 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     const snap = this.inventoryRowSnapshots.get(def.id);
     if (snap) {
       const group = this.customInventoryRowGroup(rowIndex);
-      group.patchValue({ displayName: snap.displayName, quantity: snap.quantity }, { emitEvent: false });
+      group.patchValue(
+        { displayName: snap.displayName, sortOrder: snap.sortOrder, quantity: snap.quantity },
+        { emitEvent: false }
+      );
       this.setCustomInventoryCodesLength(group, snap.quantity);
       const codesFa = this.customInventoryCodesArray(rowIndex);
       for (let i = 0; i < codesFa.length; i++) {
@@ -1674,13 +1679,30 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected saveInventoryRow(def: InventoryDefinitionDto, rowIndex: number): void {
     const group = this.customInventoryRowGroup(rowIndex);
-    const label = String(group.get('displayName')?.value ?? '').trim();
+    // getRawValue includes controls that may still be mid-enable during edit.
+    const raw = group.getRawValue() as {
+      displayName?: string;
+      sortOrder?: number | string | null;
+      quantity?: number | string | null;
+    };
+    const label = String(raw.displayName ?? group.get('displayName')?.value ?? '').trim();
     if (!label) {
       this.toast.error('יש להזין שם פריט');
       return;
     }
 
-    const quantity = this.toNonNegativeInteger(group.get('quantity')?.value);
+    const sortOrder = Number(raw.sortOrder ?? group.get('sortOrder')?.value);
+    if (!Number.isFinite(sortOrder)) {
+      this.toast.error('סדר חייב להיות מספר שלם');
+      return;
+    }
+    const sortOrderInt = Math.trunc(sortOrder);
+    if (sortOrderInt < 0 || sortOrderInt > 1_000_000) {
+      this.toast.error('סדר חייב להיות בין 0 ל־1000000');
+      return;
+    }
+
+    const quantity = this.toNonNegativeInteger(raw.quantity ?? group.get('quantity')?.value);
     const codesFa = this.customInventoryCodesArray(rowIndex);
     const serialCodes: string[] = [];
     for (let c = 0; c < codesFa.length; c++) {
@@ -1707,6 +1729,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     this.data
       .updateInventoryDefinitionRow(def.id, {
         displayName: label,
+        sortOrder: sortOrderInt,
         quantity,
         serialCodes
       })
@@ -1718,20 +1741,9 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           }
           this.toast.success('הפריט נשמר');
           this.inventoryStore.upsert(updated);
-          this.customInventoryDefinitions.update((rows) =>
-            rows.map((r) => (r.id === updated.id ? updated : r))
-          );
-          const rows = this.customInventoryRows();
-          for (let i = 0; i < rows.length; i++) {
-            if (Number((rows.at(i) as FormGroup).get('id')?.value) === updated.id) {
-              const rebuilt = this.buildCustomInventoryRow(updated);
-              rows.setControl(i, rebuilt);
-              this.wireCustomInventoryRowQuantitySync(rebuilt);
-              break;
-            }
-          }
-          this.editingInventoryRowId.set(null);
-          this.inventoryRowSnapshots.delete(def.id);
+          const list = this.inventoryStore.definitions();
+          this.customInventoryDefinitions.set(list);
+          this.rebuildCustomInventoryRows(list);
           this.loadDefaultAccessoryCounts();
         }
       });
@@ -1744,12 +1756,15 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         return;
       }
       if (editable) {
-        ctrl.enable({ emitEvent: false });
-      } else {
+        if (ctrl.disabled) {
+          ctrl.enable({ emitEvent: false });
+        }
+      } else if (ctrl.enabled) {
         ctrl.disable({ emitEvent: false });
       }
     };
     toggle(group.get('displayName'));
+    toggle(group.get('sortOrder'));
     toggle(group.get('quantity'));
     this.customInventoryCodesArray(rowIndex).controls.forEach((c) => toggle(c));
   }
@@ -1818,6 +1833,10 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       displayName: this.fb.nonNullable.control(
         { value: def.displayName, disabled: true },
         [Validators.required, Validators.maxLength(200)]
+      ),
+      sortOrder: this.fb.nonNullable.control(
+        { value: def.sortOrder ?? 0, disabled: true },
+        [Validators.required, Validators.min(0), Validators.max(1_000_000)]
       ),
       quantity: this.fb.control({ value: quantity, disabled: true }, [Validators.min(0)]),
       codes: codesFa

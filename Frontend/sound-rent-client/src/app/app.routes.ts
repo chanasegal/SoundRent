@@ -185,16 +185,16 @@ export const routes: Routes = [
       },
       {
         path: 'admin/lost-equipment',
-        redirectTo: 'admin/lost-items',
-        pathMatch: 'full'
-      },
-      {
-        path: 'admin/unreturned-items',
         pathMatch: 'full',
         redirectTo: () =>
           inject(Router).createUrlTree(['/admin/lost-items'], {
-            queryParams: { tab: 'unreturned' }
+            queryParams: { tab: 'forgotten' }
           })
+      },
+      {
+        path: 'admin/unreturned-items',
+        redirectTo: 'admin/lost-items',
+        pathMatch: 'full'
       },
       {
         path: 'admin/blocked-dates',

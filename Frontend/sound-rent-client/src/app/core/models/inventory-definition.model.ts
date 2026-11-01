@@ -42,6 +42,7 @@ export interface InventoryDefinitionDto {
 
 export interface InventoryDefinitionRowUpdateDto {
   displayName: string;
+  sortOrder: number;
   quantity?: number | null;
   serialCodes?: string[];
 }

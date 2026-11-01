@@ -31,6 +31,8 @@ public class InventoryDefinitionRowUpdateDto
 {
     public string DisplayName { get; set; } = string.Empty;
 
+    public int SortOrder { get; set; }
+
     public int? Quantity { get; set; }
 
     public List<string>? SerialCodes { get; set; }

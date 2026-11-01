@@ -40,7 +40,7 @@ export class LostItemsAdminComponent {
     this.activeTab.set(tab);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { tab: tab === 'forgotten' ? null : tab },
+      queryParams: { tab: tab === 'unreturned' ? null : tab },
       queryParamsHandling: 'merge',
       replaceUrl: true
     });
@@ -51,6 +51,6 @@ export class LostItemsAdminComponent {
   }
 
   private parseTab(value: string | null): LostItemsTab {
-    return value === 'unreturned' ? 'unreturned' : 'forgotten';
+    return value === 'forgotten' ? 'forgotten' : 'unreturned';
   }
 }
