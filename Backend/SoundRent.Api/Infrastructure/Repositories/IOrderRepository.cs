@@ -89,6 +89,11 @@ public interface IOrderRepository
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Drops tracked entities after a failed SaveChanges so a concurrency retry can reload cleanly.
+    /// </summary>
+    void ClearChangeTracker();
+
     /// <summary>Orders whose primary or secondary phone matches any of the given digit strings.</summary>
     Task<List<Order>> GetOrdersForCustomerPhonesAsync(
         IReadOnlyCollection<string> normalizedDigitPhones,

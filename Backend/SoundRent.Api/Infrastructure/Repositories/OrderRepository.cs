@@ -392,6 +392,8 @@ public class OrderRepository : IOrderRepository
         return _db.SaveChangesAsync(cancellationToken);
     }
 
+    public void ClearChangeTracker() => _db.ChangeTracker.Clear();
+
     public async Task<List<Order>> GetOrdersForCustomerPhonesAsync(
         IReadOnlyCollection<string> normalizedDigitPhones,
         CancellationToken cancellationToken = default)

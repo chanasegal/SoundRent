@@ -25,11 +25,13 @@ import {
   ValidationErrors,
   Validators
 } from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmDialog } from 'primeng/confirmdialog';
 import {
   Subject,
+  catchError,
   concatMap,
   debounceTime,
   distinctUntilChanged,
@@ -567,6 +569,15 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   });
   /** In-flight auto-save flag (not a UI signal — avoids disabling controls / CD thrash). */
   private autoSaveBusy = false;
+  /**
+   * Covers the full save pipeline (conflict-check → PUT), not only the HTTP round-trip.
+   * Prevents blur + debounce (or auto + manual) from overlapping and causing 409s.
+   */
+  private saveInFlight = false;
+  /** Form changed while a save was in flight — flush once the current save finishes. */
+  private pendingAutoSave = false;
+  /** Explicit submit queued behind an in-flight auto-save. */
+  private pendingManualSave: SaveOptions | null = null;
   private suppressAutoSave = false;
   private lastSavedPayloadKey: string | null = null;
   /** Payload key the user declined to double-book — avoid re-prompting until the form changes. */
@@ -747,7 +758,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
   protected updateDraftQuantity(lineId: string, raw: string): void {
     const parsed = Number.parseInt(raw, 10);
-    const quantity = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    // Allow 0 so the user must set an intentional quantity (or pick codes that bump it).
+    const quantity = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
     this.patchDraftLine(lineId, { quantity });
   }
 
@@ -914,6 +926,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     const typed = line.codesQuery.trim();
     if (!typed) {
+      // Empty Enter = "I'm done" — only when there is something to commit.
+      // Do not force a row with quantity 0 and no codes (new-row default).
+      if (line.quantity < 1 && line.selectedCodes.length === 0) {
+        return;
+      }
       this.commitDraftLineFromText(lineId, { addNext: true, allowEmptyCodes: true });
       return;
     }
@@ -929,6 +946,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
+    // Assign typed codes into chips and stay on the field for further multi-select.
     this.addTypedDraftCodes(lineId);
   }
 
@@ -957,6 +975,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   protected toggleDraftCodeSelection(lineId: string, code: string, event: Event): void {
+    event.preventDefault();
     event.stopPropagation();
     this.accessoryDraftLines.update((lines) =>
       lines.map((l) => {
@@ -970,10 +989,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           ...l,
           selectedCodes: selected,
           codesQuery: '',
-          quantity: Math.max(l.quantity, selected.length, 1)
+          // Keep the panel open for multi-select; only raise qty to match codes (never force 1).
+          codesOpen: true,
+          quantity: Math.max(l.quantity, selected.length)
         };
       })
     );
+    // Stay on the codes field so the user can tick more V's without committing the row.
     queueMicrotask(() => this.focusDraftCodesInput(lineId));
   }
 
@@ -1108,7 +1130,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.patchDraftLine(lineId, {
       selectedCodes: selected,
       codesQuery: rejected.join(' '),
-      quantity: Math.max(line.quantity, selected.length, 1)
+      quantity: Math.max(line.quantity, selected.length)
     });
     return rejected.length === 0;
   }
@@ -1222,10 +1244,21 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   /**
    * Commits in-progress draft rows before save so users are not blocked
    * when they forget to press Enter on the final accessory line.
-   * @param soft when true (auto-save), incomplete drafts are left in place instead of blocking.
+   * @param soft when true (auto-save / leave), incomplete drafts are left in place instead of blocking.
+   * @param options.promoteDrafts when false (debounced auto-save), never promote drafts — selecting
+   *   codes must not commit/jump to the next row. Leave/unload may pass true to persist finished drafts.
    * @returns false when a non-empty draft could not be committed (toast already shown).
    */
-  private commitPendingDraftLinesBeforeSave(soft = false): boolean {
+  private commitPendingDraftLinesBeforeSave(
+    soft = false,
+    options?: { promoteDrafts?: boolean }
+  ): boolean {
+    // Debounced auto-save: leave drafts alone so multi-code selection is not cut off.
+    const promoteDrafts = options?.promoteDrafts ?? !soft;
+    if (soft && !promoteDrafts) {
+      return true;
+    }
+
     const pending = this.accessoryDraftLines().filter((line) => {
       const hasContent =
         line.query.trim().length > 0 ||
@@ -1238,7 +1271,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       if (!soft) {
         return true;
       }
-      // Auto-save: only flush drafts that already resolve to a catalog item.
+      // Leave/unload: never flush while the codes/suggest panel is open (mid-selection).
+      if (line.codesOpen || line.suggestOpen) {
+        return false;
+      }
+      // Require an intentional quantity or at least one code before background promote.
+      if (line.quantity < 1 && line.selectedCodes.length === 0) {
+        return false;
+      }
       return (
         line.inventoryDefinitionId != null ||
         this.parseFreeTextAccessoryEntry(line.query.trim()) != null
@@ -1331,6 +1371,15 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return 'failed';
     }
 
+    const quantity = Math.max(line.quantity, codes.length);
+    if (quantity < 1) {
+      this.toast.warning('יש להזין כמות או לבחור לפחות קוד אחד');
+      if (options.addNext) {
+        this.focusDraftInput(lineId);
+      }
+      return 'failed';
+    }
+
     if (
       codes.length > 0 &&
       !this.validateSerialCodesForDefinition(def.id, codes, def.displayName, lineId)
@@ -1341,7 +1390,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return 'failed';
     }
 
-    if (!this.appendAccessoryRowFromDefinition(def, codes, line.quantity)) {
+    if (!this.appendAccessoryRowFromDefinition(def, codes, quantity)) {
       if (options.addNext) {
         this.focusDraftInput(lineId);
       }
@@ -1417,12 +1466,17 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     const linkedType = this.resolveLinkedEquipmentType(def);
     const codes = [...selectedCodes];
+    const quantity = Math.max(requestedQuantity, codes.length);
+    if (quantity < 1) {
+      this.toast.warning('יש להזין כמות או לבחור לפחות קוד אחד');
+      return false;
+    }
     this.equipmentList.push(
       this.buildDynamicEquipmentRow({
         inventoryDefinitionId: def.id,
         loanedEquipmentType: linkedType,
         label: def.displayName,
-        quantity: Math.max(1, requestedQuantity, codes.length),
+        quantity,
         selectedCodes: codes,
         lineId: null,
         isCustomItem: false
@@ -1506,7 +1560,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       id: id ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       query: '',
       inventoryDefinitionId: null,
-      quantity: 1,
+      quantity: 0,
       selectedCodes: [],
       codesQuery: '',
       suggestOpen: false,
@@ -2578,6 +2632,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     if (
       this.suppressAutoSave ||
+      this.saveInFlight ||
       this.autoSaveBusy ||
       this.submitting() ||
       this.returnSaving() ||
@@ -2588,7 +2643,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
-    this.commitPendingDraftLinesBeforeSave(true);
+    // Leaving the form: promote finished drafts, but never mid open code/suggest panels.
+    this.commitPendingDraftLinesBeforeSave(true, { promoteDrafts: true });
 
     const leave = (): void => {
       this.bypassSoftSaveDeactivateGuard = true;
@@ -2613,27 +2669,38 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         return;
       }
 
-      forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p))).subscribe((conflictFlags) => {
-        if (conflictFlags.some((c) => c)) {
-          this.promptDuplicateShiftConfirm({
-            onAccept: () => {
-              this.doubleBookingDeclinedKey = null;
-              this.executeSaveRequests(
-                payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
-                { mode: 'auto' }
-              );
-              leave();
-            },
-            onReject: () => {
-              this.doubleBookingDeclinedKey = key;
-              this.setAutoSaveStatus('conflict');
-            }
-          });
-          return;
-        }
+      // Hold the gate across the conflict check so debounce/blur cannot start a parallel PUT.
+      this.saveInFlight = true;
+      this.autoSaveBusy = true;
 
-        this.executeSaveRequests(payloads, { mode: 'auto' });
-        leave();
+      forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p))).subscribe({
+        next: (conflictFlags) => {
+          if (conflictFlags.some((c) => c)) {
+            this.releaseSaveGate();
+            this.promptDuplicateShiftConfirm({
+              onAccept: () => {
+                this.doubleBookingDeclinedKey = null;
+                this.executeSaveRequests(
+                  payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
+                  { mode: 'auto' }
+                );
+                leave();
+              },
+              onReject: () => {
+                this.doubleBookingDeclinedKey = key;
+                this.setAutoSaveStatus('conflict');
+              }
+            });
+            return;
+          }
+
+          this.executeSaveRequests(payloads, { mode: 'auto' });
+          leave();
+        },
+        error: () => {
+          this.releaseSaveGate();
+          leave();
+        }
       });
     });
   }
@@ -2857,12 +2924,16 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
-    this.confirmSoftSaveWarningsOrProceed(() => this.performSave({ mode: 'manual' }));
+    this.confirmSoftSaveWarningsOrProceed(() => {
+      // Prefer the explicit save over a stale auto-save still in flight.
+      this.pendingAutoSave = false;
+      this.performSave({ mode: 'manual' });
+    });
   }
 
   /** Force-save when auto-save paused due to a double-booking conflict. */
   protected forceSaveDespiteConflict(): void {
-    if (this.autoSaveBusy || this.submitting()) {
+    if (this.saveInFlight || this.autoSaveBusy || this.submitting()) {
       return;
     }
     if (!this.commitPendingDraftLinesBeforeSave()) {
@@ -2911,12 +2982,17 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   private tryAutoSave(): void {
     if (
       this.suppressAutoSave ||
-      this.autoSaveBusy ||
       this.submitting() ||
       this.returnSaving() ||
       this.returnModalOpen() ||
       this.softSaveWarnings() != null
     ) {
+      return;
+    }
+
+    // Queue behind an in-flight save instead of dropping the latest keystrokes.
+    if (this.saveInFlight || this.autoSaveBusy) {
+      this.pendingAutoSave = true;
       return;
     }
 
@@ -2928,7 +3004,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
-    // Soft: never block background save on a half-typed accessory draft line.
+    // Soft auto-save: never promote accessory drafts (code multi-select must not jump rows).
     this.commitPendingDraftLinesBeforeSave(true);
 
     if (this.form.invalid) {
@@ -3244,6 +3320,17 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   private performSave(options: SaveOptions): void {
+    // Gate before the async conflict check — that gap previously allowed overlapping PUTs.
+    if (this.saveInFlight) {
+      if (options.mode === 'manual') {
+        this.pendingManualSave = options;
+        this.pendingAutoSave = false;
+      } else {
+        this.pendingAutoSave = true;
+      }
+      return;
+    }
+
     const payloads = this.toPayloads();
     if (payloads.length === 0) {
       if (options.mode === 'manual') {
@@ -3252,54 +3339,95 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
 
+    this.saveInFlight = true;
+    if (options.mode === 'auto') {
+      this.autoSaveBusy = true;
+    } else {
+      this.submitting.set(true);
+    }
+
     const forceDoubleBooking = options.allowDoubleBooking === true;
     const conflictChecks$ = forceDoubleBooking
       ? of(payloads.map(() => false))
       : forkJoin(payloads.map((p) => this.hasAnyBookingConflict(p)));
 
-    conflictChecks$.subscribe((conflictFlags) => {
-      const hasConflict = conflictFlags.some((c) => c);
-      if (hasConflict && !forceDoubleBooking) {
-        const key = this.payloadKey(payloads);
+    conflictChecks$.subscribe({
+      next: (conflictFlags) => {
+        const hasConflict = conflictFlags.some((c) => c);
+        if (hasConflict && !forceDoubleBooking) {
+          const key = this.payloadKey(payloads);
 
-        // Unload cannot host a modal — abort rather than silently force-saving.
-        if (this.documentUnloading) {
-          this.setAutoSaveStatus('conflict');
-          return;
-        }
-
-        // User already cancelled for this exact payload; keep badge, don't re-prompt.
-        if (options.mode === 'auto' && key === this.doubleBookingDeclinedKey) {
-          this.setAutoSaveStatus('conflict');
-          return;
-        }
-
-        this.promptDuplicateShiftConfirm({
-          onAccept: () => {
-            this.doubleBookingDeclinedKey = null;
-            this.executeSaveRequests(
-              payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
-              options
-            );
-          },
-          onReject: () => {
-            this.doubleBookingDeclinedKey = key;
-            if (options.mode === 'auto') {
-              this.setAutoSaveStatus('conflict');
-            }
+          // Unload cannot host a modal — abort rather than silently force-saving.
+          if (this.documentUnloading) {
+            this.releaseSaveGate();
+            this.setAutoSaveStatus('conflict');
+            this.flushPendingSave();
+            return;
           }
-        });
-        return;
-      }
 
-      this.doubleBookingDeclinedKey = null;
-      this.executeSaveRequests(
-        forceDoubleBooking
-          ? payloads.map((p) => ({ ...p, allowDoubleBooking: true }))
-          : payloads,
-        options
-      );
+          // User already cancelled for this exact payload; keep badge, don't re-prompt.
+          if (options.mode === 'auto' && key === this.doubleBookingDeclinedKey) {
+            this.releaseSaveGate();
+            this.setAutoSaveStatus('conflict');
+            this.flushPendingSave();
+            return;
+          }
+
+          // Dialog is open — release the gate so Accept can start a fresh save.
+          this.releaseSaveGate();
+          this.promptDuplicateShiftConfirm({
+            onAccept: () => {
+              this.doubleBookingDeclinedKey = null;
+              this.performSave({ ...options, allowDoubleBooking: true });
+            },
+            onReject: () => {
+              this.doubleBookingDeclinedKey = key;
+              if (options.mode === 'auto') {
+                this.setAutoSaveStatus('conflict');
+              }
+              this.flushPendingSave();
+            }
+          });
+          return;
+        }
+
+        this.doubleBookingDeclinedKey = null;
+        this.executeSaveRequests(
+          forceDoubleBooking
+            ? payloads.map((p) => ({ ...p, allowDoubleBooking: true }))
+            : payloads,
+          options
+        );
+      },
+      error: () => {
+        this.releaseSaveGate();
+        if (options.mode === 'auto') {
+          this.setAutoSaveStatus('error');
+        }
+        this.flushPendingSave();
+      }
     });
+  }
+
+  private releaseSaveGate(): void {
+    this.saveInFlight = false;
+    this.autoSaveBusy = false;
+    this.submitting.set(false);
+  }
+
+  /** Runs a save that was queued while another request was in flight. */
+  private flushPendingSave(): void {
+    const manual = this.pendingManualSave;
+    if (manual) {
+      this.pendingManualSave = null;
+      this.pendingAutoSave = false;
+      queueMicrotask(() => this.performSave(manual));
+      return;
+    }
+    if (this.pendingAutoSave) {
+      this.pendingAutoSave = false;
+      queueMicrotask(() => this.tryAutoSave());
+    }
   }
 
   /**
@@ -3336,6 +3464,9 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
   private executeSaveRequests(payloads: OrderCreateUpdateDto[], options: SaveOptions): void {
     const isAuto = options.mode === 'auto';
+    // Gate should already be held by performSave; keep flags consistent for direct callers
+    // (e.g. persistThenLeave) that invoke this without going through performSave.
+    this.saveInFlight = true;
     if (isAuto) {
       this.autoSaveBusy = true;
       // Skip "saving" badge flicker — only show result states.
@@ -3347,15 +3478,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     from(payloads)
       .pipe(
-        concatMap((payload) => this.sendSaveRequest(payload)),
+        concatMap((payload) => this.sendSaveRequest(payload, options)),
         toArray(),
         finalize(() => {
-          if (isAuto) {
-            this.autoSaveBusy = false;
-          } else {
-            this.submitting.set(false);
-          }
-          // Do not chain another save from finalize — debounce / blur / leave own the next attempt.
+          this.releaseSaveGate();
+          this.flushPendingSave();
         })
       )
       .subscribe({
@@ -3385,6 +3512,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           // Key of what the server accepted — not the live form (user may have typed more).
           this.lastSavedPayloadKey = this.payloadKey(payloads);
           this.setAutoSaveStatus('saved');
+
+          // If the user typed during the request, queue another pass with the latest form.
+          if (isAuto) {
+            const liveKey = this.form.valid ? this.payloadKey(this.toPayloads()) : null;
+            if (liveKey != null && liveKey !== this.lastSavedPayloadKey) {
+              this.pendingAutoSave = true;
+            }
+          }
 
           if (!isAuto) {
             this.existingCustomerMatch.set(null);
@@ -3493,11 +3628,55 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     }
   }
 
-  private sendSaveRequest(payload: OrderCreateUpdateDto) {
-    const id = this.editingId();
-    return id !== null
-      ? this.data.updateOrder(id, payload)
-      : this.data.createOrder(payload);
+  private sendSaveRequest(payload: OrderCreateUpdateDto, options: SaveOptions) {
+    const isAuto = options.mode === 'auto';
+    const writeOpts = isAuto
+      ? { quietConflict: true, rethrowConflict: true }
+      : undefined;
+
+    const sendOnce = (p: OrderCreateUpdateDto) => {
+      const id = this.editingId();
+      return id !== null
+        ? this.data.updateOrder(id, p, writeOpts)
+        : this.data.createOrder(p, writeOpts);
+    };
+
+    return sendOnce(payload).pipe(
+      catchError((err) => {
+        // Auto-save 409: refresh server line ids and retry once with the latest form payload.
+        if (
+          !isAuto ||
+          !(err instanceof HttpErrorResponse) ||
+          err.status !== 409
+        ) {
+          return of(null);
+        }
+
+        const orderId = this.editingId();
+        if (orderId == null) {
+          return of(null);
+        }
+
+        return this.data.getOrderById(orderId, { quiet: true }).pipe(
+          switchMap((order) => {
+            if (!order) {
+              return of(null);
+            }
+            this.mergeLoanedLineIdsFromOrder(order);
+            const refreshed = this.toPayloads();
+            if (refreshed.length === 0) {
+              return of(null);
+            }
+            const next = {
+              ...refreshed[0]!,
+              allowDoubleBooking:
+                options.allowDoubleBooking === true || payload.allowDoubleBooking === true
+            };
+            return this.data.updateOrder(orderId, next, { quietConflict: true });
+          })
+        );
+      })
+    );
   }
 
   private hasAnyBookingConflict(payload: OrderCreateUpdateDto) {
@@ -4751,7 +4930,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
-        if (this.autoSaveBusy || this.submitting() || this.returnSaving()) {
+        if (this.saveInFlight || this.autoSaveBusy || this.submitting() || this.returnSaving()) {
           return;
         }
         this.refreshLostEquipmentAlert();
@@ -4765,7 +4944,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         this.refreshCustomerRiskAlerts();
       },
       {
-        skipWhen: () => this.autoSaveBusy || this.submitting() || this.returnSaving()
+        skipWhen: () =>
+          this.saveInFlight || this.autoSaveBusy || this.submitting() || this.returnSaving()
       }
     );
   }

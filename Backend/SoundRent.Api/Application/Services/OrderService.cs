@@ -14,6 +14,8 @@ public class OrderService : IOrderService
 {
     private const int CustomerSearchMinLength = 2;
     private const int CustomerSearchResultLimit = 100;
+    /// <summary>Retries when overlapping saves DELETE the same child rows (shifts/notes).</summary>
+    private const int MaxOrderUpdateAttempts = 3;
 
     private readonly IOrderRepository _orderRepository;
     private readonly IEquipmentDefinitionRepository _equipmentDefinitions;
@@ -137,7 +139,17 @@ public class OrderService : IOrderService
         return OrderMapper.ToDto(entity);
     }
 
-    public async Task<OrderDto> UpdateOrderAsync(int id, OrderCreateUpdateDto dto, CancellationToken cancellationToken = default)
+    public Task<OrderDto> UpdateOrderAsync(
+        int id,
+        OrderCreateUpdateDto dto,
+        CancellationToken cancellationToken = default) =>
+        UpdateOrderAsync(id, dto, cancellationToken, attempt: 1);
+
+    private async Task<OrderDto> UpdateOrderAsync(
+        int id,
+        OrderCreateUpdateDto dto,
+        CancellationToken cancellationToken,
+        int attempt)
     {
         var existing = await _orderRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundException("ההזמנה לא נמצאה");
@@ -183,23 +195,30 @@ public class OrderService : IOrderService
         existing.SystemType = dto.SystemType;
 
         OrderMapper.SyncEquipments(existing, equipmentIds);
-
-        existing.Shifts.Clear();
-        foreach (var shift in shifts)
-        {
-            existing.Shifts.Add(OrderMapper.ToEntity(shift));
-        }
+        OrderMapper.SyncShifts(existing, shifts);
 
         var priorReturns = existing.LoanedEquipments
             .ToDictionary(le => le.Id, le => le.ReturnedQuantity);
         SyncLoanedEquipments(existing, dto.LoanedEquipments, priorReturns);
         existing.IsReturnProcessed = AreAllLoanedEquipmentsReturnedForReturnState(existing.LoanedEquipments);
 
-        await _inventoryDefinitions.SyncInventorySerialStatusForOrderAsync(
-            priorAssignedSerials,
-            dto.LoanedEquipments,
-            cancellationToken);
-        await _orderRepository.SaveChangesAsync(cancellationToken);
+        try
+        {
+            // Serial sync may SaveChanges on the shared DbContext and therefore also flush order
+            // child-row mutations — catch concurrency from either save and retry with a fresh load.
+            await _inventoryDefinitions.SyncInventorySerialStatusForOrderAsync(
+                priorAssignedSerials,
+                dto.LoanedEquipments,
+                cancellationToken);
+            await _orderRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException) when (attempt < MaxOrderUpdateAttempts)
+        {
+            // Overlapping auto-saves / child-row DELETEs — reload and re-apply the client payload.
+            _orderRepository.ClearChangeTracker();
+            return await UpdateOrderAsync(id, dto, cancellationToken, attempt + 1);
+        }
+
         await _cashDeposits.SyncForOrderAsync(existing, cancellationToken);
         await _cashDeposits.ApplyOrderDepositReturnedAsync(existing, dto.DepositReturned, cancellationToken);
         await _customerService.SyncFromOrderAsync(dto, cancellationToken);
@@ -518,12 +537,7 @@ public class OrderService : IOrderService
         existing.SystemType = dto.SystemType;
 
         OrderMapper.SyncEquipments(existing, equipmentIds);
-
-        existing.Shifts.Clear();
-        foreach (var shift in shifts)
-        {
-            existing.Shifts.Add(OrderMapper.ToEntity(shift));
-        }
+        OrderMapper.SyncShifts(existing, shifts);
 
         await _orderRepository.SaveChangesAsync(cancellationToken);
 
@@ -1695,9 +1709,24 @@ public class OrderService : IOrderService
     private static void ApplyLoanedEquipmentNotesToLine(OrderLoanedEquipment line, OrderLoanedEquipmentDto dto)
     {
         var replacementNotes = BuildLoanedEquipmentNotes(dto);
-        line.Notes.Clear();
+        var desiredOrdinals = replacementNotes.Select(n => n.Ordinal).ToHashSet();
+
+        foreach (var stale in line.Notes.Where(n => !desiredOrdinals.Contains(n.Ordinal)).ToList())
+        {
+            line.Notes.Remove(stale);
+        }
+
+        var existingByOrdinal = line.Notes.ToDictionary(n => n.Ordinal);
         foreach (var note in replacementNotes)
         {
+            if (existingByOrdinal.TryGetValue(note.Ordinal, out var existing))
+            {
+                existing.Content = note.Content;
+                existing.IsReturned = note.IsReturned;
+                existing.ReturnedAt = note.ReturnedAt;
+                continue;
+            }
+
             line.Notes.Add(note);
         }
     }

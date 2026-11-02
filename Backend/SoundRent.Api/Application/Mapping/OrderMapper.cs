@@ -201,6 +201,37 @@ public static class OrderMapper
         }
     }
 
+    /// <summary>
+    /// Syncs shifts in place. Avoids Clear()+re-Add which DELETEs every shift on each save and
+    /// races with overlapping auto-saves (EF concurrency / HTTP 409).
+    /// </summary>
+    public static void SyncShifts(Order order, IEnumerable<OrderShiftDto> shifts)
+    {
+        var desired = shifts
+            .Select(s => (s.OrderDate, s.TimeSlot))
+            .ToHashSet();
+
+        foreach (var stale in order.Shifts
+                     .Where(s => !desired.Contains((s.OrderDate, s.TimeSlot)))
+                     .ToList())
+        {
+            order.Shifts.Remove(stale);
+        }
+
+        var kept = order.Shifts
+            .Select(s => (s.OrderDate, s.TimeSlot))
+            .ToHashSet();
+
+        foreach (var shift in desired.Where(s => !kept.Contains(s)))
+        {
+            order.Shifts.Add(new OrderShift
+            {
+                OrderDate = shift.OrderDate,
+                TimeSlot = shift.TimeSlot
+            });
+        }
+    }
+
     public static OrderShift ToEntity(OrderShiftDto dto) => new()
     {
         OrderDate = dto.OrderDate,

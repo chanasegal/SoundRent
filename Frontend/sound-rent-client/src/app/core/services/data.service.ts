@@ -1,4 +1,4 @@
-import { HttpClient, HttpContext, HttpParams, HttpResponse } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 
@@ -258,10 +258,12 @@ export class DataService {
     );
   }
 
-  getOrderById(id: number): Observable<OrderDto | null> {
+  getOrderById(id: number, options?: { quiet?: boolean }): Observable<OrderDto | null> {
     return this.http.get<OrderDto>(`${this.ordersBase}/${id}`).pipe(
       catchError((err) => {
-        this.notifyHttpError(err);
+        if (!options?.quiet) {
+          this.notifyHttpError(err);
+        }
         return of(null);
       })
     );
@@ -305,32 +307,51 @@ export class DataService {
       );
   }
 
-  createOrder(payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
+  createOrder(
+    payload: OrderCreateUpdateDto,
+    options?: { quietConflict?: boolean; rethrowConflict?: boolean }
+  ): Observable<OrderDto | null> {
     return this.http
       .post<OrderDto>(this.ordersBase, {
         ...payload,
         systemType: payload.systemType ?? this.activeSystemType()
       })
       .pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of(null);
-      })
-    );
+        catchError((err) => this.handleOrderWriteError(err, options))
+      );
   }
 
-  updateOrder(id: number, payload: OrderCreateUpdateDto): Observable<OrderDto | null> {
+  updateOrder(
+    id: number,
+    payload: OrderCreateUpdateDto,
+    options?: { quietConflict?: boolean; rethrowConflict?: boolean }
+  ): Observable<OrderDto | null> {
     return this.http
       .put<OrderDto>(`${this.ordersBase}/${id}`, {
         ...payload,
         systemType: payload.systemType ?? this.activeSystemType()
       })
       .pipe(
-      catchError((err) => {
-        this.notifyHttpError(err);
-        return of(null);
-      })
-    );
+        catchError((err) => this.handleOrderWriteError(err, options))
+      );
+  }
+
+  /**
+   * Suppresses the "updated by another user" toast for auto-save races so the form can
+   * silently refresh line ids and retry. Other errors still toast.
+   */
+  private handleOrderWriteError(
+    err: unknown,
+    options?: { quietConflict?: boolean; rethrowConflict?: boolean }
+  ): Observable<OrderDto | null> {
+    const isConflict = err instanceof HttpErrorResponse && err.status === 409;
+    if (!(options?.quietConflict && isConflict)) {
+      this.notifyHttpError(err);
+    }
+    if (options?.rethrowConflict && isConflict) {
+      return throwError(() => err);
+    }
+    return of(null);
   }
 
   /** `true` when the delete succeeded; `false` after a handled HTTP error (toast already shown). */
