@@ -30,6 +30,10 @@ public class EquipmentDefaultAccessory
     /// </summary>
     public LoanedEquipmentType? AccessoryEquipmentType { get; set; }
 
+    /// <summary>
+    /// Specific accessory serial when known; empty means type-only kit link
+    /// (a concrete code may be assigned later when the parent unit is loaned).
+    /// </summary>
     [Required]
     [MaxLength(100)]
     public string AccessorySerialCode { get; set; } = string.Empty;

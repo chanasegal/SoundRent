@@ -1029,7 +1029,9 @@
                   <li class="default-acc-list__item">
                     <div class="default-acc-list__meta">
                       <span class="default-acc-list__type">{{ row.accessoryLabel }}</span>
-                      <span class="default-acc-list__code" dir="ltr">{{ row.accessorySerialCode }}</span>
+                      <span class="default-acc-list__code" dir="ltr">
+                        {{ row.accessorySerialCode?.trim() ? row.accessorySerialCode : 'ללא קוד' }}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -1092,7 +1094,7 @@
               </div>
               <div class="default-acc-codes-field">
                 <label class="mb-1 block text-xs font-medium text-slate-700" for="default-acc-codes">
-                  קוד פריט <span class="text-rose-500">*</span>
+                  קוד פריט <span class="text-slate-400 font-normal">(אופציונלי)</span>
                 </label>
                 <div class="default-acc-code-picker" (click)="$event.stopPropagation()">
                   <button
@@ -1106,7 +1108,7 @@
                   >
                     <span class="default-acc-code-picker__value">
                       @if (defaultAccessoryForm.controls.accessorySerialCodes.value.length === 0) {
-                        <span class="default-acc-code-picker__placeholder">בחרו קוד…</span>
+                        <span class="default-acc-code-picker__placeholder">ללא קוד / בחרו קוד…</span>
                       } @else {
                         @for (code of defaultAccessoryForm.controls.accessorySerialCodes.value; track code) {
                           <span class="default-acc-code-picker__chip">
@@ -1178,12 +1180,6 @@
                     </div>
                   }
                 </div>
-                @if (
-                  defaultAccessoryForm.controls.accessorySerialCodes.touched &&
-                  defaultAccessoryForm.controls.accessorySerialCodes.errors?.['required']
-                ) {
-                  <p class="mt-1 text-xs text-rose-600">יש לבחור לפחות קוד אחד</p>
-                }
                 @if (
                   defaultAccessoryForm.controls.accessorySerialCodes.touched &&
                   defaultAccessoryForm.controls.accessorySerialCodes.errors?.['taken']

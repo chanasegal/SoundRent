@@ -1681,22 +1681,29 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         }
 
         // Group by catalog definition when present; fall back to system type.
-        const byDefinition = new Map<number, { defId: number; type: LoanedEquipmentType | null; codes: string[] }>();
-        const byType = new Map<LoanedEquipmentType, string[]>();
+        // Uncoded kit rows still count toward quantity so the accessory is added
+        // and a concrete serial can be chosen later on the order.
+        const byDefinition = new Map<
+          number,
+          { defId: number; type: LoanedEquipmentType | null; codes: string[]; uncodedCount: number }
+        >();
+        const byType = new Map<LoanedEquipmentType, { codes: string[]; uncodedCount: number }>();
 
         for (const row of defaults) {
           const code = (row.accessorySerialCode ?? '').trim();
-          if (!code) {
-            continue;
-          }
           if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
             const key = row.inventoryDefinitionId;
             const existing = byDefinition.get(key) ?? {
               defId: key,
               type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
-              codes: []
+              codes: [],
+              uncodedCount: 0
             };
-            if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+            if (!code) {
+              existing.uncodedCount += 1;
+            } else if (
+              !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+            ) {
               existing.codes.push(code);
             }
             byDefinition.set(key, existing);
@@ -1706,21 +1713,32 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
             continue;
           }
-          const list = byType.get(type) ?? [];
-          if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
-            list.push(code);
+          const existing = byType.get(type) ?? { codes: [], uncodedCount: 0 };
+          if (!code) {
+            existing.uncodedCount += 1;
+          } else if (
+            !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+          ) {
+            existing.codes.push(code);
           }
-          byType.set(type, list);
+          byType.set(type, existing);
         }
 
         let addedAny = false;
         for (const group of byDefinition.values()) {
-          if (this.mergeDefaultAccessoryCodesForDefinition(group.defId, group.type, group.codes)) {
+          if (
+            this.mergeDefaultAccessoryCodesForDefinition(
+              group.defId,
+              group.type,
+              group.codes,
+              group.uncodedCount
+            )
+          ) {
             addedAny = true;
           }
         }
-        for (const [type, codes] of byType) {
-          if (this.mergeDefaultAccessoryCodes(type, codes)) {
+        for (const [type, group] of byType) {
+          if (this.mergeDefaultAccessoryCodes(type, group.codes, group.uncodedCount)) {
             addedAny = true;
           }
         }
@@ -1735,9 +1753,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   private mergeDefaultAccessoryCodesForDefinition(
     inventoryDefinitionId: number,
     type: LoanedEquipmentType | null,
-    codes: string[]
+    codes: string[],
+    uncodedCount = 0
   ): boolean {
-    if (codes.length === 0) {
+    if (codes.length === 0 && uncodedCount <= 0) {
       return false;
     }
 
@@ -1748,10 +1767,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     if (rowIndex < 0) {
       const def = this.inventoryStore.byId(inventoryDefinitionId);
       if (!def) {
-        return type ? this.mergeDefaultAccessoryCodes(type, codes) : false;
+        return type ? this.mergeDefaultAccessoryCodes(type, codes, uncodedCount) : false;
       }
-      const filtered = this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes);
-      if (filtered.available.length === 0) {
+      const filtered =
+        codes.length > 0
+          ? this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes)
+          : { available: [] as string[], skippedTaken: 0 };
+      if (filtered.available.length === 0 && uncodedCount <= 0) {
         if (filtered.skippedTaken > 0) {
           this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
         }
@@ -1762,7 +1784,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           inventoryDefinitionId: def.id,
           loanedEquipmentType: type,
           label: def.displayName,
-          quantity: filtered.available.length,
+          quantity: Math.max(filtered.available.length + uncodedCount, 1),
           selectedCodes: [...filtered.available],
           lineId: null,
           isCustomItem: type == null
@@ -1780,7 +1802,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = [...(ctrl.value ?? [])];
-    const filtered = this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes, current);
+    const filtered =
+      codes.length > 0
+        ? this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes, current)
+        : { available: [] as string[], skippedTaken: 0 };
     let changed = false;
     for (const code of filtered.available) {
       if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
@@ -1788,6 +1813,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         changed = true;
       }
     }
+
+    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
+    const nextQuantity = Math.max(existingQuantity, current.length + uncodedCount, 1);
+    if (nextQuantity > existingQuantity) {
+      changed = true;
+    }
+
     if (!changed) {
       if (filtered.skippedTaken > 0) {
         this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
@@ -1795,14 +1827,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return false;
     }
 
-    ctrl.setValue(current);
-    ctrl.markAsDirty();
-    // Preserve the customer's ordered quantity; only raise when more codes are issued.
-    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
-    this.getRowGroup(rowIndex).patchValue(
-      { quantity: Math.max(existingQuantity, current.length, 1) },
-      { emitEvent: false }
-    );
+    if (filtered.available.length > 0) {
+      ctrl.setValue(current);
+      ctrl.markAsDirty();
+    }
+    // Preserve the customer's ordered quantity; only raise when more kit units are needed.
+    this.getRowGroup(rowIndex).patchValue({ quantity: nextQuantity }, { emitEvent: false });
     if (filtered.skippedTaken > 0) {
       this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
     }
@@ -1810,8 +1840,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   /** Ensures a loaned-equipment row exists for `type` and merges serial codes into it. */
-  private mergeDefaultAccessoryCodes(type: LoanedEquipmentType, codes: string[]): boolean {
-    if (codes.length === 0) {
+  private mergeDefaultAccessoryCodes(
+    type: LoanedEquipmentType,
+    codes: string[],
+    uncodedCount = 0
+  ): boolean {
+    if (codes.length === 0 && uncodedCount <= 0) {
       return false;
     }
 
@@ -1825,8 +1859,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       if (!def) {
         return false;
       }
-      const filtered = this.filterAvailableCodesForDefinition(def.id, codes);
-      if (filtered.available.length === 0) {
+      const filtered =
+        codes.length > 0
+          ? this.filterAvailableCodesForDefinition(def.id, codes)
+          : { available: [] as string[], skippedTaken: 0 };
+      if (filtered.available.length === 0 && uncodedCount <= 0) {
         if (filtered.skippedTaken > 0) {
           this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
         }
@@ -1837,7 +1874,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           inventoryDefinitionId: def.id,
           loanedEquipmentType: type,
           label: def.displayName,
-          quantity: filtered.available.length,
+          quantity: Math.max(filtered.available.length + uncodedCount, 1),
           selectedCodes: [...filtered.available],
           lineId: null,
           isCustomItem: false
@@ -1856,7 +1893,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     const defId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
     const ctrl = this.selectedCodesControl(rowIndex);
     const current = [...(ctrl.value ?? [])];
-    const filtered = this.filterAvailableCodesForDefinition(defId, codes, current);
+    const filtered =
+      codes.length > 0
+        ? this.filterAvailableCodesForDefinition(defId, codes, current)
+        : { available: [] as string[], skippedTaken: 0 };
     let changed = false;
     for (const code of filtered.available) {
       if (!current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
@@ -1864,6 +1904,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         changed = true;
       }
     }
+
+    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
+    const nextQuantity = Math.max(existingQuantity, current.length + uncodedCount, 1);
+    if (nextQuantity > existingQuantity) {
+      changed = true;
+    }
+
     if (!changed) {
       if (filtered.skippedTaken > 0) {
         this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
@@ -1871,14 +1918,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return false;
     }
 
-    ctrl.setValue(current);
-    ctrl.markAsDirty();
-    // Preserve the customer's ordered quantity; only raise when more codes are issued.
-    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
-    this.getRowGroup(rowIndex).patchValue(
-      { quantity: Math.max(existingQuantity, current.length, 1) },
-      { emitEvent: false }
-    );
+    if (filtered.available.length > 0) {
+      ctrl.setValue(current);
+      ctrl.markAsDirty();
+    }
+    // Preserve the customer's ordered quantity; only raise when more kit units are needed.
+    this.getRowGroup(rowIndex).patchValue({ quantity: nextQuantity }, { emitEvent: false });
     if (filtered.skippedTaken > 0) {
       this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
     }

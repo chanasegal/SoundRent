@@ -68,6 +68,14 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         return rows.Select(e =>
         {
             var dto = Map(e);
+            // Type-only kit rows (no serial yet) are always treatable as attachable;
+            // a concrete code can be assigned later on the order.
+            if (string.IsNullOrWhiteSpace(e.AccessorySerialCode))
+            {
+                dto.IsAvailable = true;
+                return dto;
+            }
+
             if (e.InventoryDefinitionId is int defId
                 && statusByKey.TryGetValue(SerialKey(defId, e.AccessorySerialCode), out var status))
             {
@@ -177,9 +185,15 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Empty codes = type-only kit link (serial can be assigned later on the order).
         if (codes.Count == 0)
         {
-            throw new ValidationException("יש לבחור לפחות קוד פריט אחד");
+            return await CreateUncodedAccessoryAsync(
+                dto.ParentEquipmentType,
+                parentCode,
+                definitionId,
+                accessoryLabel,
+                cancellationToken);
         }
 
         await ValidateAccessoryCodesRegisteredAsync(definition, codes, cancellationToken);
@@ -262,6 +276,47 @@ public class EquipmentDefaultAccessoryService : IEquipmentDefaultAccessoryServic
         await _db.SaveChangesAsync(cancellationToken);
 
         return entities.Select(e => Map(e, accessoryLabel)).ToList();
+    }
+
+    /// <summary>
+    /// Links an accessory catalog type to a parent unit without a concrete serial code.
+    /// The order UI can later assign a specific code when the mixer is loaned.
+    /// </summary>
+    private async Task<List<EquipmentDefaultAccessoryDto>> CreateUncodedAccessoryAsync(
+        LoanedEquipmentType parentEquipmentType,
+        string parentCode,
+        int definitionId,
+        string accessoryLabel,
+        CancellationToken cancellationToken)
+    {
+        var alreadyLinked = await _db.EquipmentDefaultAccessories
+            .AsNoTracking()
+            .AnyAsync(
+                e => e.ParentEquipmentType == parentEquipmentType
+                     && e.ParentSerialCode == parentCode
+                     && e.InventoryDefinitionId == definitionId
+                     && e.AccessorySerialCode == string.Empty,
+                cancellationToken);
+
+        if (alreadyLinked)
+        {
+            throw new ValidationException(
+                "סוג אביזר זה כבר משויך כציוד נלווה קבוע ליחידה זו (ללא קוד פריט)");
+        }
+
+        var entity = new EquipmentDefaultAccessory
+        {
+            ParentEquipmentType = parentEquipmentType,
+            ParentSerialCode = parentCode,
+            InventoryDefinitionId = definitionId,
+            AccessoryEquipmentType = null,
+            AccessorySerialCode = string.Empty
+        };
+
+        _db.EquipmentDefaultAccessories.Add(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return [Map(entity, accessoryLabel)];
     }
 
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)

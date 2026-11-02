@@ -20,7 +20,6 @@ import {
   FormControl,
   FormGroup,
   ReactiveFormsModule,
-  ValidationErrors,
   ValidatorFn,
   Validators
 } from '@angular/forms';
@@ -68,16 +67,6 @@ import {
 } from '../../core/utils/order-active-loans';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
-
-const nonEmptyStringArrayValidator: ValidatorFn = (
-  control: AbstractControl
-): ValidationErrors | null => {
-  const value = control.value;
-  if (!Array.isArray(value) || value.length === 0) {
-    return { required: true };
-  }
-  return null;
-};
 
 interface DefaultAccessoryCodeOption {
   value: string;
@@ -294,7 +283,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
 
   protected readonly defaultAccessoryForm = this.fb.group({
     inventoryDefinitionId: this.fb.control<number | null>(null, Validators.required),
-    accessorySerialCodes: this.fb.nonNullable.control<string[]>([], nonEmptyStringArrayValidator)
+    /** Optional — accessories may be linked by type only and coded later. */
+    accessorySerialCodes: this.fb.nonNullable.control<string[]>([])
   });
 
   /** Selected catalog row id — drives code options reactively. */
@@ -1521,7 +1511,7 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     }
     if (this.defaultAccessoryForm.invalid) {
       this.defaultAccessoryForm.markAllAsTouched();
-      this.toast.error('יש לבחור סוג אביזר ולפחות קוד פריט אחד');
+      this.toast.error('יש לבחור סוג אביזר');
       return;
     }
 
@@ -1532,18 +1522,20 @@ export class EquipmentSlotsAdminComponent implements OnInit {
       .map((c) => String(c).trim())
       .filter((c) => c.length > 0);
 
-    if (inventoryDefinitionId == null || accessorySerialCodes.length === 0) {
-      this.toast.error('יש לבחור סוג אביזר ולפחות קוד פריט אחד');
+    if (inventoryDefinitionId == null) {
+      this.toast.error('יש לבחור סוג אביזר');
       return;
     }
 
-    const taken = this.defaultAccessoryTakenCodeKeys();
-    const blocked = accessorySerialCodes.filter((c) => taken.has(c.toLowerCase()));
-    if (blocked.length > 0) {
-      this.defaultAccessoryForm.controls.accessorySerialCodes.setErrors({ taken: true });
-      this.defaultAccessoryForm.controls.accessorySerialCodes.markAsTouched();
-      this.toast.error('לא ניתן לבחור פריט תפוס');
-      return;
+    if (accessorySerialCodes.length > 0) {
+      const taken = this.defaultAccessoryTakenCodeKeys();
+      const blocked = accessorySerialCodes.filter((c) => taken.has(c.toLowerCase()));
+      if (blocked.length > 0) {
+        this.defaultAccessoryForm.controls.accessorySerialCodes.setErrors({ taken: true });
+        this.defaultAccessoryForm.controls.accessorySerialCodes.markAsTouched();
+        this.toast.error('לא ניתן לבחור פריט תפוס');
+        return;
+      }
     }
 
     this.defaultAccessoriesSaving.set(true);

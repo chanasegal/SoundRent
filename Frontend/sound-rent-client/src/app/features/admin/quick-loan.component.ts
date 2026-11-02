@@ -1541,13 +1541,14 @@ export class QuickLoanComponent implements OnInit {
 
     const byDefinition = new Map<
       number,
-      { defId: number; type: LoanedEquipmentType | null; codes: string[] }
+      { defId: number; type: LoanedEquipmentType | null; codes: string[]; uncodedCount: number }
     >();
-    const byType = new Map<LoanedEquipmentType, string[]>();
+    const byType = new Map<LoanedEquipmentType, { codes: string[]; uncodedCount: number }>();
 
     for (const row of defaults) {
       const code = (row.accessorySerialCode ?? '').trim();
-      if (!code || row.isAvailable !== true) {
+      // Uncoded kit rows are always attachable; coded rows require warehouse availability.
+      if (code && row.isAvailable !== true) {
         continue;
       }
       if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
@@ -1555,9 +1556,14 @@ export class QuickLoanComponent implements OnInit {
         const existing = byDefinition.get(key) ?? {
           defId: key,
           type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
-          codes: []
+          codes: [],
+          uncodedCount: 0
         };
-        if (!existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+        if (!code) {
+          existing.uncodedCount += 1;
+        } else if (
+          !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+        ) {
           existing.codes.push(code);
         }
         byDefinition.set(key, existing);
@@ -1567,11 +1573,15 @@ export class QuickLoanComponent implements OnInit {
       if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
         continue;
       }
-      const list = byType.get(type) ?? [];
-      if (!list.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
-        list.push(code);
+      const existing = byType.get(type) ?? { codes: [], uncodedCount: 0 };
+      if (!code) {
+        existing.uncodedCount += 1;
+      } else if (
+        !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+      ) {
+        existing.codes.push(code);
       }
-      byType.set(type, list);
+      byType.set(type, existing);
     }
 
     let addedAny = false;
@@ -1583,15 +1593,22 @@ export class QuickLoanComponent implements OnInit {
           targetOrderId,
           group.defId,
           group.type,
-          group.codes
+          group.codes,
+          group.uncodedCount
         );
         next = result.rows;
         if (result.changed) {
           addedAny = true;
         }
       }
-      for (const [type, codes] of byType) {
-        const result = this.mergeDefaultAccessoryCodesIntoRows(next, targetOrderId, type, codes);
+      for (const [type, group] of byType) {
+        const result = this.mergeDefaultAccessoryCodesIntoRows(
+          next,
+          targetOrderId,
+          type,
+          group.codes,
+          group.uncodedCount
+        );
         next = result.rows;
         if (result.changed) {
           addedAny = true;
@@ -1663,9 +1680,10 @@ export class QuickLoanComponent implements OnInit {
     targetOrderId: number,
     inventoryDefinitionId: number,
     type: LoanedEquipmentType | null,
-    codes: string[]
+    codes: string[],
+    uncodedCount = 0
   ): { rows: QuickLoanAccessoryRow[]; changed: boolean } {
-    if (codes.length === 0) {
+    if (codes.length === 0 && uncodedCount <= 0) {
       return { rows, changed: false };
     }
 
@@ -1676,21 +1694,30 @@ export class QuickLoanComponent implements OnInit {
       const def = this.inventoryStore.byId(inventoryDefinitionId);
       if (!def) {
         return type
-          ? this.mergeDefaultAccessoryCodesIntoRows(rows, targetOrderId, type, codes)
+          ? this.mergeDefaultAccessoryCodesIntoRows(
+              rows,
+              targetOrderId,
+              type,
+              codes,
+              uncodedCount
+            )
           : { rows, changed: false };
       }
-      const available = this.filterAvailableCodesForQuickLoan(
-        {
-          orderId: targetOrderId,
-          inventoryDefinitionId: def.id,
-          type,
-          label: def.displayName,
-          quantity: 0,
-          selectedCodes: []
-        },
-        codes
-      );
-      if (available.length === 0) {
+      const available =
+        codes.length > 0
+          ? this.filterAvailableCodesForQuickLoan(
+              {
+                orderId: targetOrderId,
+                inventoryDefinitionId: def.id,
+                type,
+                label: def.displayName,
+                quantity: 0,
+                selectedCodes: []
+              },
+              codes
+            )
+          : [];
+      if (available.length === 0 && uncodedCount <= 0) {
         return { rows, changed: false };
       }
       return {
@@ -1701,7 +1728,7 @@ export class QuickLoanComponent implements OnInit {
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
-            quantity: available.length,
+            quantity: Math.max(available.length + uncodedCount, 1),
             selectedCodes: [...available]
           }
         ],
@@ -1710,7 +1737,8 @@ export class QuickLoanComponent implements OnInit {
     }
 
     const existing = rows[index];
-    const available = this.filterAvailableCodesForQuickLoan(existing, codes);
+    const available =
+      codes.length > 0 ? this.filterAvailableCodesForQuickLoan(existing, codes) : [];
     const merged = [...existing.selectedCodes];
     let changed = false;
     for (const code of available) {
@@ -1718,6 +1746,10 @@ export class QuickLoanComponent implements OnInit {
         merged.push(code);
         changed = true;
       }
+    }
+    const nextQuantity = Math.max(existing.quantity, merged.length + uncodedCount, 1);
+    if (nextQuantity > existing.quantity) {
+      changed = true;
     }
     if (!changed) {
       return { rows, changed: false };
@@ -1727,8 +1759,8 @@ export class QuickLoanComponent implements OnInit {
     next[index] = {
       ...existing,
       selectedCodes: merged,
-      // Preserve ordered qty; only raise when more codes are issued.
-      quantity: Math.max(existing.quantity, merged.length, 1)
+      // Preserve ordered qty; only raise when more kit units are needed.
+      quantity: nextQuantity
     };
     return { rows: next, changed: true };
   }
@@ -1737,9 +1769,10 @@ export class QuickLoanComponent implements OnInit {
     rows: QuickLoanAccessoryRow[],
     targetOrderId: number,
     type: LoanedEquipmentType,
-    codes: string[]
+    codes: string[],
+    uncodedCount = 0
   ): { rows: QuickLoanAccessoryRow[]; changed: boolean } {
-    if (codes.length === 0) {
+    if (codes.length === 0 && uncodedCount <= 0) {
       return { rows, changed: false };
     }
 
@@ -1753,18 +1786,21 @@ export class QuickLoanComponent implements OnInit {
       if (!def) {
         return { rows, changed: false };
       }
-      const available = this.filterAvailableCodesForQuickLoan(
-        {
-          orderId: targetOrderId,
-          inventoryDefinitionId: def.id,
-          type,
-          label: def.displayName,
-          quantity: 0,
-          selectedCodes: []
-        },
-        codes
-      );
-      if (available.length === 0) {
+      const available =
+        codes.length > 0
+          ? this.filterAvailableCodesForQuickLoan(
+              {
+                orderId: targetOrderId,
+                inventoryDefinitionId: def.id,
+                type,
+                label: def.displayName,
+                quantity: 0,
+                selectedCodes: []
+              },
+              codes
+            )
+          : [];
+      if (available.length === 0 && uncodedCount <= 0) {
         return { rows, changed: false };
       }
       return {
@@ -1775,7 +1811,7 @@ export class QuickLoanComponent implements OnInit {
             inventoryDefinitionId: def.id,
             type,
             label: def.displayName,
-            quantity: available.length,
+            quantity: Math.max(available.length + uncodedCount, 1),
             selectedCodes: [...available]
           }
         ],
@@ -1784,7 +1820,8 @@ export class QuickLoanComponent implements OnInit {
     }
 
     const existing = rows[index];
-    const available = this.filterAvailableCodesForQuickLoan(existing, codes);
+    const available =
+      codes.length > 0 ? this.filterAvailableCodesForQuickLoan(existing, codes) : [];
     const merged = [...existing.selectedCodes];
     let changed = false;
     for (const code of available) {
@@ -1792,6 +1829,10 @@ export class QuickLoanComponent implements OnInit {
         merged.push(code);
         changed = true;
       }
+    }
+    const nextQuantity = Math.max(existing.quantity, merged.length + uncodedCount, 1);
+    if (nextQuantity > existing.quantity) {
+      changed = true;
     }
     if (!changed) {
       return { rows, changed: false };
@@ -1801,8 +1842,8 @@ export class QuickLoanComponent implements OnInit {
     next[index] = {
       ...existing,
       selectedCodes: merged,
-      // Preserve ordered qty; only raise when more codes are issued.
-      quantity: Math.max(existing.quantity, merged.length, 1)
+      // Preserve ordered qty; only raise when more kit units are needed.
+      quantity: nextQuantity
     };
     return { rows: next, changed: true };
   }
