@@ -147,6 +147,29 @@ public class OrderQuickLoansRegressionTests
     }
 
     [Fact]
+    public void ReturnStateRule_IgnoresOrderedQuantityShortfallWhenAllIssuedCodesReturned()
+    {
+        // Ordered 5, issued 3 codes, all 3 returned — must not count the 2 unordered codes as missing.
+        var line = new OrderLoanedEquipment
+        {
+            Quantity = 5,
+            ReturnedQuantity = 3,
+            Notes =
+            [
+                new LoanedEquipmentNote { Ordinal = 0, Content = "A1", IsReturned = true },
+                new LoanedEquipmentNote { Ordinal = 1, Content = "A2", IsReturned = true },
+                new LoanedEquipmentNote { Ordinal = 2, Content = "A3", IsReturned = true },
+                new LoanedEquipmentNote { Ordinal = 3, Content = null, IsReturned = false },
+                new LoanedEquipmentNote { Ordinal = 4, Content = null, IsReturned = false }
+            ]
+        };
+
+        Assert.Equal(3, OrderService.GetIssuedQuantity(line));
+        Assert.False(OrderService.IsLoanedEquipmentActiveForReturnState(line));
+        Assert.True(OrderService.AreAllLoanedEquipmentsReturnedForReturnState([line]));
+    }
+
+    [Fact]
     public void NormalizeQuickLoanReadModel_RecomputesLineAndOrderReturnStateFromNotes()
     {
         var order = new Order
@@ -179,7 +202,7 @@ public class OrderQuickLoansRegressionTests
     }
 
     [Fact]
-    public async Task GetUnreturnedItemsAsync_IncludesActiveSerializedLine_WithoutPriorReturnMarkers()
+    public async Task GetUnreturnedItemsAsync_MissingQuantityUsesIssuedCodes_NotOrderedQuantity()
     {
         await using var harness = await CreateSqliteHarnessAsync();
         var db = harness.Db;
@@ -191,16 +214,16 @@ public class OrderQuickLoansRegressionTests
             IsActive = true
         });
 
-        db.InventorySerialCodes.Add(new InventorySerialCode
-        {
-            InventoryDefinitionId = 101,
-            SerialCode = "ACC-42"
-        });
+        db.InventorySerialCodes.AddRange(
+            new InventorySerialCode { InventoryDefinitionId = 101, SerialCode = "ACC-1" },
+            new InventorySerialCode { InventoryDefinitionId = 101, SerialCode = "ACC-2" },
+            new InventorySerialCode { InventoryDefinitionId = 101, SerialCode = "ACC-3" });
 
+        // Ordered 5, issued 3 codes; 1 returned → missing must be 2 (issued), not 4 (ordered).
         db.Orders.Add(new Order
         {
             Id = 777,
-            CustomerName = "Active Notes Only",
+            CustomerName = "Partial Return",
             Phone = "0507654321",
             SystemType = SystemType.Tools,
             IsCancelled = false,
@@ -215,17 +238,16 @@ public class OrderQuickLoansRegressionTests
                 {
                     Id = 7001,
                     InventoryDefinitionId = 101,
-                    Quantity = 1,
-                    ReturnedQuantity = 0,
-                    ExpectedNoteCount = 1,
+                    Quantity = 5,
+                    ReturnedQuantity = 1,
+                    ExpectedNoteCount = 5,
                     Notes =
                     [
-                        new LoanedEquipmentNote
-                        {
-                            Ordinal = 0,
-                            Content = "ACC-42",
-                            IsReturned = false
-                        }
+                        new LoanedEquipmentNote { Ordinal = 0, Content = "ACC-1", IsReturned = true },
+                        new LoanedEquipmentNote { Ordinal = 1, Content = "ACC-2", IsReturned = false },
+                        new LoanedEquipmentNote { Ordinal = 2, Content = "ACC-3", IsReturned = false },
+                        new LoanedEquipmentNote { Ordinal = 3, Content = null, IsReturned = false },
+                        new LoanedEquipmentNote { Ordinal = 4, Content = null, IsReturned = false }
                     ]
                 }
             ]
@@ -239,8 +261,11 @@ public class OrderQuickLoansRegressionTests
         var match = Assert.Single(items);
         Assert.Equal(777, match.OrderId);
         Assert.Equal(7001, match.LoanedEquipmentId);
-        Assert.Equal(1, match.MissingQuantity);
-        Assert.Contains("ACC-42", match.MissingSerialCodes);
+        Assert.Equal(3, match.QuantityLoaned);
+        Assert.Equal(2, match.MissingQuantity);
+        Assert.Contains("ACC-2", match.MissingSerialCodes);
+        Assert.Contains("ACC-3", match.MissingSerialCodes);
+        Assert.DoesNotContain("ACC-1", match.MissingSerialCodes);
     }
 
     private static Order CreateOutstandingLoan(

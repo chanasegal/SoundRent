@@ -905,7 +905,7 @@ public class ToolLoanService : IToolLoanService
                 continue;
             }
 
-            var fullyReturned = le.Quantity > 0 && le.ReturnedQuantity >= le.Quantity;
+            var fullyReturned = le.Quantity > 0 && !OrderService.IsLoanedEquipmentActiveForReturnState(le);
             var serial = le.Quantity > 1 ? $"×{le.Quantity}" : string.Empty;
             items.Add(new ToolLoanItemDto
             {

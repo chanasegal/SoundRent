@@ -95,7 +95,11 @@ import {
 } from '../../core/utils/customer-risk-alerts';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
-import { buildOrderDeleteConfirmMessage } from '../../core/utils/order-active-loans';
+import {
+  buildOrderDeleteConfirmMessage,
+  issuedQuantity,
+  outstandingQuantity
+} from '../../core/utils/order-active-loans';
 import {
   isQuantityCodeShortage,
   QuantityCodeShortage,
@@ -1739,8 +1743,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     ctrl.setValue(current);
     ctrl.markAsDirty();
+    // Preserve the customer's ordered quantity; only raise when more codes are issued.
+    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
     this.getRowGroup(rowIndex).patchValue(
-      { quantity: Math.max(current.length, 1) },
+      { quantity: Math.max(existingQuantity, current.length, 1) },
       { emitEvent: false }
     );
     if (filtered.skippedTaken > 0) {
@@ -1813,8 +1819,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     ctrl.setValue(current);
     ctrl.markAsDirty();
+    // Preserve the customer's ordered quantity; only raise when more codes are issued.
+    const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
     this.getRowGroup(rowIndex).patchValue(
-      { quantity: Math.max(current.length, 1) },
+      { quantity: Math.max(existingQuantity, current.length, 1) },
       { emitEvent: false }
     );
     if (filtered.skippedTaken > 0) {
@@ -2105,7 +2113,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return !this.isAccessorySerialLocked(rowIndex, code);
   }
 
-  /** Missing quantity for a loaned row after a return was saved. */
+  /** Missing quantity for a loaned row after a return was saved (vs issued, not ordered). */
   protected accessoryMissingQuantity(rowIndex: number): number {
     if (!this.hasRecordedReturns()) {
       return 0;
@@ -2115,17 +2123,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return 0;
     }
 
-    const assigned = (line.notes ?? [])
-      .map((n) => (n.content ?? '').trim())
-      .filter((c) => c.length > 0);
-    if (assigned.length > 0) {
-      const returnedCount = assigned.filter((code) =>
-        this.isSerialReturnedOnLoadedLine(line, code)
-      ).length;
-      return Math.max(0, assigned.length - returnedCount);
-    }
-
-    return Math.max(0, line.quantity - (line.returnedQuantity ?? 0));
+    return outstandingQuantity(line);
   }
 
   private findLoadedLoanedLine(rowIndex: number): OrderLoanedEquipmentDto | undefined {
@@ -3695,9 +3693,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
         .map((n) => (n.content ?? '').trim())
     );
+    // "כמות מושאלת" / missing calc use actual issued qty, not the original ordered qty.
+    const quantityLoaned = issuedQuantity(row);
     const alreadyReturnedQuantity = Math.min(
       Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
-      row.quantity
+      quantityLoaned
     );
     const returnedSerialCodes =
       assignedSerialCodes.length > 0 ? [...lockedReturnedSerialCodes] : [];
@@ -3710,7 +3710,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       rowId: `line-${row.id}`,
       loanedEquipmentId: row.id!,
       label: this.inventoryStore.displayLabelForLoanedLine(row),
-      quantityLoaned: row.quantity,
+      quantityLoaned,
       quantityReturned,
       isCustomItem,
       assignedSerialCodes,

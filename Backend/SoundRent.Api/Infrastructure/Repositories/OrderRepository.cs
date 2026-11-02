@@ -467,13 +467,16 @@ public class OrderRepository : IOrderRepository
         CancellationToken cancellationToken = default)
     {
         // Phase 1: ids only — avoids holding a wide split-query stream open while filtering.
+        // Outstanding = unreturned assigned codes, OR quantity-only shortfall.
+        // Ordered qty above issued codes must not keep the loan active.
         var query = LiveOrders.AsNoTracking()
             .Where(o =>
                 !o.IsCancelled
                 && o.LoanedEquipments.Any(le =>
                     le.Quantity > 0
-                    && (le.ReturnedQuantity < le.Quantity
-                        || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != ""))));
+                    && (le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != "")
+                        || (!le.Notes.Any(n => n.Content != null && n.Content != "")
+                            && le.ReturnedQuantity < le.Quantity))));
 
         if (systemType == SystemType.Sound)
         {
@@ -542,8 +545,9 @@ public class OrderRepository : IOrderRepository
                 .Where(le =>
                     le.IsCustomItem
                     && le.Quantity > 0
-                    && (le.ReturnedQuantity < le.Quantity
-                        || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != "")))
+                    && (le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != "")
+                        || (!le.Notes.Any(n => n.Content != null && n.Content != "")
+                            && le.ReturnedQuantity < le.Quantity)))
                 .Select(le => new
                 {
                     OrderId = o.Id,
@@ -571,6 +575,11 @@ public class OrderRepository : IOrderRepository
                 var itemName = string.IsNullOrWhiteSpace(r.CustomItemName)
                     ? "פריט נוסף"
                     : r.CustomItemName.Trim();
+                var assignedCodes = r.Notes
+                    .Select(n => (n.Content ?? string.Empty).Trim())
+                    .Where(c => c.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
                 var codes = r.Notes
                     .Where(n => !n.IsReturned)
                     .Select(n => (n.Content ?? string.Empty).Trim())
@@ -578,6 +587,10 @@ public class OrderRepository : IOrderRepository
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(c => c, NumericStringComparer.Instance)
                     .ToList();
+                var issuedQuantity = assignedCodes.Count > 0 ? assignedCodes.Count : r.Quantity;
+                var outstandingQuantity = assignedCodes.Count > 0
+                    ? codes.Count
+                    : Math.Max(0, r.Quantity - r.ReturnedQuantity);
 
                 return new ActiveOneTimeAccessoryLoanDto
                 {
@@ -585,8 +598,8 @@ public class OrderRepository : IOrderRepository
                     LoanedEquipmentId = r.LoanedEquipmentId,
                     ManualItemId = null,
                     ItemName = itemName,
-                    Quantity = r.Quantity,
-                    OutstandingQuantity = Math.Max(0, r.Quantity - r.ReturnedQuantity),
+                    Quantity = issuedQuantity,
+                    OutstandingQuantity = outstandingQuantity,
                     CustomerName = r.CustomerName,
                     Phone = r.Phone,
                     Address = r.Address,
@@ -661,8 +674,9 @@ public class OrderRepository : IOrderRepository
             .Where(o => o.LoanedEquipments.Any(le => le.ReturnedQuantity > 0 || le.Notes.Any(n => n.IsReturned)))
             .Where(o => o.LoanedEquipments.Any(le =>
                 le.Quantity > 0
-                && (le.ReturnedQuantity < le.Quantity
-                    || le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != ""))));
+                && (le.Notes.Any(n => !n.IsReturned && n.Content != null && n.Content != "")
+                    || (!le.Notes.Any(n => n.Content != null && n.Content != "")
+                        && le.ReturnedQuantity < le.Quantity))));
         if (systemType.HasValue)
         {
             orderQuery = orderQuery.Where(o => o.SystemType == systemType.Value);
@@ -707,8 +721,9 @@ public class OrderRepository : IOrderRepository
             .SelectMany(order => order.LoanedEquipments
                 .Where(le =>
                     le.Quantity > 0
-                    && (le.ReturnedQuantity < le.Quantity
-                        || le.Notes.Any(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content))))
+                    && (le.Notes.Any(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content))
+                        || (!le.Notes.Any(n => !string.IsNullOrWhiteSpace(n.Content))
+                            && le.ReturnedQuantity < le.Quantity)))
                 .Select(le => new
                 {
                     Order = order,
@@ -746,6 +761,14 @@ public class OrderRepository : IOrderRepository
                 && resolved.DefinitionId is null
                 && !catalogNameSet.Contains(resolved.DisplayName);
 
+            // Missing vs actual issued units — not vs original ordered quantity.
+            var quantityLoaned = assignedSerialCodes.Count > 0
+                ? assignedSerialCodes.Count
+                : r.Line.Quantity;
+            var missingQuantity = assignedSerialCodes.Count > 0
+                ? missingSerialCodes.Count
+                : Math.Max(0, r.Line.Quantity - r.Line.ReturnedQuantity);
+
             return new UnreturnedItemDto
             {
                 ManualItemId = null,
@@ -759,8 +782,8 @@ public class OrderRepository : IOrderRepository
                 LoanedEquipmentType = r.Line.LoanedEquipmentType,
                 EquipmentName = resolved.DisplayName,
                 ReturnDate = r.ReturnDate ?? DateOnly.MinValue,
-                QuantityLoaned = r.Line.Quantity,
-                MissingQuantity = r.Line.Quantity - r.Line.ReturnedQuantity,
+                QuantityLoaned = quantityLoaned,
+                MissingQuantity = missingQuantity,
                 MissingSerialCodes = missingSerialCodes,
                 AssignedSerialCodes = assignedSerialCodes
             };

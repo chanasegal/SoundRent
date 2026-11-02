@@ -619,10 +619,11 @@ public class OrderService : IOrderService
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                if (mergedReturned.Count > line.Quantity)
+                // Cap against actual issued codes, not the original ordered quantity.
+                if (mergedReturned.Count > assignedCodes.Count)
                 {
                     throw new ValidationException(
-                        $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{line.Quantity}");
+                        $"כמות ההחזרה עבור {label} חייבת להיות בין 0 ל-{assignedCodes.Count}");
                 }
 
                 ApplyReturnedSerialCodes(line, assignedCodes, mergedReturned, stamp);
@@ -695,13 +696,14 @@ public class OrderService : IOrderService
             }
 
             var label = OrderMapper.GetLoanedEquipmentDisplayName(line);
-            if (item.MissingQuantity < 1 || item.MissingQuantity > line.Quantity)
+            var assignedCodes = GetAssignedSerialCodes(line);
+            var issuedQuantity = GetIssuedQuantity(line);
+            if (item.MissingQuantity < 1 || item.MissingQuantity > issuedQuantity)
             {
                 throw new ValidationException(
-                    $"כמות שלא חזרה עבור {label} חייבת להיות בין 1 ל-{line.Quantity}");
+                    $"כמות שלא חזרה עבור {label} חייבת להיות בין 1 ל-{issuedQuantity}");
             }
 
-            var assignedCodes = GetAssignedSerialCodes(line);
             if (assignedCodes.Count > 0)
             {
                 var missingCodes = NormalizeReturnedSerialCodes(item.MissingSerialCodes, assignedCodes);
@@ -737,7 +739,7 @@ public class OrderService : IOrderService
             returnItems.Add(new OrderReturnItemDto
             {
                 LoanedEquipmentId = line.Id,
-                QuantityReturned = line.Quantity - item.MissingQuantity
+                QuantityReturned = issuedQuantity - item.MissingQuantity
             });
         }
 
@@ -1508,10 +1510,19 @@ public class OrderService : IOrderService
             return;
         }
 
-        line.ReturnedQuantity = Math.Clamp(
-            noteBackedStates.Count(n => n.IsReturned),
-            0,
-            line.Quantity);
+        // Returned qty tracks issued (assigned) codes — do not inflate to ordered quantity.
+        line.ReturnedQuantity = noteBackedStates.Count(n => n.IsReturned);
+    }
+
+    /// <summary>
+    /// Actual units taken/issued. Serialized lines use assigned serial codes;
+    /// quantity-only lines use <see cref="OrderLoanedEquipment.Quantity"/> (ordered = issued).
+    /// </summary>
+    internal static int GetIssuedQuantity(OrderLoanedEquipment line)
+    {
+        var assignedCount = (line.Notes ?? [])
+            .Count(n => !string.IsNullOrWhiteSpace(n.Content));
+        return assignedCount > 0 ? assignedCount : Math.Max(line.Quantity, 0);
     }
 
     internal static bool IsLoanedEquipmentActiveForReturnState(OrderLoanedEquipment line)
@@ -1521,13 +1532,18 @@ public class OrderService : IOrderService
             return false;
         }
 
-        if (line.ReturnedQuantity < line.Quantity)
+        var assignedNotes = (line.Notes ?? [])
+            .Where(n => !string.IsNullOrWhiteSpace(n.Content))
+            .ToList();
+
+        // Serialized: outstanding = any assigned code not yet returned.
+        // Ordered qty without codes must not keep the line active as "missing".
+        if (assignedNotes.Count > 0)
         {
-            return true;
+            return assignedNotes.Any(n => !n.IsReturned);
         }
 
-        return (line.Notes ?? [])
-            .Any(n => !n.IsReturned && !string.IsNullOrWhiteSpace(n.Content));
+        return line.ReturnedQuantity < line.Quantity;
     }
 
     private static void ValidateLoanedEquipments(IReadOnlyCollection<OrderLoanedEquipmentDto> items)

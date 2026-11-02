@@ -52,7 +52,11 @@ import {
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
-import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
+import {
+  issuedQuantity,
+  loanedLineAddedLaterAt,
+  outstandingQuantity
+} from '../../core/utils/order-active-loans';
 import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 import { IsraeliPhoneInputDirective } from '../../shared/directives/israeli-phone-input.directive';
@@ -489,7 +493,8 @@ export class QuickLoanComponent implements OnInit {
           .map((n) => (n.content ?? '').trim())
           .filter((c) => c.length > 0)
       );
-      const quantity = codes.length > 0 ? Math.max(codes.length, 1) : Math.max(le.quantity, 1);
+      // Keep the customer's ordered quantity; only raise when more codes were issued.
+      const quantity = Math.max(le.quantity, codes.length, 1);
 
       if (le.isCustomItem) {
         const name = (le.customItemName ?? '').trim() || 'פריט נוסף';
@@ -1722,7 +1727,8 @@ export class QuickLoanComponent implements OnInit {
     next[index] = {
       ...existing,
       selectedCodes: merged,
-      quantity: Math.max(merged.length, 1)
+      // Preserve ordered qty; only raise when more codes are issued.
+      quantity: Math.max(existing.quantity, merged.length, 1)
     };
     return { rows: next, changed: true };
   }
@@ -1795,7 +1801,8 @@ export class QuickLoanComponent implements OnInit {
     next[index] = {
       ...existing,
       selectedCodes: merged,
-      quantity: Math.max(merged.length, 1)
+      // Preserve ordered qty; only raise when more codes are issued.
+      quantity: Math.max(existing.quantity, merged.length, 1)
     };
     return { rows: next, changed: true };
   }
@@ -2524,8 +2531,8 @@ export class QuickLoanComponent implements OnInit {
         if (le.id == null || le.quantity <= 0) {
           continue;
         }
-        const returned = le.returnedQuantity ?? 0;
-        if (returned >= le.quantity) {
+        const outstanding = outstandingQuantity(le);
+        if (outstanding <= 0) {
           continue;
         }
         const outstandingCodes = (le.notes ?? [])
@@ -2539,8 +2546,8 @@ export class QuickLoanComponent implements OnInit {
           orderId: order.id,
           loanedEquipmentId: le.id,
           accessoryName,
-          quantity: le.quantity - returned,
-          quantityLoaned: le.quantity,
+          quantity: outstanding,
+          quantityLoaned: issuedQuantity(le),
           assignedSerialCodes: outstandingCodes,
           loanDateIso: addedLaterAt ? this.hebrew.toIso(addedLaterAt) : loanDateIso,
           loanTimeLabel: this.loanTimeFromCreatedAt(addedLaterAt ? le.addedAt : order.createdAt)
@@ -2739,10 +2746,11 @@ export class QuickLoanComponent implements OnInit {
         if (le.id == null || le.id <= 0 || le.quantity <= 0) {
           continue;
         }
-        const returned = Math.min(Math.max(le.returnedQuantity ?? 0, 0), le.quantity);
-        if (returned < le.quantity) {
+        // Fully returned = no outstanding issued units (ignore ordered qty shortfall).
+        if (outstandingQuantity(le) > 0) {
           continue;
         }
+        const returned = Math.min(Math.max(le.returnedQuantity ?? 0, 0), issuedQuantity(le));
         const notes = (le.notes ?? [])
           .map((n, ordinal) => ({
             ordinal: n.ordinal ?? ordinal,
@@ -2777,9 +2785,8 @@ export class QuickLoanComponent implements OnInit {
       if (le.quantity <= 0) {
         continue;
       }
-      const returnedQty = Math.min(Math.max(le.returnedQuantity ?? 0, 0), le.quantity);
       // Fully returned lines stay off the form (preserved separately for save).
-      if (returnedQty >= le.quantity) {
+      if (outstandingQuantity(le) <= 0) {
         continue;
       }
 
@@ -2791,11 +2798,12 @@ export class QuickLoanComponent implements OnInit {
         .filter((n) => n.isReturned)
         .map((n) => (n.content ?? '').trim())
         .filter((c) => c.length > 0);
-      const remainingQty = Math.max(le.quantity - returnedQty, 0);
-      const activeQuantity =
-        outstandingCodes.length > 0
-          ? Math.max(outstandingCodes.length, 1)
-          : Math.max(remainingQty, 1);
+      const returnedQty =
+        returnedCodes.length > 0
+          ? returnedCodes.length
+          : Math.min(Math.max(le.returnedQuantity ?? 0, 0), issuedQuantity(le));
+      // Keep ordered quantity on the form (minus already returned); save restores full ordered via +alreadyReturned.
+      const activeQuantity = Math.max(le.quantity - returnedQty, outstandingCodes.length, 1);
       const codes = outstandingCodes;
 
       if (le.isCustomItem) {
@@ -2918,9 +2926,11 @@ export class QuickLoanComponent implements OnInit {
             .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
             .map((n) => (n.content ?? '').trim())
         );
+        // Missing / "כמות מושאלת" use actual issued qty, not the original ordered qty.
+        const quantityLoaned = issuedQuantity(row);
         const alreadyReturnedQuantity = Math.min(
           Math.max(row.returnedQuantity ?? 0, lockedReturnedSerialCodes.length),
-          row.quantity
+          quantityLoaned
         );
         const returnedSerialCodes =
           assignedSerialCodes.length > 0 ? [...lockedReturnedSerialCodes] : [];
@@ -2933,7 +2943,7 @@ export class QuickLoanComponent implements OnInit {
           rowId: `line-${row.id}`,
           loanedEquipmentId: row.id!,
           label: this.inventoryStore.displayLabelForLoanedLine(row),
-          quantityLoaned: row.quantity,
+          quantityLoaned,
           quantityReturned,
           isCustomItem,
           assignedSerialCodes,

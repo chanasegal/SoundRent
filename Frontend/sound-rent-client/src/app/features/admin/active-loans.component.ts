@@ -33,7 +33,11 @@ import { ClickOutsideDirective } from '../../shared/directives/click-outside.dir
 import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
-import { loanedLineAddedLaterAt } from '../../core/utils/order-active-loans';
+import {
+  issuedQuantity,
+  loanedLineAddedLaterAt,
+  outstandingQuantity
+} from '../../core/utils/order-active-loans';
 
 interface ActiveLoanRow {
   key: string;
@@ -1406,8 +1410,8 @@ export class ActiveLoansComponent implements OnInit {
         if (le.id == null || le.id <= 0 || le.quantity <= 0) {
           continue;
         }
-        const returned = le.returnedQuantity ?? 0;
-        if (returned >= le.quantity) {
+        const outstanding = outstandingQuantity(le);
+        if (outstanding <= 0) {
           continue;
         }
         const codes = this.uniqueSortedCodes(
@@ -1441,8 +1445,8 @@ export class ActiveLoansComponent implements OnInit {
           phone: order.phone,
           address: order.address?.trim() || '',
           accessoryName,
-          quantity: le.quantity - returned,
-          quantityLoaned: le.quantity,
+          quantity: outstanding,
+          quantityLoaned: issuedQuantity(le),
           codes,
           loanDateIso: addedLaterAt ? this.hebrew.toIso(addedLaterAt) : loanDateIso,
           loanTimeLabel: addedLaterAt ? this.timeLabel(addedLaterAt) : '',

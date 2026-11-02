@@ -41,6 +41,7 @@ import {
 import { ToolDefinitionsStore } from '../../core/services/tool-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import { outstandingQuantity } from '../../core/utils/order-active-loans';
 import { formatCalendarDuration } from '../../core/utils/tools-billable-duration';
 import {
   buildCustomerRiskAlertSnapshot,
@@ -1020,7 +1021,7 @@ export class ToolsLendingComponent implements OnInit {
         this.parseLoanDate(order.createdAt) ??
         this.parseLoanDate(loanDate ? `${loanDate}T12:00:00` : null);
       for (const line of order.loanedEquipments ?? []) {
-        const quantity = line.quantity - (line.returnedQuantity ?? 0);
+        const quantity = outstandingQuantity(line);
         if (quantity <= 0) {
           continue;
         }

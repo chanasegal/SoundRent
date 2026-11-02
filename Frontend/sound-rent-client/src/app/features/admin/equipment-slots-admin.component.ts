@@ -62,6 +62,10 @@ import {
 } from '../../core/services/inventory-definitions.store';
 import { ToastService } from '../../core/services/toast.service';
 import { WorkspaceUiService } from '../../core/services/workspace-ui.service';
+import {
+  issuedQuantity,
+  outstandingQuantity
+} from '../../core/utils/order-active-loans';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { IntegerOnlyDirective } from '../../shared/directives/integer-only.directive';
 
@@ -882,8 +886,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
         if (!le.isCustomItem || le.id == null || le.id <= 0 || le.quantity <= 0) {
           continue;
         }
-        const returned = le.returnedQuantity ?? 0;
-        if (returned >= le.quantity) {
+        const outstanding = outstandingQuantity(le);
+        if (outstanding <= 0) {
           continue;
         }
         const codes = (le.notes ?? [])
@@ -895,8 +899,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
           loanedEquipmentId: le.id,
           manualItemId: null,
           itemName: (le.customItemName ?? '').trim() || 'פריט נוסף',
-          quantity: le.quantity,
-          outstandingQuantity: Math.max(0, le.quantity - returned),
+          quantity: issuedQuantity(le),
+          outstandingQuantity: outstanding,
           customerName: order.customerName ?? null,
           phone: order.phone ?? '',
           address: order.address ?? null,
