@@ -287,6 +287,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             string.Join("; ", items.Select(i =>
                 $"type={i.LoanedEquipmentType}/custom={i.CustomItemName}/defId={i.InventoryDefinitionId}/qty={i.Quantity}/notes=[{string.Join(",", (i.Notes ?? []).Select(n => $"{n.Content}{(n.IsReturned ? ":R" : "")}"))}]")));
 
+        await HealStaleLoanedOutWithoutOrderNoteAsync(cancellationToken);
+
         var catalogLines = await ResolveCatalogLinesAsync(items, cancellationToken);
         if (catalogLines.Count == 0)
         {
@@ -666,6 +668,9 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             string.Join(",", excludedOrderIds),
             idsFilter is null ? "(all active)" : string.Join(",", idsFilter));
 
+        // Soft-deleted / cancelled orders leave notes in place; heal stale LoanedOut before reading.
+        await HealStaleLoanedOutWithoutOrderNoteAsync(cancellationToken);
+
         var query = _db.InventoryDefinitions.AsNoTracking()
             .Include(d => d.SerialCodes)
             .Where(d => d.IsActive);
@@ -951,8 +956,8 @@ public class InventoryDefinitionService : IInventoryDefinitionService
 
     /// <summary>
     /// Clears <see cref="AccessorySerialPhysicalStatus.LoanedOut"/> (and live MixerId) when the
-    /// serial has no unreturned order note — fixes cascade ghosts that tracking used to show as
-    /// loaned to a customer/order without an equipment line.
+    /// serial has no unreturned note on a live (non-cancelled, non-deleted) order — fixes cascade
+    /// ghosts and soft-deleted orders that otherwise keep inventory marked as taken.
     /// </summary>
     private async Task HealStaleLoanedOutWithoutOrderNoteAsync(CancellationToken cancellationToken)
     {
@@ -971,6 +976,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
+                  && !order.IsDeleted
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
             select new
@@ -1373,6 +1379,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
+                  && !order.IsDeleted
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
             select new
@@ -1567,6 +1574,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
+                  && !order.IsDeleted
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
             select new
@@ -1688,6 +1696,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             join order in _db.Orders.AsNoTracking() on le.OrderId equals order.Id
             join note in _db.LoanedEquipmentNotes.AsNoTracking() on le.Id equals note.OrderLoanedEquipmentId
             where !order.IsCancelled
+                  && !order.IsDeleted
                   && note.Content != null && note.Content != ""
                   && !note.IsReturned
             select new
@@ -1829,7 +1838,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
             orderId);
 
         var row = await _db.Orders.AsNoTracking()
-            .Where(o => o.Id == orderId && !o.IsCancelled)
+            .Where(o => o.Id == orderId && !o.IsCancelled && !o.IsDeleted)
             .Select(o => new
             {
                 o.Id,
@@ -1847,7 +1856,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
         if (row is null)
         {
             _logger.LogInformation(
-                "[SerialLocation.LoadOrderHolderSnapshot] Order NOT FOUND or cancelled orderId={OrderId}",
+                "[SerialLocation.LoadOrderHolderSnapshot] Order NOT FOUND, cancelled, or deleted orderId={OrderId}",
                 orderId);
             return null;
         }
@@ -2342,6 +2351,7 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 var status = s.PhysicalStatus;
                 ManualUnreturnedItem? missing = null;
                 InventoryHolderDto? loan = null;
+                holdersByCode.TryGetValue(code, out loan);
 
                 if (status == AccessorySerialPhysicalStatus.Missing && missingByKey is not null)
                 {
@@ -2353,11 +2363,16 @@ public class InventoryDefinitionService : IInventoryDefinitionService
                 {
                     status = AccessorySerialPhysicalStatus.Missing;
                     missing = byDef;
+                    loan = null;
                 }
-                else if (status != AccessorySerialPhysicalStatus.Missing
-                         && holdersByCode.TryGetValue(code, out loan))
+                else if (loan is not null)
                 {
                     status = AccessorySerialPhysicalStatus.LoanedOut;
+                }
+                else if (status == AccessorySerialPhysicalStatus.LoanedOut)
+                {
+                    // Stale DB flag (soft-deleted order / cascade) with no live holder — treat as free.
+                    status = AccessorySerialPhysicalStatus.InWarehouse;
                 }
 
                 var mixerId = s.MixerId;
