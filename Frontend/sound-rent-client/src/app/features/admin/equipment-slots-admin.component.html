@@ -459,7 +459,7 @@
             </tr>
           </thead>
           <tbody formArrayName="rows">
-            @for (row of inventoryTableRows(); track row.def.id) {
+            @for (row of inventoryTableRows(); track row.trackKey) {
               <tr class="border-b border-slate-100 odd:bg-slate-50/60" [formGroupName]="row.formIndex">
                 <td class="px-3 py-2 align-middle font-semibold text-[#002244]">
                   <span class="inventory-item-label">

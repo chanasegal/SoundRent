@@ -189,14 +189,22 @@ export class EquipmentSlotsAdminComponent implements OnInit {
     ].sort((a, b) => a.localeCompare(b, 'he'));
   });
 
+  /**
+   * Bumped whenever the inventory FormArray is fully rebuilt so @for remounts
+   * formControlName bindings (track-by-id alone would keep stale DOM ↔ control links).
+   */
+  private readonly inventoryTableEpoch = signal(0);
+
   /** Permanent inventory catalog table rows (unfiltered — search lives in איתור פריט). */
-  protected readonly inventoryTableRows = computed(() =>
-    this.customInventoryDefinitions().map((def, formIndex) => ({
+  protected readonly inventoryTableRows = computed(() => {
+    const epoch = this.inventoryTableEpoch();
+    return this.customInventoryDefinitions().map((def, formIndex) => ({
       kind: 'catalog' as const,
       def,
-      formIndex
-    }))
-  );
+      formIndex,
+      trackKey: `${def.id}:${epoch}`
+    }));
+  });
 
   protected readonly customInventoryForm = this.fb.group({
     rows: this.fb.array<FormGroup>([])
@@ -1600,6 +1608,8 @@ export class EquipmentSlotsAdminComponent implements OnInit {
   private rebuildCustomInventoryRows(defs: InventoryDefinitionDto[]): void {
     this.editingInventoryRowId.set(null);
     this.inventoryRowSnapshots.clear();
+    // Force table row remount so formControlName rebinds to the new FormGroups.
+    this.inventoryTableEpoch.update((n) => n + 1);
     const rows = this.customInventoryRows();
     while (rows.length > 0) {
       rows.removeAt(0);
@@ -1736,13 +1746,48 @@ export class EquipmentSlotsAdminComponent implements OnInit {
             return;
           }
           this.toast.success('הפריט נשמר');
+          const previousIds = this.customInventoryDefinitions().map((d) => d.id);
           this.inventoryStore.upsert(updated);
           const list = this.inventoryStore.definitions();
+          const orderChanged =
+            previousIds.length !== list.length ||
+            previousIds.some((id, i) => id !== list[i]?.id);
+
           this.customInventoryDefinitions.set(list);
-          this.rebuildCustomInventoryRows(list);
+
+          if (orderChanged) {
+            // Sort order changed — rebuild + remount so indices and bindings stay in sync.
+            this.rebuildCustomInventoryRows(list);
+          } else {
+            // Same row order — update in place so always-mounted inputs keep valid bindings.
+            this.applyInventoryDefinitionToRow(rowIndex, updated);
+            this.setInventoryRowEditable(rowIndex, false);
+            this.editingInventoryRowId.set(null);
+            this.inventoryRowSnapshots.delete(def.id);
+          }
           this.loadDefaultAccessoryCounts();
         }
       });
+  }
+
+  /** Sync an existing FormGroup from a saved definition without replacing the control. */
+  private applyInventoryDefinitionToRow(rowIndex: number, def: InventoryDefinitionDto): void {
+    const group = this.customInventoryRowGroup(rowIndex);
+    const codes = (def.serialCodes ?? []).map((c) => c.trim()).filter((c) => c.length > 0);
+    const quantity = Math.max(def.totalQuantity ?? 0, codes.length);
+    group.patchValue(
+      {
+        displayName: def.displayName,
+        sortOrder: def.sortOrder ?? 0,
+        quantity
+      },
+      { emitEvent: false }
+    );
+    this.setCustomInventoryCodesLength(group, quantity);
+    const codesFa = this.customInventoryCodesArray(rowIndex);
+    for (let i = 0; i < codesFa.length; i++) {
+      codesFa.at(i).setValue(codes[i] ?? '', { emitEvent: false });
+    }
   }
 
   private setInventoryRowEditable(rowIndex: number, editable: boolean): void {
