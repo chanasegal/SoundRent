@@ -126,6 +126,8 @@ interface SaveOptions {
   /** `auto` skips navigation/toasts; duplicate-shift conflicts use ConfirmDialog. */
   mode: 'auto' | 'manual';
   allowDoubleBooking?: boolean;
+  /** Called once the HTTP save settles (success or failure). Used to leave only after persist. */
+  afterSettled?: () => void;
 }
 
 const DUPLICATE_SHIFT_CONFIRM = {
@@ -2725,11 +2727,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
             this.promptDuplicateShiftConfirm({
               onAccept: () => {
                 this.doubleBookingDeclinedKey = null;
+                // Wait for persist so the weekly board remounts against committed data.
                 this.executeSaveRequests(
                   payloads.map((p) => ({ ...p, allowDoubleBooking: true })),
-                  { mode: 'auto' }
+                  { mode: 'auto', afterSettled: leave }
                 );
-                leave();
               },
               onReject: () => {
                 this.doubleBookingDeclinedKey = key;
@@ -2739,8 +2741,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
             return;
           }
 
-          this.executeSaveRequests(payloads, { mode: 'auto' });
-          leave();
+          this.executeSaveRequests(payloads, { mode: 'auto', afterSettled: leave });
         },
         error: () => {
           this.releaseSaveGate();
@@ -3520,6 +3521,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     }
 
     const wasCreate = this.editingId() === null;
+    const afterSettled = options.afterSettled;
 
     from(payloads)
       .pipe(
@@ -3527,7 +3529,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         toArray(),
         finalize(() => {
           this.releaseSaveGate();
-          this.flushPendingSave();
+          if (afterSettled) {
+            // Leaving the form: do not chain another autosave onto a destroyed view.
+            this.pendingAutoSave = false;
+            this.pendingManualSave = null;
+            afterSettled();
+          } else {
+            this.flushPendingSave();
+          }
         })
       )
       .subscribe({
@@ -3559,18 +3568,22 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
           this.setAutoSaveStatus('saved');
 
           // If the user typed during the request, queue another pass with the latest form.
-          if (isAuto) {
+          // Skip when this save owns navigation (`afterSettled`) — the form is about to unmount.
+          if (isAuto && !afterSettled) {
             const liveKey = this.form.valid ? this.payloadKey(this.toPayloads()) : null;
             if (liveKey != null && liveKey !== this.lastSavedPayloadKey) {
               this.pendingAutoSave = true;
             }
           }
 
+          // Always push same-tab board/list updates immediately after a successful persist.
+          // Auto-save still skips inventory reload so serial/equipment dropdowns stay open while typing.
+          for (const order of saved) {
+            this.ordersSync.notifyOrderUpdated(order);
+          }
+
           if (!isAuto) {
             this.existingCustomerMatch.set(null);
-            for (const order of saved) {
-              this.ordersSync.notifyOrderUpdated(order);
-            }
             this.inventoryStore.load({ force: true }).subscribe();
 
             if (wasCreate) {
@@ -3581,8 +3594,6 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
               }
             }
           }
-          // Auto-save intentionally skips inventory reload + orderChanged$ notify so
-          // equipment/serial dropdowns and alert banners stay untouched while typing.
         },
         error: () => {
           if (isAuto) {

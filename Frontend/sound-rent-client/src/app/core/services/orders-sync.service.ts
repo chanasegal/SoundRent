@@ -7,6 +7,9 @@ import { UnreturnedItemDto } from '../models/equipment-return.model';
 /**
  * Same-tab broadcast bus for operational data mutations.
  * Cross-device sync uses {@link startLiveDataRefresh} (visibility/focus refetch), not this bus.
+ *
+ * Also keeps a short pending map so the weekly board can apply same-tab saves that
+ * finished while the form was open (or during navigation) without a full page reload.
  */
 @Injectable({ providedIn: 'root' })
 export class OrdersSyncService {
@@ -15,6 +18,7 @@ export class OrdersSyncService {
   private readonly debtChangedSubject = new Subject<void>();
   private readonly lostEquipmentChangedSubject = new Subject<void>();
   private readonly loanChangedSubject = new Subject<void>();
+  private readonly pendingBoardOrders = new Map<number, OrderDto>();
 
   /** Emits whenever an order was created, updated, or had a return recorded. */
   readonly orderChanged$ = this.changedSubject.asObservable();
@@ -35,7 +39,23 @@ export class OrdersSyncService {
   readonly loanChanged$ = this.loanChangedSubject.asObservable();
 
   notifyOrderUpdated(order: OrderDto): void {
+    this.pendingBoardOrders.set(order.id, order);
     this.changedSubject.next(order);
+  }
+
+  /** Drop a pending board patch after the live board subscriber already applied it. */
+  clearPendingBoardOrder(orderId: number): void {
+    this.pendingBoardOrders.delete(orderId);
+  }
+
+  /** Snapshot and clear recent same-tab order mutations for board bootstrap / merge. */
+  takePendingBoardOrders(): OrderDto[] {
+    if (this.pendingBoardOrders.size === 0) {
+      return [];
+    }
+    const list = [...this.pendingBoardOrders.values()];
+    this.pendingBoardOrders.clear();
+    return list;
   }
 
   notifyUnreturnedChanged(item: UnreturnedItemDto | null = null): void {

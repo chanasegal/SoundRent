@@ -571,6 +571,7 @@ export class WeeklyGridComponent {
     this.wireWaitlistCustomerAutocomplete();
     this.wireClientSearch();
     this.wireClientSearchRiskData();
+    this.wireLocalOrderSync();
     this.wireScheduleHub();
 
     afterNextRender(() => {
@@ -1565,6 +1566,61 @@ export class WeeklyGridComponent {
     });
   }
 
+  /**
+   * Same-tab order create/update (form save / auto-save): patch the board immediately
+   * so returning from the form does not require a manual browser refresh.
+   */
+  private wireLocalOrderSync(): void {
+    this.ordersSync.orderChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((order) => {
+        this.mergeOrderIntoBoard(order);
+        // If a week GET is in flight, keep the pending patch so the replace
+        // result can re-apply it and not wipe a save that landed mid-fetch.
+        if (!this.weekLoadInFlightKey && !this.loadingMoreWeeks()) {
+          this.ordersSync.clearPendingBoardOrder(order.id);
+        }
+        this.refreshClientSearchInBackground();
+        this.refreshClientSearchRiskInBackground();
+      });
+  }
+
+  /** Apply saves that finished while the board was unmounted or a week fetch was in flight. */
+  private applyPendingBoardOrders(): void {
+    for (const order of this.ordersSync.takePendingBoardOrders()) {
+      this.mergeOrderIntoBoard(order);
+    }
+  }
+
+  private mergeOrderIntoBoard(order: OrderDto): void {
+    const relevant = this.orderRelevantToLoadedBoard(order);
+    this.orders.update((list) => {
+      const index = list.findIndex((o) => o.id === order.id);
+      if (index >= 0) {
+        if (!relevant) {
+          return list.filter((o) => o.id !== order.id);
+        }
+        const next = [...list];
+        next[index] = order;
+        return next;
+      }
+      return relevant ? [...list, order] : list;
+    });
+  }
+
+  private orderRelevantToLoadedBoard(order: OrderDto): boolean {
+    if (order.isCancelled) {
+      return false;
+    }
+    const currentSystem = this.systemContext.currentSystemType();
+    if (order.systemType != null && order.systemType !== currentSystem) {
+      return false;
+    }
+    const start = this.toIsoDate(this.weekStart());
+    const end = this.toIsoDate(this.rangeEnd());
+    return (order.shifts ?? []).some((s) => s.orderDate >= start && s.orderDate <= end);
+  }
+
   /** Another client changed orders / waitlist / blocked dates: refetch what is on screen. */
   private wireScheduleHub(): void {
     this.scheduleHub.signals$
@@ -1690,6 +1746,8 @@ export class WeeklyGridComponent {
             this.waitlistEntries.update((prev) => this.mergeById(prev, waitlist));
             this.blockedDates.update((prev) => this.mergeBlockedDates(prev, blockedDates));
           }
+          // Re-apply same-tab saves that may have landed while this GET was in flight.
+          this.applyPendingBoardOrders();
           this.flushQueuedHubRefresh();
         },
         error: () => {
@@ -1731,6 +1789,7 @@ export class WeeklyGridComponent {
           this.waitlistEntries.update((prev) => this.mergeById(prev, waitlist));
           this.blockedDates.update((prev) => this.mergeBlockedDates(prev, blockedDates));
           this.weeksCount.update((count) => Math.min(MAX_WEEKS_LOADED, count + 1));
+          this.applyPendingBoardOrders();
         }
       });
   }
