@@ -19,6 +19,10 @@ public class BookCopyConfiguration : IEntityTypeConfiguration<BookCopy>
         builder.HasIndex(e => e.BookId)
             .HasDatabaseName("IX_BookCopies_BookId");
 
+        // Global barcode lookup (LocateSerial without a book scope).
+        builder.HasIndex(e => e.CopyNumber)
+            .HasDatabaseName("IX_BookCopies_CopyNumber");
+
         builder.HasIndex(e => new { e.BookId, e.CopyNumber })
             .IsUnique()
             .HasDatabaseName("IX_BookCopies_BookId_CopyNumber");

@@ -13,6 +13,15 @@ namespace SoundRent.Api.Application.Services;
 public interface IBookInventoryService
 {
     Task<List<BookDto>> GetAllAsync(CancellationToken cancellationToken = default);
+    /// <summary>Id + title only — for typeahead pickers (no copies payload).</summary>
+    Task<List<BookTitleDto>> GetTitlesAsync(CancellationToken cancellationToken = default);
+    /// <summary>Lean server-side title suggest (capped) — mirrors customer/tools typeahead.</summary>
+    Task<List<BookTitleDto>> SuggestTitlesAsync(
+        string? query,
+        int limit = 25,
+        CancellationToken cancellationToken = default);
+    /// <summary>All registered copy numbers for one book (sorted).</summary>
+    Task<List<string>> GetCopyNumbersAsync(int bookId, CancellationToken cancellationToken = default);
     Task<BookDto> CreateAsync(BookCreateDto dto, CancellationToken cancellationToken = default);
     Task<BookDto> UpdateAsync(int id, BookUpdateDto dto, CancellationToken cancellationToken = default);
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
@@ -44,14 +53,102 @@ public class BookInventoryService : IBookInventoryService
 
     public async Task<List<BookDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        // Project in SQL — avoids materializing full Book+Copy graphs just to map DTOs.
         var rows = await _db.Books
             .AsNoTracking()
-            .Include(t => t.Copies)
             .OrderBy(t => t.SortOrder)
             .ThenBy(t => t.Id)
+            .Select(t => new
+            {
+                t.Id,
+                t.Title,
+                t.Author,
+                t.Category,
+                t.SortOrder,
+                Copies = t.Copies.Select(c => c.CopyNumber).ToList()
+            })
             .ToListAsync(cancellationToken);
 
-        return rows.Select(ToDto).ToList();
+        return rows
+            .Select(t => new BookDto
+            {
+                Id = t.Id,
+                Title = t.Title,
+                Author = t.Author,
+                Category = t.Category,
+                SortOrder = t.SortOrder,
+                TotalQuantity = t.Copies.Count,
+                Copies = t.Copies.OrderBy(c => c, NumericStringComparer.Instance).ToList()
+            })
+            .ToList();
+    }
+
+    public async Task<List<BookTitleDto>> GetTitlesAsync(CancellationToken cancellationToken = default)
+    {
+        return await _db.Books
+            .AsNoTracking()
+            .OrderBy(t => t.Title)
+            .ThenBy(t => t.Id)
+            .Select(t => new BookTitleDto
+            {
+                Id = t.Id,
+                Title = t.Title
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<BookTitleDto>> SuggestTitlesAsync(
+        string? query,
+        int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        var q = (query ?? string.Empty).Trim();
+        var take = Math.Clamp(limit, 1, 50);
+
+        var books = _db.Books.AsNoTracking();
+        if (q.Length > 0)
+        {
+            // ILIKE uses the pg_trgm GIN index on Title for large catalogs.
+            books = books.Where(t => EF.Functions.ILike(t.Title, $"%{EscapeLike(q)}%", "\\"));
+        }
+
+        return await books
+            .OrderBy(t => t.Title)
+            .ThenBy(t => t.Id)
+            .Take(take)
+            .Select(t => new BookTitleDto
+            {
+                Id = t.Id,
+                Title = t.Title
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    private static string EscapeLike(string value) =>
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+
+    public async Task<List<string>> GetCopyNumbersAsync(
+        int bookId,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await _db.Books
+            .AsNoTracking()
+            .AnyAsync(t => t.Id == bookId, cancellationToken);
+        if (!exists)
+        {
+            throw new NotFoundException("הספר לא נמצא");
+        }
+
+        var codes = await _db.BookCopies
+            .AsNoTracking()
+            .Where(c => c.BookId == bookId)
+            .Select(c => c.CopyNumber)
+            .ToListAsync(cancellationToken);
+
+        return codes.OrderBy(c => c, NumericStringComparer.Instance).ToList();
     }
 
     public async Task<BookDto> CreateAsync(

@@ -14,6 +14,13 @@ public class BookDto
     public List<string> Copies { get; set; } = new();
 }
 
+/// <summary>Lean catalog row for title pickers — no copy payloads.</summary>
+public class BookTitleDto
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+}
+
 public class BookCreateDto
 {
     public string Title { get; set; } = string.Empty;

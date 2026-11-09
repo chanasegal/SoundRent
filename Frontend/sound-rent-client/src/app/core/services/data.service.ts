@@ -88,6 +88,7 @@ import {
   BookCopyLocationDto,
   BookDto,
   BookImportResultDto,
+  BookTitleOption,
   BookItemBorrowHistoryDto,
   BookLoanCreateDto,
   BookLoanDto,
@@ -1687,6 +1688,43 @@ export class DataService {
 
   getBooks(): Observable<BookDto[]> {
     return this.http.get<BookDto[]>(this.booksInventoryBase).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  /** Lean id+title catalog for typeahead pickers (no copy arrays). */
+  getBookTitles(): Observable<BookTitleOption[]> {
+    return this.http.get<BookTitleOption[]>(`${this.booksInventoryBase}/titles`).pipe(
+      catchError((err) => {
+        this.notifyHttpError(err);
+        return of([]);
+      })
+    );
+  }
+
+  /** Server-side capped title suggest (trigram index) — optional fallback for huge catalogs. */
+  suggestBookTitles(query: string, limit = 25): Observable<BookTitleOption[]> {
+    let params = new HttpParams().set('limit', String(limit));
+    const q = query.trim();
+    if (q) {
+      params = params.set('q', q);
+    }
+    return this.http
+      .get<BookTitleOption[]>(`${this.booksInventoryBase}/suggest`, { params })
+      .pipe(
+        catchError((err) => {
+          this.notifyHttpError(err);
+          return of([]);
+        })
+      );
+  }
+
+  /** All registered copy numbers for one book. */
+  getBookCopyNumbers(bookId: number): Observable<string[]> {
+    return this.http.get<string[]>(`${this.booksInventoryBase}/${bookId}/copies`).pipe(
       catchError((err) => {
         this.notifyHttpError(err);
         return of([]);

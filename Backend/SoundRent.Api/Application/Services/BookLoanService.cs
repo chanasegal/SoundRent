@@ -487,10 +487,9 @@ public class BookLoanService : IBookLoanService
 
         var serialLower = serial.ToLowerInvariant();
 
-        // One AsNoTracking query — completed returns only, newest first (ReturnedAt DESC).
+        // One projected AsNoTracking query — uses IX_BookLoanItems_BookId_CopyNumber (+ lower expr index).
         return await _db.BookLoanItems
             .AsNoTracking()
-            .Include(i => i.CustomerDebt)
             .Where(i =>
                 i.BookId == bookId &&
                 i.ReturnedAt != null &&

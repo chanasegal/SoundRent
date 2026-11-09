@@ -136,6 +136,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.HasIndex("BookId")
                         .HasDatabaseName("IX_BookCopies_BookId");
 
+                    b.HasIndex("CopyNumber")
+                        .HasDatabaseName("IX_BookCopies_CopyNumber");
+
                     b.HasIndex("BookId", "CopyNumber")
                         .IsUnique()
                         .HasDatabaseName("IX_BookCopies_BookId_CopyNumber");
@@ -279,6 +282,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
 
                     b.HasIndex("ReturnedAt")
                         .HasDatabaseName("IX_BookLoanItems_ReturnedAt");
+
+                    b.HasIndex("BookId", "CopyNumber")
+                        .HasDatabaseName("IX_BookLoanItems_BookId_CopyNumber");
 
                     b.ToTable("BookLoanItems", (string)null);
                 });
@@ -980,6 +986,9 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("DepositOnName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -998,9 +1007,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Property<string>("InstitutionName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsCancelled")
                         .ValueGeneratedOnAdd()
@@ -1547,6 +1553,16 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                     b.Navigation("BookLoan");
                 });
 
+            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CashDeposit", b =>
+                {
+                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
+                        .WithMany("CashDeposits")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("SoundRent.Api.Domain.Entities.CustomerDebt", b =>
                 {
                     b.HasOne("SoundRent.Api.Domain.Entities.BookLoanItem", "BookLoanItem")
@@ -1678,16 +1694,6 @@ namespace SoundRent.Api.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("EquipmentDefinition");
-
-                    b.Navigation("Order");
-                });
-
-            modelBuilder.Entity("SoundRent.Api.Domain.Entities.CashDeposit", b =>
-                {
-                    b.HasOne("SoundRent.Api.Domain.Entities.Order", "Order")
-                        .WithMany("CashDeposits")
-                        .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Order");
                 });

@@ -28,7 +28,7 @@
         <span>ספר</span>
         <app-book-title-select
           class="field-input-wrap"
-          [options]="definitions()"
+          [options]="titleOptions()"
           [ngModel]="quickReturnToolId()"
           (ngModelChange)="onQuickReturnToolChange($event)"
         />
@@ -90,7 +90,7 @@
       <label class="history-field">
         <span>ספר</span>
         <app-book-title-select
-          [options]="definitions()"
+          [options]="titleOptions()"
           [ngModel]="historyToolId()"
           (ngModelChange)="onHistoryToolChange($event)"
         />
@@ -146,11 +146,11 @@
         class="loan-search__input"
         placeholder="ברקוד / שם ספר / לקוח / טלפון…"
         autocomplete="off"
-        [value]="returnSearchQuery()"
-        (input)="returnSearchQuery.set($any($event.target).value)"
+        [value]="returnSearchInput()"
+        (input)="onReturnSearchInput($any($event.target).value)"
       />
-      @if (returnSearchQuery().trim()) {
-        <button type="button" class="loan-search__clear" (click)="returnSearchQuery.set('')">נקה</button>
+      @if (returnSearchInput().trim()) {
+        <button type="button" class="loan-search__clear" (click)="clearReturnSearch()">נקה</button>
       }
     </div>
   </section>

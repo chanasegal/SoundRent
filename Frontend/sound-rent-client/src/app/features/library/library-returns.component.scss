@@ -27,6 +27,8 @@
 }
 
 .quick-return-card {
+  position: relative;
+  overflow: visible;
   border-radius: 1rem;
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -53,6 +55,8 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem;
+  overflow: visible;
+  position: relative;
 }
 
 .quick-return-field {
@@ -64,6 +68,12 @@
   font-size: 0.75rem;
   font-weight: 700;
   color: #475569;
+  overflow: visible;
+  position: relative;
+
+  &:has(app-book-title-select.book-title-select--open) {
+    z-index: 30;
+  }
 
   .field-input {
     width: 100%;
@@ -81,6 +91,8 @@
 }
 
 .history-filter-card {
+  position: relative;
+  overflow: visible;
   border-radius: 1rem;
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -106,6 +118,8 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem;
+  overflow: visible;
+  position: relative;
 }
 
 .history-filter-card__mode {
@@ -123,6 +137,12 @@
   font-size: 0.75rem;
   font-weight: 700;
   color: #475569;
+  overflow: visible;
+  position: relative;
+
+  &:has(app-book-title-select.book-title-select--open) {
+    z-index: 30;
+  }
 }
 
 .field-input {

@@ -8,6 +8,12 @@
   copies: string[];
 }
 
+/** Lean picker row — id + title only (no copy arrays). */
+export interface BookTitleOption {
+  id: number;
+  title: string;
+}
+
 export interface BookCreateDto {
   title: string;
   author?: string | null;

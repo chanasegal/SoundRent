@@ -16,8 +16,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ConfirmationService } from 'primeng/api';
 import { ConfirmPopup } from 'primeng/confirmpopup';
-import { forkJoin, interval } from 'rxjs';
-import { finalize } from 'rxjs/operators';
+import { forkJoin, interval, Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, finalize } from 'rxjs/operators';
 
 import {
   BookItemBorrowHistoryDto,
@@ -183,6 +183,8 @@ export class LibraryReturnsComponent implements OnInit {
   protected readonly loans = signal<BookLoanDto[]>([]);
   protected readonly activeLoans = signal<BookLoanDto[]>([]);
   protected readonly definitions = this.booksStore.definitions;
+  /** Slim id+title rows for the book pickers (no copy arrays in the select). */
+  protected readonly titleOptions = this.booksStore.titleOptions;
   protected readonly nowTick = signal(Date.now());
   protected readonly markingDebtId = signal<number | null>(null);
   protected readonly undoingRowKey = signal<string | null>(null);
@@ -271,7 +273,11 @@ export class LibraryReturnsComponent implements OnInit {
     this.historyMode() ? this.historyRows() : this.allCompletedRows()
   );
 
+  /** Immediate input value (keeps the field responsive while filtering is debounced). */
+  protected readonly returnSearchInput = signal('');
+  /** Debounced query used by filteredRows / returnedCards. */
   protected readonly returnSearchQuery = signal('');
+  private readonly returnSearchInput$ = new Subject<string>();
 
   protected readonly filteredRows = computed(() => {
     const raw = this.returnSearchQuery().trim().toLowerCase();
@@ -348,10 +354,15 @@ export class LibraryReturnsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.booksStore.load().subscribe();
+    // Titles-only catalog for pickers — copies load on demand when a book is selected.
+    this.booksStore.load({ titlesOnly: true }).subscribe();
     this.customers.load().subscribe();
     this.refresh();
     this.refreshActiveLoans();
+
+    this.returnSearchInput$
+      .pipe(debounceTime(180), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => this.returnSearchQuery.set(value));
 
     this.ordersSync.loanChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -449,13 +460,32 @@ export class LibraryReturnsComponent implements OnInit {
   }
 
   protected onHistoryToolChange(bookId: number | null): void {
-    this.historyToolId.set(bookId != null && bookId > 0 ? bookId : null);
+    const next = bookId != null && bookId > 0 ? bookId : null;
+    this.historyToolId.set(next);
     this.historyCode.set('');
+    if (next != null) {
+      this.booksStore.ensureCopies(next).subscribe();
+    }
   }
 
   protected onQuickReturnToolChange(bookId: number | null): void {
-    this.quickReturnToolId.set(bookId != null && bookId > 0 ? bookId : null);
+    const next = bookId != null && bookId > 0 ? bookId : null;
+    this.quickReturnToolId.set(next);
     this.quickReturnCode.set('');
+    if (next != null) {
+      this.booksStore.ensureCopies(next).subscribe();
+    }
+  }
+
+  protected onReturnSearchInput(value: string): void {
+    this.returnSearchInput.set(value);
+    this.returnSearchInput$.next(value);
+  }
+
+  protected clearReturnSearch(): void {
+    this.returnSearchInput.set('');
+    this.returnSearchQuery.set('');
+    this.returnSearchInput$.next('');
   }
 
   protected onQuickReturnCodeInput(value: string): void {
@@ -492,6 +522,7 @@ export class LibraryReturnsComponent implements OnInit {
       }
       bookId = resolved.bookId;
       this.quickReturnToolId.set(bookId);
+      this.booksStore.ensureCopies(bookId).subscribe();
     }
 
     const openFromRows = (): void => {
@@ -675,7 +706,7 @@ export class LibraryReturnsComponent implements OnInit {
         this.ordersSync.notifyLoanChanged();
         this.refreshActiveLoans();
         this.refresh();
-        this.booksStore.load().subscribe();
+        this.booksStore.load({ force: true, titlesOnly: true }).subscribe();
         queueMicrotask(() => this.focusQuickReturnBarcodeField());
       });
   }
@@ -702,17 +733,27 @@ export class LibraryReturnsComponent implements OnInit {
     }
 
     let bookId = this.historyToolId();
-    if (bookId == null) {
-      const resolved = this.resolveBookFromDefinitions(serial);
-      if (!resolved) {
+    if (bookId != null) {
+      this.runHistorySearch(bookId, serial);
+      return;
+    }
+
+    this.historySearching.set(true);
+    this.data.locateBookCopy(serial).subscribe((loc) => {
+      if (!loc?.isRegistered || loc.bookId == null) {
+        this.historySearching.set(false);
         this.toast.error('יש לבחור ספר או לסרוק ברקוד מוכר במלאי');
         this.focusBarcodeField();
         return;
       }
-      bookId = resolved;
-      this.historyToolId.set(bookId);
-    }
+      this.historyToolId.set(loc.bookId);
+      this.booksStore.ensureCopies(loc.bookId).subscribe();
+      // Keep historySearching true — runHistorySearch owns the finalize.
+      this.runHistorySearch(loc.bookId, serial);
+    });
+  }
 
+  private runHistorySearch(bookId: number, serial: string): void {
     this.historySearching.set(true);
     this.data
       .getBookItemBorrowHistory(bookId, serial)
@@ -730,17 +771,6 @@ export class LibraryReturnsComponent implements OnInit {
     this.historyToolId.set(null);
     this.historyCode.set('');
     this.focusBarcodeField();
-  }
-
-  private resolveBookFromDefinitions(serial: string): number | null {
-    const needle = serial.toLowerCase();
-    const hits: number[] = [];
-    for (const book of this.definitions()) {
-      if ((book.copies ?? []).some((c) => c.toLowerCase() === needle)) {
-        hits.push(book.id);
-      }
-    }
-    return hits.length === 1 ? hits[0] : null;
   }
 
   /** Match barcode to a currently active (unreturned) loan item. */

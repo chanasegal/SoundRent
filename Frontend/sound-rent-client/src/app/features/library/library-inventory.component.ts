@@ -57,6 +57,8 @@ export class LibraryInventoryComponent implements OnInit {
   protected readonly serialLocationResult = signal<BookCopyLocationDto | null>(null);
   /** Shared sorted catalog (A–Z) — same source as lending / returns. */
   protected readonly definitions = this.booksStore.definitions;
+  /** Slim id+title rows for the locator picker. */
+  protected readonly titleOptions = this.booksStore.titleOptions;
 
   protected readonly addInventoryOpen = signal(false);
   protected readonly editInventoryOpen = signal(false);

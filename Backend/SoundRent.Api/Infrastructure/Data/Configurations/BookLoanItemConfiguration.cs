@@ -21,5 +21,8 @@ public class BookLoanItemConfiguration : IEntityTypeConfiguration<BookLoanItem>
         builder.HasIndex(e => e.CopyNumber).HasDatabaseName("IX_BookLoanItems_CopyNumber");
         builder.HasIndex(e => e.BookId).HasDatabaseName("IX_BookLoanItems_BookId");
         builder.HasIndex(e => e.ReturnedAt).HasDatabaseName("IX_BookLoanItems_ReturnedAt");
+        // History / active-item lookup by book + barcode.
+        builder.HasIndex(e => new { e.BookId, e.CopyNumber })
+            .HasDatabaseName("IX_BookLoanItems_BookId_CopyNumber");
     }
 }

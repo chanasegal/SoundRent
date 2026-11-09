@@ -24,6 +24,30 @@ public class BooksInventoryController : ControllerBase
         return Ok(await _service.GetAllAsync(cancellationToken));
     }
 
+    /// <summary>Lean id+title list for typeahead pickers (no copy arrays).</summary>
+    [HttpGet("titles")]
+    public async Task<ActionResult<List<BookTitleDto>>> GetTitles(CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetTitlesAsync(cancellationToken));
+    }
+
+    /// <summary>Capped title suggest for typeahead (uses Title trigram index).</summary>
+    [HttpGet("suggest")]
+    public async Task<ActionResult<List<BookTitleDto>>> Suggest(
+        [FromQuery] string? q,
+        [FromQuery] int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        return Ok(await _service.SuggestTitlesAsync(q, limit, cancellationToken));
+    }
+
+    /// <summary>All registered copy numbers for one book.</summary>
+    [HttpGet("{id:int}/copies")]
+    public async Task<ActionResult<List<string>>> GetCopies(int id, CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetCopyNumbersAsync(id, cancellationToken));
+    }
+
     [HttpPost]
     public async Task<ActionResult<BookDto>> Create(
         [FromBody] BookCreateDto dto,

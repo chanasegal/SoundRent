@@ -59,7 +59,6 @@ import {
   formatLibraryDuration,
   libraryBillableDays
 } from '../../core/utils/library-loan-duration';
-import { BookTitleSelectComponent } from '../../shared/components/book-title-select.component';
 import { CashDepositAlertComponent } from '../../shared/components/cash-deposit-alert.component';
 import { LoanRangeCalendarHostComponent } from '../../shared/components/loan-range-calendar-host.component';
 import { AutoFocusDirective } from '../../shared/directives/auto-focus.directive';
@@ -150,7 +149,6 @@ interface DeleteConfirmLoan {
     CommonModule,
     ReactiveFormsModule,
     FormsModule,
-    BookTitleSelectComponent,
     CashDepositAlertComponent,
     LoanRangeCalendarHostComponent,
     AutoFocusDirective,
@@ -1085,21 +1083,20 @@ export class LibraryLendingComponent implements OnInit {
     line: BookLineItem,
     query: string
   ): BookDto[] {
-    const q = query.trim().toLowerCase();
+    // Tools-style local filter, but capped — book catalogs are far larger than tool types.
     const usedElsewhere = new Set(
       form.bookLines
         .filter((l) => l.id !== line.id && l.bookId != null)
         .map((l) => l.bookId as number)
     );
-    return this.definitions().filter((d) => {
-      if (usedElsewhere.has(d.id) && d.id !== line.bookId) {
-        return false;
-      }
-      if (!q) {
-        return true;
-      }
-      return d.title.toLowerCase().includes(q);
+    const hits = this.booksStore.suggest(query, {
+      excludeIds: usedElsewhere,
+      keepId: line.bookId
     });
+    const byId = new Map(this.definitions().map((d) => [d.id, d]));
+    return hits
+      .map((h) => byId.get(h.id))
+      .filter((d): d is BookDto => d != null);
   }
 
   protected availableCodesForLine(_form: LendingDraftForm, line: BookLineItem): string[] {
@@ -1590,7 +1587,8 @@ export class LibraryLendingComponent implements OnInit {
   }
 
   private loadDefinitions(): void {
-    this.booksStore.load().subscribe(() => {
+    // Titles-only for typeahead (copies come from availability + ensureCopies as needed).
+    this.booksStore.load({ titlesOnly: true }).subscribe(() => {
       this.tryApplyRenewPrefill();
     });
     // Exactly one availability request for the whole page (not per row/tool).
