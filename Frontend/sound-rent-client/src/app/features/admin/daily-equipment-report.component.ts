@@ -57,6 +57,8 @@ interface EquipmentLine {
 
 interface CustomerAccessoryLine {
   orderId: number;
+  /** Persisted loaned-equipment line id when editing an existing row. */
+  lineId: number | null;
   rowKey: string;
   label: string;
   quantity: number;
@@ -281,11 +283,12 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
   }
 
   protected canEditAccessorySerials(row: CustomerAccessoryLine): boolean {
-    // Legacy free-text custom rows (no catalog id) stay read-only for serials.
-    if (row.isCustomItem && row.inventoryDefinitionId == null && !this.isPendingAccessoryRow(row)) {
-      return false;
-    }
+    // Match order-form behavior: any accessory line stays editable until every
+    // assigned serial has been returned (quantity-only rows remain editable).
     if (!row.hasRecordedReturns) {
+      return true;
+    }
+    if (row.serialCodes.length === 0) {
       return true;
     }
     return !this.allSerialsReturned(row);
@@ -471,22 +474,27 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
 
   protected availableAccessoryDefsForOrder(orderId: number): InventoryDefinitionDto[] {
     const order = this.orders().find((o) => o.id === orderId);
-    const usedDefIds = new Set<number>(
-      (order?.loanedEquipments ?? [])
-        .map((le) => le.inventoryDefinitionId)
-        .filter((id): id is number => typeof id === 'number' && id > 0)
-    );
-    const usedTypes = new Set(
-      (order?.loanedEquipments ?? [])
-        .filter((le) => !le.isCustomItem && (le.quantity ?? 0) > 0 && le.loanedEquipmentType != null)
-        .map((le) => le.loanedEquipmentType as LoanedEquipmentType)
-    );
-    const usedCustomNames = new Set(
-      (order?.loanedEquipments ?? [])
-        .filter((le) => le.isCustomItem && (le.quantity ?? 0) > 0)
-        .map((le) => (le.customItemName ?? '').trim().toLowerCase())
-        .filter((n) => n.length > 0)
-    );
+    const usedDefIds = new Set<number>();
+    const usedTypes = new Set<LoanedEquipmentType>();
+    const usedCustomNames = new Set<string>();
+
+    for (const le of order?.loanedEquipments ?? []) {
+      if ((le.quantity ?? 0) <= 0) {
+        continue;
+      }
+      // Resolve rematched catalog names so free-text custom rows still block re-adding.
+      const resolved = this.resolveAccessoryLineIdentity(le);
+      if (resolved.inventoryDefinitionId != null && resolved.inventoryDefinitionId > 0) {
+        usedDefIds.add(resolved.inventoryDefinitionId);
+      }
+      if (resolved.loanedEquipmentType != null) {
+        usedTypes.add(resolved.loanedEquipmentType);
+      }
+      if (resolved.isCustomItem) {
+        usedCustomNames.add(resolved.label.trim().toLowerCase());
+      }
+    }
+
     const pending = this.pendingAccessoryRows().filter((row) => row.orderId === orderId);
     for (const row of pending) {
       if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
@@ -1117,14 +1125,20 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
   }
 
   private lineMatchesRow(le: OrderLoanedEquipmentDto, row: CustomerAccessoryLine): boolean {
+    if (row.lineId != null && row.lineId > 0 && le.id != null && le.id === row.lineId) {
+      return true;
+    }
     if (row.isCustomItem) {
       return (
         !!le.isCustomItem &&
         (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
       );
     }
+    // Catalog UI row rematched from a free-text custom line with the same name.
     if (le.isCustomItem) {
-      return false;
+      return (
+        (le.customItemName ?? '').trim().localeCompare(row.label, 'he', { sensitivity: 'accent' }) === 0
+      );
     }
     if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0 && le.inventoryDefinitionId != null) {
       return le.inventoryDefinitionId === row.inventoryDefinitionId;
@@ -1306,6 +1320,7 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
 
     return {
       orderId,
+      lineId: null,
       rowKey: type
         ? `${orderId}|${type}|pending`
         : `${orderId}|inv-${def.id}|pending`,
@@ -1452,9 +1467,39 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
       }
 
       const notes = this.buildAccessoryNotes(codes, le.notes);
+      const definitionId = this.resolveRowInventoryDefinitionId(row);
+
+      // Promote rematched catalog accessories out of free-text custom storage so
+      // serial availability and later edits stay aligned with the order form.
+      if (!row.isCustomItem && definitionId != null && definitionId > 0) {
+        return {
+          ...le,
+          isCustomItem: false,
+          inventoryDefinitionId: definitionId,
+          loanedEquipmentType: row.loanedEquipmentType ?? le.loanedEquipmentType ?? null,
+          customItemName: null,
+          quantity,
+          expectedNoteCount: quantity,
+          notes
+        };
+      }
+
+      if (row.isCustomItem) {
+        return {
+          ...le,
+          isCustomItem: true,
+          inventoryDefinitionId: null,
+          loanedEquipmentType: null,
+          customItemName: row.label.trim() || le.customItemName || 'פריט נוסף',
+          quantity,
+          expectedNoteCount: quantity,
+          notes
+        };
+      }
+
       return {
         ...le,
-        inventoryDefinitionId: row.inventoryDefinitionId ?? le.inventoryDefinitionId,
+        inventoryDefinitionId: definitionId ?? le.inventoryDefinitionId,
         quantity,
         expectedNoteCount: quantity,
         notes
@@ -1728,9 +1773,6 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
         continue;
       }
 
-      const label = this.inventoryStore.displayLabelForLoanedLine(le);
-      const typeIndex = LOANED_EQUIPMENT_ORDER.indexOf(le.loanedEquipmentType as LoanedEquipmentType);
-      const sortKey = le.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
       const serialCodes = sortNumericCodes(
         (le.notes ?? [])
           .slice()
@@ -1743,31 +1785,29 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
           .filter((n) => n.isReturned && (n.content ?? '').trim().length > 0)
           .map((n) => (n.content ?? '').trim())
       );
-      const loanedEquipmentType = le.isCustomItem
-        ? null
-        : (le.loanedEquipmentType as LoanedEquipmentType);
-      const inventoryDefinitionId = le.isCustomItem
-        ? null
-        : le.inventoryDefinitionId != null && le.inventoryDefinitionId > 0
-          ? le.inventoryDefinitionId
-          : loanedEquipmentType != null
-            ? this.inventoryStore.definitionIdForType(loanedEquipmentType)
-            : null;
-      const rowKey = le.isCustomItem
-        ? `${order.id}|custom|${label}`
-        : loanedEquipmentType != null
-          ? `${order.id}|${loanedEquipmentType}`
-          : `${order.id}|inv-${inventoryDefinitionId}`;
+
+      const resolved = this.resolveAccessoryLineIdentity(le);
+      const typeIndex =
+        resolved.loanedEquipmentType != null
+          ? LOANED_EQUIPMENT_ORDER.indexOf(resolved.loanedEquipmentType)
+          : -1;
+      const sortKey = resolved.isCustomItem ? 2500 : 1000 + (typeIndex >= 0 ? typeIndex : 99);
+      const rowKey = resolved.isCustomItem
+        ? `${order.id}|custom|${resolved.label}`
+        : resolved.loanedEquipmentType != null
+          ? `${order.id}|${resolved.loanedEquipmentType}`
+          : `${order.id}|inv-${resolved.inventoryDefinitionId}`;
 
       lines.push({
         orderId: order.id,
+        lineId: le.id != null && le.id > 0 ? le.id : null,
         rowKey,
-        label,
+        label: resolved.label,
         quantity: qty,
         sortKey,
-        loanedEquipmentType,
-        inventoryDefinitionId,
-        isCustomItem: !!le.isCustomItem,
+        loanedEquipmentType: resolved.loanedEquipmentType,
+        inventoryDefinitionId: resolved.inventoryDefinitionId,
+        isCustomItem: resolved.isCustomItem,
         serialCodes,
         returnedSerialCodes,
         hasRecordedReturns: order.isReturnProcessed === true,
@@ -1776,6 +1816,65 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     }
 
     return this.sortAccessoryRows(lines);
+  }
+
+  /**
+   * Rematch free-text custom lines to the inventory catalog by display name
+   * (same approach as quick-loan / order form) so serial editing stays available.
+   */
+  private resolveAccessoryLineIdentity(le: OrderLoanedEquipmentDto): {
+    label: string;
+    isCustomItem: boolean;
+    inventoryDefinitionId: number | null;
+    loanedEquipmentType: LoanedEquipmentType | null;
+  } {
+    const storedLabel = this.inventoryStore.displayLabelForLoanedLine(le);
+
+    if (le.isCustomItem) {
+      const catalogMatch = this.inventoryStore
+        .definitions()
+        .find(
+          (d) =>
+            d.displayName.trim().localeCompare(storedLabel, 'he', { sensitivity: 'accent' }) === 0
+        );
+      if (catalogMatch) {
+        const linkedType =
+          LOANED_EQUIPMENT_ORDER.find(
+            (type) =>
+              catalogMatch.displayName
+                .trim()
+                .localeCompare(LOANED_EQUIPMENT_LABELS[type], 'he', { sensitivity: 'accent' }) === 0
+          ) ?? null;
+        return {
+          label: catalogMatch.displayName,
+          isCustomItem: false,
+          inventoryDefinitionId: catalogMatch.id,
+          loanedEquipmentType: linkedType
+        };
+      }
+
+      return {
+        label: storedLabel,
+        isCustomItem: true,
+        inventoryDefinitionId: null,
+        loanedEquipmentType: null
+      };
+    }
+
+    const loanedEquipmentType = (le.loanedEquipmentType as LoanedEquipmentType) ?? null;
+    const inventoryDefinitionId =
+      le.inventoryDefinitionId != null && le.inventoryDefinitionId > 0
+        ? le.inventoryDefinitionId
+        : loanedEquipmentType != null
+          ? this.inventoryStore.definitionIdForType(loanedEquipmentType)
+          : null;
+
+    return {
+      label: storedLabel,
+      isCustomItem: false,
+      inventoryDefinitionId,
+      loanedEquipmentType
+    };
   }
 
   /** Aggregates `loanedEquipments` quantity counters only (accessories), not booking slots. */
