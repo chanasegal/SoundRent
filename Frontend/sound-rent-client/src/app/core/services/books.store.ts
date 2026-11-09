@@ -28,13 +28,17 @@ export class BooksStore {
   /** All books, always sorted A–Z by Hebrew title. */
   readonly definitions = signal<BookDto[]>([]);
 
+  /**
+   * Title catalog used by typeahead. Kept separate from `definitions` so
+   * on-demand `ensureCopies` patches do not rebuild the search index mid-typing.
+   */
+  private readonly titleCatalog = signal<BookTitleOption[]>([]);
+
   /** Slim id+title rows for pickers. */
-  readonly titleOptions = computed<BookTitleOption[]>(() =>
-    this.definitions().map((d) => ({ id: d.id, title: d.title }))
-  );
+  readonly titleOptions = computed<BookTitleOption[]>(() => this.titleCatalog());
 
   /** Pre-lowercased index for O(n) local typeahead without repeated toLowerCase(). */
-  readonly searchIndex = computed(() => buildBookSearchIndex(this.definitions()));
+  readonly searchIndex = computed(() => buildBookSearchIndex(this.titleCatalog()));
 
   private loaded = false;
   private titlesOnlyLoaded = false;
@@ -141,7 +145,9 @@ export class BooksStore {
   }
 
   replaceAll(rows: BookDto[]): void {
-    this.definitions.set(this.sortByTitle(rows));
+    const sorted = this.sortByTitle(rows);
+    this.definitions.set(sorted);
+    this.syncTitleCatalog(sorted);
     this.loaded = true;
     this.titlesOnlyLoaded = true;
   }
@@ -160,7 +166,9 @@ export class BooksStore {
         copies: prev?.copies ?? []
       };
     });
-    this.definitions.set(this.sortByTitle(next));
+    const sorted = this.sortByTitle(next);
+    this.definitions.set(sorted);
+    this.syncTitleCatalog(sorted);
     this.titlesOnlyLoaded = true;
   }
 
@@ -170,12 +178,14 @@ export class BooksStore {
       const next = idx >= 0 ? rows.map((r, i) => (i === idx ? { ...r, ...dto } : r)) : [...rows, dto];
       return this.sortByTitle(next);
     });
+    this.syncTitleCatalog(this.definitions());
     this.loaded = true;
     this.titlesOnlyLoaded = true;
   }
 
   remove(id: number): void {
     this.definitions.update((rows) => rows.filter((d) => d.id !== id));
+    this.titleCatalog.update((rows) => rows.filter((d) => d.id !== id));
   }
 
   byId(id: number): BookDto | undefined {
@@ -183,11 +193,17 @@ export class BooksStore {
   }
 
   private patchCopies(bookId: number, copies: string[]): void {
+    // Updates definitions only — titleCatalog / searchIndex stay untouched so
+    // typeahead typing is not invalidated by lazy copy loads.
     this.definitions.update((rows) =>
       rows.map((row) =>
         row.id === bookId ? { ...row, copies, totalQuantity: copies.length } : row
       )
     );
+  }
+
+  private syncTitleCatalog(rows: ReadonlyArray<BookDto | BookTitleOption>): void {
+    this.titleCatalog.set(rows.map((row) => ({ id: row.id, title: row.title })));
   }
 
   private sortByTitle(rows: BookDto[]): BookDto[] {

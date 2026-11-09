@@ -15,17 +15,14 @@ import {
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 import { BookTitleOption } from '../../core/models/library-workspace.model';
-import {
-  BOOK_TITLE_SUGGEST_LIMIT,
-  buildBookSearchIndex,
-  filterBookTitles
-} from '../../core/utils/book-title-search';
+import { BooksStore } from '../../core/services/books.store';
+import { BOOK_TITLE_SUGGEST_LIMIT } from '../../core/utils/book-title-search';
 import { ClickOutsideDirective } from '../directives/click-outside.directive';
 
 /**
  * Fast book picker for large catalogs.
- * Same architecture as tools lending (local in-memory filter) — but capped DOM
- * results and no PrimeNG Select overhead, so typing stays instant.
+ * Same filter path as New Loan (`BooksStore.suggest`) — local in-memory index,
+ * capped DOM rows, no PrimeNG Select overhead.
  *
  * The suggestion panel uses `position: fixed` (overlay-style) so it floats above
  * sibling form sections and is not clipped by parent overflow/stacking contexts.
@@ -94,7 +91,12 @@ import { ClickOutsideDirective } from '../directives/click-outside.directive';
                 (mousedown)="$event.preventDefault()"
                 (click)="select(opt)"
               >
-                {{ opt.title }}
+                <span class="book-title-typeahead__option-main">{{ opt.title }}</span>
+                @if (showAvailableCounts()) {
+                  <span class="book-title-typeahead__option-meta">
+                    {{ availableCountFor(opt.id) }} קודים זמינים
+                  </span>
+                }
               </button>
             </li>
           } @empty {
@@ -189,27 +191,51 @@ import { ClickOutsideDirective } from '../directives/click-outside.directive';
     }
 
     .book-title-typeahead__option {
-      display: block;
+      display: flex;
       width: 100%;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
       text-align: start;
       border: 0;
       background: transparent;
       border-radius: 0.35rem;
       padding: 0.45rem 0.65rem;
-      font-size: 0.875rem;
-      color: #0f172a;
       cursor: pointer;
+    }
+
+    .book-title-typeahead__option-main {
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .book-title-typeahead__option-meta {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #64748b;
     }
 
     .book-title-typeahead__option:hover,
     .book-title-typeahead__option--active {
       background: #f1f5f9;
     }
+
+    .suggest-empty {
+      padding: 0.7rem 0.8rem;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
   `
 })
 export class BookTitleSelectComponent implements ControlValueAccessor {
-  /** Slim title rows from the local cache — filtered in memory, never via HTTP while typing. */
+  /**
+   * Optional slim title rows. When provided, used only for selected-title display
+   * fallback — filtering always goes through `BooksStore.suggest` (same as New Loan).
+   */
   readonly options = input<BookTitleOption[]>([]);
+  /** Available copy counts by book id — same meta line as New Loan suggest rows. */
+  readonly availableCounts = input<ReadonlyMap<number, number> | null>(null);
   readonly placeholder = input('הקלידו לחיפוש ספר...');
   readonly showClear = input(true);
   readonly inputId = input<string | undefined>(undefined);
@@ -228,15 +254,17 @@ export class BookTitleSelectComponent implements ControlValueAccessor {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly document = inject(DOCUMENT);
   private readonly zone = inject(NgZone);
+  private readonly books = inject(BooksStore);
 
-  private readonly index = computed(() => buildBookSearchIndex(this.options()));
-
+  /** Identical local filter path as library New Loan (`booksStore.suggest`). */
   protected readonly filtered = computed(() =>
-    filterBookTitles(this.index(), this.filterText(), {
+    this.books.suggest(this.filterText(), {
       limit: BOOK_TITLE_SUGGEST_LIMIT,
       keepId: this.value()
     })
   );
+
+  protected readonly showAvailableCounts = computed(() => this.availableCounts() != null);
 
   /** Bound input value — live filter while editing/open, otherwise selected title. */
   protected readonly inputValue = computed(() => {
@@ -247,8 +275,16 @@ export class BookTitleSelectComponent implements ControlValueAccessor {
     if (id == null) {
       return '';
     }
-    return this.options().find((o) => o.id === id)?.title ?? this.filterText();
+    return this.resolveTitle(id) ?? this.filterText();
   });
+
+  protected availableCountFor(bookId: number): number {
+    return this.availableCounts()?.get(bookId) ?? 0;
+  }
+
+  private resolveTitle(id: number): string | undefined {
+    return this.books.byId(id)?.title ?? this.options().find((o) => o.id === id)?.title;
+  }
 
   private onChange: (value: number | null) => void = () => undefined;
   private onTouched: () => void = () => undefined;
@@ -271,25 +307,27 @@ export class BookTitleSelectComponent implements ControlValueAccessor {
       window.removeEventListener('resize', this.onViewportChange);
     });
 
+    // Reposition only when the panel opens — not on every keystroke (width is stable).
     effect(() => {
       if (!this.open()) {
         return;
       }
-      // Re-measure when the filtered list changes (panel height can flip above/below).
-      this.filtered();
       queueMicrotask(() => this.repositionPanel());
     });
   }
 
   writeValue(next: number | null): void {
-    this.value.set(next ?? null);
-    this.editing.set(false);
-    if (next == null) {
+    const normalized = next ?? null;
+    this.value.set(normalized);
+    // ngModel round-trips must not wipe characters the user just typed.
+    if (this.editing() || this.open()) {
+      return;
+    }
+    if (normalized == null) {
       this.filterText.set('');
       return;
     }
-    const title = this.options().find((o) => o.id === next)?.title ?? '';
-    this.filterText.set(title);
+    this.filterText.set(this.resolveTitle(normalized) ?? '');
   }
 
   registerOnChange(fn: (value: number | null) => void): void {
@@ -323,12 +361,12 @@ export class BookTitleSelectComponent implements ControlValueAccessor {
     this.filterText.set(raw);
     this.open.set(true);
     this.activeIndex.set(0);
+    // Typing stays 100% local (same as New Loan bookQuery). Parent is notified
+    // only from select() / clear() — never mid-keystroke.
     if (this.value() != null) {
       this.value.set(null);
-      this.onChange(null);
     }
     this.onTouched();
-    void Promise.resolve().then(() => this.repositionPanel());
   }
 
   protected onKeydown(event: KeyboardEvent): void {
@@ -388,8 +426,7 @@ export class BookTitleSelectComponent implements ControlValueAccessor {
     this.editing.set(false);
     const id = this.value();
     if (id != null) {
-      const title = this.options().find((o) => o.id === id)?.title ?? '';
-      this.filterText.set(title);
+      this.filterText.set(this.resolveTitle(id) ?? '');
     }
   }
 

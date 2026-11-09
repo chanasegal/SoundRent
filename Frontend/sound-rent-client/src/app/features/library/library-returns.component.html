@@ -18,126 +18,18 @@
     </button>
   </div>
 
-  <section class="quick-return-card mb-6" aria-label="החזרה מהירה לפי קוד ספר">
-    <h2 class="quick-return-card__title">החזרה מהירה לפי קוד ספר</h2>
-    <p class="quick-return-card__hint">
-      בחרו ספר וברקוד — ייפתח חלון עם פרטי הלקוח ושאר הספרים המושאלים לו לפי תאריך עברי.
-    </p>
-    <div class="quick-return-card__row">
-      <label class="quick-return-field">
-        <span>ספר</span>
-        <app-book-title-select
-          class="field-input-wrap"
-          [options]="titleOptions()"
-          [ngModel]="quickReturnToolId()"
-          (ngModelChange)="onQuickReturnToolChange($event)"
-        />
-      </label>
-      <label class="quick-return-field">
-        <span>ברקוד</span>
-        <input
-          type="text"
-          class="field-input ltr-field"
-          dir="ltr"
-          id="library-returns-quick-return-code-input"
-          list="quick-return-codes"
-          placeholder="...סרוק ברקוד"
-          [value]="quickReturnCode()"
-          [disabled]="quickReturnSearching() || quickReturnSaving()"
-          (input)="onQuickReturnCodeInput($any($event.target).value)"
-          (keydown.enter)="onQuickReturnKeydownEnter($event)"
-          autocomplete="off"
-          appAutoFocus
-          #quickReturnBarcodeField
-        />
-        <datalist id="quick-return-codes">
-          @for (code of quickReturnCodes(); track code) {
-            <option [value]="code"></option>
-          }
-        </datalist>
-      </label>
-      <label class="quick-return-field quick-return-field--charge">
-        <span>סכום חיוב</span>
-        <input
-          type="number"
-          min="0"
-          step="1"
-          class="field-input ltr-field"
-          dir="ltr"
-          placeholder="0"
-          [value]="quickReturnCharge()"
-          [disabled]="quickReturnSearching() || quickReturnSaving()"
-          (input)="onQuickReturnChargeInput($any($event.target).value)"
-        />
-      </label>
-      <button
-        type="button"
-        class="add-row-btn add-row-btn--primary quick-return-submit"
-        [disabled]="quickReturnSearching() || quickReturnSaving()"
-        (click)="searchQuickReturn()"
-      >
-        {{ quickReturnSearching() ? 'מחפש…' : 'חפש / החזר' }}
-      </button>
-    </div>
-  </section>
-
-  <section class="history-filter-card mb-5" aria-label="חיפוש היסטוריית השאלה לפי ספר">
-    <h2 class="history-filter-card__title">חיפוש היסטוריית השאלה לפי ספר</h2>
-    <p class="history-filter-card__hint">
-      בחרו ספר וברקוד כדי לראות מי השאיל את הספר (האחרון למעלה).
-    </p>
-    <div class="history-filter-card__row">
-      <label class="history-field">
-        <span>ספר</span>
-        <app-book-title-select
-          [options]="titleOptions()"
-          [ngModel]="historyToolId()"
-          (ngModelChange)="onHistoryToolChange($event)"
-        />
-      </label>
-      <label class="history-field">
-        <span>ברקוד</span>
-        <input
-          type="text"
-          class="field-input ltr-field"
-          dir="ltr"
-          id="copyCodeInput"
-          list="history-item-codes"
-          placeholder="...סרוק ברקוד"
-          [value]="historyCode()"
-          (input)="onHistoryCodeInput($any($event.target).value)"
-          (keydown.enter)="onHistoryKeydownEnter($event)"
-          autocomplete="off"
-          #barcodeField
-        />
-        <datalist id="history-item-codes">
-          @for (code of historyCodes(); track code) {
-            <option [value]="code"></option>
-          }
-        </datalist>
-      </label>
-      <button
-        type="button"
-        class="history-btn history-btn--primary"
-        [disabled]="historySearching()"
-        (click)="searchItemHistory()"
-      >
-        {{ historySearching() ? 'מחפש…' : 'חפש היסטוריה' }}
-      </button>
-      @if (historyMode()) {
-        <button type="button" class="history-btn" (click)="clearHistorySearch()">
-          הצג הכל
-        </button>
-      }
-    </div>
-    @if (historyMode()) {
-      <p class="history-filter-card__mode">
-        מוצגת היסטוריה ל
-        <strong>{{ historyCode() }}</strong>
-        — ממוין לפי תאריך החזרה (חדש לישן)
-      </p>
-    }
-  </section>
+  <app-library-returns-filters
+    class="mb-5 block"
+    [availableByBook]="availableByBook()"
+    [quickReturnSearching]="quickReturnSearching()"
+    [quickReturnSaving]="quickReturnSaving()"
+    [historySearching]="historySearching()"
+    [historyMode]="historyMode()"
+    [historyCodeLabel]="historyCode()"
+    (quickReturnSearch)="onFiltersQuickReturnSearch($event)"
+    (historySearch)="onFiltersHistorySearch($event)"
+    (clearHistory)="clearHistorySearch()"
+  />
 
   <section class="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
     <div class="loan-search__row">
