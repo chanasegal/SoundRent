@@ -778,6 +778,7 @@
                   class="accessory-row__qty-input"
                   formControlName="quantity"
                   [readonly]="isAccessoryRowReadOnly(i)"
+                  (focus)="onQuantityFieldFocus($event)"
                   (input)="updateAccessoryQuantity(i, $any($event.target).value)"
                 />
               </label>
@@ -938,7 +939,8 @@
                   class="accessory-row__qty-input"
                   data-accessory-draft-qty
                   [attr.data-line-id]="line.id"
-                  [value]="line.quantity"
+                  [value]="line.quantity > 0 ? line.quantity : ''"
+                  (focus)="onQuantityFieldFocus($event)"
                   (input)="updateDraftQuantity(line.id, $any($event.target).value)"
                   (keydown)="onDraftQuantityKeydown(line.id, $event)"
                   enterkeyhint="next"

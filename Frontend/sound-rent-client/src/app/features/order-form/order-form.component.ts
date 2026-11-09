@@ -766,6 +766,32 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   /**
+   * When a quantity field shows `0`, select/clear it on focus so the next digit
+   * replaces the zero (e.g. `1`) instead of appending (`10`).
+   */
+  protected onQuantityFieldFocus(event: FocusEvent): void {
+    const input = event.target as HTMLInputElement | null;
+    if (!input || input.readOnly || input.disabled) {
+      return;
+    }
+
+    queueMicrotask(() => {
+      const display = input.value.trim();
+      const num = Number(display);
+      if (display !== '' && num === 0) {
+        input.value = '';
+        return;
+      }
+
+      try {
+        input.select();
+      } catch {
+        // Some browsers reject selection on type=number; ignore.
+      }
+    });
+  }
+
+  /**
    * Quantity Enter → jump to the equipment name field so rapid entry stays
    * name → codes → next row (quantity stays editable but off the critical path).
    */
