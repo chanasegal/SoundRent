@@ -754,7 +754,11 @@
         </div>
       }
 
-      <article class="customer-breakdown-card" formArrayName="loanedEquipments">
+      <article
+        class="customer-breakdown-card"
+        formArrayName="loanedEquipments"
+        [attr.data-equipment-list-rev]="equipmentListRevision()"
+      >
         @if (equipmentList.length === 0) {
           <p class="customer-breakdown-card__empty-hint">עדיין לא נוספו אביזרים — הזינו שורה למטה</p>
         }

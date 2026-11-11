@@ -1,6 +1,7 @@
 import { CommonModule, DOCUMENT, Location } from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   afterNextRender,
   computed,
@@ -210,6 +211,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly equipmentSlots = inject(EquipmentDefinitionsStore);
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
   private readonly customers = inject(CustomersStore);
@@ -602,6 +604,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.createAccessoryDraftLine()
   ]);
   protected readonly accessoryAvailabilityLoading = signal(false);
+  /**
+   * OnPush does not see FormArray.push/remove from async callbacks (e.g. mixer kit fetch).
+   * Bump this so the loaned-equipment list re-renders on tablet/desktop without a navigation cycle.
+   */
+  protected readonly equipmentListRevision = signal(0);
   /** Coalesces accessory serial availability fetches (cancels stale in-flight requests). */
   private readonly accessoryAvailabilityRefresh$ = new Subject<void>();
 
@@ -1007,14 +1014,19 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected toggleDraftCodeSelection(lineId: string, code: string, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+    const line = this.accessoryDraftLines().find((l) => l.id === lineId);
+    if (!line) {
+      return;
+    }
+    const selecting = !this.isDraftCodeSelected(line, code);
     this.accessoryDraftLines.update((lines) =>
       lines.map((l) => {
         if (l.id !== lineId) {
           return l;
         }
-        const selected = this.isDraftCodeSelected(l, code)
-          ? l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code))
-          : [...l.selectedCodes, code];
+        const selected = selecting
+          ? [...l.selectedCodes, code]
+          : l.selectedCodes.filter((c) => !this.isSameSerialCode(c, code));
         return {
           ...l,
           selectedCodes: selected,
@@ -1027,6 +1039,15 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     );
     // Stay on the codes field so the user can tick more V's without committing the row.
     queueMicrotask(() => this.focusDraftCodesInput(lineId));
+
+    // Tablet/desktop: selecting a mixer unit code should attach its kit immediately,
+    // without waiting for a second Enter / full draft commit / navigation re-init.
+    if (selecting && line.inventoryDefinitionId != null) {
+      const def = this.inventoryStore.byId(line.inventoryDefinitionId);
+      if (def && this.resolveLinkedEquipmentType(def) === LoanedEquipmentType.Mixer) {
+        this.applyMixerDefaultAccessories(code);
+      }
+    }
   }
 
   protected isDraftCodeSelected(line: AccessoryDraftLine, code: string): boolean {
@@ -1126,11 +1147,24 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       }
     }
 
+    const newlyAdded = selected.filter(
+      (code) => !line.selectedCodes.some((c) => this.isSameSerialCode(c, code))
+    );
     this.patchDraftLine(lineId, {
       selectedCodes: selected,
       codesQuery: rejected.join(' '),
       quantity: Math.max(line.quantity, selected.length)
     });
+
+    // Same as checkbox select: mixer unit codes should pull kit accessories immediately.
+    if (newlyAdded.length > 0 && line.inventoryDefinitionId != null) {
+      const def = this.inventoryStore.byId(line.inventoryDefinitionId);
+      if (def && this.resolveLinkedEquipmentType(def) === LoanedEquipmentType.Mixer) {
+        for (const code of newlyAdded) {
+          this.applyMixerDefaultAccessories(code);
+        }
+      }
+    }
     return rejected.length === 0;
   }
 
@@ -1481,6 +1515,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         isCustomItem: false
       })
     );
+    this.notifyEquipmentListChanged();
     this.refreshAccessorySerialAvailability();
 
     if (linkedType === LoanedEquipmentType.Mixer) {
@@ -1489,6 +1524,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       }
     }
     return true;
+  }
+
+  /** Forces the loaned-equipment `@for` to re-read FormArray.controls after structural edits. */
+  private notifyEquipmentListChanged(): void {
+    this.equipmentListRevision.update((v) => v + 1);
+    this.cdr.markForCheck();
   }
 
   private validateSerialCodesForDefinition(
@@ -1743,6 +1784,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         }
 
         if (addedAny) {
+          this.notifyEquipmentListChanged();
           this.refreshAccessorySerialAvailability();
           this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
         }
@@ -2066,6 +2108,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       return;
     }
     this.equipmentList.removeAt(index);
+    this.notifyEquipmentListChanged();
     if (this.accessorySerialDropdownRow() === index) {
       this.accessorySerialDropdownRow.set(null);
       this.accessorySerialQuickEntry.set('');
