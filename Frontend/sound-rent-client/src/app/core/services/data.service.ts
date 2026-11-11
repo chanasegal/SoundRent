@@ -1193,9 +1193,11 @@ export class DataService {
       excludeOrderIds: request.excludeOrderIds ?? [],
       inventoryDefinitionIds: request.inventoryDefinitionIds ?? []
     };
-    return this.http
-      .post<AccessorySerialAvailabilityGroupDto[]>(`${this.inventoryDefinitionsBase}/availability`, payload)
-      .pipe(catchError(() => of([])));
+    // Do not coerce HTTP failures to [] — callers preserve the last good cache instead.
+    return this.http.post<AccessorySerialAvailabilityGroupDto[]>(
+      `${this.inventoryDefinitionsBase}/availability`,
+      payload
+    );
   }
 
   getAccessorySerialLocation(

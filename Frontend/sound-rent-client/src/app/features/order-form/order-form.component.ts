@@ -601,7 +601,9 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected readonly accessoryDraftLines = signal<AccessoryDraftLine[]>([
     this.createAccessoryDraftLine()
   ]);
-  private readonly accessoryAvailabilityLoading = signal(false);
+  protected readonly accessoryAvailabilityLoading = signal(false);
+  /** Coalesces accessory serial availability fetches (cancels stale in-flight requests). */
+  private readonly accessoryAvailabilityRefresh$ = new Subject<void>();
 
   protected readonly form = this.buildForm();
 
@@ -1045,38 +1047,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     if (line.inventoryDefinitionId == null || line.inventoryDefinitionId <= 0) {
       return [];
     }
-    const availabilityMap = this.accessoryAvailabilityByDefinitionId();
-    if (availabilityMap.has(line.inventoryDefinitionId)) {
-      return this.sortSerialOptions(availabilityMap.get(line.inventoryDefinitionId) ?? []);
-    }
-
-    const def = this.inventoryStore.byId(line.inventoryDefinitionId);
-    if (!def) {
-      return [];
-    }
-    const reserved = new Set(
-      line.selectedCodes.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
-    );
-    const units = def.serialUnits ?? [];
-    if (units.length > 0) {
-      return this.sortSerialOptions(
-        units.map((unit) => {
-          const serialCode = unit.serialCode.trim();
-          const status = unit.physicalStatus;
-          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
-          return {
-            serialCode,
-            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
-          };
-        })
-      );
-    }
-    return this.sortSerialOptions(
-      (def.serialCodes ?? []).map((serialCode) => ({
-        serialCode,
-        isAvailable: reserved.has(serialCode.trim().toLowerCase())
-      }))
-    );
+    return this.resolveSerialOptions(line.inventoryDefinitionId, line.selectedCodes);
   }
 
   protected draftCodesPanelState(
@@ -1985,8 +1956,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         skippedTaken++;
         continue;
       }
-      // If the code is not in options yet, keep it only when we have no availability data.
-      if (!match && this.accessoryAvailabilityByDefinitionId().has(inventoryDefinitionId)) {
+      // Reject unknown codes only when live availability returned a non-empty option list.
+      // An empty/partial cache entry after board navigation must not reject every code.
+      const live = this.accessoryAvailabilityByDefinitionId().get(inventoryDefinitionId);
+      if (!match && live != null && live.length > 0) {
         skippedTaken++;
         continue;
       }
@@ -2000,9 +1973,24 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     inventoryDefinitionId: number,
     alreadySelected: string[] = []
   ): AccessorySerialOptionDto[] {
+    return this.resolveSerialOptions(inventoryDefinitionId, alreadySelected);
+  }
+
+  /**
+   * Prefer live availability. If the cache entry is missing or empty (common right after
+   * board navigation before re-fetch settles), fall back to the inventory catalog so the UI
+   * never falsely shows "אין במלאי לפריט זה".
+   */
+  private resolveSerialOptions(
+    inventoryDefinitionId: number,
+    alreadySelected: string[] = []
+  ): AccessorySerialOptionDto[] {
     const availabilityMap = this.accessoryAvailabilityByDefinitionId();
     if (availabilityMap.has(inventoryDefinitionId)) {
-      return this.sortSerialOptions(availabilityMap.get(inventoryDefinitionId) ?? []);
+      const live = this.sortSerialOptions(availabilityMap.get(inventoryDefinitionId) ?? []);
+      if (live.length > 0) {
+        return live;
+      }
     }
     const def = this.inventoryStore.byId(inventoryDefinitionId);
     if (!def) {
@@ -2098,52 +2086,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
   protected serialOptionsForRow(rowIndex: number): AccessorySerialOptionDto[] {
     const group = this.getRowGroup(rowIndex);
-    const inventoryDefinitionId = Number(group.get('inventoryDefinitionId')?.value);
-    if (Number.isFinite(inventoryDefinitionId) && inventoryDefinitionId > 0) {
-      const availabilityMap = this.accessoryAvailabilityByDefinitionId();
-      if (availabilityMap.has(inventoryDefinitionId)) {
-        return this.sortSerialOptions(availabilityMap.get(inventoryDefinitionId) ?? []);
-      }
-    }
-
-    const def = Number.isFinite(inventoryDefinitionId)
-      ? this.inventoryStore.byId(inventoryDefinitionId)
-      : undefined;
-    if (!def) {
+    const inventoryDefinitionId = this.resolveRowInventoryDefinitionId(group);
+    if (inventoryDefinitionId == null) {
       return [];
     }
-
     const selected = (group.get('selectedCodes')?.value as string[] | null) ?? [];
     const initial = (group.get('initialCodes')?.value as string[] | null) ?? [];
-    const reserved = new Set(
-      [...initial, ...selected]
-        .map((c) => c.trim())
-        .filter((c) => c.length > 0)
-        .map((c) => c.toLowerCase())
-    );
-
-    const units = def.serialUnits ?? [];
-    if (units.length > 0) {
-      return this.sortSerialOptions(
-        units.map((unit) => {
-          const serialCode = unit.serialCode.trim();
-          const status = unit.physicalStatus;
-          const occupied = status === 'LoanedOut' || status === 'Missing' || status === 'InRepair';
-          return {
-            serialCode,
-            isAvailable: !occupied || reserved.has(serialCode.toLowerCase())
-          };
-        })
-      );
-    }
-
-    // Without live availability / unit status, do not treat bare codes as free.
-    return this.sortSerialOptions(
-      (def.serialCodes ?? []).map((serialCode) => ({
-        serialCode,
-        isAvailable: reserved.has(serialCode.trim().toLowerCase())
-      }))
-    );
+    return this.resolveSerialOptions(inventoryDefinitionId, [...initial, ...selected]);
   }
 
   private sortSerialOptions(options: AccessorySerialOptionDto[]): AccessorySerialOptionDto[] {
@@ -2583,7 +2532,6 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     queueMicrotask(() => this.resetScrollForOrderForm());
 
     this.equipmentSlots.load({ force: true }).subscribe();
-    this.inventoryStore.load().subscribe();
 
     this.wireEquipmentAvailability();
     this.wireAccessorySerialAvailability();
@@ -2618,8 +2566,19 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     const restored = this.orderDraft.takePendingRestore<SoundOrderDraftPayload>('sound-order');
     if (restored) {
       this.applySoundOrderDraft(restored);
+      // Catalog may still be loading; hydrate missing definition ids then fetch ALL rows.
+      this.inventoryStore.load().subscribe(() => {
+        this.hydrateEquipmentDefinitionIdsFromStore();
+        this.refreshAccessorySerialAvailability();
+      });
       return;
     }
+
+    // Returning from the board / fresh create: load catalog then fetch availability for all rows.
+    this.inventoryStore.load().subscribe(() => {
+      this.hydrateEquipmentDefinitionIdsFromStore();
+      this.refreshAccessorySerialAvailability();
+    });
 
     this.ensureBookingUi(0);
     this.wireBookingGroup(0);
@@ -4752,7 +4711,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     booking.updateValueAndValidity({ emitEvent: false });
     this.availabilityFetchTrigger$.next(bookingIndex);
     this.institutionConflictTrigger$.next();
-    this.refreshAccessorySerialAvailability();
+    // Accessory serial refresh is driven by availabilityFetchTrigger$ (debounced) so mid-rebuild
+    // calls — when equipment rows are still empty — do not wipe / partial-fetch the cache.
   }
 
   private orderReservationDates(): string[] {
@@ -4772,42 +4732,61 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.availabilityFetchTrigger$
       .pipe(debounceTime(200), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshAccessorySerialAvailability());
+
+    this.accessoryAvailabilityRefresh$
+      .pipe(
+        debounceTime(50),
+        switchMap(() => this.fetchAccessorySerialAvailability$()),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((map) => this.accessoryAvailabilityByDefinitionId.set(map));
   }
 
   private refreshAccessorySerialAvailability(): void {
-    const dates = this.orderReservationDates();
-    if (dates.length === 0) {
-      this.accessoryAvailabilityLoading.set(false);
-      this.accessoryAvailabilityByDefinitionId.set(new Map());
-      return;
-    }
+    this.accessoryAvailabilityRefresh$.next();
+  }
 
+  /**
+   * Live serial availability for every catalog row currently on the form.
+   * Skips (without clearing cache) when definition ids are briefly empty mid-rebuild
+   * after returning from the board / restoring a draft.
+   */
+  private fetchAccessorySerialAvailability$(): Observable<Map<number, AccessorySerialOptionDto[]>> {
     const definitionIds = this.collectFormInventoryDefinitionIds();
     if (definitionIds.length === 0) {
       this.accessoryAvailabilityLoading.set(false);
-      this.accessoryAvailabilityByDefinitionId.set(new Map());
-      return;
+      return EMPTY;
     }
 
+    const dates = this.orderReservationDates();
     const excludeOrderId = this.editingId();
     this.accessoryAvailabilityLoading.set(true);
-    this.data
+    return this.data
       .getAccessorySerialAvailability({
         dates,
         inventoryDefinitionIds: definitionIds,
         excludeOrderId: excludeOrderId ?? null
       })
-      .pipe(finalize(() => this.accessoryAvailabilityLoading.set(false)))
-      .subscribe((groups) => {
-        const map = new Map<number, AccessorySerialOptionDto[]>();
-        for (const group of groups) {
-          const id = group.inventoryDefinitionId;
-          if (id != null && id > 0) {
-            map.set(id, group.options);
+      .pipe(
+        map((groups) => {
+          const next = new Map<number, AccessorySerialOptionDto[]>();
+          for (const group of groups ?? []) {
+            const id = group.inventoryDefinitionId;
+            if (id != null && id > 0) {
+              next.set(id, group.options ?? []);
+            }
           }
-        }
-        this.accessoryAvailabilityByDefinitionId.set(map);
-      });
+          // Ensure every requested id has a map entry (empty list if API omitted it).
+          for (const id of definitionIds) {
+            if (!next.has(id)) {
+              next.set(id, []);
+            }
+          }
+          return next;
+        }),
+        catchError(() => EMPTY),
+        finalize(() => this.accessoryAvailabilityLoading.set(false))
+      );
   }
 
   /** Positive catalog ids for accessory rows currently on the order form (including draft lines). */
@@ -4815,17 +4794,9 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     const ids = new Set<number>();
     for (const control of this.equipmentList.controls) {
       const group = control as FormGroup;
-      const rawId = Number(group.get('inventoryDefinitionId')?.value);
-      if (Number.isFinite(rawId) && rawId > 0) {
-        ids.add(rawId);
-        continue;
-      }
-      const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
-      if (type != null) {
-        const fromType = this.inventoryStore.definitionIdForType(type);
-        if (fromType != null && fromType > 0) {
-          ids.add(fromType);
-        }
+      const resolved = this.resolveRowInventoryDefinitionId(group);
+      if (resolved != null) {
+        ids.add(resolved);
       }
     }
     for (const line of this.accessoryDraftLines()) {
@@ -4834,6 +4805,50 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       }
     }
     return [...ids];
+  }
+
+  /** Coerce a form row's catalog id from inventoryDefinitionId, type, or label. */
+  private resolveRowInventoryDefinitionId(group: FormGroup): number | null {
+    const raw = group.get('inventoryDefinitionId')?.value;
+    const rawId = typeof raw === 'number' ? raw : Number(raw);
+    if (Number.isFinite(rawId) && rawId > 0) {
+      return rawId;
+    }
+    const type = group.get('loanedEquipmentType')?.value as LoanedEquipmentType | null;
+    if (type != null) {
+      const fromType = this.inventoryStore.definitionIdForType(type);
+      if (fromType != null && fromType > 0) {
+        return fromType;
+      }
+    }
+    const label = String(group.get('label')?.value ?? '').trim();
+    if (label.length > 0) {
+      const fromLabel = this.inventoryStore.definitions().find(
+        (d) => d.displayName.trim().localeCompare(label, 'he', { sensitivity: 'accent' }) === 0
+      );
+      if (fromLabel != null && fromLabel.id > 0) {
+        return fromLabel.id;
+      }
+    }
+    return null;
+  }
+
+  /** Backfill missing inventoryDefinitionId on equipment rows once the catalog is loaded. */
+  private hydrateEquipmentDefinitionIdsFromStore(): void {
+    for (const control of this.equipmentList.controls) {
+      const group = control as FormGroup;
+      if (group.get('isCustomItem')?.value === true) {
+        continue;
+      }
+      const current = Number(group.get('inventoryDefinitionId')?.value);
+      if (Number.isFinite(current) && current > 0) {
+        continue;
+      }
+      const resolved = this.resolveRowInventoryDefinitionId(group);
+      if (resolved != null) {
+        group.patchValue({ inventoryDefinitionId: resolved }, { emitEvent: false });
+      }
+    }
   }
 
   private generateContinuousShifts(
@@ -5804,12 +5819,19 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.equipmentList.removeAt(0);
     }
     for (const row of equipmentRaw) {
+      const loanedEquipmentType = (row['loanedEquipmentType'] as LoanedEquipmentType | null) ?? null;
+      const label = typeof row['label'] === 'string' ? row['label'] : '';
+      const parsedDefId = this.parsePositiveInt(row['inventoryDefinitionId']);
+      const inventoryDefinitionId =
+        parsedDefId ??
+        (loanedEquipmentType != null
+          ? this.inventoryStore.definitionIdForType(loanedEquipmentType)
+          : null);
       this.equipmentList.push(
         this.buildDynamicEquipmentRow({
-          inventoryDefinitionId:
-            typeof row['inventoryDefinitionId'] === 'number' ? row['inventoryDefinitionId'] : null,
-          loanedEquipmentType: (row['loanedEquipmentType'] as LoanedEquipmentType | null) ?? null,
-          label: typeof row['label'] === 'string' ? row['label'] : '',
+          inventoryDefinitionId,
+          loanedEquipmentType,
+          label,
           quantity: typeof row['quantity'] === 'number' ? row['quantity'] : 1,
           selectedCodes: Array.isArray(row['selectedCodes'])
             ? (row['selectedCodes'] as string[]).filter((c) => typeof c === 'string')
@@ -5826,6 +5848,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.bookingGroup(i).updateValueAndValidity({ emitEvent: false });
       this.refreshSlotTakenWarning(i);
     }
+    this.hydrateEquipmentDefinitionIdsFromStore();
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
     this.refreshCustomerRiskAlerts();
@@ -6050,10 +6073,22 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       );
     }
 
+    this.hydrateEquipmentDefinitionIdsFromStore();
     this.refreshAccessorySerialAvailability();
     this.refreshLostEquipmentAlert();
     this.refreshCustomerRiskAlerts();
     this.institutionConflictTrigger$.next();
+  }
+
+  private parsePositiveInt(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return Math.trunc(value);
+    }
+    if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+      const n = Number(value.trim());
+      return n > 0 ? n : null;
+    }
+    return null;
   }
 
   // -----------------------------------------------------------------

@@ -870,7 +870,9 @@
 
               @if (isAccessorySerialDropdownOpen(i)) {
                 <div class="multi-select__panel accessory-serial-panel loaned-serial-select" (click)="$event.stopPropagation()">
-                  @if (serialOptionsForRow(i).length === 0) {
+                  @if (accessoryAvailabilityLoading() && serialOptionsForRow(i).length === 0) {
+                    <p class="accessory-serial-panel__empty">טוען קודי פריטים…</p>
+                  } @else if (serialOptionsForRow(i).length === 0) {
                     <p class="accessory-serial-panel__empty">אין במלאי לפריט זה</p>
                   } @else {
                     <div class="multi-select__quick-entry">

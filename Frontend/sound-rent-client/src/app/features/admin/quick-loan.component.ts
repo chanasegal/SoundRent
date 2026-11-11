@@ -15,7 +15,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { EMPTY, finalize, forkJoin, merge, of } from 'rxjs';
+import { catchError, EMPTY, finalize, forkJoin, merge, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
 
 import { AccessorySerialOptionDto } from '../../core/models/accessory-inventory.model';
@@ -3977,7 +3977,11 @@ export class QuickLoanComponent implements OnInit {
         excludeOrderId: this.editingId(),
         excludeOrderIds: this.currentAvailabilityExcludedOrderIds()
       })
-      .pipe(finalize(() => this.availabilityLoading.set(false)))
+      .pipe(
+        // Keep last good cache on failure — empty [] must not mean "no stock".
+        catchError(() => EMPTY),
+        finalize(() => this.availabilityLoading.set(false))
+      )
       .subscribe((groups) => {
         const map = new Map<number, AccessorySerialOptionDto[]>();
         for (const group of groups) {

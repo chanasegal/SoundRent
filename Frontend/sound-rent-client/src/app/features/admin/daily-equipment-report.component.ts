@@ -11,9 +11,10 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { finalize, Observable } from 'rxjs';
+import { catchError, finalize, Observable, of } from 'rxjs';
 
 import {
+  AccessorySerialAvailabilityGroupDto,
   AccessorySerialOptionDto
 } from '../../core/models/accessory-inventory.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
@@ -1023,7 +1024,10 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
         inventoryDefinitionIds: [defId],
         excludeOrderId: row.orderId
       })
-      .pipe(finalize(() => this.setSerialAvailabilityLoading(row.rowKey, false)))
+      .pipe(
+        catchError(() => of([] as AccessorySerialAvailabilityGroupDto[])),
+        finalize(() => this.setSerialAvailabilityLoading(row.rowKey, false))
+      )
       .subscribe((groups) => {
         const group = groups.find((g) => g.inventoryDefinitionId === defId);
         const baseOptions = group?.options?.length
