@@ -611,6 +611,17 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected readonly equipmentListRevision = signal(0);
   /** Coalesces accessory serial availability fetches (cancels stale in-flight requests). */
   private readonly accessoryAvailabilityRefresh$ = new Subject<void>();
+  /**
+   * After an optimistic draft commit (+ / Enter), wait for paint before kicking off
+   * availability POSTs and mixer-kit fetches so the row swap feels instant.
+   */
+  private static readonly POST_COMMIT_NETWORK_DEBOUNCE_MS = 280;
+  private postCommitSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingPostCommitAvailabilityRefresh = false;
+  private readonly pendingPostCommitMixerCodes: string[] = [];
+  /** Cache for parseFreeTextAccessoryEntry — invalidated when the catalog signal changes. */
+  private cachedDefsByNameLength: InventoryDefinitionDto[] | null = null;
+  private cachedDefsByNameLengthSource: InventoryDefinitionDto[] | null = null;
 
   protected readonly form = this.buildForm();
 
@@ -1196,13 +1207,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       quantity: Math.max(line.quantity, selected.length)
     });
 
-    // Same as checkbox select: mixer unit codes should pull kit accessories immediately.
+    // Mixer kits: defer/coalesce with post-commit sync so typed-code Enter / + stay fluid.
     if (newlyAdded.length > 0 && line.inventoryDefinitionId != null) {
       const def = this.inventoryStore.byId(line.inventoryDefinitionId);
       if (def && this.resolveLinkedEquipmentType(def) === LoanedEquipmentType.Mixer) {
-        for (const code of newlyAdded) {
-          this.applyMixerDefaultAccessories(code);
-        }
+        this.schedulePostCommitAccessorySync(newlyAdded);
       }
     }
     return rejected.length === 0;
@@ -1484,6 +1493,19 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return 'committed';
   }
 
+  /** Definitions sorted longest-name-first (stable while the catalog signal reference is unchanged). */
+  private definitionsSortedByNameLength(): InventoryDefinitionDto[] {
+    const defs = this.inventoryStore.definitions();
+    if (this.cachedDefsByNameLengthSource === defs && this.cachedDefsByNameLength) {
+      return this.cachedDefsByNameLength;
+    }
+    this.cachedDefsByNameLengthSource = defs;
+    this.cachedDefsByNameLength = [...defs].sort(
+      (a, b) => b.displayName.trim().length - a.displayName.trim().length
+    );
+    return this.cachedDefsByNameLength;
+  }
+
   private parseFreeTextAccessoryEntry(
     raw: string
   ): { def: InventoryDefinitionDto; codes: string[] } | null {
@@ -1493,9 +1515,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     }
 
     const lower = input.toLocaleLowerCase();
-    const defs = [...this.inventoryStore.definitions()].sort(
-      (a, b) => b.displayName.trim().length - a.displayName.trim().length
-    );
+    const defs = this.definitionsSortedByNameLength();
 
     for (const def of defs) {
       const name = def.displayName.trim();
@@ -1544,6 +1564,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.toast.warning('יש להזין כמות או לבחור לפחות קוד אחד');
       return false;
     }
+    // Optimistic UI: push the committed row and let the draft reset paint immediately.
+    // Availability POST + mixer kit fetches are deferred/coalesced in the background.
     this.equipmentList.push(
       this.buildDynamicEquipmentRow({
         inventoryDefinitionId: def.id,
@@ -1556,14 +1578,45 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       })
     );
     this.notifyEquipmentListChanged();
-    this.refreshAccessorySerialAvailability();
+    this.schedulePostCommitAccessorySync(
+      linkedType === LoanedEquipmentType.Mixer ? codes : []
+    );
+    return true;
+  }
 
-    if (linkedType === LoanedEquipmentType.Mixer) {
-      for (const code of codes) {
-        this.applyMixerDefaultAccessories(code);
+  /**
+   * Queues background sync after a local equipment-row commit so + / Enter stay fluid.
+   * Multiple rapid commits coalesce into one availability refresh and de-duped mixer fetches.
+   */
+  private schedulePostCommitAccessorySync(mixerSerialCodes: string[] = []): void {
+    for (const code of mixerSerialCodes) {
+      const trimmed = code.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (!this.pendingPostCommitMixerCodes.some((c) => this.isSameSerialCode(c, trimmed))) {
+        this.pendingPostCommitMixerCodes.push(trimmed);
       }
     }
-    return true;
+    this.pendingPostCommitAvailabilityRefresh = true;
+
+    if (this.postCommitSyncTimer !== null) {
+      clearTimeout(this.postCommitSyncTimer);
+    }
+
+    this.postCommitSyncTimer = setTimeout(() => {
+      this.postCommitSyncTimer = null;
+      const mixerCodes = this.pendingPostCommitMixerCodes.splice(0);
+      const needAvailability = this.pendingPostCommitAvailabilityRefresh;
+      this.pendingPostCommitAvailabilityRefresh = false;
+
+      for (const code of mixerCodes) {
+        this.applyMixerDefaultAccessories(code);
+      }
+      if (needAvailability) {
+        this.refreshAccessorySerialAvailability();
+      }
+    }, OrderFormComponent.POST_COMMIT_NETWORK_DEBOUNCE_MS);
   }
 
   /** Forces the loaned-equipment `@for` to re-read FormArray.controls after structural edits. */
@@ -2690,6 +2743,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       clearTimeout(this.autoSaveBadgeClearTimer);
       this.autoSaveBadgeClearTimer = null;
     }
+    if (this.postCommitSyncTimer !== null) {
+      clearTimeout(this.postCommitSyncTimer);
+      this.postCommitSyncTimer = null;
+    }
+    this.pendingPostCommitMixerCodes.length = 0;
+    this.pendingPostCommitAvailabilityRefresh = false;
   }
 
   /** Persist when the tab/window is closing or the page is being hidden. */
@@ -4833,7 +4892,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     this.accessoryAvailabilityRefresh$
       .pipe(
-        debounceTime(50),
+        // Coalesce rapid post-commit / shift-change refreshes; catalog fallback keeps dropdowns usable.
+        debounceTime(200),
         switchMap(() => this.fetchAccessorySerialAvailability$()),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -4858,7 +4918,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     const dates = this.orderReservationDates();
     const excludeOrderId = this.editingId();
-    this.accessoryAvailabilityLoading.set(true);
+    // Avoid a global loading flash when the cache already covers the form — optimistic
+    // commits can keep using catalog/live fallbacks while this refreshes in the background.
+    const cache = this.accessoryAvailabilityByDefinitionId();
+    const needsLoadingIndicator = definitionIds.some((id) => !cache.has(id));
+    if (needsLoadingIndicator) {
+      this.accessoryAvailabilityLoading.set(true);
+    }
     return this.data
       .getAccessorySerialAvailability({
         dates,
