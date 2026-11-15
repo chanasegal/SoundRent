@@ -863,15 +863,55 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     this.blockImplicitFormSubmit();
   }
 
+  /**
+   * "+" next to draft rows: commit the in-progress draft the same way Enter does
+   * ("I'm done" / allow empty codes), then leave a fresh draft line focused.
+   * Click steals focus from draft inputs before this runs, so we must not rely
+   * solely on document.activeElement — fall back to the non-empty draft.
+   */
   protected onAddDraftLineClick(event: Event): void {
-    const activeLineId = this.activeDraftLineId();
     event.preventDefault();
     event.stopPropagation();
-    if (activeLineId) {
-      this.commitDraftLineFromText(activeLineId, { addNext: true, allowEmptyCodes: true });
-      return;
+
+    const lineId = this.resolveDraftLineIdForAddClick();
+    if (lineId) {
+      const result = this.commitDraftLineFromText(lineId, {
+        addNext: true,
+        allowEmptyCodes: true
+      });
+      if (result === 'committed' || result === 'failed') {
+        return;
+      }
+      // 'skipped' (empty draft) — fall through and append another blank row.
     }
+
     this.accessoryDraftLines.update((lines) => [...lines, this.createAccessoryDraftLine()]);
+  }
+
+  /** Prefer focused draft input; if click already moved focus, use the filled draft. */
+  private resolveDraftLineIdForAddClick(): string | null {
+    const focused = this.activeDraftLineId();
+    if (focused) {
+      return focused;
+    }
+    const lines = this.accessoryDraftLines();
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i]!;
+      if (this.draftLineHasCommitContent(line)) {
+        return line.id;
+      }
+    }
+    return null;
+  }
+
+  private draftLineHasCommitContent(line: AccessoryDraftLine): boolean {
+    return (
+      line.query.trim().length > 0 ||
+      line.selectedCodes.length > 0 ||
+      line.codesQuery.trim().length > 0 ||
+      line.inventoryDefinitionId != null ||
+      line.quantity >= 1
+    );
   }
 
   protected selectAccessoryDefinition(
@@ -2978,10 +3018,16 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   /**
-   * Enter-key / legacy submit path — same persistence as auto-save, stays on the form.
-   * Validation toasts remain for explicit submit attempts.
+   * Explicit "שמירה" / Enter submit — same persistence as auto-save, then returns to
+   * the board on success only. Auto-save (`mode: 'auto'`) stays on the form.
+   * Validation toasts remain for explicit submit attempts. Queues behind an in-flight
+   * auto-save via performSave (no overlapping PUT / 409).
    */
   protected submit(): void {
+    if (this.submitting()) {
+      return;
+    }
+
     if (!this.commitPendingDraftLinesBeforeSave()) {
       return;
     }
@@ -3612,7 +3658,6 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
           if (!isAuto) {
             this.existingCustomerMatch.set(null);
-            this.inventoryStore.load({ force: true }).subscribe();
 
             if (wasCreate) {
               if (saved.length === 1) {
@@ -3620,7 +3665,17 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
               } else {
                 this.toast.success(`${saved.length} הזמנות נשמרו בהצלחה`);
               }
+            } else {
+              this.toast.success('נשמר בהצלחה');
             }
+
+            // Manual save only: leave for the board after a successful persist.
+            // Auto-save never sets this path; failed/empty results return earlier above.
+            this.pendingAutoSave = false;
+            this.pendingManualSave = null;
+            this.bypassSoftSaveDeactivateGuard = true;
+            const iso = this.bookingGroup(0).controls['startDate'].value;
+            this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
           }
         },
         error: () => {
