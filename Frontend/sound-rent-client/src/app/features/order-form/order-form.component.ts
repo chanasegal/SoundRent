@@ -1723,17 +1723,27 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   }
 
   private scheduleFocusDraftInput(lineId: string): void {
+    const focus = (): boolean => {
+      const input = this.document.querySelector<HTMLInputElement>(
+        `[data-accessory-draft-input][data-line-id="${lineId}"]`
+      );
+      if (!input) {
+        return false;
+      }
+      input.scrollIntoView({ block: 'nearest' });
+      input.focus({ preventScroll: true });
+      input.select();
+      return this.document.activeElement === input;
+    };
+
     afterNextRender(
       () => {
-        const input = this.document.querySelector<HTMLInputElement>(
-          `[data-accessory-draft-input][data-line-id="${lineId}"]`
-        );
-        if (!input) {
+        if (focus()) {
+          // Tablet VK / viewport resize can steal focus right after Enter — re-assert once.
+          setTimeout(() => focus(), 60);
           return;
         }
-        input.scrollIntoView({ block: 'nearest' });
-        input.focus({ preventScroll: true });
-        input.select();
+        setTimeout(() => focus(), 60);
       },
       { injector: this.injector }
     );
@@ -2244,22 +2254,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.accessorySerialQuickEntry.set('');
       return next;
     });
+    this.cdr.markForCheck();
     if (this.accessorySerialDropdownRow() === rowIndex) {
-      const defId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
-      if (
-        Number.isFinite(defId) &&
-        defId > 0 &&
-        !this.accessoryAvailabilityByDefinitionId().has(defId)
-      ) {
-        this.refreshAccessorySerialAvailability();
-      }
-      queueMicrotask(() => {
-        const input = this.document.querySelector<HTMLInputElement>(
-          `.loaned-serial-select .multi-select__quick-input`
-        );
-        input?.focus();
-        input?.select();
-      });
+      this.ensureAccessorySerialAvailabilityForRow(rowIndex);
+      this.scheduleFocusAccessorySerialQuickInput(rowIndex);
     }
   }
 
@@ -2267,38 +2265,142 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return this.accessorySerialDropdownRow() === rowIndex;
   }
 
+  /**
+   * Existing-row codes Enter (desktop + tablet VK Done/Next):
+   * - 1st Enter with typed code(s) → assign into selectedCodes, clear input, stay focused
+   * - 2nd Enter (empty) → close edit mode and move focus to the next row (or draft input)
+   */
   protected onAccessorySerialQuickEnter(rowIndex: number, event: Event): void {
+    const keyEvent = event as KeyboardEvent;
+    if (!this.isEnterKey(keyEvent)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
     this.blockImplicitFormSubmit();
 
-    const typed = this.accessorySerialQuickEntry().trim();
+    // Prefer DOM value: some tablet VKs fire Enter before the last (input) event flushes to the signal.
+    const fromDom = (event.target as HTMLInputElement | null)?.value;
+    if (fromDom != null && fromDom !== this.accessorySerialQuickEntry()) {
+      this.accessorySerialQuickEntry.set(fromDom);
+    }
+    const typed = (fromDom ?? this.accessorySerialQuickEntry()).trim();
     if (!typed) {
+      this.advanceFromAccessorySerialEdit(rowIndex);
       return;
     }
 
-    const match = this.serialOptionsForRow(rowIndex).find(
-      (opt) => opt.serialCode.localeCompare(typed, undefined, { sensitivity: 'accent' }) === 0
-    );
+    const tokens = this.splitTypedCodes(typed);
+    const options = this.serialOptionsForRow(rowIndex);
 
-    if (!match) {
-      this.toast.warning(`קוד "${typed}" לא קיים במלאי לפריט זה`);
-      return;
+    for (const token of tokens) {
+      const match = options.find((opt) => this.isSameSerialCode(opt.serialCode, token));
+
+      if (!match) {
+        this.toast.warning(`קוד "${token}" לא קיים במלאי לפריט זה`);
+        continue;
+      }
+
+      if (this.isAccessorySerialLocked(rowIndex, match.serialCode)) {
+        this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
+        continue;
+      }
+
+      if (this.isAccessorySerialSelected(rowIndex, match.serialCode)) {
+        // Already selected — keep it; Enter is for adding more codes, not toggling off.
+        continue;
+      }
+
+      if (!match.isAvailable) {
+        this.toast.warning(`קוד "${match.serialCode}" אינו זמין `);
+        continue;
+      }
+
+      this.toggleAccessorySerialSelection(rowIndex, match.serialCode, true);
     }
 
-    if (this.isAccessorySerialLocked(rowIndex, match.serialCode)) {
-      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
-      return;
-    }
-
-    const alreadySelected = this.isAccessorySerialSelected(rowIndex, match.serialCode);
-    if (!alreadySelected && !match.isAvailable) {
-      this.toast.warning(`קוד "${match.serialCode}" אינו זמין `);
-      return;
-    }
-
-    this.toggleAccessorySerialSelection(rowIndex, match.serialCode, !alreadySelected);
     this.accessorySerialQuickEntry.set('');
+    this.cdr.markForCheck();
+    // Stay on this row's input; retry once — tablet VK may steal focus on Enter.
+    this.scheduleFocusAccessorySerialQuickInput(rowIndex);
+  }
+
+  /** Exit the current row's serial editor and focus the next editable row, or the draft add-line. */
+  private advanceFromAccessorySerialEdit(rowIndex: number): void {
+    this.closeAccessorySerialDropdown();
+    this.cdr.markForCheck();
+
+    let next = rowIndex + 1;
+    while (next < this.equipmentList.length && this.isAccessoryRowReadOnly(next)) {
+      next++;
+    }
+
+    if (next < this.equipmentList.length) {
+      this.openAccessorySerialDropdown(next);
+      return;
+    }
+
+    const draftId = this.accessoryDraftLines()[0]?.id;
+    if (draftId) {
+      this.scheduleFocusDraftInput(draftId);
+    }
+  }
+
+  private openAccessorySerialDropdown(rowIndex: number): void {
+    if (this.isAccessoryRowReadOnly(rowIndex)) {
+      return;
+    }
+    this.accessorySerialDropdownRow.set(rowIndex);
+    this.accessorySerialQuickEntry.set('');
+    this.ensureAccessorySerialAvailabilityForRow(rowIndex);
+    // OnPush: force the @if panel to paint before we focus (signals alone can lag on touch).
+    this.cdr.markForCheck();
+    this.scheduleFocusAccessorySerialQuickInput(rowIndex);
+  }
+
+  private ensureAccessorySerialAvailabilityForRow(rowIndex: number): void {
+    const defId = Number(this.getRowGroup(rowIndex).get('inventoryDefinitionId')?.value);
+    if (
+      Number.isFinite(defId) &&
+      defId > 0 &&
+      !this.accessoryAvailabilityByDefinitionId().has(defId)
+    ) {
+      this.refreshAccessorySerialAvailability();
+    }
+  }
+
+  /**
+   * Focus the open serial quick-input after CD paints the panel.
+   * Retries once: tablet virtual keyboards / viewport resize often steal focus right after Enter.
+   */
+  private scheduleFocusAccessorySerialQuickInput(rowIndex?: number): void {
+    const focus = (): boolean => {
+      const selector =
+        rowIndex == null
+          ? `[data-accessory-serial-quick-input]`
+          : `[data-accessory-serial-quick-input][data-row-index="${rowIndex}"]`;
+      const input = this.document.querySelector<HTMLInputElement>(selector);
+      if (!input) {
+        return false;
+      }
+      input.scrollIntoView({ block: 'nearest' });
+      input.focus({ preventScroll: true });
+      input.select();
+      return this.document.activeElement === input;
+    };
+
+    afterNextRender(
+      () => {
+        if (focus()) {
+          setTimeout(() => focus(), 60);
+          return;
+        }
+        // Panel may still be mounting after OnPush CD — retry shortly.
+        setTimeout(() => focus(), 60);
+      },
+      { injector: this.injector }
+    );
   }
 
   protected selectedCodesControl(rowIndex: number): FormControl<string[]> {
@@ -2610,6 +2712,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected closeAccessorySerialDropdown(): void {
     this.accessorySerialDropdownRow.set(null);
     this.accessorySerialQuickEntry.set('');
+    this.cdr.markForCheck();
   }
 
   /** Gematriya label for a Hebrew day (e.g. 23 → "כ״ג"). */

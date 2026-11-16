@@ -883,11 +883,14 @@
                       <input
                         type="text"
                         class="multi-select__quick-input"
+                        data-accessory-serial-quick-input
+                        [attr.data-row-index]="i"
                         placeholder="הקלידו קוד ולחצו Enter"
                         autocomplete="off"
+                        enterkeyhint="next"
                         [value]="accessorySerialQuickEntry()"
                         (input)="accessorySerialQuickEntry.set($any($event.target).value)"
-                        (keydown.enter)="$event.preventDefault(); onAccessorySerialQuickEnter(i, $event)"
+                        (keydown)="onAccessorySerialQuickEnter(i, $event)"
                       />
                     </div>
                     @for (opt of serialOptionsForRow(i); track opt.serialCode) {
