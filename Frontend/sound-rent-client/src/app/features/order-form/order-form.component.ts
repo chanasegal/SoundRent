@@ -1959,7 +1959,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     }
 
     const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
-    const nextQuantity = Math.max(existingQuantity, current.length + uncodedCount, 1);
+    // Kit floor = template codes already on the row + uncoded kit slots.
+    // Do not use current.length + uncodedCount: codes the user assigned to fill
+    // uncoded slots must not be counted again on re-apply (save/reopen / double fetch).
+    const presentTemplateCodeCount = codes.filter((code) =>
+      current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+    ).length;
+    const kitRequired = presentTemplateCodeCount + uncodedCount;
+    const nextQuantity = Math.max(existingQuantity, kitRequired, current.length, 1);
     if (nextQuantity > existingQuantity) {
       changed = true;
     }
@@ -2050,7 +2057,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     }
 
     const existingQuantity = Number(this.getRowGroup(rowIndex).get('quantity')?.value) || 1;
-    const nextQuantity = Math.max(existingQuantity, current.length + uncodedCount, 1);
+    // Kit floor = template codes already on the row + uncoded kit slots.
+    // Do not use current.length + uncodedCount: codes the user assigned to fill
+    // uncoded slots must not be counted again on re-apply (save/reopen / double fetch).
+    const presentTemplateCodeCount = codes.filter((code) =>
+      current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
+    ).length;
+    const kitRequired = presentTemplateCodeCount + uncodedCount;
+    const nextQuantity = Math.max(existingQuantity, kitRequired, current.length, 1);
     if (nextQuantity > existingQuantity) {
       changed = true;
     }
