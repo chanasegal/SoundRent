@@ -2185,10 +2185,12 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected readonly removeAccessoryConfirmName = signal('');
 
   /**
-   * Soft warnings on save/exit (code-quantity mismatch and/or unset payment status).
-   * `null` when the modal is closed.
+   * Soft warning on save/exit for code-quantity mismatches only.
+   * `null` when the modal is closed. Payment status uses a separate dialog.
    */
   protected readonly softSaveWarnings = signal<string[] | null>(null);
+  /** Dedicated exit/save dialog when payment status is still unset (`none`). */
+  protected readonly paymentStatusWarningOpen = signal(false);
   private softSavePendingAction: (() => void) | null = null;
   private softSaveCancelAction: (() => void) | null = null;
   /** Set when leave was already confirmed so the deactivate guard does not re-prompt. */
@@ -2625,14 +2627,33 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
   protected cancelSoftSaveWarning(): void {
     const cancel = this.softSaveCancelAction;
     this.softSaveWarnings.set(null);
+    this.paymentStatusWarningOpen.set(false);
     this.softSavePendingAction = null;
     this.softSaveCancelAction = null;
     cancel?.();
   }
 
+  /** After acknowledging missing codes, continue to payment warning (if needed) or proceed. */
   protected proceedDespiteSoftSaveWarnings(): void {
-    const action = this.softSavePendingAction;
     this.softSaveWarnings.set(null);
+    if (this.isPaymentStatusUnset()) {
+      this.paymentStatusWarningOpen.set(true);
+      return;
+    }
+    this.runSoftSavePendingAction();
+  }
+
+  protected cancelPaymentStatusWarning(): void {
+    this.cancelSoftSaveWarning();
+  }
+
+  protected proceedDespitePaymentStatusWarning(): void {
+    this.paymentStatusWarningOpen.set(false);
+    this.runSoftSavePendingAction();
+  }
+
+  private runSoftSavePendingAction(): void {
+    const action = this.softSavePendingAction;
     this.softSavePendingAction = null;
     this.softSaveCancelAction = null;
     action?.();
@@ -2660,41 +2681,42 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return (this.form.controls['paymentStatus'].value as PaymentStatus) === 'none';
   }
 
-  /**
-   * Soft warnings for intentional save/exit.
-   * Payment-status unset is only included when there is already a code-quantity mismatch —
-   * alone it must not interrupt save/proceed.
-   */
-  private collectSoftSaveWarnings(): string[] {
-    const mismatches = this.findQuantityMismatches();
-    if (mismatches.length === 0) {
-      return [];
-    }
-    const warnings = mismatches.map((mismatch) => quantityCodeShortageMessage(mismatch));
-    if (this.isPaymentStatusUnset()) {
-      warnings.push('שדה התשלום לא צוין (האם שולם?)');
-    }
-    return warnings;
+  /** Soft warnings for missing/short equipment serial codes only (payment is a separate dialog). */
+  private collectCodeQuantityWarnings(): string[] {
+    return this.findQuantityMismatches().map((mismatch) => quantityCodeShortageMessage(mismatch));
+  }
+
+  private hasOpenSoftWarningModal(): boolean {
+    return this.softSaveWarnings() != null || this.paymentStatusWarningOpen();
+  }
+
+  private hasPendingSoftWarnings(): boolean {
+    return this.collectCodeQuantityWarnings().length > 0 || this.isPaymentStatusUnset();
   }
 
   /**
-   * Soft gate for intentional save/exit: warn on code-quantity mismatch
-   * (and unset payment status only when paired with that mismatch); allow proceed anyway.
-   * Silent auto-save / unload paths skip the modal.
+   * Soft gate for intentional save/exit: code-quantity mismatch and unset payment status
+   * are checked independently and shown as separate dialogs (codes first, then payment).
+   * Silent auto-save / unload paths skip the modals.
    */
   private confirmSoftSaveWarningsOrProceed(onProceed: () => void, onCancel?: () => void): void {
     if (this.documentUnloading) {
       onProceed();
       return;
     }
-    const warnings = this.collectSoftSaveWarnings();
-    if (warnings.length === 0) {
+    const codeWarnings = this.collectCodeQuantityWarnings();
+    const paymentUnset = this.isPaymentStatusUnset();
+    if (codeWarnings.length === 0 && !paymentUnset) {
       onProceed();
       return;
     }
     this.softSavePendingAction = onProceed;
     this.softSaveCancelAction = onCancel ?? null;
-    this.softSaveWarnings.set(warnings);
+    if (codeWarnings.length > 0) {
+      this.softSaveWarnings.set(codeWarnings);
+      return;
+    }
+    this.paymentStatusWarningOpen.set(true);
   }
 
   /** Block in-app navigation away while soft warnings remain, unless already confirmed. */
@@ -2702,10 +2724,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     if (this.bypassSoftSaveDeactivateGuard || this.documentUnloading) {
       return true;
     }
-    if (this.softSaveWarnings() != null) {
+    if (this.hasOpenSoftWarningModal()) {
       return false;
     }
-    if (this.collectSoftSaveWarnings().length === 0) {
+    if (!this.hasPendingSoftWarnings()) {
       return true;
     }
     return new Observable<boolean>((subscriber) => {
@@ -2916,8 +2938,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
    * already occupies the selected shift, ask before leaving so Cancel stays on the form.
    */
   private persistThenLeave(onComplete: () => void): void {
-    // Soft-save warning dialog owns the leave decision — don't navigate away underneath it.
-    if (this.softSaveWarnings() != null) {
+    // Soft-save warning dialogs own the leave decision — don't navigate away underneath them.
+    if (this.hasOpenSoftWarningModal()) {
       return;
     }
 
@@ -3281,7 +3303,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       this.submitting() ||
       this.returnSaving() ||
       this.returnModalOpen() ||
-      this.softSaveWarnings() != null
+      this.hasOpenSoftWarningModal()
     ) {
       return;
     }

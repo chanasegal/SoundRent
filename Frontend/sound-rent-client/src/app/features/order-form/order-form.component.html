@@ -1409,6 +1409,52 @@
   </div>
 }
 
+@if (paymentStatusWarningOpen()) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-[51] flex items-center justify-center bg-black/55"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="payment-status-warning-title"
+    (click)="cancelPaymentStatusWarning()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-2 ring-red-500"
+      style="--app-modal-max-w: 28rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-red-200 bg-red-600 px-5 py-4">
+        <h2 id="payment-status-warning-title" class="text-lg font-bold text-white">
+          שדה התשלום לא צוין
+        </h2>
+      </div>
+      <div class="app-modal-body border-x-4 border-red-500 bg-red-50 px-5 py-5">
+        <p class="text-base font-semibold text-red-800">
+          שדה התשלום לא צוין (האם שולם?)
+        </p>
+        <p class="mt-2 text-sm text-red-700">
+          ניתן לחזור לטופס ולמלא את סטטוס התשלום, או להמשיך בכל זאת.
+        </p>
+      </div>
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-red-200 bg-red-50/60 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          (click)="cancelPaymentStatusWarning()"
+        >
+          חזרה לטופס
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-red-700 bg-red-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+          (click)="proceedDespitePaymentStatusWarning()"
+        >
+          אישור והמשך בכל זאת
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
 @if (unreturnedReportOpen()) {
   <div
     class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
