@@ -54,6 +54,8 @@ import {
   groupMixerDefaultAccessories,
   isEnterKey,
   isSameSerialCode,
+  sanitizeTypedCodesInput,
+  shouldBlockTypedCodesKey,
   splitTypedCodes
 } from '../../core/utils/mixer-default-accessory-merge';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
@@ -643,6 +645,15 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     this.scheduleFocusSerialQuickInput(row.rowKey);
   }
 
+  /** Digits + multi-code delimiters only for serial quick entry. */
+  protected onSerialQuickInput(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+    this.serialQuickEntry.set(this.applySanitizedCodesToInput(input));
+  }
+
   /**
    * Existing-row codes Enter (desktop + tablet VK Done/Next):
    * - 1st Enter with typed code(s) → assign into draft, clear input, stay focused
@@ -650,6 +661,10 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
    */
   protected onSerialQuickEnter(row: CustomerAccessoryLine, event: Event): void {
     const keyEvent = event as KeyboardEvent;
+    if (shouldBlockTypedCodesKey(keyEvent)) {
+      keyEvent.preventDefault();
+      return;
+    }
     if (!isEnterKey(keyEvent)) {
       return;
     }
@@ -659,10 +674,11 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
 
     // Prefer DOM value: some tablet VKs fire Enter before the last (input) event flushes to the signal.
     const fromDom = (event.target as HTMLInputElement | null)?.value;
-    if (fromDom != null && fromDom !== this.serialQuickEntry()) {
-      this.serialQuickEntry.set(fromDom);
+    const sanitizedDom = fromDom != null ? sanitizeTypedCodesInput(fromDom) : null;
+    if (sanitizedDom != null && sanitizedDom !== this.serialQuickEntry()) {
+      this.serialQuickEntry.set(sanitizedDom);
     }
-    const typed = (fromDom ?? this.serialQuickEntry()).trim();
+    const typed = (sanitizedDom ?? this.serialQuickEntry()).trim();
     if (!typed) {
       this.advanceFromSerialEdit(row);
       return;
@@ -1535,6 +1551,29 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     }
 
     return null;
+  }
+
+  /** Sanitize code field value in-place and keep the caret when characters are stripped. */
+  private applySanitizedCodesToInput(input: HTMLInputElement): string {
+    const raw = input.value;
+    const sanitized = sanitizeTypedCodesInput(raw);
+    if (sanitized === raw) {
+      return sanitized;
+    }
+
+    const selectionStart = input.selectionStart;
+    input.value = sanitized;
+    if (selectionStart != null && typeof input.setSelectionRange === 'function') {
+      const removedBefore =
+        raw.slice(0, selectionStart).length - sanitizeTypedCodesInput(raw.slice(0, selectionStart)).length;
+      const caret = Math.max(0, selectionStart - removedBefore);
+      try {
+        input.setSelectionRange(caret, caret);
+      } catch {
+        // Some input types don't support selection ranges; ignore.
+      }
+    }
+    return sanitized;
   }
 
   private serialCodesEqual(a: string[], b: string[]): boolean {

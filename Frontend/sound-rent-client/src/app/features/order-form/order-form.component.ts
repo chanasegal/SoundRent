@@ -99,7 +99,9 @@ import {
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
 import {
   computeKitMergeQuantity,
-  groupMixerDefaultAccessories
+  groupMixerDefaultAccessories,
+  sanitizeTypedCodesInput,
+  shouldBlockTypedCodesKey
 } from '../../core/utils/mixer-default-accessory-merge';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
@@ -985,8 +987,13 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       ?.focus();
   }
 
-  protected onDraftCodesQueryInput(lineId: string, value: string): void {
-    this.patchDraftLine(lineId, { codesQuery: value, codesOpen: true, suggestOpen: false });
+  protected onDraftCodesQueryInput(lineId: string, event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+    const sanitized = this.applySanitizedCodesToInput(input);
+    this.patchDraftLine(lineId, { codesQuery: sanitized, codesOpen: true, suggestOpen: false });
   }
 
   /**
@@ -995,6 +1002,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
    * - 2nd Enter (empty / already-selected) → commit row and move to the next draft line
    */
   protected onDraftCodesInputKeydown(lineId: string, event: KeyboardEvent): void {
+    if (shouldBlockTypedCodesKey(event)) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === 'Escape') {
       this.closeDraftCodesDropdown(lineId);
       return;
@@ -1236,6 +1247,29 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
       .split(/[\s,;|]+/)
       .map((token) => token.trim())
       .filter((token) => token.length > 0);
+  }
+
+  /** Sanitize code field value in-place and keep the caret when characters are stripped. */
+  private applySanitizedCodesToInput(input: HTMLInputElement): string {
+    const raw = input.value;
+    const sanitized = sanitizeTypedCodesInput(raw);
+    if (sanitized === raw) {
+      return sanitized;
+    }
+
+    const selectionStart = input.selectionStart;
+    input.value = sanitized;
+    if (selectionStart != null && typeof input.setSelectionRange === 'function') {
+      const removedBefore =
+        raw.slice(0, selectionStart).length - sanitizeTypedCodesInput(raw.slice(0, selectionStart)).length;
+      const caret = Math.max(0, selectionStart - removedBefore);
+      try {
+        input.setSelectionRange(caret, caret);
+      } catch {
+        // Some input types don't support selection ranges; ignore.
+      }
+    }
+    return sanitized;
   }
 
   private isSameSerialCode(a: string, b: string): boolean {
@@ -2239,6 +2273,15 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     return this.accessorySerialDropdownRow() === rowIndex;
   }
 
+  /** Digits + multi-code delimiters only for existing-row serial quick entry. */
+  protected onAccessorySerialQuickInput(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+    this.accessorySerialQuickEntry.set(this.applySanitizedCodesToInput(input));
+  }
+
   /**
    * Existing-row codes Enter (desktop + tablet VK Done/Next):
    * - 1st Enter with typed code(s) → assign into selectedCodes, clear input, stay focused
@@ -2246,6 +2289,10 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
    */
   protected onAccessorySerialQuickEnter(rowIndex: number, event: Event): void {
     const keyEvent = event as KeyboardEvent;
+    if (shouldBlockTypedCodesKey(keyEvent)) {
+      keyEvent.preventDefault();
+      return;
+    }
     if (!this.isEnterKey(keyEvent)) {
       return;
     }
@@ -2256,10 +2303,11 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
 
     // Prefer DOM value: some tablet VKs fire Enter before the last (input) event flushes to the signal.
     const fromDom = (event.target as HTMLInputElement | null)?.value;
-    if (fromDom != null && fromDom !== this.accessorySerialQuickEntry()) {
-      this.accessorySerialQuickEntry.set(fromDom);
+    const sanitizedDom = fromDom != null ? sanitizeTypedCodesInput(fromDom) : null;
+    if (sanitizedDom != null && sanitizedDom !== this.accessorySerialQuickEntry()) {
+      this.accessorySerialQuickEntry.set(sanitizedDom);
     }
-    const typed = (fromDom ?? this.accessorySerialQuickEntry()).trim();
+    const typed = (sanitizedDom ?? this.accessorySerialQuickEntry()).trim();
     if (!typed) {
       this.advanceFromAccessorySerialEdit(rowIndex);
       return;

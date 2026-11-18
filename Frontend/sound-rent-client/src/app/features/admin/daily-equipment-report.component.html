@@ -278,8 +278,10 @@
                                     placeholder="הקלידו קוד ולחצו Enter"
                                     autocomplete="off"
                                     enterkeyhint="next"
+                                    inputmode="numeric"
+                                    pattern="[0-9]*"
                                     [value]="serialQuickEntry()"
-                                    (input)="serialQuickEntry.set($any($event.target).value)"
+                                    (input)="onSerialQuickInput($event)"
                                     (keydown)="onSerialQuickEnter(item, $event)"
                                   />
                                 </div>

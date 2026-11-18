@@ -31,6 +31,29 @@ export function splitTypedCodes(raw: string): string[] {
 }
 
 /**
+ * Restricts typed serial/item codes to digits and multi-code delimiters
+ * (space, comma, semicolon, pipe) — strips letters and other junk for
+ * tablet/mobile numeric keypads while still allowing batch entry.
+ */
+export function sanitizeTypedCodesInput(raw: string): string {
+  return raw.replace(/[^\d\s,;|]+/g, '');
+}
+
+/**
+ * Blocks non-digit / non-delimiter printable keys on code fields.
+ * Leaves Enter, Backspace, arrows, Tab, and modifier shortcuts alone.
+ */
+export function shouldBlockTypedCodesKey(event: KeyboardEvent): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return false;
+  }
+  if (event.key.length !== 1) {
+    return false;
+  }
+  return !/[\d\s,;|]/.test(event.key);
+}
+
+/**
  * Kit floor for merging mixer default accessories into an existing row.
  * Uses template codes already present + uncoded kit slots — never
  * `currentCodes.length + uncodedCount`, so user-filled 0/1 slots do not
