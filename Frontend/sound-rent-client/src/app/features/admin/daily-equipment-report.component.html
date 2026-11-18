@@ -182,7 +182,7 @@
 
                           <span class="accessory-row__serial">
                             <span class="accessory-row__serial-sep">:</span>
-                            @if (item.serialCodes.length > 0) {
+                            @if (displaySerialCodes(item).length > 0) {
                               <button
                                 type="button"
                                 class="accessory-row__serial-codes"
@@ -191,7 +191,7 @@
                                 (click)="toggleSerialDropdown(item)"
                               >
                                 <span class="accessory-row__serial-chip-list">
-                                  @for (code of item.serialCodes; track code) {
+                                  @for (code of displaySerialCodes(item); track code) {
                                     <span
                                       class="accessory-row__serial-chip"
                                       [class.accessory-row__serial-chip--returned]="isSerialReturned(item, code)"
@@ -224,6 +224,16 @@
                                 title="עריכת קודי פריט וכמות"
                               >
                                 ✎
+                              </button>
+                              <button
+                                type="button"
+                                class="accessory-row__remove"
+                                [disabled]="isSavingSerialRow(item)"
+                                (click)="removeAccessoryRow(item)"
+                                aria-label="הסרת אביזר"
+                                title="הסרת אביזר"
+                              >
+                                ×
                               </button>
                             }
                             @if (rowHasRecordedReturns(item) && item.returnedSerialCodes.length > 0) {
@@ -263,11 +273,14 @@
                                   <input
                                     type="text"
                                     class="multi-select__quick-input"
-                                    placeholder="Enter הקלידו קוד פריט ולחצו "
+                                    data-report-serial-quick-input
+                                    [attr.data-row-key]="item.rowKey"
+                                    placeholder="הקלידו קוד ולחצו Enter"
                                     autocomplete="off"
+                                    enterkeyhint="next"
                                     [value]="serialQuickEntry()"
                                     (input)="serialQuickEntry.set($any($event.target).value)"
-                                    (keydown.enter)="onSerialQuickEnter(item, $event)"
+                                    (keydown)="onSerialQuickEnter(item, $event)"
                                   />
                                 </div>
                                 @for (opt of serialOptionsForRow(item); track opt.serialCode) {
@@ -570,6 +583,51 @@
           (click)="proceedDespiteQuantityMismatch()"
         >
           אישור והמשך בכל זאת
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (removeAccessoryConfirmRowKey() !== null) {
+  <div
+    class="app-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="remove-accessory-confirm-title"
+    (click)="cancelRemoveAccessoryRow()"
+  >
+    <div
+      class="app-modal-panel w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      style="--app-modal-max-w: 28rem"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="app-modal-header border-b border-slate-200 px-5 py-4">
+        <h2 id="remove-accessory-confirm-title" class="text-lg font-bold text-[#002244]">
+          הסרת פריט מההזמנה
+        </h2>
+      </div>
+      <div class="app-modal-body px-5 py-4">
+        <p class="text-sm text-slate-700">
+          האם אתה בטוח שברצונך להסיר את הפריט
+          <strong>{{ removeAccessoryConfirmName() }}</strong>
+          מההזמנה?
+        </p>
+      </div>
+      <div class="app-modal-footer flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          (click)="cancelRemoveAccessoryRow()"
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-rose-600 bg-rose-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+          (click)="confirmRemoveAccessoryRow()"
+        >
+          הסר פריט
         </button>
       </div>
     </div>

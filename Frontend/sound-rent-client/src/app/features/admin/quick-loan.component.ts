@@ -51,6 +51,7 @@ import {
   ISRAELI_PHONE_INVALID_MESSAGE,
   israeliPhoneValidator
 } from '../../core/validators/israeli-phone.validator';
+import { computeKitMergeQuantity } from '../../core/utils/mixer-default-accessory-merge';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
   issuedQuantity,
@@ -1750,11 +1751,7 @@ export class QuickLoanComponent implements OnInit {
     // Kit floor = template codes already on the row + uncoded kit slots.
     // Do not use merged.length + uncodedCount: user-assigned codes that fill
     // uncoded slots must not be counted again on re-apply.
-    const presentTemplateCodeCount = codes.filter((code) =>
-      merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-    ).length;
-    const kitRequired = presentTemplateCodeCount + uncodedCount;
-    const nextQuantity = Math.max(existing.quantity, kitRequired, merged.length, 1);
+    const nextQuantity = computeKitMergeQuantity(existing.quantity, merged, codes, uncodedCount);
     if (nextQuantity > existing.quantity) {
       changed = true;
     }
@@ -1840,11 +1837,7 @@ export class QuickLoanComponent implements OnInit {
     // Kit floor = template codes already on the row + uncoded kit slots.
     // Do not use merged.length + uncodedCount: user-assigned codes that fill
     // uncoded slots must not be counted again on re-apply.
-    const presentTemplateCodeCount = codes.filter((code) =>
-      merged.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-    ).length;
-    const kitRequired = presentTemplateCodeCount + uncodedCount;
-    const nextQuantity = Math.max(existing.quantity, kitRequired, merged.length, 1);
+    const nextQuantity = computeKitMergeQuantity(existing.quantity, merged, codes, uncodedCount);
     if (nextQuantity > existing.quantity) {
       changed = true;
     }

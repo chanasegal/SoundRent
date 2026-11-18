@@ -1,13 +1,20 @@
-import { CanDeactivateFn } from '@angular/router';
+import { CanDeactivateFn, RouterStateSnapshot } from '@angular/router';
 import { Observable } from 'rxjs';
 
 export interface CanComponentDeactivate {
-  canDeactivate: () => Observable<boolean> | Promise<boolean> | boolean;
+  canDeactivate: (
+    nextState?: RouterStateSnapshot
+  ) => Observable<boolean> | Promise<boolean> | boolean;
 }
 
-export const canDeactivateGuard: CanDeactivateFn<CanComponentDeactivate> = (component) => {
+export const canDeactivateGuard: CanDeactivateFn<CanComponentDeactivate> = (
+  component,
+  _currentRoute,
+  _currentState,
+  nextState
+) => {
   if (!component?.canDeactivate) {
     return true;
   }
-  return component.canDeactivate();
+  return component.canDeactivate(nextState);
 };

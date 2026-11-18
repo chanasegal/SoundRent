@@ -97,6 +97,10 @@ import {
   EMPTY_CUSTOMER_RISK_ALERTS
 } from '../../core/utils/customer-risk-alerts';
 import { startLiveDataRefresh } from '../../core/utils/live-data-refresh';
+import {
+  computeKitMergeQuantity,
+  groupMixerDefaultAccessories
+} from '../../core/utils/mixer-default-accessory-merge';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import {
   buildOrderDeleteConfirmMessage,
@@ -1826,52 +1830,14 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
         // Group by catalog definition when present; fall back to system type.
         // Uncoded kit rows still count toward quantity so the accessory is added
         // and a concrete serial can be chosen later on the order.
-        const byDefinition = new Map<
-          number,
-          { defId: number; type: LoanedEquipmentType | null; codes: string[]; uncodedCount: number }
-        >();
-        const byType = new Map<LoanedEquipmentType, { codes: string[]; uncodedCount: number }>();
-
-        for (const row of defaults) {
-          const code = (row.accessorySerialCode ?? '').trim();
-          if (row.inventoryDefinitionId != null && row.inventoryDefinitionId > 0) {
-            const key = row.inventoryDefinitionId;
-            const existing = byDefinition.get(key) ?? {
-              defId: key,
-              type: (row.accessoryEquipmentType as LoanedEquipmentType | null) ?? null,
-              codes: [],
-              uncodedCount: 0
-            };
-            if (!code) {
-              existing.uncodedCount += 1;
-            } else if (
-              !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-            ) {
-              existing.codes.push(code);
-            }
-            byDefinition.set(key, existing);
-            continue;
-          }
-          const type = row.accessoryEquipmentType as LoanedEquipmentType | null;
-          if (!type || !LOANED_EQUIPMENT_ORDER.includes(type)) {
-            continue;
-          }
-          const existing = byType.get(type) ?? { codes: [], uncodedCount: 0 };
-          if (!code) {
-            existing.uncodedCount += 1;
-          } else if (
-            !existing.codes.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-          ) {
-            existing.codes.push(code);
-          }
-          byType.set(type, existing);
-        }
+        const { byDefinition, byType } = groupMixerDefaultAccessories(defaults);
 
         let addedAny = false;
-        for (const group of byDefinition.values()) {
+        for (const group of byDefinition) {
           if (
+            group.inventoryDefinitionId != null &&
             this.mergeDefaultAccessoryCodesForDefinition(
-              group.defId,
+              group.inventoryDefinitionId,
               group.type,
               group.codes,
               group.uncodedCount
@@ -1880,8 +1846,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
             addedAny = true;
           }
         }
-        for (const [type, group] of byType) {
-          if (this.mergeDefaultAccessoryCodes(type, group.codes, group.uncodedCount)) {
+        for (const group of byType) {
+          if (this.mergeDefaultAccessoryCodes(group.type, group.codes, group.uncodedCount)) {
             addedAny = true;
           }
         }
@@ -1962,11 +1928,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     // Kit floor = template codes already on the row + uncoded kit slots.
     // Do not use current.length + uncodedCount: codes the user assigned to fill
     // uncoded slots must not be counted again on re-apply (save/reopen / double fetch).
-    const presentTemplateCodeCount = codes.filter((code) =>
-      current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-    ).length;
-    const kitRequired = presentTemplateCodeCount + uncodedCount;
-    const nextQuantity = Math.max(existingQuantity, kitRequired, current.length, 1);
+    const nextQuantity = computeKitMergeQuantity(existingQuantity, current, codes, uncodedCount);
     if (nextQuantity > existingQuantity) {
       changed = true;
     }
@@ -2060,11 +2022,7 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
     // Kit floor = template codes already on the row + uncoded kit slots.
     // Do not use current.length + uncodedCount: codes the user assigned to fill
     // uncoded slots must not be counted again on re-apply (save/reopen / double fetch).
-    const presentTemplateCodeCount = codes.filter((code) =>
-      current.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)
-    ).length;
-    const kitRequired = presentTemplateCodeCount + uncodedCount;
-    const nextQuantity = Math.max(existingQuantity, kitRequired, current.length, 1);
+    const nextQuantity = computeKitMergeQuantity(existingQuantity, current, codes, uncodedCount);
     if (nextQuantity > existingQuantity) {
       changed = true;
     }
@@ -4144,6 +4102,8 @@ export class OrderFormComponent implements OnInit, OnDestroy, CanComponentDeacti
             return;
           }
           this.toast.success(`הזמנה #${id} נמחקה בהצלחה`);
+          // Deleted order is gone — skip soft-warning exit dialogs on redirect to the board.
+          this.bypassSoftSaveDeactivateGuard = true;
           const iso = this.bookingGroup(0).controls['startDate'].value;
           this.navigateAfterOrderFlow(typeof iso === 'string' ? iso : null);
         }

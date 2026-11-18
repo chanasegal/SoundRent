@@ -1,22 +1,26 @@
 import { CommonModule, DOCUMENT } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   computed,
   DestroyRef,
   inject,
+  Injector,
   OnInit,
   signal
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterStateSnapshot } from '@angular/router';
 import { catchError, finalize, Observable, of } from 'rxjs';
 
 import {
   AccessorySerialAvailabilityGroupDto,
   AccessorySerialOptionDto
 } from '../../core/models/accessory-inventory.model';
+import { EquipmentDefaultAccessoryDto } from '../../core/models/equipment-default-accessory.model';
 import { InventoryDefinitionDto } from '../../core/models/inventory-definition.model';
 import {
   LOANED_EQUIPMENT_ORDER,
@@ -45,6 +49,13 @@ import {
   QuantityCodeShortage,
   quantityCodeShortageMessage
 } from '../../core/utils/quantity-code-shortage';
+import {
+  computeKitMergeQuantity,
+  groupMixerDefaultAccessories,
+  isEnterKey,
+  isSameSerialCode,
+  splitTypedCodes
+} from '../../core/utils/mixer-default-accessory-merge';
 import { HebrewCalendarPickerComponent } from '../../shared/hebrew-calendar-picker/hebrew-calendar-picker.component';
 import { compareNumericCodes, sortNumericCodes } from '../../core/utils/numeric-code-sort';
 import { TouchTooltipComponent } from '../../shared/components/touch-tooltip.component';
@@ -128,12 +139,25 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly injector = inject(Injector);
 
   /** Soft warning when codes < quantity; `null` when the modal is closed. */
   protected readonly quantityMismatchWarnings = signal<QuantityCodeShortage[] | null>(null);
   private quantityMismatchPendingAction: (() => void) | null = null;
   private quantityMismatchCancelAction: (() => void) | null = null;
   private bypassQuantityDeactivateGuard = false;
+
+  /** Pending accessory rowKey for the remove confirmation modal; `null` when closed. */
+  protected readonly removeAccessoryConfirmRowKey = signal<string | null>(null);
+  protected readonly removeAccessoryConfirmName = signal('');
+  /** After empty-Enter advance, open this target once the current save finishes. */
+  private pendingAdvanceTarget: {
+    orderId: number;
+    inventoryDefinitionId: number | null;
+    type: LoanedEquipmentType | null;
+    openAdd: boolean;
+  } | null = null;
 
   private readonly initialHebrew = this.hebrew.toHebrewParts(new Date());
   private readonly extraYearsSig = signal<number[]>([]);
@@ -305,18 +329,19 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
   }
 
   protected displayAccessoryQuantity(row: CustomerAccessoryLine): number {
-    if (this.isSerialDropdownOpen(row)) {
+    // Prefer draft qty whenever a kit merge / open editor touched this row.
+    if (this.quantityDraftByRowKey().has(row.rowKey) || this.isSerialDropdownOpen(row)) {
       return this.getDraftQuantity(row);
     }
     if (this.isPendingAccessoryRow(row)) {
-      return Math.max(row.serialCodes.length, 1);
+      return Math.max(row.quantity, row.serialCodes.length, 1);
     }
     return row.quantity;
   }
 
-  /** Filled serial-code count for the progress counter (draft while panel is open). */
+  /** Filled serial-code count for the progress counter (draft while panel is open / kit-merged). */
   protected accessoryFilledCodesCount(row: CustomerAccessoryLine): number {
-    if (this.isSerialDropdownOpen(row)) {
+    if (this.serialDraftByRowKey().has(row.rowKey) || this.isSerialDropdownOpen(row)) {
       return this.getDraftCodes(row).length;
     }
     return row.serialCodes.map((c) => c.trim()).filter((c) => c.length > 0).length;
@@ -418,8 +443,12 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     return shortages;
   }
 
-  canDeactivate(): Observable<boolean> | boolean {
+  canDeactivate(nextState?: RouterStateSnapshot): Observable<boolean> | boolean {
     if (this.bypassQuantityDeactivateGuard) {
+      return true;
+    }
+    // Order-number links open the order form; skip the missing-codes warning for that path only.
+    if (nextState && this.isOrderFormNavigation(nextState.url)) {
       return true;
     }
     if (this.quantityMismatchWarnings() != null) {
@@ -442,6 +471,12 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
         }
       );
     });
+  }
+
+  /** True when leaving for an existing order form (`/orders/:id`), not create or other admin pages. */
+  private isOrderFormNavigation(url: string): boolean {
+    const path = url.split('?')[0] ?? url;
+    return /^\/orders\/\d+$/.test(path);
   }
 
   protected getDraftQuantity(row: CustomerAccessoryLine): number {
@@ -604,49 +639,199 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     this.serialQuickEntry.set('');
     this.openSerialDropdownKey.set(key);
     this.loadSerialAvailability(row);
-    queueMicrotask(() => this.focusSerialQuickEntry());
+    this.cdr.markForCheck();
+    this.scheduleFocusSerialQuickInput(row.rowKey);
   }
 
+  /**
+   * Existing-row codes Enter (desktop + tablet VK Done/Next):
+   * - 1st Enter with typed code(s) → assign into draft, clear input, stay focused
+   * - 2nd Enter (empty) → close/save and move focus to the next item (or "+ הוספת אביזר")
+   */
   protected onSerialQuickEnter(row: CustomerAccessoryLine, event: Event): void {
+    const keyEvent = event as KeyboardEvent;
+    if (!isEnterKey(keyEvent)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
-    const typed = this.serialQuickEntry().trim();
+    // Prefer DOM value: some tablet VKs fire Enter before the last (input) event flushes to the signal.
+    const fromDom = (event.target as HTMLInputElement | null)?.value;
+    if (fromDom != null && fromDom !== this.serialQuickEntry()) {
+      this.serialQuickEntry.set(fromDom);
+    }
+    const typed = (fromDom ?? this.serialQuickEntry()).trim();
     if (!typed) {
+      this.advanceFromSerialEdit(row);
       return;
     }
 
-    const match = this.serialOptionsForRow(row).find(
-      (opt) => opt.serialCode.localeCompare(typed, undefined, { sensitivity: 'accent' }) === 0
-    );
+    const tokens = splitTypedCodes(typed);
+    const options = this.serialOptionsForRow(row);
 
-    if (!match) {
-      this.toast.warning(`קוד "${typed}" לא קיים במלאי לפריט זה`);
-      return;
+    for (const token of tokens) {
+      const match = options.find((opt) => isSameSerialCode(opt.serialCode, token));
+
+      if (!match) {
+        this.toast.warning(`קוד "${token}" לא קיים במלאי לפריט זה`);
+        continue;
+      }
+
+      if (this.isSerialEditLocked(row, match.serialCode)) {
+        this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
+        continue;
+      }
+
+      if (this.isSerialSelected(row, match.serialCode)) {
+        // Already selected — keep it; Enter is for adding more codes, not toggling off.
+        continue;
+      }
+
+      if (!match.isAvailable) {
+        this.toast.warning(`קוד "${match.serialCode}" אינו זמין `);
+        continue;
+      }
+
+      this.toggleSerialSelection(row, match.serialCode, true);
     }
 
-    if (this.isSerialEditLocked(row, match.serialCode)) {
-      this.toast.warning('פריט שהוחזר למלאי לא ניתן לביטול או שינוי');
-      return;
-    }
-
-    const alreadySelected = this.isSerialSelected(row, match.serialCode);
-    if (!alreadySelected && !match.isAvailable) {
-      this.toast.warning(`קוד "${match.serialCode}" כרגע תפוס ואינו זמין`);
-      return;
-    }
-
-    this.toggleSerialSelection(row, match.serialCode, !alreadySelected);
     this.serialQuickEntry.set('');
-    queueMicrotask(() => this.focusSerialQuickEntry());
+    this.cdr.markForCheck();
+    this.scheduleFocusSerialQuickInput(row.rowKey);
   }
 
-  private focusSerialQuickEntry(): void {
-    const input = this.document.querySelector<HTMLInputElement>(
-      '.accessory-serial-panel .multi-select__quick-input'
+  /** Exit the current row's serial editor and focus the next editable row, or "+ הוספת אביזר". */
+  private advanceFromSerialEdit(row: CustomerAccessoryLine): void {
+    const editable = this.editableAccessoryRowsForOrder(row.orderId);
+    const index = editable.findIndex((r) => r.rowKey === row.rowKey);
+    const next = index >= 0 ? editable[index + 1] : undefined;
+
+    this.pendingAdvanceTarget = next
+      ? {
+          orderId: next.orderId,
+          inventoryDefinitionId: next.inventoryDefinitionId,
+          type: next.loanedEquipmentType,
+          openAdd: false
+        }
+      : {
+          orderId: row.orderId,
+          inventoryDefinitionId: null,
+          type: null,
+          openAdd: true
+        };
+
+    this.closeSerialDropdown(row, { saveIfChanged: true });
+
+    // No save was queued (unchanged / already closed) — advance immediately.
+    if (this.savingSerialRowKey() !== row.rowKey && this.openSerialDropdownKey() !== row.rowKey) {
+      this.finishPendingAdvance();
+    }
+  }
+
+  private editableAccessoryRowsForOrder(orderId: number): CustomerAccessoryLine[] {
+    const report = this.report();
+    if (!report) {
+      return [];
+    }
+    for (const customer of report.outbound.customers) {
+      if (!customer.orderIds.includes(orderId)) {
+        continue;
+      }
+      return this.displayAccessoryRows(customer).filter(
+        (r) => r.orderId === orderId && this.canEditAccessorySerials(r)
+      );
+    }
+    return [];
+  }
+
+  private finishPendingAdvance(): void {
+    const target = this.pendingAdvanceTarget;
+    this.pendingAdvanceTarget = null;
+    if (!target) {
+      return;
+    }
+
+    if (target.openAdd) {
+      this.openAddAccessoryForOrder(target.orderId);
+      return;
+    }
+
+    const nextRow = this.findOrderAccessoryRow(
+      target.orderId,
+      target.inventoryDefinitionId,
+      target.type
     );
-    input?.focus();
-    input?.select();
+    if (nextRow && this.canEditAccessorySerials(nextRow)) {
+      this.openSerialDropdownForRow(nextRow);
+    }
+  }
+
+  private openSerialDropdownForRow(row: CustomerAccessoryLine): void {
+    if (!this.canEditAccessorySerials(row) || this.isSavingSerialRow(row)) {
+      return;
+    }
+    this.initSerialDraft(row);
+    this.serialQuickEntry.set('');
+    this.openSerialDropdownKey.set(row.rowKey);
+    this.loadSerialAvailability(row);
+    this.cdr.markForCheck();
+    this.scheduleFocusSerialQuickInput(row.rowKey);
+  }
+
+  private openAddAccessoryForOrder(orderId: number): void {
+    const report = this.report();
+    const customer = report?.outbound.customers.find((c) => c.orderIds.includes(orderId));
+    if (!customer) {
+      return;
+    }
+    this.openAddAccessoryCustomerKey.set(this.customerKey(customer));
+    this.addAccessoryTargetOrderId.set(orderId);
+    this.accessoryTypeQuery.set('');
+    this.cdr.markForCheck();
+    afterNextRender(
+      () => {
+        const focus = (): void => {
+          this.document.querySelector<HTMLInputElement>('.add-accessory__search')?.focus();
+        };
+        focus();
+        setTimeout(focus, 60);
+      },
+      { injector: this.injector }
+    );
+  }
+
+  /**
+   * Focus the open serial quick-input after CD paints the panel.
+   * Retries once: tablet virtual keyboards / viewport resize often steal focus right after Enter.
+   */
+  private scheduleFocusSerialQuickInput(rowKey?: string): void {
+    const focus = (): boolean => {
+      const inputs = [
+        ...this.document.querySelectorAll<HTMLInputElement>('[data-report-serial-quick-input]')
+      ];
+      const input =
+        rowKey == null ? inputs[0] : inputs.find((el) => el.getAttribute('data-row-key') === rowKey);
+      if (!input) {
+        return false;
+      }
+      input.scrollIntoView({ block: 'nearest' });
+      input.focus({ preventScroll: true });
+      input.select();
+      return this.document.activeElement === input;
+    };
+
+    afterNextRender(
+      () => {
+        if (focus()) {
+          setTimeout(() => focus(), 60);
+          return;
+        }
+        setTimeout(() => focus(), 60);
+      },
+      { injector: this.injector }
+    );
   }
 
   protected confirmSerialDropdown(row: CustomerAccessoryLine, event?: Event): void {
@@ -736,9 +921,7 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     }
 
     if (checked) {
-      const match = this.serialOptionsForRow(row).find(
-        (opt) => opt.serialCode.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0
-      );
+      const match = this.serialOptionsForRow(row).find((opt) => isSameSerialCode(opt.serialCode, code));
       if (match && !match.isAvailable && !this.isSerialSelected(row, code)) {
         this.toast.warning(`קוד "${code}" כרגע תפוס ואינו זמין לבחירה`);
         return;
@@ -747,16 +930,90 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
 
     let next = [...this.getDraftCodes(row)];
     if (checked) {
-      if (!next.some((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) === 0)) {
+      if (!next.some((c) => isSameSerialCode(c, code))) {
         next.push(code);
       }
     } else {
-      next = next.filter((c) => c.localeCompare(code, undefined, { sensitivity: 'accent' }) !== 0);
+      next = next.filter((c) => !isSameSerialCode(c, code));
     }
 
     const quantity = this.getDraftQuantity(row);
     this.setDraftCodes(row.rowKey, next);
     this.setDraftQuantity(row.rowKey, Math.max(quantity, next.length, 1));
+    this.cdr.markForCheck();
+
+    if (checked && row.loanedEquipmentType === LoanedEquipmentType.Mixer) {
+      this.applyMixerDefaultAccessories(code, row.orderId);
+    }
+  }
+
+  /** Opens the remove confirmation modal; the row is only deleted after the user confirms. */
+  protected removeAccessoryRow(row: CustomerAccessoryLine): void {
+    if (this.isSavingSerialRow(row)) {
+      return;
+    }
+    if (!this.canEditAccessorySerials(row)) {
+      this.toast.warning('לא ניתן להסיר שורה שנעולה לאחר רישום החזרה');
+      return;
+    }
+    this.removeAccessoryConfirmRowKey.set(row.rowKey);
+    this.removeAccessoryConfirmName.set(row.label.trim() || 'item');
+  }
+
+  protected cancelRemoveAccessoryRow(): void {
+    this.removeAccessoryConfirmRowKey.set(null);
+    this.removeAccessoryConfirmName.set('');
+  }
+
+  protected confirmRemoveAccessoryRow(): void {
+    const rowKey = this.removeAccessoryConfirmRowKey();
+    this.cancelRemoveAccessoryRow();
+    if (!rowKey) {
+      return;
+    }
+    const row = this.findAccessoryRowByKey(rowKey);
+    if (!row) {
+      return;
+    }
+    if (!this.canEditAccessorySerials(row)) {
+      this.toast.warning('לא ניתן להסיר שורה שנעולה לאחר רישום החזרה');
+      return;
+    }
+
+    if (this.isPendingAccessoryRow(row)) {
+      this.removePendingRow(row);
+      this.clearSerialDraft(row.rowKey);
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const order = this.orders().find((o) => o.id === row.orderId);
+    if (!order) {
+      return;
+    }
+
+    this.savingSerialRowKey.set(row.rowKey);
+    const loanedEquipments = (order.loanedEquipments ?? []).filter((le) => !this.lineMatchesRow(le, row));
+    const payload = this.orderToUpdatePayload(order, loanedEquipments);
+
+    this.data
+      .updateOrder(row.orderId, payload)
+      .pipe(finalize(() => this.savingSerialRowKey.set(null)))
+      .subscribe((updated) => {
+        if (!updated) {
+          return;
+        }
+        this.orders.update((list) => list.map((o) => (o.id === updated.id ? updated : o)));
+        this.ordersSync.notifyOrderUpdated(updated);
+        this.clearSerialDraft(row.rowKey);
+        if (this.openSerialDropdownKey() === row.rowKey) {
+          this.openSerialDropdownKey.set(null);
+          this.serialQuickEntry.set('');
+        }
+        this.inventoryStore.load({ force: true }).subscribe();
+        this.cdr.markForCheck();
+        this.toast.success('האביזר הוסר מההזמנה');
+      });
   }
 
   protected exportToExcel(): void {
@@ -1098,16 +1355,28 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     const hasChanges = this.hasSerialDraftChanges(row);
 
     const finishClose = (): void => {
-      this.clearSerialDraft(row.rowKey);
+      // Keep drafts that belong to sibling kit-merged rows; only clear this row when
+      // we are discarding (cancel) or after a successful save replaces the source of truth.
+      if (!options.saveIfChanged || !hasChanges) {
+        this.clearSerialDraft(row.rowKey);
+      }
       this.serialQuickEntry.set('');
       this.openSerialDropdownKey.set(null);
     };
 
     if (options.saveIfChanged && hasChanges) {
-      this.confirmRowQuantityOrProceed(row, draft, quantity, () => {
-        this.saveSerialCodes({ ...row, serialCodes: draft }, draft, quantity);
-        finishClose();
-      });
+      this.confirmRowQuantityOrProceed(
+        row,
+        draft,
+        quantity,
+        () => {
+          this.saveSerialCodes({ ...row, serialCodes: draft }, draft, quantity);
+          finishClose();
+        },
+        () => {
+          this.clearPendingAdvance();
+        }
+      );
       return;
     }
 
@@ -1116,6 +1385,18 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     }
 
     finishClose();
+  }
+
+  private clearPendingAdvance(): void {
+    this.pendingAdvanceTarget = null;
+  }
+
+  /** Serial chips for a row — prefer kit-merge / editor drafts when present. */
+  protected displaySerialCodes(row: CustomerAccessoryLine): string[] {
+    if (this.serialDraftByRowKey().has(row.rowKey) || this.isSerialDropdownOpen(row)) {
+      return this.getDraftCodes(row);
+    }
+    return row.serialCodes;
   }
 
   private initSerialDraft(row: CustomerAccessoryLine): void {
@@ -1169,7 +1450,7 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
 
   private getSavedQuantity(row: CustomerAccessoryLine): number {
     if (this.isPendingAccessoryRow(row)) {
-      return Math.max(row.serialCodes.length, 1);
+      return Math.max(row.quantity, row.serialCodes.length, 1);
     }
     const line = this.findSavedLine(row);
     return Math.max(line?.quantity ?? row.quantity, 0);
@@ -1275,6 +1556,7 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
   private saveSerialCodes(row: CustomerAccessoryLine, codes: string[], quantity: number): void {
     const order = this.orders().find((o) => o.id === row.orderId);
     if (!order) {
+      this.clearPendingAdvance();
       return;
     }
 
@@ -1283,22 +1565,77 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     const taken = this.findTakenSerialInDraft(row, codes);
     if (taken) {
       this.savingSerialRowKey.set(null);
+      this.clearPendingAdvance();
       this.toast.warning(`קוד "${taken}" כרגע תפוס ואינו זמין לבחירה`);
       return;
     }
 
     const lineQuantity = Math.max(quantity, codes.length, 1);
-    const loanedEquipments = this.isPendingAccessoryRow(row)
+    let loanedEquipments = this.isPendingAccessoryRow(row)
       ? this.appendOrPatchAccessoryLine(order, row, codes, lineQuantity)
       : this.patchOrderLoanedSerials(order, row, codes, lineQuantity);
+
+    // Fold mixer-kit pending rows + dirty sibling drafts into the same order save.
+    const pendingForOrder = this.pendingAccessoryRows().filter(
+      (pending) => pending.orderId === row.orderId && pending.rowKey !== row.rowKey
+    );
+    for (const pending of pendingForOrder) {
+      const pendingCodes = this.serialDraftByRowKey().has(pending.rowKey)
+        ? this.getDraftCodes(pending)
+        : [...pending.serialCodes];
+      const pendingQty = this.quantityDraftByRowKey().has(pending.rowKey)
+        ? this.getDraftQuantity(pending)
+        : Math.max(pending.quantity, pendingCodes.length, 1);
+      loanedEquipments = this.appendOrPatchAccessoryLine(
+        { ...order, loanedEquipments },
+        pending,
+        pendingCodes,
+        pendingQty
+      );
+    }
+
+    for (const sibling of this.editableAccessoryRowsForOrder(row.orderId)) {
+      if (sibling.rowKey === row.rowKey || this.isPendingAccessoryRow(sibling)) {
+        continue;
+      }
+      const hasDraft =
+        this.serialDraftByRowKey().has(sibling.rowKey) ||
+        this.quantityDraftByRowKey().has(sibling.rowKey);
+      if (!hasDraft) {
+        continue;
+      }
+      const siblingCodes = this.getDraftCodes(sibling);
+      const siblingQty = this.getDraftQuantity(sibling);
+      loanedEquipments = this.patchOrderLoanedSerials(
+        { ...order, loanedEquipments },
+        sibling,
+        siblingCodes,
+        siblingQty
+      );
+    }
+
     const payload = this.orderToUpdatePayload(order, loanedEquipments);
     const wasPending = this.isPendingAccessoryRow(row);
+    const pendingKeysToClear = [
+      row.rowKey,
+      ...pendingForOrder.map((p) => p.rowKey),
+      ...this.editableAccessoryRowsForOrder(row.orderId)
+        .filter(
+          (sibling) =>
+            sibling.rowKey !== row.rowKey &&
+            !this.isPendingAccessoryRow(sibling) &&
+            (this.serialDraftByRowKey().has(sibling.rowKey) ||
+              this.quantityDraftByRowKey().has(sibling.rowKey))
+        )
+        .map((sibling) => sibling.rowKey)
+    ];
 
     this.data
       .updateOrder(row.orderId, payload)
       .pipe(finalize(() => this.savingSerialRowKey.set(null)))
       .subscribe((updated) => {
         if (!updated) {
+          this.clearPendingAdvance();
           return;
         }
         this.orders.update((list) => list.map((o) => (o.id === updated.id ? updated : o)));
@@ -1306,10 +1643,325 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
         if (wasPending) {
           this.removePendingRow(row);
         }
-        this.clearSerialDraft(row.rowKey);
+        for (const pending of pendingForOrder) {
+          this.removePendingRow(pending);
+        }
+        for (const key of pendingKeysToClear) {
+          this.clearSerialDraft(key);
+        }
         this.inventoryStore.load({ force: true }).subscribe();
+        this.cdr.markForCheck();
         this.toast.success(wasPending ? 'אביזר נוסף להזמנה' : 'האביזר עודכן');
+        this.finishPendingAdvance();
       });
+  }
+
+  /**
+   * When a Mixer serial is selected, fetch that unit's default accessories and
+   * merge them into the order's equipment list (pending rows + drafts).
+   */
+  private applyMixerDefaultAccessories(mixerSerialCode: string, orderId: number): void {
+    const parentSerial = mixerSerialCode.trim();
+    if (!parentSerial) {
+      return;
+    }
+
+    this.data
+      .getEquipmentDefaultAccessories(LoanedEquipmentType.Mixer, parentSerial)
+      .subscribe((defaults) => {
+        if (!defaults?.length) {
+          return;
+        }
+        const addedAny = this.mergeMixerDefaultAccessories(defaults, orderId);
+        if (addedAny) {
+          this.cdr.markForCheck();
+          this.toast.success(`נוסף ציוד נלווה קבוע למיקסר #${parentSerial}`);
+        }
+      });
+  }
+
+  private mergeMixerDefaultAccessories(
+    defaults: EquipmentDefaultAccessoryDto[],
+    orderId: number
+  ): boolean {
+    const { byDefinition, byType } = groupMixerDefaultAccessories(defaults);
+    let addedAny = false;
+
+    for (const group of byDefinition) {
+      if (group.inventoryDefinitionId == null) {
+        continue;
+      }
+      if (
+        this.mergeDefaultAccessoryCodesForDefinition(
+          orderId,
+          group.inventoryDefinitionId,
+          group.type,
+          group.codes,
+          group.uncodedCount
+        )
+      ) {
+        addedAny = true;
+      }
+    }
+
+    for (const group of byType) {
+      if (this.mergeDefaultAccessoryCodes(orderId, group.type, group.codes, group.uncodedCount)) {
+        addedAny = true;
+      }
+    }
+
+    return addedAny;
+  }
+
+  private mergeDefaultAccessoryCodesForDefinition(
+    orderId: number,
+    inventoryDefinitionId: number,
+    type: LoanedEquipmentType | null,
+    codes: string[],
+    uncodedCount = 0
+  ): boolean {
+    if (codes.length === 0 && uncodedCount <= 0) {
+      return false;
+    }
+
+    const existing = this.findOrderAccessoryRow(orderId, inventoryDefinitionId, type);
+    if (!existing) {
+      const def = this.inventoryStore.byId(inventoryDefinitionId);
+      if (!def) {
+        return type ? this.mergeDefaultAccessoryCodes(orderId, type, codes, uncodedCount) : false;
+      }
+      const filtered =
+        codes.length > 0
+          ? this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes, [])
+          : { available: [] as string[], skippedTaken: 0 };
+      if (filtered.available.length === 0 && uncodedCount <= 0) {
+        if (filtered.skippedTaken > 0) {
+          this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+        }
+        return false;
+      }
+
+      const pendingRow = this.buildPendingAccessoryRow(orderId, def);
+      pendingRow.serialCodes = [...filtered.available];
+      pendingRow.quantity = Math.max(filtered.available.length + uncodedCount, 1);
+      this.pendingAccessoryRows.update((rows) => [...rows, pendingRow]);
+      this.setDraftCodes(pendingRow.rowKey, [...filtered.available]);
+      this.setDraftQuantity(pendingRow.rowKey, pendingRow.quantity);
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
+      return true;
+    }
+
+    return this.mergeCodesIntoAccessoryRow(existing, codes, uncodedCount, inventoryDefinitionId);
+  }
+
+  private mergeDefaultAccessoryCodes(
+    orderId: number,
+    type: LoanedEquipmentType,
+    codes: string[],
+    uncodedCount = 0
+  ): boolean {
+    if (codes.length === 0 && uncodedCount <= 0) {
+      return false;
+    }
+
+    const defId = this.inventoryStore.definitionIdForType(type) ?? null;
+    const existing = this.findOrderAccessoryRow(orderId, defId, type);
+    if (!existing) {
+      const def = this.inventoryStore.definitionForType(type);
+      if (!def) {
+        return false;
+      }
+      const filtered =
+        codes.length > 0
+          ? this.filterAvailableCodesForDefinition(def.id, codes, [])
+          : { available: [] as string[], skippedTaken: 0 };
+      if (filtered.available.length === 0 && uncodedCount <= 0) {
+        if (filtered.skippedTaken > 0) {
+          this.toast.warning('ציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+        }
+        return false;
+      }
+
+      const pendingRow = this.buildPendingAccessoryRow(orderId, def);
+      pendingRow.serialCodes = [...filtered.available];
+      pendingRow.quantity = Math.max(filtered.available.length + uncodedCount, 1);
+      this.pendingAccessoryRows.update((rows) => [...rows, pendingRow]);
+      this.setDraftCodes(pendingRow.rowKey, [...filtered.available]);
+      this.setDraftQuantity(pendingRow.rowKey, pendingRow.quantity);
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
+      return true;
+    }
+
+    const resolvedDefId = existing.inventoryDefinitionId ?? defId;
+    if (resolvedDefId == null) {
+      return false;
+    }
+    return this.mergeCodesIntoAccessoryRow(existing, codes, uncodedCount, resolvedDefId);
+  }
+
+  private mergeCodesIntoAccessoryRow(
+    row: CustomerAccessoryLine,
+    codes: string[],
+    uncodedCount: number,
+    inventoryDefinitionId: number
+  ): boolean {
+    if (!this.canEditAccessorySerials(row)) {
+      return false;
+    }
+
+    const current = this.serialDraftByRowKey().has(row.rowKey)
+      ? [...this.getDraftCodes(row)]
+      : [...this.getSavedCodes(row)];
+    const filtered =
+      codes.length > 0
+        ? this.filterAvailableCodesForDefinition(inventoryDefinitionId, codes, current)
+        : { available: [] as string[], skippedTaken: 0 };
+
+    let changed = false;
+    for (const code of filtered.available) {
+      if (!current.some((c) => isSameSerialCode(c, code))) {
+        current.push(code);
+        changed = true;
+      }
+    }
+
+    const existingQuantity = this.quantityDraftByRowKey().has(row.rowKey)
+      ? this.getDraftQuantity(row)
+      : Math.max(this.getSavedQuantity(row), 1);
+    const nextQuantity = computeKitMergeQuantity(existingQuantity, current, codes, uncodedCount);
+    if (nextQuantity > existingQuantity) {
+      changed = true;
+    }
+
+    if (!changed) {
+      if (filtered.skippedTaken > 0) {
+        this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+      }
+      return false;
+    }
+
+    this.setDraftCodes(row.rowKey, current);
+    this.setDraftQuantity(row.rowKey, nextQuantity);
+
+    if (this.isPendingAccessoryRow(row)) {
+      this.pendingAccessoryRows.update((rows) =>
+        rows.map((pending) =>
+          pending.rowKey === row.rowKey
+            ? { ...pending, serialCodes: current, quantity: nextQuantity }
+            : pending
+        )
+      );
+    }
+
+    if (filtered.skippedTaken > 0) {
+      this.toast.warning('חלק מציוד הנלווה הקבוע תפוס ולא נוסף להשאלה');
+    }
+    return true;
+  }
+
+  private findOrderAccessoryRow(
+    orderId: number,
+    inventoryDefinitionId: number | null,
+    type: LoanedEquipmentType | null
+  ): CustomerAccessoryLine | null {
+    for (const pending of this.pendingAccessoryRows()) {
+      if (pending.orderId !== orderId) {
+        continue;
+      }
+      if (
+        inventoryDefinitionId != null &&
+        pending.inventoryDefinitionId === inventoryDefinitionId
+      ) {
+        return pending;
+      }
+      if (type != null && pending.loanedEquipmentType === type) {
+        return pending;
+      }
+    }
+
+    const report = this.report();
+    if (!report) {
+      return null;
+    }
+    for (const customer of report.outbound.customers) {
+      if (!customer.orderIds.includes(orderId)) {
+        continue;
+      }
+      for (const row of customer.accessoryRows) {
+        if (row.orderId !== orderId) {
+          continue;
+        }
+        if (
+          inventoryDefinitionId != null &&
+          row.inventoryDefinitionId === inventoryDefinitionId
+        ) {
+          return row;
+        }
+        if (type != null && row.loanedEquipmentType === type) {
+          return row;
+        }
+      }
+    }
+    return null;
+  }
+
+  private filterAvailableCodesForDefinition(
+    inventoryDefinitionId: number,
+    codes: string[],
+    alreadySelected: string[] = []
+  ): { available: string[]; skippedTaken: number } {
+    const selectedKeys = new Set(
+      alreadySelected.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
+    );
+    const options = this.collectSerialOptionsForDefinition(inventoryDefinitionId, alreadySelected);
+    const available: string[] = [];
+    let skippedTaken = 0;
+
+    for (const code of codes) {
+      const trimmed = code.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const key = trimmed.toLowerCase();
+      if (selectedKeys.has(key)) {
+        continue;
+      }
+      const match = options.find((opt) => isSameSerialCode(opt.serialCode, trimmed));
+      if (match && !match.isAvailable) {
+        skippedTaken++;
+        continue;
+      }
+      // Reject unknown codes only when live options exist for this definition.
+      if (!match && options.length > 0) {
+        skippedTaken++;
+        continue;
+      }
+      available.push(trimmed);
+      selectedKeys.add(key);
+    }
+
+    return { available, skippedTaken };
+  }
+
+  private collectSerialOptionsForDefinition(
+    inventoryDefinitionId: number,
+    alreadySelected: string[] = []
+  ): AccessorySerialOptionDto[] {
+    for (const [rowKey, options] of this.accessoryAvailabilityByRow()) {
+      const row = this.findAccessoryRowByKey(rowKey);
+      if (row && this.resolveRowInventoryDefinitionId(row) === inventoryDefinitionId) {
+        return options;
+      }
+    }
+
+    const reserved = new Set(
+      alreadySelected.map((c) => c.trim().toLowerCase()).filter((c) => c.length > 0)
+    );
+    return this.fallbackSerialOptions(inventoryDefinitionId, reserved);
   }
 
   private buildPendingAccessoryRow(orderId: number, def: InventoryDefinitionDto): CustomerAccessoryLine {
@@ -1464,9 +2116,10 @@ export class DailyEquipmentReportComponent implements OnInit, CanComponentDeacti
     codes: string[],
     quantity: number
   ): OrderLoanedEquipmentDto[] {
-    const target = this.findSavedLine(row);
+    // Match by identity (not object reference) so chained saves after an earlier
+    // map/copy still update the correct line.
     return (order.loanedEquipments ?? []).map((le) => {
-      if (le !== target) {
+      if (!this.lineMatchesRow(le, row)) {
         return le;
       }
 

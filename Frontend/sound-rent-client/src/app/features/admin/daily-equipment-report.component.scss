@@ -335,29 +335,43 @@ $date-control-height: 2.5rem;
     }
   }
 
-  &__serial-edit {
+  &__serial-edit,
+  &__remove {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 1.35rem;
     height: 1.35rem;
-    border: 1px solid #cbd5e1;
     border-radius: 0.35rem;
     background: #fff;
-    color: #475569;
     font-size: 0.75rem;
     line-height: 1;
     cursor: pointer;
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+  }
+
+  &__serial-edit {
+    border: 1px solid #cbd5e1;
+    color: #475569;
 
     &:hover:not(:disabled) {
       border-color: #94a3b8;
       background: #f8fafc;
       color: #0f172a;
     }
+  }
 
-    &:disabled {
-      opacity: 0.55;
-      cursor: wait;
+  &__remove {
+    border: 1px solid #fecaca;
+    color: #dc2626;
+    font-size: 1rem;
+
+    &:hover:not(:disabled) {
+      background: #fef2f2;
     }
   }
 
