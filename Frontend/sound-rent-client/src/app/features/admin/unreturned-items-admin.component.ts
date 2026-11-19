@@ -398,21 +398,30 @@ export class UnreturnedItemsAdminComponent implements OnInit {
 
     for (const ctrl of this.itemRows().controls) {
       const row = (ctrl as FormGroup).getRawValue() as AddMissingItemRowValue;
-      const payload = this.buildManualUnreturnedApiPayload(customer, row);
-      if (!payload) {
-        this.toast.error('יש לבחור פריט');
-        return;
-      }
+      const itemCodes = this.splitItemCodes(row.itemCode);
+      // Empty code field → one record without a code; otherwise one record per code (qty 1 each).
+      const codesToSave = itemCodes.length > 0 ? itemCodes : [''];
 
-      const compositeKey = this.manualUnreturnedItemCodeKey(payload);
-      if (compositeKey) {
-        itemCodeKeysInBatch.push(compositeKey);
-      }
+      for (const code of codesToSave) {
+        const payload = this.buildManualUnreturnedApiPayload(customer, {
+          ...row,
+          itemCode: code
+        });
+        if (!payload) {
+          this.toast.error('יש לבחור פריט');
+          return;
+        }
 
-      saveEntries.push({
-        payload,
-        isCustomItem: row.isCustomItem === true
-      });
+        const compositeKey = this.manualUnreturnedItemCodeKey(payload);
+        if (compositeKey) {
+          itemCodeKeysInBatch.push(compositeKey);
+        }
+
+        saveEntries.push({
+          payload,
+          isCustomItem: row.isCustomItem === true
+        });
+      }
     }
 
     if (itemCodeKeysInBatch.length !== new Set(itemCodeKeysInBatch).size) {
@@ -473,6 +482,19 @@ export class UnreturnedItemsAdminComponent implements OnInit {
           this.toast.success(`${newRows.length} פריטים נוספו להשאלות פעילות ולרשימת פריטים שלא חזרו`);
         }
       });
+  }
+
+  /** Split comma-separated item codes; trim whitespace and drop empty segments. */
+  private splitItemCodes(raw: string | null | undefined): string[] {
+    const value = (raw ?? '').trim();
+    if (!value) {
+      return [];
+    }
+
+    return value
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
   }
 
   /**
