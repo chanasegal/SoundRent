@@ -35,7 +35,11 @@
   </div>
 
   @if (!formMinimized()) {
-  <section class="loan-form-inline-shell mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+  <section
+    class="loan-form-inline-shell mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+    (pointerdown)="onFormPointerDown()"
+    (focusout)="onFormFocusOut($event)"
+  >
     <div class="loan-form-inline-shell__header">
       <div>
         <h2 id="tools-loan-form-title" class="text-lg font-bold text-[#002244]">
@@ -1057,6 +1061,17 @@
       }
     </div>
   </section>
+
+  <!-- Tiny non-blocking auto-save badge (does not affect focus / form layout flow) -->
+  @if (autoSaveLabel(); as label) {
+    <div class="auto-save-badge" role="status" aria-live="polite">
+      <span
+        class="auto-save-badge__text"
+        [class.auto-save-badge__text--saved]="autoSaveStatus() === 'saved'"
+        [class.auto-save-badge__text--error]="autoSaveStatus() === 'error'"
+      >{{ label }}</span>
+    </div>
+  }
   }
 
   <section class="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

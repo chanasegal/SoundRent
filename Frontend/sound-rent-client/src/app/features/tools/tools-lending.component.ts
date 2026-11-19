@@ -3,7 +3,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  HostListener,
   Injector,
+  OnDestroy,
   OnInit,
   afterNextRender,
   computed,
@@ -12,7 +14,7 @@ import {
   signal,
   untracked
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize, forkJoin, interval, merge, Subject, EMPTY } from 'rxjs';
@@ -179,6 +181,10 @@ interface DeleteConfirmLoan {
   editingLoanId?: number | null;
 }
 
+type AutoSaveStatus = 'idle' | 'saved' | 'error';
+
+type LoanSaveMode = 'auto' | 'manual';
+
 interface QuickReturnItem {
   key: string;
   loanId: number;
@@ -221,7 +227,7 @@ interface QuickReturnSession {
   templateUrl: './tools-lending.component.html',
   styleUrl: './tools-lending.component.scss'
 })
-export class ToolsLendingComponent implements OnInit {
+export class ToolsLendingComponent implements OnInit, OnDestroy {
   private readonly data = inject(DataService);
   private readonly toolStore = inject(ToolDefinitionsStore);
   private readonly inventoryStore = inject(InventoryDefinitionsStore);
@@ -240,6 +246,40 @@ export class ToolsLendingComponent implements OnInit {
   protected readonly depositTypes = DEPOSIT_TYPE_OPTIONS;
   protected readonly depositTypeLabels = DEPOSIT_TYPE_LABELS;
   protected readonly depositTypeCash = DepositType.Cash;
+
+  /** Tiny corner badge only — never drives form disable/reset. */
+  protected readonly autoSaveStatus = signal<AutoSaveStatus>('idle');
+  protected readonly autoSaveLabel = computed(() => {
+    switch (this.autoSaveStatus()) {
+      case 'saved':
+        return 'נשמר אוטומטית';
+      case 'error':
+        return 'שגיאה בשמירה';
+      default:
+        return '';
+    }
+  });
+  /** In-flight auto-save flag (not a UI signal — avoids disabling controls / CD thrash). */
+  private autoSaveBusy = false;
+  /** Covers the full save pipeline so blur + debounce (or auto + manual) cannot overlap. */
+  private saveInFlight = false;
+  /** Form changed while a save was in flight — flush once the current save finishes. */
+  private pendingAutoSave = false;
+  /** Explicit submit queued behind an in-flight auto-save. */
+  private pendingManualSave: LendingDraftForm | null = null;
+  private suppressAutoSave = false;
+  /** Last successfully persisted payload key per draft form id. */
+  private readonly lastSavedPayloadKeys = new Map<string, string>();
+  private autoSaveBadgeClearTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Quiet period after typing before a background save (field blur still flushes immediately). */
+  private static readonly AUTO_SAVE_DEBOUNCE_MS = 2800;
+  /**
+   * True while a pointer gesture started inside the form. Prevents false blur-saves when
+   * clicking checkboxes / tool options (blur → body before the new control focuses).
+   */
+  private formPointerDownInside = false;
+  /** True during pagehide/beforeunload — avoid toast noise on unload. */
+  private documentUnloading = false;
 
   private pendingRenew: {
     phone: string;
@@ -401,6 +441,7 @@ export class ToolsLendingComponent implements OnInit {
     this.wireTimeLimitHours();
     this.wireCustomerSuggestDebounce();
     this.wireCustomerRiskAlertLookup();
+    this.wireAutoSave();
     this.refreshActiveLoans();
     this.refreshAccessoryLoans();
     this.refreshUpcomingLoanNumber();
@@ -441,6 +482,8 @@ export class ToolsLendingComponent implements OnInit {
       {
         skipWhen: () =>
           this.submittingId() != null ||
+          this.saveInFlight ||
+          this.autoSaveBusy ||
           this.returningItemId() != null ||
           this.returningAccessoryKey() != null ||
           this.returningCustomerKey() != null ||
@@ -452,16 +495,22 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected closeFormPanel(): void {
-    if (this.submittingId()) {
+    // Block only an explicit manual submit; auto-save in flight is abandoned cleanly below.
+    if (this.submittingId() && !this.autoSaveBusy) {
       return;
     }
-    this.clearEditState();
-    this.orderDraft.clearIfKind('tools-loan');
-    this.formMinimized.set(false);
-    this.forms.set([this.createDraftForm()]);
-    this.closeToolUi();
-    this.closeCustomerSuggest();
-    this.closeInstitutionSuggest();
+    this.withAutoSaveSuppressed(() => {
+      this.pendingAutoSave = false;
+      this.pendingManualSave = null;
+      this.clearEditState();
+      this.orderDraft.clearIfKind('tools-loan');
+      this.formMinimized.set(false);
+      this.resetAutoSaveState();
+      this.forms.set([this.createDraftForm()]);
+      this.closeToolUi();
+      this.closeCustomerSuggest();
+      this.closeInstitutionSuggest();
+    });
   }
 
   /** Keep the in-progress loan form while using another area of the app. */
@@ -469,6 +518,8 @@ export class ToolsLendingComponent implements OnInit {
     if (this.submittingId()) {
       return;
     }
+
+    this.tryAutoSave();
 
     const current = this.forms();
     const clientName = current[0]?.clientName?.trim() ?? '';
@@ -488,6 +539,47 @@ export class ToolsLendingComponent implements OnInit {
     this.closeCustomerSuggest();
     this.closeInstitutionSuggest();
     this.formMinimized.set(true);
+  }
+
+  ngOnDestroy(): void {
+    this.documentUnloading = true;
+    this.tryAutoSave();
+    if (this.autoSaveBadgeClearTimer !== null) {
+      clearTimeout(this.autoSaveBadgeClearTimer);
+      this.autoSaveBadgeClearTimer = null;
+    }
+  }
+
+  /** Persist when the tab/window is closing or the page is being hidden. */
+  @HostListener('window:pagehide')
+  @HostListener('window:beforeunload')
+  protected onWindowExit(): void {
+    this.documentUnloading = true;
+    this.tryAutoSave();
+  }
+
+  /** Mark in-form pointer gestures so focusout does not treat them as leaving the form. */
+  protected onFormPointerDown(): void {
+    this.formPointerDownInside = true;
+  }
+
+  /**
+   * Field-blur flush: save as soon as focus leaves a control (tab/click to another field
+   * or leave the form). Skips transient blurs from in-form pointer gestures (checkboxes,
+   * suggestion mousedown) so mid-selection clicks do not hit the API.
+   */
+  protected onFormFocusOut(_event: FocusEvent): void {
+    if (this.formPointerDownInside) {
+      queueMicrotask(() => {
+        this.formPointerDownInside = false;
+      });
+      return;
+    }
+
+    queueMicrotask(() => {
+      this.formPointerDownInside = false;
+      this.tryAutoSave();
+    });
   }
 
   private tryRestoreMinimizedDraft(): void {
@@ -526,7 +618,11 @@ export class ToolsLendingComponent implements OnInit {
       }));
       this.timeLimitEnabled.set(payload.timeLimitEnabled === true);
       this.timeLimitForm.controls.hours.setValue(payload.timeLimitValue || 2, { emitEvent: false });
-      this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+      this.withAutoSaveSuppressed(() => {
+        this.resetAutoSaveState();
+        this.forms.set(revived.length > 0 ? revived : [this.createDraftForm()]);
+        this.seedLastSavedPayloadKeys(this.forms());
+      });
       for (const form of this.forms()) {
         this.queueCustomerRiskLookup(form.id);
       }
@@ -1664,7 +1760,11 @@ export class ToolsLendingComponent implements OnInit {
       const drafts = sortedLoans.map((loan) => this.createDraftFormFromLoan(loan));
       const hasAnyDeadline = drafts.some((draft) => draft.deadlineAt != null);
       this.timeLimitEnabled.set(hasAnyDeadline);
-      this.forms.set(drafts);
+      this.withAutoSaveSuppressed(() => {
+        this.resetAutoSaveState();
+        this.forms.set(drafts);
+        this.seedLastSavedPayloadKeys(drafts);
+      });
       for (const draft of drafts) {
         this.lookupClientNotesByPhone(draft.id, draft.phone);
         this.queueCustomerRiskLookup(draft.id);
@@ -1691,11 +1791,14 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected cancelEdit(): void {
-    this.clearEditState();
-    this.forms.set([this.createDraftForm()]);
-    this.closeToolUi();
-    this.closeCustomerSuggest();
-    this.closeInstitutionSuggest();
+    this.withAutoSaveSuppressed(() => {
+      this.clearEditState();
+      this.resetAutoSaveState();
+      this.forms.set([this.createDraftForm()]);
+      this.closeToolUi();
+      this.closeCustomerSuggest();
+      this.closeInstitutionSuggest();
+    });
   }
 
   protected askDeleteCard(card: ActiveLoanCustomerCard): void {
@@ -2453,64 +2556,124 @@ export class ToolsLendingComponent implements OnInit {
   }
 
   protected submitForm(form: LendingDraftForm): void {
-    const items = this.buildLoanItems(form);
-    if (!items) {
+    // Prefer the explicit save over a stale auto-save still in flight.
+    this.pendingAutoSave = false;
+    this.performLoanSave(form, 'manual');
+  }
+
+  /**
+   * Debounced typing persistence for the active loan draft(s).
+   * Skips empty drafts until the user has entered a usable phone and at least one item.
+   */
+  private wireAutoSave(): void {
+    toObservable(this.forms, { injector: this.injector })
+      .pipe(
+        debounceTime(ToolsLendingComponent.AUTO_SAVE_DEBOUNCE_MS),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => this.tryAutoSave());
+  }
+
+  /** True when the draft has enough identity to justify creating/updating a DB row. */
+  private hasBasicCustomerIdentification(form: LendingDraftForm): boolean {
+    const name = form.clientName.trim();
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    return name.length >= 2 || phoneDigits.length >= 7;
+  }
+
+  /**
+   * Persists eligible drafts from debounce, field blur, leave/navigate, destroy, or pagehide.
+   * Guarded so empty / incomplete drafts never hit the API.
+   */
+  private tryAutoSave(): void {
+    if (this.suppressAutoSave || this.formMinimized() || this.submittingId() != null) {
       return;
-    }
-    if (!form.phone.trim()) {
-      this.toast.error('יש להזין מספר טלפון');
-      return;
-    }
-    if (!isValidIsraeliPhone(form.phone.trim())) {
-      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
-      return;
-    }
-    if (form.phone2.trim() && !isValidIsraeliPhone(form.phone2.trim())) {
-      this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
-      return;
-    }
-    let cashDepositAmount: number | null = null;
-    if (form.depositType === DepositType.Cash) {
-      const parsedCash = parseCashDepositAmount(form.cashDepositAmount);
-      if (parsedCash === undefined) {
-        this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
-        return;
-      }
-      if (parsedCash == null) {
-        this.toast.error(CASH_DEPOSIT_AMOUNT_REQUIRED_MESSAGE);
-        return;
-      }
-      cashDepositAmount = parsedCash;
     }
 
-    const payload: ToolLoanCreateDto = {
-      clientName: form.clientName.trim(),
-      phone: form.phone.trim(),
-      phone2: form.phone2.trim() || null,
-      address: form.address.trim() || null,
-      institutionName: form.institutionName.trim() || null,
-      institutionId: form.institutionId,
-      deposit: formatLoanDepositText(form.depositType, form.deposit),
-      cashDepositAmount,
-      depositReturned: form.depositType === DepositType.Cash && cashDepositAmount != null && form.depositReturned,
-      notes: form.notes.trim() || null,
-      hebrewLentDisplay: form.hebrewDateTime,
-      deadlineAt: this.timeLimitEnabled() && form.deadlineAt ? form.deadlineAt.toISOString() : null,
-      items
-    };
+    if (this.saveInFlight || this.autoSaveBusy) {
+      this.pendingAutoSave = true;
+      return;
+    }
 
-    this.submittingId.set(form.id);
+    const form = this.findNextAutoSaveCandidate();
+    if (!form) {
+      if (this.autoSaveStatus() === 'error') {
+        this.setAutoSaveStatus('idle');
+      }
+      return;
+    }
+
+    this.performLoanSave(form, 'auto');
+  }
+
+  private findNextAutoSaveCandidate(): LendingDraftForm | null {
+    for (const form of this.forms()) {
+      if (!this.hasBasicCustomerIdentification(form)) {
+        continue;
+      }
+      const built = this.tryBuildLoanPayload(form, { silent: true });
+      if (!built) {
+        continue;
+      }
+      const key = this.loanPayloadKey(built.payload);
+      if (key === this.lastSavedPayloadKeys.get(form.id)) {
+        continue;
+      }
+      return form;
+    }
+    return null;
+  }
+
+  private performLoanSave(form: LendingDraftForm, mode: LoanSaveMode): void {
+    if (this.saveInFlight) {
+      if (mode === 'manual') {
+        this.pendingManualSave = form;
+        this.pendingAutoSave = false;
+      } else {
+        this.pendingAutoSave = true;
+      }
+      return;
+    }
+
+    const built = this.tryBuildLoanPayload(form, { silent: mode === 'auto' });
+    if (!built) {
+      return;
+    }
+
+    const { payload } = built;
+    const key = this.loanPayloadKey(payload);
+    if (mode === 'auto' && key === this.lastSavedPayloadKeys.get(form.id)) {
+      return;
+    }
+
+    this.saveInFlight = true;
+    if (mode === 'auto') {
+      this.autoSaveBusy = true;
+    } else {
+      this.submittingId.set(form.id);
+    }
+
     const editingId = form.editingLoanId;
     const request$ =
       editingId != null
         ? this.data.updateToolLoan(editingId, payload)
         : this.data.createToolLoan(payload);
+
     request$
-      .pipe(finalize(() => this.submittingId.set(null)))
+      .pipe(
+        finalize(() => {
+          this.releaseSaveGate();
+          this.flushPendingSave();
+        })
+      )
       .subscribe((saved) => {
         if (!saved) {
+          if (mode === 'auto') {
+            this.setAutoSaveStatus('error');
+          }
           return;
         }
+
         const address = form.address.trim() || null;
         const phone2 = form.phone2.trim() || null;
         this.customers.upsertFromPayload({
@@ -2533,30 +2696,238 @@ export class ToolsLendingComponent implements OnInit {
               this.customers.upsert(customer);
             }
           });
-        const finishSave = (): void => {
-          this.toast.success(
-            editingId != null ? `השאלה #${saved.id} עודכנה` : `השאלה #${saved.id} נשמרה`
-          );
+
+        // Form was cleared / replaced while the request was in flight — keep server row, skip UI adopt.
+        const stillOpen = this.forms().some((f) => f.id === form.id);
+        if (!stillOpen) {
+          this.ordersSync.notifyLoanChanged();
+          this.refreshActiveLoans();
+          if (editingId == null) {
+            this.refreshUpcomingLoanNumber();
+          }
+          return;
+        }
+
+        // Key of what the server accepted — not the live form (user may have typed more).
+        this.lastSavedPayloadKeys.set(form.id, key);
+        this.setAutoSaveStatus('saved');
+
+        if (mode === 'auto') {
+          this.adoptSavedLoanSilently(form.id, saved);
+          // Keep serial/availability caches intact while the user is still typing.
+          this.ordersSync.notifyLoanChanged();
+          this.refreshActiveLoans();
+          if (editingId == null) {
+            this.refreshUpcomingLoanNumber();
+          }
+
+          const live = this.forms().find((f) => f.id === form.id);
+          if (live) {
+            const liveBuilt = this.tryBuildLoanPayload(live, { silent: true });
+            if (liveBuilt && this.loanPayloadKey(liveBuilt.payload) !== key) {
+              this.pendingAutoSave = true;
+            }
+          }
+          return;
+        }
+
+        this.toast.success(
+          editingId != null ? `השאלה #${saved.id} עודכנה` : `השאלה #${saved.id} נשמרה`
+        );
+        this.withAutoSaveSuppressed(() => {
+          this.lastSavedPayloadKeys.delete(form.id);
           if (editingId != null) {
             this.forms.update((list) => list.filter((f) => f.id !== form.id));
             const remaining = this.forms();
             if (remaining.length === 0) {
               this.clearEditState();
+              this.resetAutoSaveState();
               this.forms.set([this.createDraftForm()]);
             }
           } else {
             this.clearEditState();
+            this.resetAutoSaveState();
             this.forms.set([this.createDraftForm()]);
           }
-          this.orderDraft.clearIfKind('tools-loan');
-          this.formMinimized.set(false);
-          this.ordersSync.notifyLoanChanged();
-          this.refreshAvailability();
-          this.refreshActiveLoans();
-          this.refreshUpcomingLoanNumber();
-        };
-        finishSave();
+        });
+        this.orderDraft.clearIfKind('tools-loan');
+        this.formMinimized.set(false);
+        this.ordersSync.notifyLoanChanged();
+        this.refreshAvailability();
+        this.refreshActiveLoans();
+        this.refreshUpcomingLoanNumber();
       });
+  }
+
+  /**
+   * After create/update via auto-save: adopt the server loan id without rebuilding
+   * controls, closing dropdowns, or refreshing availability caches that would steal focus.
+   */
+  private adoptSavedLoanSilently(formId: string, saved: ToolLoanDto): void {
+    this.withAutoSaveSuppressed(() => {
+      this.forms.update((list) =>
+        list.map((f) =>
+          f.id === formId
+            ? {
+                ...f,
+                editingLoanId: saved.id,
+                hebrewDateTime:
+                  (saved.hebrewLentDisplay ?? '').trim() || f.hebrewDateTime
+              }
+            : f
+        )
+      );
+      // Keep the last-saved key bound to this draft (id unchanged).
+      const live = this.forms().find((f) => f.id === formId);
+      if (live) {
+        const built = this.tryBuildLoanPayload(live, { silent: true });
+        if (built) {
+          this.lastSavedPayloadKeys.set(formId, this.loanPayloadKey(built.payload));
+        }
+      }
+    });
+  }
+
+  private tryBuildLoanPayload(
+    form: LendingDraftForm,
+    options: { silent: boolean }
+  ): { payload: ToolLoanCreateDto } | null {
+    const items = this.buildLoanItems(form, options);
+    if (!items) {
+      return null;
+    }
+    if (!form.phone.trim()) {
+      if (!options.silent) {
+        this.toast.error('יש להזין מספר טלפון');
+      }
+      return null;
+    }
+    if (!isValidIsraeliPhone(form.phone.trim())) {
+      if (!options.silent) {
+        this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
+      }
+      return null;
+    }
+    if (form.phone2.trim() && !isValidIsraeliPhone(form.phone2.trim())) {
+      if (!options.silent) {
+        this.toast.error(ISRAELI_PHONE_INVALID_MESSAGE);
+      }
+      return null;
+    }
+    let cashDepositAmount: number | null = null;
+    if (form.depositType === DepositType.Cash) {
+      const parsedCash = parseCashDepositAmount(form.cashDepositAmount);
+      if (parsedCash === undefined) {
+        if (!options.silent) {
+          this.toast.error(CASH_DEPOSIT_AMOUNT_INVALID_MESSAGE);
+        }
+        return null;
+      }
+      if (parsedCash == null) {
+        if (!options.silent) {
+          this.toast.error(CASH_DEPOSIT_AMOUNT_REQUIRED_MESSAGE);
+        }
+        return null;
+      }
+      cashDepositAmount = parsedCash;
+    }
+
+    return {
+      payload: {
+        clientName: form.clientName.trim(),
+        phone: form.phone.trim(),
+        phone2: form.phone2.trim() || null,
+        address: form.address.trim() || null,
+        institutionName: form.institutionName.trim() || null,
+        institutionId: form.institutionId,
+        deposit: formatLoanDepositText(form.depositType, form.deposit),
+        cashDepositAmount,
+        depositReturned:
+          form.depositType === DepositType.Cash && cashDepositAmount != null && form.depositReturned,
+        notes: form.notes.trim() || null,
+        hebrewLentDisplay: form.hebrewDateTime,
+        deadlineAt: this.timeLimitEnabled() && form.deadlineAt ? form.deadlineAt.toISOString() : null,
+        items
+      }
+    };
+  }
+
+  private loanPayloadKey(payload: ToolLoanCreateDto): string {
+    return JSON.stringify(payload);
+  }
+
+  private setAutoSaveStatus(status: AutoSaveStatus): void {
+    if (this.autoSaveBadgeClearTimer !== null) {
+      clearTimeout(this.autoSaveBadgeClearTimer);
+      this.autoSaveBadgeClearTimer = null;
+    }
+    this.autoSaveStatus.set(status);
+    if (status === 'saved') {
+      this.autoSaveBadgeClearTimer = setTimeout(() => {
+        if (this.autoSaveStatus() === 'saved') {
+          this.autoSaveStatus.set('idle');
+        }
+        this.autoSaveBadgeClearTimer = null;
+      }, 2500);
+    }
+  }
+
+  private withAutoSaveSuppressed(fn: () => void): void {
+    this.suppressAutoSave = true;
+    try {
+      fn();
+    } finally {
+      queueMicrotask(() => {
+        this.suppressAutoSave = false;
+      });
+    }
+  }
+
+  private resetAutoSaveState(): void {
+    this.lastSavedPayloadKeys.clear();
+    this.pendingAutoSave = false;
+    this.pendingManualSave = null;
+    this.setAutoSaveStatus('idle');
+  }
+
+  /** Mark already-persisted drafts (edit / restored) so auto-save does not immediately re-PUT. */
+  private seedLastSavedPayloadKeys(forms: LendingDraftForm[]): void {
+    for (const form of forms) {
+      if (form.editingLoanId == null) {
+        continue;
+      }
+      const built = this.tryBuildLoanPayload(form, { silent: true });
+      if (built) {
+        this.lastSavedPayloadKeys.set(form.id, this.loanPayloadKey(built.payload));
+      }
+    }
+  }
+
+  private releaseSaveGate(): void {
+    this.saveInFlight = false;
+    this.autoSaveBusy = false;
+    this.submittingId.set(null);
+  }
+
+  /** Runs a save that was queued while another request was in flight. */
+  private flushPendingSave(): void {
+    if (this.documentUnloading) {
+      this.pendingAutoSave = false;
+      this.pendingManualSave = null;
+      return;
+    }
+    const manual = this.pendingManualSave;
+    if (manual) {
+      this.pendingManualSave = null;
+      this.pendingAutoSave = false;
+      const live = this.forms().find((f) => f.id === manual.id) ?? manual;
+      queueMicrotask(() => this.performLoanSave(live, 'manual'));
+      return;
+    }
+    if (this.pendingAutoSave) {
+      this.pendingAutoSave = false;
+      queueMicrotask(() => this.tryAutoSave());
+    }
   }
 
   /** Expected loan number for a new (non-editing) draft form; consecutive when several are open. */
@@ -3173,8 +3544,17 @@ export class ToolsLendingComponent implements OnInit {
     );
   }
 
-  private buildLoanItems(form: LendingDraftForm): ToolLoanCreateDto['items'] | null {
+  private buildLoanItems(
+    form: LendingDraftForm,
+    options: { silent: boolean } = { silent: false }
+  ): ToolLoanCreateDto['items'] | null {
     const items: ToolLoanCreateDto['items'] = [];
+    const fail = (message: string): null => {
+      if (!options.silent) {
+        this.toast.error(message);
+      }
+      return null;
+    };
 
     for (const line of form.toolLines) {
       if (line.isTemporary || this.isUncommittedTemporaryLine(line, form)) {
@@ -3182,8 +3562,7 @@ export class ToolsLendingComponent implements OnInit {
         const name = (parsedTemp?.toolName ?? line.toolQuery).trim();
         if (!name) {
           if (line.selectedCodes.length > 0) {
-            this.toast.error('יש להזין שם כלי תקין בכל שורה');
-            return null;
+            return fail('יש להזין שם כלי תקין בכל שורה');
           }
           continue;
         }
@@ -3205,8 +3584,7 @@ export class ToolsLendingComponent implements OnInit {
 
       if (line.toolId == null) {
         if (line.toolQuery.trim() || line.selectedCodes.length > 0) {
-          this.toast.error('יש להזין שם כלי וקוד פריט תקינים בכל שורה');
-          return null;
+          return fail('יש להזין שם כלי וקוד פריט תקינים בכל שורה');
         }
         continue;
       }
@@ -3217,12 +3595,11 @@ export class ToolsLendingComponent implements OnInit {
         const available = this.availableQuantityByTool().get(line.toolId) ?? 0;
         const maxAllowed = Math.max(1, available + (form.editingLoanId != null ? quantity : 0));
         if (quantity > maxAllowed) {
-          this.toast.error(
+          return fail(
             maxAllowed <= 0
               ? `אין מלאי זמין עבור ${line.toolQuery || 'הכלי שנבחר'}`
               : `ניתן להשאיל עד ${maxAllowed} יחידות מתוך ${line.toolQuery || 'הכלי שנבחר'}`
           );
-          return null;
         }
         for (let i = 0; i < quantity; i++) {
           items.push({ toolDefinitionId: line.toolId, serialCode: '' });
@@ -3231,8 +3608,7 @@ export class ToolsLendingComponent implements OnInit {
       }
 
       if (line.selectedCodes.length === 0) {
-        this.toast.error(`יש לבחור לפחות קוד פריט עבור ${line.toolQuery || 'הכלי שנבחר'}`);
-        return null;
+        return fail(`יש לבחור לפחות קוד פריט עבור ${line.toolQuery || 'הכלי שנבחר'}`);
       }
       for (const code of line.selectedCodes) {
         items.push({ toolDefinitionId: line.toolId, serialCode: code });
@@ -3240,8 +3616,7 @@ export class ToolsLendingComponent implements OnInit {
     }
 
     if (items.length === 0) {
-      this.toast.error('יש להוסיף לפחות כלי אחד');
-      return null;
+      return fail('יש להוסיף לפחות כלי אחד');
     }
     return items;
   }
